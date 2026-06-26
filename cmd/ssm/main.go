@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
@@ -58,7 +60,32 @@ func resolveTarget(args []string, defaultRegion string) (string, *ssmaws.Instanc
 }
 
 func connectCmd() *cobra.Command {
-	return &cobra.Command{Use: "connect [region/name]", Short: "Open SSM terminal session", RunE: func(cmd *cobra.Command, args []string) error { return nil }}
+	return &cobra.Command{
+		Use:   "connect [region/name]",
+		Short: "Open interactive SSM terminal session",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profile, inst, err := resolveTarget(args, "")
+			if err != nil {
+				return err
+			}
+			execArgs := buildConnectArgs(inst.ID, inst.Region, profile)
+			awsPath, err := exec.LookPath("aws")
+			if err != nil {
+				return fmt.Errorf("aws CLI not found in PATH: %w", err)
+			}
+			return syscall.Exec(awsPath, execArgs, os.Environ())
+		},
+	}
+}
+
+func buildConnectArgs(instanceID, region, profile string) []string {
+	return []string{
+		"aws", "ssm", "start-session",
+		"--target", instanceID,
+		"--region", region,
+		"--profile", profile,
+	}
 }
 
 func tunnelCmd() *cobra.Command {
