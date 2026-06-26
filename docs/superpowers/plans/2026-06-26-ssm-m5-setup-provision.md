@@ -308,6 +308,12 @@ import (
 const script = `#!/bin/bash
 set -euo pipefail
 
+echo "==> Installing AWS CLI v2"
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/aws /tmp/awscliv2.zip
+
 echo "==> Installing ec2-instance-connect"
 dnf install -y ec2-instance-connect
 
@@ -335,7 +341,6 @@ cat > /etc/yum.repos.d/google-chrome.repo <<'REPO'
 name=google-chrome
 baseurl=http://dl.google.com/linux/chrome/rpm/stable/x86_64
 enabled=1
-gpgcheck=1
 gpgcheck=1
 gpgkey=https://dl.google.com/linux/linux_signing_key.pub
 REPO

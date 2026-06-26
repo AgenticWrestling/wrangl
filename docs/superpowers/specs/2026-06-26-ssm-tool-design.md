@@ -95,6 +95,11 @@ Send a single `AWS-RunShellScript` command with the following script:
 #!/bin/bash
 set -euo pipefail
 
+# AWS CLI v2
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+rm -rf /tmp/aws /tmp/awscliv2.zip
+
 # ec2-instance-connect
 dnf install -y ec2-instance-connect
 
