@@ -33,8 +33,8 @@ func ListProfiles() ([]string, error) {
 			profiles = append(profiles, "default")
 			continue
 		}
-		if strings.HasPrefix(name, "profile ") {
-			profiles = append(profiles, strings.TrimPrefix(name, "profile "))
+		if rest, ok := strings.CutPrefix(name, "profile "); ok {
+			profiles = append(profiles, rest)
 		}
 	}
 	return profiles, nil
