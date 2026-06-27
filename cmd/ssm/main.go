@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,15 +27,27 @@ func main() {
 	defer stop()
 
 	root := &cobra.Command{
-		Use:   "ssm",
-		Short: "Manage EC2 dev instances via SSM",
+		Use:           "ssm",
+		Short:         "Manage EC2 dev instances via SSM",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 	root.AddCommand(connectCmd(), tunnelCmd(), setupCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, friendlyError(err))
 		os.Exit(1)
 	}
+}
+
+// friendlyError maps noisy AWS SDK errors to actionable messages.
+func friendlyError(err error) string {
+	s := err.Error()
+	if strings.Contains(s, "InvalidGrantException") || strings.Contains(s, "refresh cached SSO token") {
+		// Extract profile hint from the error chain if possible — best effort.
+		return "AWS SSO session expired. Run: aws sso login --profile <profile>"
+	}
+	return s
 }
 
 // resolveTarget picks a profile interactively, then resolves region/name arg
