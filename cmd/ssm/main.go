@@ -42,12 +42,32 @@ func main() {
 
 // friendlyError maps noisy AWS SDK errors to actionable messages.
 func friendlyError(err error) string {
-	s := err.Error()
-	if strings.Contains(s, "InvalidGrantException") || strings.Contains(s, "refresh cached SSO token") {
-		// Extract profile hint from the error chain if possible — best effort.
+	if isSSOExpired(err) {
 		return "AWS SSO session expired. Run: aws sso login --profile <profile>"
 	}
-	return s
+	return err.Error()
+}
+
+func isSSOExpired(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "InvalidGrantException") || strings.Contains(s, "refresh cached SSO token")
+}
+
+// refreshSSO runs `aws sso login --profile <profile>` interactively so the
+// user can re-authenticate without leaving the tool.
+func refreshSSO(profile string) error {
+	awsPath, err := exec.LookPath("aws")
+	if err != nil {
+		return fmt.Errorf("aws CLI not found in PATH: %w", err)
+	}
+	cmd := exec.Command(awsPath, "sso", "login", "--profile", profile)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // resolveTarget picks a profile interactively, then resolves region/name arg
@@ -63,24 +83,35 @@ func resolveTarget(ctx context.Context, args []string, defaultRegion string) (st
 		return "", nil, err
 	}
 
-	if len(args) > 0 {
-		region, name, err := ssmaws.ParseRegionName(args[0])
+	resolve := func() (string, *ssmaws.Instance, error) {
+		if len(args) > 0 {
+			region, name, err := ssmaws.ParseRegionName(args[0])
+			if err != nil {
+				return "", nil, err
+			}
+			inst, err := ssmaws.ResolveInstance(ctx, profile, region, name)
+			return profile, inst, err
+		}
+		if defaultRegion == "" {
+			defaultRegion = "us-east-1"
+		}
+		instances, err := ssmaws.ListInstances(ctx, profile, defaultRegion)
 		if err != nil {
 			return "", nil, err
 		}
-		inst, err := ssmaws.ResolveInstance(ctx, profile, region, name)
+		inst, err := ui.PickInstance(instances)
 		return profile, inst, err
 	}
 
-	if defaultRegion == "" {
-		defaultRegion = "us-east-1"
+	p, inst, err := resolve()
+	if isSSOExpired(err) {
+		fmt.Fprintf(os.Stderr, "SSO session expired for profile %q. Refreshing...\n", profile)
+		if loginErr := refreshSSO(profile); loginErr != nil {
+			return "", nil, fmt.Errorf("sso login: %w", loginErr)
+		}
+		p, inst, err = resolve()
 	}
-	instances, err := ssmaws.ListInstances(ctx, profile, defaultRegion)
-	if err != nil {
-		return "", nil, err
-	}
-	inst, err := ui.PickInstance(instances)
-	return profile, inst, err
+	return p, inst, err
 }
 
 func connectCmd() *cobra.Command {
