@@ -12,8 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
+	"github.com/nreid/devhost/cmd/ssm/internal/eic"
+	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
 	"github.com/nreid/devhost/cmd/ssm/internal/tunnel"
 	"github.com/nreid/devhost/cmd/ssm/internal/ui"
+	"github.com/nreid/devhost/cmd/ssm/internal/vpc"
 )
 
 func main() {
@@ -175,5 +178,54 @@ func waitForPort(port, timeoutSecs int) error {
 }
 
 func setupCmd() *cobra.Command {
-	return &cobra.Command{Use: "setup [region/name]", Short: "Provision dev toolchain on instance", RunE: func(cmd *cobra.Command, args []string) error { return nil }}
+	return &cobra.Command{
+		Use:   "setup [region/name]",
+		Short: "Provision dev toolchain on instance",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profile, inst, err := resolveTarget(args, "")
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+
+			// Phase 1a: EIC Endpoint
+			if err := ui.Spinner("Ensuring EIC endpoint in VPC...", func() error {
+				return eic.EnsureEndpoint(ctx, profile, inst.Region, inst.VPCID, inst.SubnetID)
+			}); err != nil {
+				return fmt.Errorf("EIC endpoint: %w", err)
+			}
+			fmt.Println("✓ EIC endpoint ready")
+
+			// Phase 1b: Security group
+			if err := ui.Spinner("Ensuring SSH ingress rule...", func() error {
+				return vpc.EnsureSSHIngressFromVPC(ctx, profile, inst.Region, inst.VPCID, inst.SecurityGroupIDs)
+			}); err != nil {
+				return fmt.Errorf("security group: %w", err)
+			}
+			fmt.Println("✓ Security group rule present")
+
+			// Phase 1c: SSH keypair
+			pubKey, err := sshpkg.EnsureKeyPair()
+			if err != nil {
+				return fmt.Errorf("SSH keypair: %w", err)
+			}
+			fmt.Println("✓ SSH keypair ready")
+
+			// Phase 1d: Push public key via EIC
+			if err := eic.PushPublicKey(ctx, profile, inst.Region, inst.ID, pubKey); err != nil {
+				return fmt.Errorf("push SSH public key: %w", err)
+			}
+			fmt.Println("✓ SSH public key registered (valid 60s)")
+
+			// Phase 1e: SSH config
+			if err := sshpkg.UpsertHostBlock(inst.Name, inst.ID, inst.Region, profile); err != nil {
+				return fmt.Errorf("SSH config: %w", err)
+			}
+			fmt.Printf("✓ ~/.ssh/config updated — connect with: ssh %s\n", inst.Name)
+
+			// Phase 2 (provisioning) added in M5.
+			return nil
+		},
+	}
 }
