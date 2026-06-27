@@ -78,9 +78,19 @@ func resolveTarget(ctx context.Context, args []string, defaultRegion string) (st
 	if err != nil {
 		return "", nil, fmt.Errorf("listing profiles: %w", err)
 	}
+	profiles = ssmaws.SortProfilesByMRU(profiles)
 	profile, err := ui.PickProfile(profiles)
 	if err != nil {
 		return "", nil, err
+	}
+	_ = ssmaws.RecordProfileUsage(profile)
+
+	// Proactively refresh SSO token before any API call.
+	if expired, _ := ssmaws.SSOTokenExpired(profile); expired {
+		fmt.Fprintf(os.Stderr, "SSO session expired for profile %q. Refreshing...\n", profile)
+		if loginErr := refreshSSO(profile); loginErr != nil {
+			return "", nil, fmt.Errorf("sso login: %w", loginErr)
+		}
 	}
 
 	// pickFromRegion lists all running instances in region and prompts the user.
