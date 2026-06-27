@@ -23,6 +23,10 @@ func UpsertHostBlock(name, instanceID, region, profile string) error {
   ProxyCommand aws ec2-instance-connect open-tunnel --instance-id %%h --region %s --profile %s
 `, name, instanceID, region, profile)
 
+	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+		return err
+	}
+
 	existing, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
