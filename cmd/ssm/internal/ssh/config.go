@@ -47,8 +47,8 @@ func removeHostBlock(content, name string) string {
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "Host ") {
-			inBlock = strings.TrimPrefix(trimmed, "Host ") == name
+		if rest, ok := strings.CutPrefix(trimmed, "Host "); ok {
+			inBlock = rest == name
 		}
 		if !inBlock {
 			out = append(out, line)
