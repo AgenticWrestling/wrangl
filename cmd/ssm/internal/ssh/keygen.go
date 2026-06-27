@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -22,7 +23,13 @@ func EnsureKeyPair() ([]byte, error) {
 
 	if _, err := os.Stat(privPath); err == nil {
 		pub, err := os.ReadFile(pubPath)
-		return pub, err
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("~/.ssh/id_ed25519 exists but id_ed25519.pub is missing — restore the public key or delete id_ed25519 to regenerate")
+			}
+			return nil, err
+		}
+		return pub, nil
 	}
 
 	if err := os.MkdirAll(sshDir, 0700); err != nil {
