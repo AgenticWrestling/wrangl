@@ -213,7 +213,9 @@ func setupCmd() *cobra.Command {
 			fmt.Println("✓ SSH keypair ready")
 
 			// Phase 1d: Push public key via EIC
-			if err := eic.PushPublicKey(ctx, profile, inst.Region, inst.ID, pubKey); err != nil {
+			if err := ui.Spinner("Pushing SSH public key via EIC...", func() error {
+				return eic.PushPublicKey(ctx, profile, inst.Region, inst.ID, pubKey)
+			}); err != nil {
 				return fmt.Errorf("push SSH public key: %w", err)
 			}
 			fmt.Println("✓ SSH public key registered (valid 60s)")
