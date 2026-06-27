@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/ktr0731/go-fuzzyfinder"
@@ -14,6 +15,9 @@ func PickProfile(profiles []string) (string, error) {
 	}
 	idx, err := fuzzyfinder.Find(profiles, func(i int) string { return profiles[i] })
 	if err != nil {
+		if errors.Is(err, fuzzyfinder.ErrAbort) {
+			return "", fmt.Errorf("cancelled")
+		}
 		return "", err
 	}
 	return profiles[idx], nil
@@ -28,6 +32,9 @@ func PickInstance(instances []ssmaws.Instance) (*ssmaws.Instance, error) {
 		return fmt.Sprintf("%-30s  %-20s  %s", inst.Name, inst.ID, inst.PrivateIP)
 	})
 	if err != nil {
+		if errors.Is(err, fuzzyfinder.ErrAbort) {
+			return nil, fmt.Errorf("cancelled")
+		}
 		return nil, err
 	}
 	return &instances[idx], nil
