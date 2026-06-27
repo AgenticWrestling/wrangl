@@ -22,12 +22,16 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	root := &cobra.Command{
 		Use:   "ssm",
 		Short: "Manage EC2 dev instances via SSM",
 	}
 	root.AddCommand(connectCmd(), tunnelCmd(), setupCmd())
-	if err := root.Execute(); err != nil {
+
+	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -36,7 +40,7 @@ func main() {
 // resolveTarget picks a profile interactively, then resolves region/name arg
 // to a running instance. If args is empty or no region/name provided, lists
 // all running instances for interactive selection.
-func resolveTarget(args []string, defaultRegion string) (string, *ssmaws.Instance, error) {
+func resolveTarget(ctx context.Context, args []string, defaultRegion string) (string, *ssmaws.Instance, error) {
 	profiles, err := ssmaws.ListProfiles()
 	if err != nil {
 		return "", nil, fmt.Errorf("listing profiles: %w", err)
@@ -45,8 +49,6 @@ func resolveTarget(args []string, defaultRegion string) (string, *ssmaws.Instanc
 	if err != nil {
 		return "", nil, err
 	}
-
-	ctx := context.Background()
 
 	if len(args) > 0 {
 		region, name, err := ssmaws.ParseRegionName(args[0])
@@ -74,7 +76,7 @@ func connectCmd() *cobra.Command {
 		Short: "Open interactive SSM terminal session",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, inst, err := resolveTarget(args, "")
+			profile, inst, err := resolveTarget(cmd.Context(), args, "")
 			if err != nil {
 				return err
 			}
@@ -113,7 +115,7 @@ func tunnelCmd() *cobra.Command {
 				return err
 			}
 
-			profile, inst, err := resolveTarget(targetArgs, "")
+			profile, inst, err := resolveTarget(cmd.Context(), targetArgs, "")
 			if err != nil {
 				return err
 			}
@@ -185,11 +187,11 @@ func setupCmd() *cobra.Command {
 		Short: "Provision dev toolchain on instance",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, inst, err := resolveTarget(args, "")
+			profile, inst, err := resolveTarget(cmd.Context(), args, "")
 			if err != nil {
 				return err
 			}
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			// Phase 1a: EIC Endpoint
 			if err := ui.Spinner("Ensuring EIC endpoint in VPC...", func() error {
