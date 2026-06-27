@@ -1,0 +1,38 @@
+version: '3'
+
+vars:
+  BINARY: build/ssm
+  INSTALL_PATH: "{{.HOME}}/bin/ssm"
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  build:
+    desc: Build the ssm binary to ./build/ssm
+    cmds:
+      - mkdir -p build
+      - CGO_ENABLED=0 go build -o {{.BINARY}} ./cmd/ssm
+    sources:
+      - cmd/ssm/**/*.go
+      - go.mod
+    generates:
+      - "{{.BINARY}}"
+
+  install:
+    desc: Build and install ssm to ~/bin/ssm
+    deps: [build]
+    cmds:
+      - cp {{.BINARY}} {{.INSTALL_PATH}}
+      - echo "Installed to {{.INSTALL_PATH}}"
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  clean:
+    desc: Delete build artifacts
+    cmds:
+      - rm -rf build
