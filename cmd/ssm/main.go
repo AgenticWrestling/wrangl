@@ -12,8 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
+	"github.com/nreid/devhost/cmd/ssm/internal/cwlogs"
 	"github.com/nreid/devhost/cmd/ssm/internal/eic"
 	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
+	"github.com/nreid/devhost/cmd/ssm/internal/provision"
 	"github.com/nreid/devhost/cmd/ssm/internal/tunnel"
 	"github.com/nreid/devhost/cmd/ssm/internal/ui"
 	"github.com/nreid/devhost/cmd/ssm/internal/vpc"
@@ -226,7 +228,20 @@ func setupCmd() *cobra.Command {
 			}
 			fmt.Printf("✓ ~/.ssh/config updated — connect with: ssh %s\n", inst.Name)
 
-			// Phase 2 (provisioning) added in M5.
+			// Phase 2: Remote provisioning
+			fmt.Println("Sending provisioning script...")
+			commandID, err := provision.Run(ctx, profile, inst.Region, inst.ID)
+			if err != nil {
+				return fmt.Errorf("provisioning: %w", err)
+			}
+			fmt.Printf("Command ID: %s\n", commandID)
+			fmt.Println("Tailing CloudWatch Logs (Ctrl-C to detach)...")
+
+			// Phase 3: Tail logs until done
+			if err := cwlogs.Tail(ctx, profile, inst.Region, commandID, inst.ID, os.Stdout); err != nil {
+				return fmt.Errorf("provisioning failed: %w", err)
+			}
+
 			return nil
 		},
 	}
