@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 const logGroup = "/aws/ssm/AWS-RunShellScript"
@@ -21,10 +21,7 @@ func LogStreamName(commandID, instanceID string) string {
 }
 
 func Tail(ctx context.Context, profile, region, commandID, instanceID string, w io.Writer) error {
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithSharedConfigProfile(profile),
-		config.WithRegion(region),
-	)
+	cfg, err := ssmaws.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return err
 	}
@@ -36,7 +33,11 @@ func Tail(ctx context.Context, profile, region, commandID, instanceID string, w 
 	var lastTimestamp int64
 
 	for {
-		time.Sleep(2 * time.Second)
+		select {
+		case <-time.After(2 * time.Second):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 
 		// Fetch new log events.
 		out, err := cwClient.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
@@ -45,7 +46,12 @@ func Tail(ctx context.Context, profile, region, commandID, instanceID string, w 
 			NextToken:     nextToken,
 			StartFromHead: aws.Bool(true),
 		})
-		if err == nil {
+		if err != nil {
+			// transient errors are retried; propagate only on context cancellation
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+		} else {
 			for _, e := range out.Events {
 				if aws.ToInt64(e.Timestamp) > lastTimestamp {
 					fmt.Fprintln(w, aws.ToString(e.Message))
