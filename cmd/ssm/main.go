@@ -83,24 +83,40 @@ func resolveTarget(ctx context.Context, args []string, defaultRegion string) (st
 		return "", nil, err
 	}
 
-	resolve := func() (string, *ssmaws.Instance, error) {
-		if len(args) > 0 {
-			region, name, err := ssmaws.ParseRegionName(args[0])
-			if err != nil {
-				return "", nil, err
-			}
-			inst, err := ssmaws.ResolveInstance(ctx, profile, region, name)
-			return profile, inst, err
-		}
-		if defaultRegion == "" {
-			defaultRegion = "us-east-1"
-		}
-		instances, err := ssmaws.ListInstances(ctx, profile, defaultRegion)
+	// pickFromRegion lists all running instances in region and prompts the user.
+	pickFromRegion := func(region string) (string, *ssmaws.Instance, error) {
+		instances, err := ssmaws.ListInstances(ctx, profile, region)
 		if err != nil {
 			return "", nil, err
 		}
 		inst, err := ui.PickInstance(instances)
 		return profile, inst, err
+	}
+
+	resolve := func() (string, *ssmaws.Instance, error) {
+		if len(args) == 0 {
+			// No args: list in default/fallback region.
+			if defaultRegion == "" {
+				defaultRegion = "us-east-1"
+			}
+			return pickFromRegion(defaultRegion)
+		}
+
+		arg := args[0]
+
+		// "region/name" form — try exact resolve, fall back to picker on no match.
+		if region, name, err := ssmaws.ParseRegionName(arg); err == nil {
+			inst, err := ssmaws.ResolveInstance(ctx, profile, region, name)
+			if err == nil {
+				return profile, inst, nil
+			}
+			// No match or ambiguous — tell the user and let them pick.
+			fmt.Fprintf(os.Stderr, "No running instance named %q in %s — pick one:\n", name, region)
+			return pickFromRegion(region)
+		}
+
+		// "region" only (no slash) — list instances in that region.
+		return pickFromRegion(arg)
 	}
 
 	p, inst, err := resolve()
@@ -116,7 +132,7 @@ func resolveTarget(ctx context.Context, args []string, defaultRegion string) (st
 
 func connectCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "connect [region/name]",
+		Use:   "connect [region[/name]]",
 		Short: "Open interactive SSM terminal session",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -227,7 +243,7 @@ func waitForPort(port, timeoutSecs int) error {
 
 func setupCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "setup [region/name]",
+		Use:   "setup [region[/name]]",
 		Short: "Provision dev toolchain on instance",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
