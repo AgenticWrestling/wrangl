@@ -7,17 +7,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect"
+	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 func newEC2Client(ctx context.Context, profile, region string) (*ec2.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithSharedConfigProfile(profile),
-		config.WithRegion(region),
-	)
+	cfg, err := ssmaws.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return nil, err
 	}
@@ -71,17 +68,18 @@ func EnsureEndpoint(ctx context.Context, profile, region, vpcID, subnetID string
 				return fmt.Errorf("EIC endpoint creation failed")
 			}
 		}
-		time.Sleep(5 * time.Second)
+		select {
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return fmt.Errorf("timed out waiting for EIC endpoint to become available")
 }
 
 // PushPublicKey registers the local Ed25519 public key with the instance via EIC (valid 60s).
 func PushPublicKey(ctx context.Context, profile, region, instanceID string, pubKey []byte) error {
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithSharedConfigProfile(profile),
-		config.WithRegion(region),
-	)
+	cfg, err := ssmaws.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return err
 	}

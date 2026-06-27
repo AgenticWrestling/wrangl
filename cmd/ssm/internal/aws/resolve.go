@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -31,10 +30,7 @@ func ParseRegionName(arg string) (region, name string, err error) {
 }
 
 func newEC2Client(ctx context.Context, profile, region string) (*ec2.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithSharedConfigProfile(profile),
-		config.WithRegion(region),
-	)
+	cfg, err := LoadConfig(ctx, profile, region)
 	if err != nil {
 		return nil, err
 	}

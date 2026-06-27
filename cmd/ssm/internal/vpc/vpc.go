@@ -5,16 +5,13 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 func EnsureSSHIngressFromVPC(ctx context.Context, profile, region, vpcID string, sgIDs []string) error {
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithSharedConfigProfile(profile),
-		config.WithRegion(region),
-	)
+	cfg, err := ssmaws.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return err
 	}
@@ -41,8 +38,11 @@ func ensureSSHRule(ctx context.Context, client *ec2.Client, sgID, cidr string) e
 	out, err := client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
 		GroupIds: []string{sgID},
 	})
-	if err != nil || len(out.SecurityGroups) == 0 {
+	if err != nil {
 		return err
+	}
+	if len(out.SecurityGroups) == 0 {
+		return fmt.Errorf("security group %s not found", sgID)
 	}
 
 	for _, perm := range out.SecurityGroups[0].IpPermissions {

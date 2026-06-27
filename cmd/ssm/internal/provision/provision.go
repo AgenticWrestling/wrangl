@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 const script = `#!/bin/bash
@@ -58,10 +58,7 @@ echo "==> All done"
 // Run sends the dev toolchain install script to the instance via SSM send-command.
 // Returns the SSM Command ID.
 func Run(ctx context.Context, profile, region, instanceID string) (commandID string, err error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithSharedConfigProfile(profile),
-		config.WithRegion(region),
-	)
+	cfg, err := ssmaws.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return "", err
 	}
