@@ -32,23 +32,35 @@ func EnsureEndpoint(ctx context.Context, profile, region, vpcID, subnetID string
 	out, err := client.DescribeInstanceConnectEndpoints(ctx, &ec2.DescribeInstanceConnectEndpointsInput{
 		Filters: []types.Filter{
 			{Name: aws.String("vpc-id"), Values: []string{vpcID}},
-			{Name: aws.String("state"), Values: []string{"create-complete"}},
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("describing EIC endpoints: %w", err)
 	}
-	if len(out.InstanceConnectEndpoints) > 0 {
-		return nil // already exists
+
+	var endpointID string
+	for _, ep := range out.InstanceConnectEndpoints {
+		switch ep.State {
+		case types.Ec2InstanceConnectEndpointStateCreateComplete:
+			return nil // already ready
+		case types.Ec2InstanceConnectEndpointStateCreateInProgress:
+			// Already being created — just wait for it.
+			endpointID = aws.ToString(ep.InstanceConnectEndpointId)
+		case types.Ec2InstanceConnectEndpointStateCreateFailed,
+			types.Ec2InstanceConnectEndpointStateDeleteComplete:
+			// Unusable — fall through to create a new one.
+		}
 	}
 
-	create, err := client.CreateInstanceConnectEndpoint(ctx, &ec2.CreateInstanceConnectEndpointInput{
-		SubnetId: aws.String(subnetID),
-	})
-	if err != nil {
-		return fmt.Errorf("creating EIC endpoint: %w", err)
+	if endpointID == "" {
+		create, err := client.CreateInstanceConnectEndpoint(ctx, &ec2.CreateInstanceConnectEndpointInput{
+			SubnetId: aws.String(subnetID),
+		})
+		if err != nil {
+			return fmt.Errorf("creating EIC endpoint: %w", err)
+		}
+		endpointID = aws.ToString(create.InstanceConnectEndpoint.InstanceConnectEndpointId)
 	}
-	endpointID := aws.ToString(create.InstanceConnectEndpoint.InstanceConnectEndpointId)
 
 	// Poll until available (up to 5 minutes).
 	deadline := time.Now().Add(5 * time.Minute)
