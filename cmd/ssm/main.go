@@ -48,6 +48,22 @@ func friendlyError(err error) string {
 	return err.Error()
 }
 
+// looksLikeRegion returns true if s matches AWS region format: xx-word-N
+// e.g. "us-west-2", "eu-central-1", "ap-southeast-2"
+func looksLikeRegion(s string) bool {
+	parts := strings.SplitN(s, "-", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	last := parts[len(parts)-1]
+	for _, c := range last {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(last) > 0
+}
+
 func isSSOExpired(err error) bool {
 	if err == nil {
 		return false
@@ -125,8 +141,21 @@ func resolveTarget(ctx context.Context, args []string, defaultRegion string) (st
 			return pickFromRegion(region)
 		}
 
-		// "region" only (no slash) — list instances in that region.
-		return pickFromRegion(arg)
+		// No slash. Decide: does this look like a region ("us-west-2") or a name?
+		if looksLikeRegion(arg) {
+			return pickFromRegion(arg)
+		}
+
+		// Treat as an instance name in the default region.
+		if defaultRegion == "" {
+			defaultRegion = "us-east-1"
+		}
+		inst, err := ssmaws.ResolveInstance(ctx, profile, defaultRegion, arg)
+		if err == nil {
+			return profile, inst, nil
+		}
+		fmt.Fprintf(os.Stderr, "No running instance named %q in %s — pick one:\n", arg, defaultRegion)
+		return pickFromRegion(defaultRegion)
 	}
 
 	p, inst, err := resolve()
