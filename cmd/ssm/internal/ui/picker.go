@@ -2,23 +2,31 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ktr0731/go-fuzzyfinder"
 	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
-func PickProfile(profiles []string) (string, error) {
+func PickProfile(ctx context.Context, profiles []string) (string, error) {
 	if len(profiles) == 0 {
 		return "", fmt.Errorf("no AWS profiles found in ~/.aws/config")
 	}
 
 	infos := make([]ssmaws.ProfileInfo, len(profiles))
+	var wg sync.WaitGroup
 	for i, p := range profiles {
-		infos[i] = ssmaws.LoadProfileInfo(p)
+		wg.Add(1)
+		go func(i int, p string) {
+			defer wg.Done()
+			infos[i] = ssmaws.LoadProfileInfo(ctx, p)
+		}(i, p)
 	}
+	wg.Wait()
 
 	idx, err := fuzzyfinder.Find(infos, func(i int) string {
 		info := infos[i]

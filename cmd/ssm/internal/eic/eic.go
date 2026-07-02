@@ -4,6 +4,7 @@ package eic
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -44,8 +45,8 @@ func EnsureEndpoint(ctx context.Context, profile, region, vpcID, subnetID string
 		case types.Ec2InstanceConnectEndpointStateCreateComplete:
 			return nil // already ready
 		case types.Ec2InstanceConnectEndpointStateCreateInProgress:
-			// Already being created — just wait for it.
 			endpointID = aws.ToString(ep.InstanceConnectEndpointId)
+			fmt.Fprintf(os.Stderr, "\n  EIC endpoint %s is being created, waiting...\n", endpointID)
 		case types.Ec2InstanceConnectEndpointStateCreateFailed,
 			types.Ec2InstanceConnectEndpointStateDeleteComplete:
 			// Unusable — fall through to create a new one.
@@ -90,7 +91,7 @@ func EnsureEndpoint(ctx context.Context, profile, region, vpcID, subnetID string
 }
 
 // PushPublicKey registers the local Ed25519 public key with the instance via EIC (valid 60s).
-func PushPublicKey(ctx context.Context, profile, region, instanceID string, pubKey []byte) error {
+func PushPublicKey(ctx context.Context, profile, region, instanceID, osUser string, pubKey []byte) error {
 	cfg, err := ssmaws.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return err
@@ -99,7 +100,7 @@ func PushPublicKey(ctx context.Context, profile, region, instanceID string, pubK
 
 	_, err = client.SendSSHPublicKey(ctx, &ec2instanceconnect.SendSSHPublicKeyInput{
 		InstanceId:     aws.String(instanceID),
-		InstanceOSUser: aws.String("ec2-user"),
+		InstanceOSUser: aws.String(osUser),
 		SSHPublicKey:   aws.String(string(pubKey)),
 	})
 	return err

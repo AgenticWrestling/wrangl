@@ -15,7 +15,7 @@ func TestUpsertHostBlock_creates(t *testing.T) {
 	t.Setenv("HOME", dir)
 	os.MkdirAll(filepath.Join(dir, ".ssh"), 0700)
 
-	err := sshpkg.UpsertHostBlock("myhost", "i-0abc123", "us-west-2", "dev")
+	err := sshpkg.UpsertHostBlock("myhost", "i-0abc123", "us-west-2", "dev", "ec2-user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,9 +37,9 @@ func TestUpsertHostBlock_updates(t *testing.T) {
 	os.MkdirAll(sshDir, 0700)
 
 	// First write with old instance ID
-	sshpkg.UpsertHostBlock("myhost", "i-OLD", "us-west-2", "dev")
+	sshpkg.UpsertHostBlock("myhost", "i-OLD", "us-west-2", "dev", "ec2-user")
 	// Overwrite with new instance ID
-	sshpkg.UpsertHostBlock("myhost", "i-NEW", "us-west-2", "dev")
+	sshpkg.UpsertHostBlock("myhost", "i-NEW", "us-west-2", "dev", "ec2-user")
 
 	data, _ := os.ReadFile(filepath.Join(dir, ".ssh", "config"))
 	s := string(data)
@@ -48,5 +48,35 @@ func TestUpsertHostBlock_updates(t *testing.T) {
 	}
 	if !strings.Contains(s, "i-NEW") {
 		t.Errorf("new instance ID not found:\n%s", s)
+	}
+}
+
+func TestUpsertHostBlock_preservesExtraLines(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	sshDir := filepath.Join(dir, ".ssh")
+	os.MkdirAll(sshDir, 0700)
+
+	sshpkg.UpsertHostBlock("myhost", "i-OLD", "us-west-2", "dev", "ec2-user")
+
+	// Manually add a LocalForward line
+	configPath := filepath.Join(dir, ".ssh", "config")
+	data, _ := os.ReadFile(configPath)
+	amended := strings.Replace(string(data), "Host myhost\n", "Host myhost\n  LocalForward 8080 localhost:8080\n", 1)
+	os.WriteFile(configPath, []byte(amended), 0600)
+
+	// Re-upsert with new instance ID
+	sshpkg.UpsertHostBlock("myhost", "i-NEW", "us-west-2", "dev", "ec2-user")
+
+	data, _ = os.ReadFile(configPath)
+	s := string(data)
+	if !strings.Contains(s, "LocalForward 8080 localhost:8080") {
+		t.Errorf("LocalForward should have been preserved:\n%s", s)
+	}
+	if !strings.Contains(s, "i-NEW") {
+		t.Errorf("new instance ID not found:\n%s", s)
+	}
+	if strings.Contains(s, "i-OLD") {
+		t.Errorf("old instance ID should have been replaced:\n%s", s)
 	}
 }
