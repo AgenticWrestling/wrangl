@@ -32,7 +32,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(connectCmd(), tunnelCmd(), setupCmd())
+	root.AddCommand(connectCmd(), tunnelCmd(), setupCmd(), sshCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, friendlyError(err))
@@ -69,7 +69,10 @@ func isSSOExpired(err error) bool {
 		return false
 	}
 	s := err.Error()
-	return strings.Contains(s, "InvalidGrantException") || strings.Contains(s, "refresh cached SSO token")
+	return strings.Contains(s, "InvalidGrantException") ||
+		strings.Contains(s, "refresh cached SSO token") ||
+		strings.Contains(s, "login session has expired") ||
+		strings.Contains(s, "please reauthenticate")
 }
 
 // refreshSSO runs `aws sso login --profile <profile>` interactively so the
@@ -95,7 +98,7 @@ func resolveTarget(ctx context.Context, args []string, defaultRegion string) (st
 		return "", nil, fmt.Errorf("listing profiles: %w", err)
 	}
 	profiles = ssmaws.SortProfilesByMRU(profiles)
-	profile, err := ui.PickProfile(profiles)
+	profile, err := ui.PickProfile(ctx, profiles)
 	if err != nil {
 		return "", nil, err
 	}
@@ -280,6 +283,97 @@ func waitForPort(port, timeoutSecs int) error {
 	return fmt.Errorf("port %d not ready after %ds", port, timeoutSecs)
 }
 
+func sshCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ssh [region[/[user@]name]]",
+		Short: "SSH into an instance via EIC (pushes key then execs ssh)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Extract user@name from the name part if present, then pass
+			// the stripped args to resolveTarget.
+			userExplicit := false
+			osUser := "ec2-user"
+			strippedArgs := args
+			if len(args) == 1 {
+				var stripped []string
+				stripped, osUser = stripUserFromArg(args)
+				if stripped[0] != args[0] {
+					userExplicit = true
+				}
+				strippedArgs = stripped
+			}
+
+			// If a bare name was given (no region/), look up metadata from ~/.ssh/config.
+			defaultRegion := ""
+			knownProfile := ""
+			if len(strippedArgs) == 1 && !strings.Contains(strippedArgs[0], "/") {
+				if meta := sshpkg.LookupHost(strippedArgs[0]); meta.Region != "" {
+					defaultRegion = meta.Region
+					knownProfile = meta.Profile
+					if !userExplicit && meta.User != "" {
+						osUser = meta.User
+					}
+				}
+			}
+
+			// Skip profile picker if we already know the profile from ~/.ssh/config.
+			var profile string
+			var inst *ssmaws.Instance
+			var err error
+			if knownProfile != "" {
+				inst, err = ssmaws.ResolveInstance(cmd.Context(), knownProfile, defaultRegion, strippedArgs[0])
+				if err != nil {
+					return err
+				}
+				profile = knownProfile
+			} else {
+				profile, inst, err = resolveTarget(cmd.Context(), strippedArgs, defaultRegion)
+				if err != nil {
+					return err
+				}
+			}
+			ctx := cmd.Context()
+
+			pubKey, err := sshpkg.EnsureKeyPair()
+			if err != nil {
+				return fmt.Errorf("SSH keypair: %w", err)
+			}
+
+			if err := eic.PushPublicKey(ctx, profile, inst.Region, inst.ID, osUser, pubKey); err != nil {
+				return fmt.Errorf("push SSH public key: %w", err)
+			}
+
+			if err := sshpkg.UpsertHostBlock(inst.Name, inst.ID, inst.Region, profile, osUser); err != nil {
+				return fmt.Errorf("SSH config: %w", err)
+			}
+
+			sshPath, err := exec.LookPath("ssh")
+			if err != nil {
+				return fmt.Errorf("ssh not found in PATH: %w", err)
+			}
+			return syscall.Exec(sshPath, []string{"ssh", inst.Name}, os.Environ())
+		},
+	}
+}
+
+// stripUserFromArg parses optional user@ prefix from the name part of a
+// region/name or bare-name argument. Returns the stripped args and the user.
+func stripUserFromArg(args []string) ([]string, string) {
+	if len(args) == 0 {
+		return args, "ec2-user"
+	}
+	arg := args[0]
+	// Handle both "region/user@name" and "user@name"
+	if region, rest, hasSlash := strings.Cut(arg, "/"); hasSlash {
+		if user, name, hasAt := strings.Cut(rest, "@"); hasAt {
+			return []string{region + "/" + name}, user
+		}
+	} else if user, name, hasAt := strings.Cut(arg, "@"); hasAt {
+		return []string{name}, user
+	}
+	return args, "ec2-user"
+}
+
 func setupCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "setup [region[/name]]",
@@ -300,13 +394,24 @@ func setupCmd() *cobra.Command {
 			}
 			fmt.Println("✓ EIC endpoint ready")
 
-			// Phase 1b: Security group
+			// Phase 1b: Security group — VPC SSH rule
 			if err := ui.Spinner("Ensuring SSH ingress rule...", func() error {
 				return vpc.EnsureSSHIngressFromVPC(ctx, profile, inst.Region, inst.VPCID, inst.SecurityGroupIDs)
 			}); err != nil {
 				return fmt.Errorf("security group: %w", err)
 			}
 			fmt.Println("✓ Security group rule present")
+
+			// Phase 1b2: Open all ports from caller's public IP
+			var myIP string
+			if err := ui.Spinner("Opening all ports from your public IP...", func() error {
+				var e error
+				myIP, e = vpc.EnsureMyIPIngress(ctx, profile, inst.Region, inst.SecurityGroupIDs)
+				return e
+			}); err != nil {
+				return fmt.Errorf("my-IP ingress rule: %w", err)
+			}
+			fmt.Printf("✓ All ports open from %s\n", myIP)
 
 			// Phase 1c: SSH keypair
 			pubKey, err := sshpkg.EnsureKeyPair()
@@ -317,14 +422,14 @@ func setupCmd() *cobra.Command {
 
 			// Phase 1d: Push public key via EIC
 			if err := ui.Spinner("Pushing SSH public key via EIC...", func() error {
-				return eic.PushPublicKey(ctx, profile, inst.Region, inst.ID, pubKey)
+				return eic.PushPublicKey(ctx, profile, inst.Region, inst.ID, "ec2-user", pubKey)
 			}); err != nil {
 				return fmt.Errorf("push SSH public key: %w", err)
 			}
 			fmt.Println("✓ SSH public key registered (valid 60s)")
 
 			// Phase 1e: SSH config
-			if err := sshpkg.UpsertHostBlock(inst.Name, inst.ID, inst.Region, profile); err != nil {
+			if err := sshpkg.UpsertHostBlock(inst.Name, inst.ID, inst.Region, profile, "ec2-user"); err != nil {
 				return fmt.Errorf("SSH config: %w", err)
 			}
 			fmt.Printf("✓ ~/.ssh/config updated — connect with: ssh %s\n", inst.Name)

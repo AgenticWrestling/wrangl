@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"gopkg.in/ini.v1"
 )
 
@@ -26,7 +28,9 @@ type ProfileInfo struct {
 
 // LoadProfileInfo reads metadata for a profile from ~/.aws/config and SSO cache.
 // Never returns an error — missing fields are left empty.
-func LoadProfileInfo(profile string) ProfileInfo {
+// For non-SSO profiles without a role_arn, a short STS GetCallerIdentity call
+// is attempted to populate AccountID.
+func LoadProfileInfo(ctx context.Context, profile string) ProfileInfo {
 	info := ProfileInfo{Name: profile}
 
 	path := os.Getenv("AWS_CONFIG_FILE")
@@ -65,7 +69,46 @@ func LoadProfileInfo(profile string) ProfileInfo {
 		info.TokenOK = !tokenExpired(startURL)
 	}
 
+	// For role_arn profiles the account ID is embedded in the ARN.
+	if info.AccountID == "" {
+		if k, err := section.GetKey("role_arn"); err == nil {
+			info.AccountID = accountIDFromARN(k.String())
+		}
+	}
+
+	// For plain IAM profiles (no SSO, no role_arn), try STS with a short timeout.
+	if info.AccountID == "" && !info.IsSSO {
+		info.AccountID = stsAccountID(ctx, profile, info.Region)
+	}
+
 	return info
+}
+
+// accountIDFromARN extracts the account ID from an ARN like
+// arn:aws:iam::123456789012:role/MyRole.
+func accountIDFromARN(arn string) string {
+	parts := strings.SplitN(arn, ":", 6)
+	if len(parts) >= 5 {
+		return parts[4]
+	}
+	return ""
+}
+
+// stsAccountID calls GetCallerIdentity with a 3-second timeout.
+// Returns empty string on any error.
+func stsAccountID(ctx context.Context, profile, region string) string {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	awsCfg, err := LoadConfig(ctx, profile, region)
+	if err != nil {
+		return ""
+	}
+	out, err := sts.NewFromConfig(awsCfg).GetCallerIdentity(ctx, nil)
+	if err != nil || out.Account == nil {
+		return ""
+	}
+	return *out.Account
 }
 
 // SSOTokenExpired returns true if the SSO token for the given profile is
