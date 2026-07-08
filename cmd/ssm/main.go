@@ -32,7 +32,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(connectCmd(), tunnelCmd(), setupCmd(), sshCmd())
+	root.AddCommand(connectCmd(), tunnelCmd(), setupCmd(), sshCmd(), startCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, friendlyError(err))
@@ -372,6 +372,66 @@ func stripUserFromArg(args []string) ([]string, string) {
 		return []string{name}, user
 	}
 	return args, "ec2-user"
+}
+
+func startCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "start [region[/name]]",
+		Short: "Start a stopped instance and wait until it's running",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			profiles, err := ssmaws.ListProfiles()
+			if err != nil {
+				return fmt.Errorf("listing profiles: %w", err)
+			}
+			profiles = ssmaws.SortProfilesByMRU(profiles)
+			profile, err := ui.PickProfile(ctx, profiles)
+			if err != nil {
+				return err
+			}
+			_ = ssmaws.RecordProfileUsage(profile)
+
+			if expired, _ := ssmaws.SSOTokenExpired(profile); expired {
+				fmt.Fprintf(os.Stderr, "SSO session expired for profile %q. Refreshing...\n", profile)
+				if loginErr := refreshSSO(profile); loginErr != nil {
+					return fmt.Errorf("sso login: %w", loginErr)
+				}
+			}
+
+			region := "us-east-1"
+			if len(args) == 1 && looksLikeRegion(args[0]) {
+				region = args[0]
+			} else if len(args) == 1 {
+				if r, _, err := ssmaws.ParseRegionName(args[0]); err == nil {
+					region = r
+				}
+			}
+
+			instances, err := ssmaws.ListStoppedInstances(ctx, profile, region)
+			if err != nil {
+				return err
+			}
+			if len(instances) == 0 {
+				fmt.Fprintf(os.Stderr, "No stopped instances found in %s\n", region)
+				return nil
+			}
+
+			inst, err := ui.PickInstance(instances)
+			if err != nil {
+				return err
+			}
+
+			return ui.Spinner(fmt.Sprintf("Starting %s...", inst.Name), func() error {
+				if err := ssmaws.StartInstance(ctx, profile, inst.Region, inst.ID); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "\n✓ %s is running\n", inst.Name)
+				return nil
+			})
+		},
+	}
 }
 
 func setupCmd() *cobra.Command {

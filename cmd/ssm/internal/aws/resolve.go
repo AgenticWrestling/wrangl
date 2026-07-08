@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -75,6 +76,14 @@ func ResolveInstance(ctx context.Context, profile, region, name string) (*Instan
 }
 
 func ListInstances(ctx context.Context, profile, region string) ([]Instance, error) {
+	return listInstancesByState(ctx, profile, region, "running")
+}
+
+func ListStoppedInstances(ctx context.Context, profile, region string) ([]Instance, error) {
+	return listInstancesByState(ctx, profile, region, "stopped", "stopping")
+}
+
+func listInstancesByState(ctx context.Context, profile, region string, states ...string) ([]Instance, error) {
 	client, err := newEC2Client(ctx, profile, region)
 	if err != nil {
 		return nil, err
@@ -82,7 +91,7 @@ func ListInstances(ctx context.Context, profile, region string) ([]Instance, err
 
 	out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []types.Filter{
-			{Name: aws.String("instance-state-name"), Values: []string{"running"}},
+			{Name: aws.String("instance-state-name"), Values: states},
 		},
 	})
 	if err != nil {
@@ -96,6 +105,22 @@ func ListInstances(ctx context.Context, profile, region string) ([]Instance, err
 		}
 	}
 	return instances, nil
+}
+
+func StartInstance(ctx context.Context, profile, region, instanceID string) error {
+	client, err := newEC2Client(ctx, profile, region)
+	if err != nil {
+		return err
+	}
+	if _, err := client.StartInstances(ctx, &ec2.StartInstancesInput{
+		InstanceIds: []string{instanceID},
+	}); err != nil {
+		return err
+	}
+	waiter := ec2.NewInstanceRunningWaiter(client)
+	return waiter.Wait(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 5*time.Minute)
 }
 
 func instanceFromSDK(i types.Instance, region string) Instance {
