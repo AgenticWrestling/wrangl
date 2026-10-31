@@ -1,23 +1,27 @@
-# EXPERIMENTAL / UNVERIFIED (M9). Claude Code as one interactive session per assignment,
-# optionally with Remote Control so you can watch or steer it from the Claude app.
+# EXPERIMENTAL (M9). Claude Code as one interactive session per assignment, with Remote
+# Control so you can watch or steer it from the Claude app. Checked against the Claude Code
+# docs on 2026-10-31 (code.claude.com/docs/en/{hooks,remote-control,authentication,
+# permissions,settings-reference}); not yet run on a real runner.
 #
-# What wrangl guarantees (tested with a fake agent): one process for the whole assignment;
-# the Stop hook (`--continue-format claude`) checkpoints the task, nudges once if it was
-# not completed, then hands Claude the next ready task as a `{"decision":"block"}` reason;
-# when no task is left the session is ended; `expect` rules answer PTY prompts; the
-# login file is written 0600 for the agent and deleted when the run ends.
+# Doc-confirmed:
+#   - `--remote-control "<name>"` (alias --rc) starts an interactive session with Remote
+#     Control. It needs a full claude.ai /login on a Pro/Max/Team/Enterprise plan; a
+#     setup-token (CLAUDE_CODE_OAUTH_TOKEN) cannot establish Remote Control, and an env
+#     token takes precedence over the credentials file, so this template sets neither
+#     CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY.
+#   - The workspace trust dialog is pre-accepted per path in ~/.claude.json
+#     (projects.<path>.hasTrustDialogAccepted); the bypass-permissions warning by
+#     skipDangerousModePermissionPrompt in ~/.claude/settings.json. Both are merged in
+#     (merge: json), so no PTY regex is needed for them.
+#   - Stop hook: {"decision":"block","reason":...} continues; Claude caps consecutive
+#     continuations at 8, reset whenever it calls a tool (CLAUDE_CODE_STOP_HOOK_BLOCK_CAP).
+#   - bypassPermissions is refused when running as root; wrangl runs the agent as `agent`.
+# Unconfirmed:
+#   - whether remoteControlAtStartup also skips the one-time "Enable Remote Control?"
+#     consent (the expect rule below answers it if not);
+#   - several runners sharing one login: refresh-token rotation may log the others out.
+#     Keep max_runners: 1, or one login per concurrent runner.
 #
-# What is NOT verified against a real Claude Code (check on a runner with
-# `wrangl run attach <id>` and adjust):
-#   - the exact first-run prompt texts the `expect` rules match, and the keys they need;
-#   - the Remote Control flag. Add whatever your `claude --help` documents for starting a
-#     session with Remote Control, named "{{.SessionName}}" (the spec's placeholder is
-#     `--rc <name>`);
-#   - several runners sharing one claude.ai login: refreshes may invalidate each other.
-#     Use max_runners: 1 until that is checked.
-#
-# Remote Control needs a full claude.ai login, not a setup-token. On a machine where you
-# ran `claude` and /login:
 #   wrangl controller secret set claude_credentials < ~/.claude/.credentials.json
 name: claude-session
 arch: arm64
@@ -31,21 +35,28 @@ mise_toml: |
   "npm:@anthropic-ai/claude-code" = "latest"
 agent:
   drive: interactive
-  start:  ["claude", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
-  resume: ["claude", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  start:  ["claude", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "--remote-control", "{{.SessionName}}", "{{.Prompt}}"]
+  resume: ["claude", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "--remote-control", "{{.SessionName}}", "{{.Prompt}}"]
   turn_timeout: 8h                     # the whole session is one turn
+  env:
+    CLAUDE_CODE_STOP_HOOK_BLOCK_CAP: "200"   # many tasks may chain without a tool call in between
   secret_files:
     - { path: "{{.Home}}/.claude/.credentials.json", secret: claude_credentials }
-  expect:                              # unverified prompt texts
-    - { match: "(?i)do you trust the files in this folder", send: "\r" }
-    - { match: "(?i)bypass permissions mode", send: "2\r" }
+  expect:
+    - { match: "(?i)enable remote control\\?", send: "y\r" }
   files:
+    - path: "{{.Home}}/.claude.json"
+      merge: json
+      content: '{"projects": {"{{.Workdir}}": {"hasTrustDialogAccepted": true}}}'
+    - path: "{{.Home}}/.claude/settings.json"
+      merge: json
+      content: '{"skipDangerousModePermissionPrompt": true, "enableAllProjectMcpServers": true, "remoteControlAtStartup": true, "theme": "dark"}'
     - path: .mcp.json
       content: '{"mcpServers":{"wrangl":{"command":"wrangl","args":["runner","mcp"]}}}'
     - path: .claude/settings.local.json
       content: |
         {"hooks": {
+          "SessionStart": [{"hooks":[{"type":"command","command":"wrangl runner hook SessionStart"}]}],
           "PostToolUse":  [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse"}]}],
           "Notification": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
-          "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop --continue-format claude","timeout":120}]}]},
-         "enableAllProjectMcpServers": true}
+          "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop --continue-format claude","timeout":120}]}]}}

@@ -1,0 +1,43 @@
+# EXPERIMENTAL. Gemini CLI, headless: the better-documented Google fallback to agy
+# (docs at github.com/google-gemini/gemini-cli/docs, read 2026-10-31). Not yet run on a
+# runner. Since 2026-06-18 Gemini CLI no longer serves free / AI Pro / AI Ultra personal
+# sign-ins: use an API key, Vertex AI, or a Code Assist licence.
+#
+# Doc-confirmed:
+#   - Headless: -p, -o stream-json (its "init" event carries the session id, which wrangl
+#     reads into {{.AgentSessionID}}), -r <session-id> to resume, --approval-mode yolo,
+#     --skip-trust.
+#   - Hooks in settings.json: AfterTool (= PostToolUse), Notification (ToolPermission only),
+#     AfterAgent (= Stop; {"decision":"deny","reason":...} runs again with reason as the
+#     prompt: --continue-format gemini). Hook timeouts are in milliseconds.
+#   - In untrusted folders workspace settings and MCP servers are skipped, so everything
+#     is merged into the user-level ~/.gemini/settings.json.
+#   - Auth: GEMINI_API_KEY; or Vertex with GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION and
+#     GOOGLE_APPLICATION_CREDENTIALS (the documented CI route). Quotas are per project, so
+#     all runners share them.
+#
+#   wrangl controller secret set gemini_api_key
+name: gemini
+arch: arm64
+min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
+max_runners: 1
+setup_script: |
+  dnf install -y git make gcc
+mise_toml: |
+  [tools]
+  node = "24"
+  "npm:@google/gemini-cli" = "latest"
+agent:
+  start:  ["gemini", "-p", "{{.Prompt}}", "-o", "stream-json", "--approval-mode", "yolo", "--skip-trust"]
+  resume: ["gemini", "-r", "{{.AgentSessionID}}", "-p", "{{.Prompt}}", "-o", "stream-json", "--approval-mode", "yolo", "--skip-trust"]
+  secrets: { GEMINI_API_KEY: gemini_api_key }
+  turn_timeout: 2h
+  files:
+    - path: "{{.Home}}/.gemini/settings.json"
+      merge: json
+      content: |
+        {"hooks": {
+           "AfterTool":    [{"matcher": ".*", "hooks": [{"type": "command", "command": "wrangl runner hook PostToolUse", "timeout": 10000}]}],
+           "Notification": [{"hooks": [{"type": "command", "command": "wrangl runner hook Notification"}]}],
+           "AfterAgent":   [{"hooks": [{"type": "command", "command": "wrangl runner hook Stop"}]}]},
+         "mcpServers": {"wrangl": {"command": "wrangl", "args": ["runner", "mcp"], "trust": true}}}

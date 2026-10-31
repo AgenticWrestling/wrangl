@@ -48,24 +48,31 @@ while :; do
 done
 `
 
-func TestInteractiveDrive(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("needs linux")
-	}
+// agentHarness is a controller, a local runner and project "web" whose template runs a
+// script agent: the shared setup for agent-integration tests.
+type agentHarness struct {
+	*workEnv
+	dir, bare string
+	rcfg      *runner.Config
+	stop      func()
+}
+
+// newAgentHarness writes script as the agent and creates template tmpl, formatted with
+// (arch, agent path).
+func newAgentHarness(t *testing.T, script, tmplFmt string, secrets map[string]string) *agentHarness {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	old := runner.InteractiveEndGrace
-	runner.InteractiveEndGrace = 300 * time.Millisecond
-	defer func() { runner.InteractiveEndGrace = old }()
 	dir := t.TempDir()
 	bare := bareRepo(t, dir)
-	agentPath := filepath.Join(dir, "session-agent")
-	os.WriteFile(agentPath, []byte(sessionAgent), 0o755)
+	agentPath := filepath.Join(dir, "agent")
+	os.WriteFile(agentPath, []byte(script), 0o755)
 	data := filepath.Join(dir, "data")
 	if _, err := controller.Init(ctx, data, filepath.Join(dir, "c.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	controller.SecretSet(data, "fake_login", strings.NewReader(`{"login":"full"}`))
+	for k, v := range secrets {
+		controller.SecretSet(data, k, strings.NewReader(v))
+	}
 	cfg := config.DefaultController()
 	cfg.DataDir = data
 	cfg.Listen = config.Listen{HTTP: "127.0.0.1:0", Unix: filepath.Join(dir, "api.sock"), NATS: "127.0.0.1:-1", Enroll: "127.0.0.1:0"}
@@ -80,28 +87,11 @@ func TestInteractiveDrive(t *testing.T) {
 	go func() { srvDone <- srv.Run(ctx) }()
 	<-srv.Ready()
 	api, _ := client.New("unix://"+cfg.Listen.Unix, nil)
-	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t}
-
-	bad := "name: bad\narch: arm64\nmin: {vcpu: 1, ram: 1GiB, disk: 1GiB}\nagent:\n  drive: sideways\n  start: [x]\n"
-	if _, err := api.CreateTemplate(ctx, []byte(bad)); err == nil || !strings.Contains(err.Error(), "agent.drive") {
-		t.Fatalf("bad drive accepted: %v", err)
-	}
-	tmpl := fmt.Sprintf(`name: sess
-arch: %s
-min: {vcpu: 1, ram: 256MiB, disk: 1GiB}
-mise_toml: ""
-agent:
-  drive: interactive
-  start: [%q, "{{.Prompt}}"]
-  expect:
-    - {match: "trust the files in this folder", send: "y\r"}
-  secret_files:
-    - {path: "{{.Home}}/.fake/creds.json", secret: fake_login}
-`, ec2Arch(), agentPath)
-	if _, err := api.CreateTemplate(ctx, []byte(tmpl)); err != nil {
+	tv, err := api.CreateTemplate(ctx, []byte(fmt.Sprintf(tmplFmt, ec2Arch(), agentPath)))
+	if err != nil {
 		t.Fatal(err)
 	}
-	tok, _ := api.EnrollToken(ctx, "sess", 10*time.Minute)
+	tok, _ := api.EnrollToken(ctx, tv.Name, 10*time.Minute)
 	root := filepath.Join(dir, "rroot")
 	if _, err := runner.Bootstrap(ctx, runner.BootstrapOptions{Controller: "http://" + srv.EnrollAddr(), Token: tok.Token,
 		Root: root, IMDSURL: "http://127.0.0.1:1", NoSystemd: true, NoUser: true}); err != nil {
@@ -115,11 +105,54 @@ agent:
 			Log: slog.New(slog.NewTextHandler(io.Discard, nil)), InstallMise: runnertest.MiseInstaller(nil)})
 		close(ddone)
 	}()
-	if _, err := api.CreateProject(ctx, proto.ProjectRequest{Slug: "web", Template: ptr("sess")}); err != nil {
+	if _, err := api.CreateProject(ctx, proto.ProjectRequest{Slug: "web", Template: ptr(tv.Name)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := api.LinkRepo(ctx, "web", "acme/app", ""); err != nil {
 		t.Fatal(err)
+	}
+	h := &agentHarness{workEnv: &workEnv{ctx: ctx, api: api, bare: bare, t: t}, dir: dir, bare: bare, rcfg: rcfg}
+	h.stop = func() {
+		stopDaemon()
+		<-ddone
+		cancel()
+		if err := <-srvDone; err != nil {
+			t.Fatal(err)
+		}
+	}
+	return h
+}
+
+// runLog is the run's whole log as text.
+func (h *agentHarness) runLog(id int64) string {
+	var b strings.Builder
+	h.api.Logs(h.ctx, id, false, "", "", "", func(l proto.LogView) { b.WriteString(l.Message + "\n") })
+	return b.String()
+}
+
+func TestInteractiveDrive(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs linux")
+	}
+	old := runner.InteractiveEndGrace
+	runner.InteractiveEndGrace = 300 * time.Millisecond
+	defer func() { runner.InteractiveEndGrace = old }()
+	h := newAgentHarness(t, sessionAgent, `name: sess
+arch: %s
+min: {vcpu: 1, ram: 256MiB, disk: 1GiB}
+mise_toml: ""
+agent:
+  drive: interactive
+  start: [%q, "{{.Prompt}}"]
+  expect:
+    - {match: "trust the files in this folder", send: "y\r"}
+  secret_files:
+    - {path: "{{.Home}}/.fake/creds.json", secret: fake_login}
+`, map[string]string{"fake_login": `{"login":"full"}`})
+	ctx, api, e, dir, bare, rcfg := h.ctx, h.api, h.workEnv, h.dir, h.bare, h.rcfg
+	bad := "name: bad\narch: arm64\nmin: {vcpu: 1, ram: 1GiB, disk: 1GiB}\nagent:\n  drive: sideways\n  start: [x]\n"
+	if _, err := api.CreateTemplate(ctx, []byte(bad)); err == nil || !strings.Contains(err.Error(), "agent.drive") {
+		t.Fatalf("bad drive accepted: %v", err)
 	}
 
 	parent := e.mk(proto.TaskCreateRequest{Title: "three steps"})
@@ -131,9 +164,7 @@ agent:
 		t.Fatal(err)
 	}
 	v := e.waitRun(runID, "succeeded", "failed", "blocked")
-	var all strings.Builder
-	api.Logs(ctx, runID, false, "", "", "", func(l proto.LogView) { all.WriteString(l.Message + "\n") })
-	text := all.String()
+	text := h.runLog(runID)
 	if v.State != "succeeded" {
 		t.Fatalf("run: %+v\n%s", v, text)
 	}
@@ -163,10 +194,5 @@ agent:
 	if _, err := os.Stat(filepath.Join(rcfg.AgentHome, ".fake/creds.json")); !os.IsNotExist(err) {
 		t.Errorf("secret file left behind after the run (%v)", err)
 	}
-	stopDaemon()
-	<-ddone
-	cancel()
-	if err := <-srvDone; err != nil {
-		t.Fatal(err)
-	}
+	h.stop()
 }

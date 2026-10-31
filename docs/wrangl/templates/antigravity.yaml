@@ -1,0 +1,57 @@
+# EXPERIMENTAL / LARGELY UNVERIFIED. Google Antigravity's headless CLI, `agy`
+# (github.com/google-antigravity/antigravity-cli, 1.4.x). antigravity.google could not be
+# reached when this was written: flags and hooks come from the CLI's GitHub CHANGELOG and
+# issues, plus third-party integrations. Run one task on one runner before relying on it.
+#
+# What we know:
+#   - Headless: `agy -p <prompt> --output-format stream-json`, `--conversation <id>` to
+#     resume, `--dangerously-skip-permissions` (plans may still wait for review).
+#   - Hooks: ~/.gemini/config/hooks.json (global; the workspace .agents/hooks.json is
+#     reported ignored in some builds), keyed by a hook-set name. Events: PreToolUse,
+#     PostToolUse, PreInvocation, PostInvocation, Stop (no Notification). Stop gets
+#     conversationId (wrangl reads it into {{.AgentSessionID}}) and continues on
+#     {"decision":"continue","reason":...}: --continue-format agy. Hooks must exit 0.
+#   - MCP: a user-level mcp_config.json; its path differs by build, so both are written.
+#   - Auth, best first: ADC with AGY_ADC_AUTH=true and GOOGLE_APPLICATION_CREDENTIALS
+#     (a service-account key, or an AWS workload-identity-federation "external_account"
+#     config so no long-lived key is stored: unconfirmed that agy accepts it); or
+#     GEMINI_API_KEY. Google sign-in tokens live in the OS keyring: don't copy them.
+#     Reports (unconfirmed) say third-party automation of a personal Antigravity account
+#     breaches its terms; use the API key or Vertex/ADC paths.
+# Biggest risk: workspace trust is per exact path, and each run is a new worktree; no
+#   documented non-interactive trust flag was found. If a run hangs at a trust prompt, add
+#   an `expect` rule for its text.
+#
+#   wrangl controller secret set gcp_credentials < cred.json
+name: antigravity
+arch: arm64
+min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
+max_runners: 1
+setup_script: |
+  dnf install -y git make gcc
+  # agy is installed by its own script; review it, then e.g.:
+  #   curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh && bash /tmp/agy-install.sh
+mise_toml: ""
+agent:
+  start:  ["agy", "-p", "{{.Prompt}}", "--output-format", "stream-json", "--dangerously-skip-permissions"]
+  resume: ["agy", "-p", "{{.Prompt}}", "--conversation", "{{.AgentSessionID}}", "--output-format", "stream-json", "--dangerously-skip-permissions"]
+  env:
+    AGY_ADC_AUTH: "true"
+    GOOGLE_APPLICATION_CREDENTIALS: "{{.Home}}/.config/gcp/cred.json"
+  secret_files:
+    - { path: "{{.Home}}/.config/gcp/cred.json", secret: gcp_credentials }
+  # or, instead of env + secret_files: secrets: { GEMINI_API_KEY: gemini_api_key }
+  turn_timeout: 2h
+  files:
+    - path: "{{.Home}}/.gemini/config/hooks.json"
+      merge: json
+      content: |
+        {"wrangl": {"enabled": true,
+          "PostToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": "wrangl runner hook PostToolUse", "timeout": 10}]}],
+          "Stop": [{"type": "command", "command": "wrangl runner hook Stop", "timeout": 30}]}}
+    - path: "{{.Home}}/.gemini/config/mcp_config.json"
+      merge: json
+      content: '{"mcpServers": {"wrangl": {"command": "wrangl", "args": ["runner", "mcp"]}}}'
+    - path: "{{.Home}}/.gemini/antigravity-cli/mcp_config.json"
+      merge: json
+      content: '{"mcpServers": {"wrangl": {"command": "wrangl", "args": ["runner", "mcp"]}}}'

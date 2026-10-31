@@ -1,17 +1,28 @@
-# EXPERIMENTAL / UNVERIFIED (M9). OpenAI Codex CLI, headless drive.
+# EXPERIMENTAL. OpenAI Codex CLI, headless drive. Derived from the openai/codex source at
+# main 67f0994b (release 0.166.0, 2026-10-29): codex-rs/{hooks,exec,login,config}.
+# developers.openai.com could not be reached when this was written; not yet run on a runner.
 #
-# Codex has no hook system like Claude Code's, so there is no hook stream and no
-# interactive chaining. Subtasks complete through the wrangl MCP tools (task_complete),
-# with the usual nudge-then-ask fallback. If Codex does not pick up the MCP server, set
-# `completion: exit` so that a turn exiting 0 completes its subtask.
+# Source-confirmed:
+#   - Hooks are stable and on by default, Claude-style, from $CODEX_HOME/hooks.json.
+#     User/project hooks only run when trusted by hash, or with
+#     --dangerously-bypass-hook-trust (for automation that vets its hooks: wrangl writes
+#     this file itself). Without the flag the hooks silently do not run.
+#   - Events used: SessionStart, PostToolUse, PermissionRequest (nearest to Notification;
+#     Codex has no Notification event), Stop. The Stop output contract matches Claude's,
+#     so --continue-format codex (= claude) works for an interactive Codex template.
+#   - `codex exec --json` prints {"type":"thread.started","thread_id":...} first; wrangl
+#     reads it into {{.AgentSessionID}}, and `exec resume <id>` resumes exactly that
+#     thread (`--last` is racy). There is no flag to choose the id up front.
+#   - Auth: `codex exec` reads CODEX_API_KEY (OPENAI_API_KEY alone is NOT read by exec).
+#     Alternative: CODEX_ACCESS_TOKEN (an `at-` ChatGPT personal access token, no refresh).
+#     Do NOT copy one ChatGPT-login auth.json to several runners: refresh tokens are
+#     single-use (refresh_token_reused), so the first refresh logs the others out.
+#   - MCP servers in $CODEX_HOME/config.toml are used by exec; project .codex/ config is
+#     ignored in untrusted folders, so everything goes in $CODEX_HOME (~/.codex).
+# Unconfirmed: PAT minting/lifetime, plan rate limits with many runners on one account,
+#   whether the hook session_id equals thread_id (wrangl prefers the printed thread_id).
 #
-# Auth, one of:
-#   API key:      wrangl controller secret set openai_api_key   (and keep `secrets` below)
-#   ChatGPT login: wrangl controller secret set codex_auth < ~/.codex/auth.json
-#                 (and uncomment `secret_files`; drop `secrets`)
-#
-# Check on a runner (`wrangl run attach <id>`): the flags below against `codex exec --help`,
-# that `resume --last` picks up this run's session, and that the MCP server starts.
+#   wrangl controller secret set codex_api_key        # an OpenAI API key
 name: codex
 arch: arm64
 min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
@@ -23,11 +34,10 @@ mise_toml: |
   node = "24"
   "npm:@openai/codex" = "latest"
 agent:
-  start:  ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "{{.Prompt}}"]
-  resume: ["codex", "exec", "resume", "--last", "--dangerously-bypass-approvals-and-sandbox", "{{.Prompt}}"]
-  secrets: { OPENAI_API_KEY: openai_api_key }
-  # secret_files:
-  #   - { path: "{{.Home}}/.codex/auth.json", secret: codex_auth }
+  start:  ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "{{.Prompt}}"]
+  resume: ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "resume", "{{.AgentSessionID}}", "{{.Prompt}}"]
+  secrets: { CODEX_API_KEY: codex_api_key }
+  # or: secrets: { CODEX_ACCESS_TOKEN: codex_pat }
   turn_timeout: 2h
   files:
     - path: "{{.Home}}/.codex/config.toml"
@@ -35,3 +45,11 @@ agent:
         [mcp_servers.wrangl]
         command = "wrangl"
         args = ["runner", "mcp"]
+        required = true
+    - path: "{{.Home}}/.codex/hooks.json"
+      content: |
+        {"hooks": {
+          "SessionStart":      [{"hooks":[{"type":"command","command":"wrangl runner hook SessionStart"}]}],
+          "PostToolUse":       [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse","async":true}]}],
+          "PermissionRequest": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
+          "Stop":              [{"hooks":[{"type":"command","command":"wrangl runner hook Stop"}]}]}}

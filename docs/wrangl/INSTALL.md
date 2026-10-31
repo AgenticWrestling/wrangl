@@ -430,13 +430,17 @@ To follow a runner's progress:
 
 ### 8.1 Other agents, interactive sessions and Remote Control (experimental)
 
-`docs/wrangl/templates/` holds example templates:
+`docs/wrangl/templates/` holds example templates. Before picking one, read
+[`agents.md`](agents.md): it covers how each agent's hooks, session ids and MCP plug in, and
+which credentials to use.
 
 | File | Status | What it is |
 |---|---|---|
 | `claude-headless.yaml` | the one above | `claude -p` per subtask, one resumed session |
-| `claude-interactive.yaml` | **unverified** | one interactive Claude session per assignment; optional Remote Control with a full login |
-| `codex.yaml` | **unverified** | `codex exec` per subtask, MCP tools via `~/.codex/config.toml` |
+| `claude-interactive.yaml` | doc-checked, not run | one interactive Claude session per assignment, with Remote Control |
+| `codex.yaml` | source-checked, not run | `codex exec --json`, resumed by thread id; hooks and MCP in `~/.codex` |
+| `antigravity.yaml` | **largely unverified** | Antigravity's `agy` CLI with ADC or a Gemini API key |
+| `gemini.yaml` | doc-checked, not run | Gemini CLI headless with an API key or Vertex |
 
 The unverified ones are tested only against fake agents. Try them on one runner first:
 
@@ -451,12 +455,12 @@ wrangl run attach <run>      # watch the PTY: were the first-run prompts answere
 ```
 
 What to check, and what to change if it's wrong:
-- **First-run prompts.** If the session sits at a prompt, copy its text into an `expect`
-  rule's `match` (a regexp), with the keys it needs in `send` (`"\r"` is Enter). Then run
-  `template edit`.
-- **Remote Control.** Add the flag your `claude --help` documents for starting a session with
-  Remote Control to `start` and `resume`, named `"{{.SessionName}}"`. The session then
-  appears in the Claude app as `<runner>:<task>`.
+- **First-run prompts.** The Claude template pre-accepts the trust and bypass prompts in
+  Claude's own settings files (`merge: json`). If a session still sits at a prompt, copy its
+  text into an `expect` rule's `match` (a regexp), with the keys it needs in `send` (`"\r"`
+  is Enter). Then run `template edit`.
+- **Remote Control.** The template starts Claude with `--remote-control "{{.SessionName}}"`,
+  so the session appears in the Claude app as `<runner>:<task>`.
 - **Chaining.** `wrangl logs <run>` shows `==> <sqid> … (same session)` each time the Stop
   hook hands over the next task, and `ending the interactive session` at the end.
 - **Shared login.** Several runners refreshing one claude.ai login may log each other out.

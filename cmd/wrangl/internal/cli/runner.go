@@ -99,7 +99,7 @@ func runnerCmd(g *Global) *cobra.Command {
 			return nil
 		},
 	}
-	hook.Flags().StringVar(&contFmt, "continue-format", "", "print an agent-specific continue response (interactive drive): claude")
+	hook.Flags().StringVar(&contFmt, "continue-format", "", "print an agent-specific continue response (interactive drive): claude, codex, agy, gemini, text")
 	mcpCmd := &cobra.Command{
 		Use: "mcp", Short: "stdio MCP server for the agent (work-stack tools)", Args: cobra.NoArgs, Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {

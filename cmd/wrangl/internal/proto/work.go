@@ -63,6 +63,11 @@ func (a AgentSpec) Validate() error {
 	default:
 		return fmt.Errorf("agent.drive %q: want headless or interactive", a.Drive)
 	}
+	for _, f := range a.Files {
+		if f.Merge != "" && f.Merge != "json" {
+			return fmt.Errorf("agent.files %s: merge %q: want json", f.Path, f.Merge)
+		}
+	}
 	for _, e := range a.Expect {
 		if _, err := regexp.Compile(e.Match); err != nil {
 			return fmt.Errorf("agent.expect %q: %w", e.Match, err)
@@ -85,6 +90,9 @@ func (a AgentSpec) Validate() error {
 type AgentFile struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	// Merge "json" deep-merges Content (a JSON object) into the existing file instead of
+	// replacing it: for an agent's own state files such as ~/.claude.json.
+	Merge string `json:"merge,omitempty"`
 }
 
 // ParseAgentSpec decodes a template's agent_json.

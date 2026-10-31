@@ -48,6 +48,7 @@ type Worker struct {
 	hookSeq    int64
 	answers    waiters
 	continueFn func(ctx context.Context) (string, bool) // interactive drive (M9)
+	sess       *session                                 // the run in progress (hooks report its agent session id)
 }
 
 // Kind is the kind of the run in progress.
@@ -127,6 +128,41 @@ type session struct {
 	interactive bool
 	onStop      func(ctx context.Context) (string, bool)
 	secretPaths []string // secret files to remove when the run ends
+	// agentSession is the agent's own session id, for agents that cannot be given one up
+	// front (Codex, agy, Gemini): read from its JSON output, else from a hook payload.
+	agentSession      string
+	agentSessionFixed bool // taken from the agent's own output: hooks don't override it
+}
+
+var sessionIDOut = regexp.MustCompile(`"(?:thread_id|session_id|sessionId|conversation_id|conversationId)"\s*:\s*"([A-Za-z0-9_.:-]+)"`)
+
+// noteSession records the agent's session id (the first seen; stdout beats hooks).
+func (s *session) noteSession(id string, fromOutput bool) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.agentSessionFixed || (s.agentSession != "" && !fromOutput) {
+		return
+	}
+	s.agentSession, s.agentSessionFixed = id, fromOutput
+}
+
+func (s *session) agentSessionID() string { s.mu.Lock(); defer s.mu.Unlock(); return s.agentSession }
+
+// resumeArgv is the command for a follow-up turn: resume, unless it needs the agent's
+// session id and none has been seen yet (then a fresh start).
+func (s *session) resumeArgv() []string {
+	r := s.a.Agent.Resume
+	if len(r) == 0 {
+		return s.a.Agent.Start
+	}
+	if strings.Contains(strings.Join(r, " "), "AgentSessionID") && s.agentSessionID() == "" {
+		s.logf("runner", "no agent session id seen yet; starting a new session instead of resuming")
+		return s.a.Agent.Start
+	}
+	return r
 }
 
 // InteractiveEndGrace is how long an interactive session may take to exit by itself after
@@ -156,6 +192,11 @@ func (s *session) line(stream, msg string) {
 	s.seq++
 	l := proto.LogLine{Seq: s.seq, TS: time.Now().UTC(), Stream: stream, Message: msg}
 	if stream == "agent" {
+		if !s.agentSessionFixed {
+			if m := sessionIDOut.FindStringSubmatch(msg); m != nil {
+				s.agentSession, s.agentSessionFixed = m[1], true
+			}
+		}
 		s.lines = append(s.lines, msg)
 		if len(s.lines) > 50 {
 			s.lines = s.lines[len(s.lines)-50:]
@@ -216,6 +257,10 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment) {
 	dir, id, err := w.workdir(a.RunID)
 	s := &session{w: w, a: a, id: id, dir: dir, interactive: a.Agent.Drive == proto.DriveInteractive && a.Kind == "work"}
 	defer s.removeSecrets()
+	w.mu.Lock()
+	w.sess = s
+	w.mu.Unlock()
+	defer func() { w.mu.Lock(); w.sess = nil; w.mu.Unlock() }()
 	fail := func(err error) {
 		s.logf("runner", "run failed: %v", err)
 		s.flush()
@@ -259,8 +304,8 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment) {
 		s.logf("runner", "==> %s %s", n.Sqid, n.Title)
 		s.state(pubCtx, proto.RunState{State: "running", Status: n.Sqid + " " + n.Title})
 		argv := a.Agent.Start
-		if turns > 0 && len(a.Agent.Resume) > 0 {
-			argv = a.Agent.Resume
+		if turns > 0 {
+			argv = s.resumeArgv()
 		}
 		s.resetSummary()
 		var ch *chain
@@ -404,6 +449,11 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return "", err
 		}
+		if f.Merge == "json" { // deep-merge into the agent's existing settings, e.g. ~/.claude.json
+			if content, err = mergeJSONFile(path, content); err != nil {
+				return "", fmt.Errorf("agent file %s: %w", path, err)
+			}
+		}
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			return "", err
 		}
@@ -418,6 +468,36 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 		}
 	}
 	return base, nil
+}
+
+// mergeJSONFile deep-merges the JSON object patch into the file at path (objects merge,
+// everything else is replaced) and returns the result.
+func mergeJSONFile(path, patch string) (string, error) {
+	var add map[string]any
+	if err := json.Unmarshal([]byte(patch), &add); err != nil {
+		return "", fmt.Errorf("merge: content is not a JSON object: %w", err)
+	}
+	cur := map[string]any{}
+	if b, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(b)) > 0 {
+		if err := json.Unmarshal(b, &cur); err != nil {
+			return "", fmt.Errorf("merge: existing file is not a JSON object: %w", err)
+		}
+	}
+	var merge func(dst, src map[string]any)
+	merge = func(dst, src map[string]any) {
+		for k, v := range src {
+			if sm, ok := v.(map[string]any); ok {
+				if dm, ok := dst[k].(map[string]any); ok {
+					merge(dm, sm)
+					continue
+				}
+			}
+			dst[k] = v
+		}
+	}
+	merge(cur, add)
+	out, err := json.MarshalIndent(cur, "", "  ")
+	return string(out) + "\n", err
 }
 
 // writeSecret materialises one secret file for the agent (never logged).
@@ -470,7 +550,7 @@ func (s *session) removeSecrets() {
 func (s *session) vars(prompt string) map[string]string {
 	return map[string]string{
 		"Prompt": prompt, "Workdir": s.dir, "Home": s.id.home, "RunID": strconv.FormatInt(s.a.RunID, 10), "TaskSqid": s.a.TaskSqid,
-		"SessionName": s.a.SessionName, "SessionUUID": s.a.SessionUUID, "Branch": s.a.Branch, "Repo": s.a.Repo,
+		"SessionName": s.a.SessionName, "SessionUUID": s.a.SessionUUID, "AgentSessionID": s.agentSessionID(), "Branch": s.a.Branch, "Repo": s.a.Repo,
 	}
 }
 
@@ -515,7 +595,10 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 	if v := os.Getenv("HTTPS_PROXY"); v != "" {
 		cmd.Env = append(cmd.Env, "HTTPS_PROXY="+v, "https_proxy="+v)
 	}
-	for k, v := range s.a.Agent.Env {
+	for k, v := range s.a.Agent.Env { // templated, e.g. {{.Home}}/.config/gcp/cred.json
+		if rv, err := render(v, vars); err == nil {
+			v = rv
+		}
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	for k, v := range s.a.Env { // resolved secrets
@@ -834,10 +917,7 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 		_, err := w.stack(ctx, "complete", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Summary: s.summary()})
 		return err
 	}
-	resume := s.a.Agent.Resume
-	if len(resume) == 0 {
-		resume = s.a.Agent.Start
-	}
+	resume := s.resumeArgv()
 	nudged := false
 	for {
 		st, err := w.leafState(ctx, n.Sqid)

@@ -59,11 +59,19 @@ func SendHook(ctx context.Context, event string, payload []byte, continueFormat 
 	}
 	json.Unmarshal(resp, &c)
 	if !c.Continue {
+		if continueFormat == "agy" {
+			_, err := fmt.Fprintln(out, "{}") // agy reads a JSON object; any non-continue decision stops
+			return err
+		}
 		return nil // let the agent stop
 	}
 	switch continueFormat {
-	case "claude": // Claude Code Stop hook decision control
+	case "claude", "codex": // Claude Code and Codex share the Stop decision contract
 		return json.NewEncoder(out).Encode(map[string]string{"decision": "block", "reason": c.Prompt})
+	case "agy": // Antigravity CLI Stop hook
+		return json.NewEncoder(out).Encode(map[string]string{"decision": "continue", "reason": c.Prompt})
+	case "gemini": // Gemini CLI AfterAgent hook: deny = run again with reason as the prompt
+		return json.NewEncoder(out).Encode(map[string]string{"decision": "deny", "reason": c.Prompt})
 	default:
 		_, err := fmt.Fprintln(out, c.Prompt)
 		return err
