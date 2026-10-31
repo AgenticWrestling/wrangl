@@ -8,13 +8,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
 )
 
 func TestServeHealthzStreamsShutdown(t *testing.T) {
@@ -28,6 +31,7 @@ func TestServeHealthzStreamsShutdown(t *testing.T) {
 	cfg.DataDir = dir
 	cfg.Listen.HTTP = "127.0.0.1:0"
 	cfg.Listen.NATS = "127.0.0.1:-1"
+	cfg.Listen.Enroll = "127.0.0.1:0"
 	cfg.Listen.Unix = filepath.Join(dir, "api.sock")
 
 	s, err := New(cfg, nil)
@@ -67,19 +71,28 @@ func TestServeHealthzStreamsShutdown(t *testing.T) {
 		t.Fatalf("socket mode: %v %v", fi, err)
 	}
 
-	// External NATS client over TCP sees both streams.
-	nc, err := nats.Connect(s.NATSURL())
+	// Anonymous / plaintext NATS is refused now that operator mode and TLS are on.
+	if nc, err := nats.Connect(strings.Replace(s.NATSURL(), "tls://", "nats://", 1), nats.MaxReconnects(0)); err == nil {
+		nc.Close()
+		t.Fatal("anonymous plaintext NATS connection accepted")
+	}
+	// A runner with issued credentials, pinning the CA, can publish into WR_EVT.
+	kp, _ := nkeys.CreateUser()
+	pubKey, _ := kp.PublicKey()
+	seed, _ := kp.Seed()
+	userJWT, err := s.Fleet.Keys.IssueRunner(9, pubKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsCfg, _ := natsd.ClientTLS(s.NATSCA())
+	nc, err := nats.Connect(s.NATSURL(), nats.UserJWTAndSeed(userJWT, string(seed)), nats.Secure(tlsCfg),
+		nats.CustomInboxPrefix(natsd.RunnerInboxPrefix(9))) // required: runners may only use their own inbox
 	if err != nil {
 		t.Fatal(err)
 	}
 	js, _ := jetstream.New(nc)
-	for _, name := range []string{StreamEvents, StreamPTY} {
-		if _, err := js.Stream(ctx, name); err != nil {
-			t.Fatalf("stream %s: %v", name, err)
-		}
-	}
-	if _, err := js.Publish(ctx, "wr.evt.r1.x1.log", []byte("hi")); err != nil {
-		t.Fatalf("publish into WR_EVT: %v", err)
+	if ack, err := js.Publish(ctx, "wr.evt.9.x1.log", []byte("hi")); err != nil || ack.Stream != StreamEvents {
+		t.Fatalf("publish into WR_EVT: %v %v", ack, err)
 	}
 	nc.Close()
 

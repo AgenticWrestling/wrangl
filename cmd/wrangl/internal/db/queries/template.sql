@@ -10,3 +10,6 @@ SELECT * FROM runner_template WHERE name = ?;
 
 -- name: ListTemplates :many
 SELECT * FROM runner_template ORDER BY name;
+
+-- name: DeleteTemplate :execrows
+DELETE FROM runner_template WHERE name = ?;

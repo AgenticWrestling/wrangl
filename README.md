@@ -85,8 +85,10 @@ A single binary that runs as a **controller** (SQLite, embedded NATS + JetStream
 **runner** (enrols, applies a mise-based template, drives a coding agent through a hierarchical
 task stack), plus the client CLI/TUI. Design: [`docs/superpowers/specs/2026-10-31-wrangl-design.md`](docs/superpowers/specs/2026-10-31-wrangl-design.md).
 
-Status: **M1** — full command tree (unbuilt commands report their milestone), config, database
-(goose + sqlc), work-stack primitives, and `controller init|serve|migrate|backup|secret`.
+Status: **M2** — controller (SQLite, NATS with operator JWTs + TLS, enrolment, heartbeats, EC2
+launch with tagging, 30-minute idle reaper), runner (`bootstrap`, `run`, `status`), and
+`fleet`/`template` commands. Unbuilt commands report the milestone that delivers them.
+AWS setup (instance roles, security group, teardown): [`docs/wrangl/aws-iam.md`](docs/wrangl/aws-iam.md).
 
 ```sh
 task build-wrangl      # build/wrangl + build/wrangl-linux-{aarch64,x86_64}
@@ -96,5 +98,10 @@ task sqlc-check        # fail if dbgen is stale
 build/wrangl --config ./c.yaml controller init --data-dir ./data
 build/wrangl --config ./c.yaml controller serve
 curl --unix-socket /run/wrangl/api.sock http://x/healthz
+
+build/wrangl template create -f template.yaml
+build/wrangl fleet launch --template go-claude     # tagged EC2 instance, enrols itself
+build/wrangl fleet list
+build/wrangl fleet teardown                         # terminate every tagged instance
 ```
 

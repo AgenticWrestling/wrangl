@@ -1,0 +1,109 @@
+# wrangl on AWS: IAM roles
+
+The controller has **no AWS keys in its config**. It uses the AWS SDK's default credential
+chain, which on its EC2 host resolves to the host's **instance role**. `wrangl fleet
+teardown`, run from a laptop, uses whatever local credentials or `--profile` you give it.
+
+## Controller instance role
+
+Least privilege: it can launch instances only if they carry `wrangl:managed=true`, tag only
+at launch, and terminate only instances tagged `wrangl:managed=true` (the controller also
+re-checks its own `wrangl:controller` id on the live instance before every terminate).
+Replace `ACCOUNT`, `REGION` and the runner role name.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LaunchTaggedRunners",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:REGION:ACCOUNT:instance/*",
+        "arn:aws:ec2:REGION:ACCOUNT:volume/*",
+        "arn:aws:ec2:REGION:ACCOUNT:network-interface/*"
+      ],
+      "Condition": { "StringEquals": { "aws:RequestTag/wrangl:managed": "true" } }
+    },
+    {
+      "Sid": "LaunchFromSubnetSgAmi",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:REGION:ACCOUNT:subnet/*",
+        "arn:aws:ec2:REGION:ACCOUNT:security-group/*",
+        "arn:aws:ec2:REGION::image/*"
+      ]
+    },
+    {
+      "Sid": "TagOnlyAtLaunch",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": "*",
+      "Condition": { "StringEquals": { "ec2:CreateAction": "RunInstances" } }
+    },
+    {
+      "Sid": "TerminateOnlyWranglInstances",
+      "Effect": "Allow",
+      "Action": "ec2:TerminateInstances",
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT:instance/*",
+      "Condition": { "StringEquals": { "aws:ResourceTag/wrangl:managed": "true" } }
+    },
+    {
+      "Sid": "Describe",
+      "Effect": "Allow",
+      "Action": ["ec2:DescribeInstances", "ec2:DescribeInstanceTypes", "ec2:DescribeImages"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ResolvePublicAmiParameters",
+      "Effect": "Allow",
+      "Action": "ssm:GetParameter",
+      "Resource": "arn:aws:ssm:REGION::parameter/aws/service/ami-amazon-linux-latest/*"
+    },
+    {
+      "Sid": "PassRunnerRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::ACCOUNT:role/wrangl-runner"
+    }
+  ]
+}
+```
+
+## Runner instance role (`wrangl-runner`)
+
+Attach `AmazonSSMManagedInstanceCore` so `ssm connect` works for debugging. Nothing else is
+needed in M2; runners talk only to the controller. Add model-provider access here later if a
+template uses Bedrock.
+
+## Network
+
+Runners and the controller share a security group that references itself:
+
+| Port | From | Purpose |
+|---|---|---|
+| 4222/tcp | runner SG | NATS (TLS, per-runner JWTs) |
+| 4223/tcp | runner SG | enrolment + runner binary download |
+
+Runners need outbound internet (mise, GitHub, model provider) through a NAT gateway. The
+enrolment check compares the request's source IP with the instance's private IP, so runners
+must reach the controller **directly inside the VPC** (no NAT or proxy in between).
+
+## Teardown
+
+Every instance, root volume and network interface is tagged `wrangl:managed=true`,
+`wrangl:controller=<id>`, `wrangl:runner`, `wrangl:template` and `Name=wrangl-<runner>`.
+
+```sh
+# on the controller host (reads the controller id locally)
+wrangl fleet teardown
+# from anywhere, with your own credentials
+wrangl fleet teardown --region us-west-2 --controller-id wr-230f447b13
+wrangl fleet teardown --region us-west-2 --all-controllers --yes
+```
+
+Root volumes are `DeleteOnTermination`, so terminating the instances removes everything.
+Even if nobody runs teardown, an orphaned runner powers itself off after 2 h without its
+controller, and instances launch with `InstanceInitiatedShutdownBehavior=terminate`.

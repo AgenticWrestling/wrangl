@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,15 +11,20 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/nreid/devhost/cmd/wrangl/internal/api"
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 )
 
@@ -36,20 +42,27 @@ func Streams() []jetstream.StreamConfig {
 	}
 }
 
-// Server is the controller process: database, embedded NATS + JetStream and HTTP.
+// Server is the controller process.
 type Server struct {
 	cfg   *config.Controller
 	log   *slog.Logger
 	ready chan struct{}
 
-	mu       sync.Mutex
-	httpAddr string
-	natsURL  string
+	// Test hooks; production leaves them zero.
+	Provisioner         *provision.Provisioner // overrides the AWS-backed one
+	Now                 func() time.Time
+	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
+	AllowLoopbackEnroll bool
 
-	db *db.DB
-	ns *server.Server
-	nc *nats.Conn
-	js jetstream.JetStream
+	mu         sync.Mutex
+	httpAddr   string
+	enrollAddr string
+	natsURL    string
+
+	db    *db.DB
+	nats  *natsd.Embedded
+	js    jetstream.JetStream
+	Fleet *fleet.Service
 }
 
 // New validates cfg and returns an unstarted server.
@@ -66,11 +79,37 @@ func New(cfg *config.Controller, log *slog.Logger) (*Server, error) {
 // Ready is closed once every listener is accepting.
 func (s *Server) Ready() <-chan struct{} { return s.ready }
 
-// HTTPAddr is the bound TCP address of the HTTP listener (valid after Ready).
+// HTTPAddr is the bound API address (valid after Ready).
 func (s *Server) HTTPAddr() string { s.mu.Lock(); defer s.mu.Unlock(); return s.httpAddr }
 
-// NATSURL is the client URL of the embedded NATS server (valid after Ready).
+// EnrollAddr is the bound enrol-listener address (valid after Ready).
+func (s *Server) EnrollAddr() string { s.mu.Lock(); defer s.mu.Unlock(); return s.enrollAddr }
+
+// NATSURL is the TLS URL runners connect to (valid after Ready).
 func (s *Server) NATSURL() string { s.mu.Lock(); defer s.mu.Unlock(); return s.natsURL }
+
+// NATSCA is the PEM CA runners pin (valid after Ready).
+func (s *Server) NATSCA() []byte { return s.nats.CA.CertPEM }
+
+// awsProvisioner builds the EC2 client from the default credential chain: the instance
+// role on the controller host, no keys in config. Nil when aws.region is unset.
+func (s *Server) awsProvisioner(ctx context.Context, controllerID string) (*provision.Provisioner, error) {
+	if s.Provisioner != nil {
+		if s.Provisioner.ControllerID == "" {
+			s.Provisioner.ControllerID = controllerID
+		}
+		return s.Provisioner, nil
+	}
+	if s.cfg.AWS.Region == "" {
+		s.log.Warn("aws.region not set: launching and reaping runners is disabled")
+		return nil, nil
+	}
+	ac, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(s.cfg.AWS.Region))
+	if err != nil {
+		return nil, fmt.Errorf("aws config: %w", err)
+	}
+	return &provision.Provisioner{EC2: ec2.NewFromConfig(ac), SSM: ssm.NewFromConfig(ac), ControllerID: controllerID}, nil
+}
 
 // Run starts everything, blocks until ctx is cancelled, then shuts down HTTP, NATS and
 // the database in that order.
@@ -79,52 +118,112 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, s.db.Close()) }()
-
-	if err := s.startNATS(ctx); err != nil {
+	controllerID, err := s.db.RQ.GetMeta(ctx, MetaControllerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("no controller id: run `wrangl controller init` first")
+	} else if err != nil {
 		return err
 	}
-	defer func() {
-		s.nc.Close()
-		s.ns.Shutdown()
-		s.ns.WaitForShutdown()
-	}()
 
-	srv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
-	tcp, err := net.Listen("tcp", s.cfg.Listen.HTTP)
+	if s.nats, err = natsd.Start(s.cfg.DataDir, s.cfg.Listen.NATS); err != nil {
+		return err
+	}
+	defer s.nats.Close()
+	if s.js, err = jetstream.New(s.nats.Conn); err != nil {
+		return err
+	}
+	for _, sc := range Streams() {
+		if _, err := s.js.CreateOrUpdateStream(ctx, sc); err != nil {
+			return fmt.Errorf("ensure stream %s: %w", sc.Name, err)
+		}
+	}
+
+	// Listeners first, so the advertised URLs carry real ports.
+	apiLn, err := net.Listen("tcp", s.cfg.Listen.HTTP)
 	if err != nil {
 		return fmt.Errorf("http listen: %w", err)
 	}
-	listeners := []net.Listener{tcp}
+	enrollLn, err := net.Listen("tcp", s.cfg.Listen.Enroll)
+	if err != nil {
+		apiLn.Close()
+		return fmt.Errorf("enroll listen: %w", err)
+	}
+	listeners := []net.Listener{apiLn}
 	if s.cfg.Listen.Unix != "" {
 		unix, err := listenUnix(s.cfg.Listen.Unix)
 		if err != nil {
-			tcp.Close()
+			apiLn.Close()
+			enrollLn.Close()
 			return err
 		}
 		listeners = append(listeners, unix)
 	}
-	s.mu.Lock()
-	s.httpAddr = tcp.Addr().String()
-	s.mu.Unlock()
 
-	errc := make(chan error, len(listeners))
-	for _, l := range listeners {
-		go func(l net.Listener) {
-			if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errc <- err
-			}
-		}(l)
+	prov, err := s.awsProvisioner(ctx, controllerID)
+	if err != nil {
+		return err
 	}
-	s.log.Info("controller serving", "http", s.httpAddr, "unix", s.cfg.Listen.Unix, "nats", s.natsURL)
+	now := s.Now
+	if now == nil {
+		now = time.Now
+	}
+	subnet := ""
+	if len(s.cfg.AWS.SubnetIDs) > 0 {
+		subnet = s.cfg.AWS.SubnetIDs[0]
+	}
+	s.Fleet = &fleet.Service{
+		DB: s.db, Keys: s.nats.Keys, NATSCA: s.nats.CA.CertPEM, NATSURLs: []string{s.nats.URL()},
+		Prov: prov, ControllerID: controllerID, EnrollURL: "http://" + enrollLn.Addr().String(),
+		SubnetID: subnet, SecurityGroupID: s.cfg.AWS.SecurityGroupID, InstanceProfile: s.cfg.AWS.RunnerInstanceProfile,
+		BinDir: filepath.Join(s.cfg.DataDir, "bin"), Now: now, Log: s.log, AllowLoopbackEnroll: s.AllowLoopbackEnroll,
+	}
+
+	hbSub, err := s.nats.Conn.Subscribe(natsd.HeartbeatWildcard, func(m *nats.Msg) {
+		if err := s.Fleet.Heartbeat(context.Background(), m.Subject, m.Data); err != nil {
+			s.log.Warn("heartbeat", "subject", m.Subject, "err", err)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	defer hbSub.Unsubscribe()
+
+	loopCtx, stopLoop := context.WithCancel(ctx)
+	defer stopLoop()
+	interval := s.LoopInterval
+	if interval == 0 {
+		interval = 30 * time.Second
+	}
+	go s.Fleet.Loop(loopCtx, interval)
+
+	apiSrv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
+	enrollSrv := &http.Server{Handler: api.EnrollHandler(s.Fleet), ReadHeaderTimeout: 10 * time.Second}
+	errc := make(chan error, len(listeners)+1)
+	serve := func(srv *http.Server, l net.Listener) {
+		if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errc <- err
+		}
+	}
+	for _, l := range listeners {
+		go serve(apiSrv, l)
+	}
+	go serve(enrollSrv, enrollLn)
+
+	s.mu.Lock()
+	s.httpAddr, s.enrollAddr, s.natsURL = apiLn.Addr().String(), enrollLn.Addr().String(), s.nats.URL()
+	s.mu.Unlock()
+	s.log.Info("controller serving", "id", controllerID, "http", s.httpAddr, "unix", s.cfg.Listen.Unix,
+		"enroll", s.enrollAddr, "nats", s.natsURL, "aws", prov != nil)
 	close(s.ready)
 
 	select {
 	case <-ctx.Done():
 	case err = <-errc:
 	}
+	stopLoop()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return errors.Join(err, srv.Shutdown(shutCtx)) // closes listeners; unix socket is unlinked
+	return errors.Join(err, apiSrv.Shutdown(shutCtx), enrollSrv.Shutdown(shutCtx))
 }
 
 func listenUnix(path string) (net.Listener, error) {
@@ -149,56 +248,10 @@ func listenUnix(path string) (net.Listener, error) {
 	return l, nil
 }
 
-func (s *Server) startNATS(ctx context.Context) error {
-	host, portStr, err := net.SplitHostPort(s.cfg.Listen.NATS)
-	if err != nil {
-		return fmt.Errorf("listen.nats %q: %w", s.cfg.Listen.NATS, err)
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return fmt.Errorf("listen.nats port %q: %w", portStr, err)
-	}
-	// M2: operator/JWT auth and TLS. Until then NATS must only bind loopback.
-	opts := &server.Options{
-		ServerName: "wrangl-controller",
-		Host:       host,
-		Port:       port, // -1 = random (tests)
-		JetStream:  true,
-		StoreDir:   filepath.Join(s.cfg.DataDir, "nats", "js"),
-		NoSigs:     true,
-		NoLog:      true,
-	}
-	if s.ns, err = server.NewServer(opts); err != nil {
-		return fmt.Errorf("nats: %w", err)
-	}
-	go s.ns.Start()
-	if !s.ns.ReadyForConnections(10 * time.Second) {
-		s.ns.Shutdown()
-		return errors.New("nats: not ready after 10s")
-	}
-	if s.nc, err = nats.Connect(s.ns.ClientURL(), nats.InProcessServer(s.ns), nats.Name("wrangl-controller")); err != nil {
-		s.ns.Shutdown()
-		return fmt.Errorf("nats in-process connect: %w", err)
-	}
-	if s.js, err = jetstream.New(s.nc); err != nil {
-		return err
-	}
-	for _, sc := range Streams() {
-		if _, err := s.js.CreateOrUpdateStream(ctx, sc); err != nil {
-			s.nc.Close()
-			s.ns.Shutdown()
-			return fmt.Errorf("ensure stream %s: %w", sc.Name, err)
-		}
-	}
-	s.mu.Lock()
-	s.natsURL = s.ns.ClientURL()
-	s.mu.Unlock()
-	return nil
-}
-
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
+	api.Register(mux, s.Fleet)
 	return mux
 }
 
@@ -212,7 +265,7 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.R.QueryRowContext(ctx, "SELECT 1").Scan(new(int)); err != nil {
 		fail("db", err)
 	}
-	if !s.ns.Running() || !s.nc.IsConnected() {
+	if !s.nats.Server.Running() || !s.nats.Conn.IsConnected() {
 		fail("nats", errors.New("not connected"))
 	}
 	if _, err := s.js.AccountInfo(ctx); err != nil {

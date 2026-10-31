@@ -3,7 +3,8 @@ package controller
 
 import (
 	"context"
-	"database/sql"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,13 +12,19 @@ import (
 	"path/filepath"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
 )
 
-// MetaSqidsAlphabet is the meta key holding the per-install sqids alphabet.
-const MetaSqidsAlphabet = "sqids_alphabet"
+// Meta keys written once at init.
+const (
+	MetaSqidsAlphabet = "sqids_alphabet"
+	// MetaControllerID tags every EC2 resource this controller creates
+	// (wrangl:controller) so teardown can tell its instances from another controller's.
+	MetaControllerID = "controller_id"
+)
 
 // DBPath returns the database file for a data dir.
 func DBPath(dataDir string) string { return filepath.Join(dataDir, "wrangl.db") }
@@ -77,19 +84,26 @@ func Init(ctx context.Context, dataDir, configPath string) (*InitResult, error) 
 		return nil, err
 	}
 	defer d.Close()
-	if _, err := d.RQ.GetMeta(ctx, MetaSqidsAlphabet); errors.Is(err, sql.ErrNoRows) {
-		alpha, err := stack.ShuffledAlphabet(nil)
-		if err != nil {
-			return nil, err
-		}
-		if err := d.Q.SetMetaIfAbsent(ctx, dbgen.SetMetaIfAbsentParams{Key: MetaSqidsAlphabet, Value: alpha}); err != nil {
-			return nil, err
-		}
-	} else if err != nil {
-		return nil, fmt.Errorf("read %s: %w", MetaSqidsAlphabet, err)
+	alpha, err := stack.ShuffledAlphabet(nil)
+	if err != nil {
+		return nil, err
 	}
-
-	// M2: generate NATS operator/account keys and the TLS cert for the runner listener.
+	idb := make([]byte, 5)
+	if _, err := rand.Read(idb); err != nil {
+		return nil, err
+	}
+	for k, v := range map[string]string{MetaSqidsAlphabet: alpha, MetaControllerID: "wr-" + hex.EncodeToString(idb)} {
+		// SetMetaIfAbsent never overwrites: re-running init keeps existing values.
+		if err := d.Q.SetMetaIfAbsent(ctx, dbgen.SetMetaIfAbsentParams{Key: k, Value: v}); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := natsd.EnsureKeys(filepath.Join(dataDir, "nats")); err != nil {
+		return nil, fmt.Errorf("nats keys: %w", err)
+	}
+	if _, err := natsd.EnsureCA(filepath.Join(dataDir, "nats")); err != nil {
+		return nil, fmt.Errorf("nats CA: %w", err)
+	}
 	// M8: generate VAPID keys for web push.
 	return res, nil
 }

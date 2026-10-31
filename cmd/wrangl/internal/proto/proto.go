@@ -1,0 +1,62 @@
+// Package proto holds the wire types shared by controller and runner.
+package proto
+
+import "time"
+
+// EnrollPath is the enrol listener endpoint (spec §7).
+const EnrollPath = "/enroll"
+
+// BinaryPath returns the download path for a runner binary; arch is `uname -m`.
+func BinaryPath(arch string) string { return "/dl/wrangl-linux-" + arch }
+
+// Facts are what the runner measured about its own machine.
+type Facts struct {
+	Arch    string `json:"arch"` // uname -m: aarch64 | x86_64
+	VCPU    int    `json:"vcpu"`
+	RAMMiB  int    `json:"ram_mib"`
+	DiskGiB int    `json:"disk_gib"`
+}
+
+// EnrollRequest is POSTed by `wrangl runner bootstrap`.
+type EnrollRequest struct {
+	Token      string `json:"token"`
+	NKeyPublic string `json:"nkey_public"`
+	InstanceID string `json:"instance_id,omitempty"` // from IMDSv2; empty off EC2
+	Facts      Facts  `json:"facts"`
+}
+
+// EnrollResponse carries everything the runner needs to connect.
+type EnrollResponse struct {
+	RunnerID int64    `json:"runner_id"`
+	Name     string   `json:"name"`
+	UserJWT  string   `json:"user_jwt"`
+	NATSURLs []string `json:"nats_urls"`
+	NATSCA   string   `json:"nats_ca"` // PEM; the runner pins it
+}
+
+// Heartbeat is published on wr.r.<id>.hb every HeartbeatInterval.
+type Heartbeat struct {
+	Time        time.Time `json:"time"`
+	Version     string    `json:"version"`
+	CPUPercent  float64   `json:"cpu_percent"`
+	MemPercent  float64   `json:"mem_percent"`
+	DiskPercent float64   `json:"disk_percent"`
+	Load1       float64   `json:"load1"`
+	UptimeS     uint64    `json:"uptime_s"`
+}
+
+// Timing shared by both sides.
+const (
+	HeartbeatInterval = 10 * time.Second
+	OfflineAfter      = 60 * time.Second // controller marks a runner offline
+	// OrphanPoweroff: a runner that cannot reach its controller for this long powers off.
+	// Instances launch with InstanceInitiatedShutdownBehavior=terminate, so that
+	// terminates it: the safety net when the controller is gone and nothing reaps.
+	OrphanPoweroff = 2 * time.Hour
+)
+
+// Ping is the reply to cmd.ping.
+type Ping struct {
+	RunnerID int64  `json:"runner_id"`
+	Version  string `json:"version"`
+}

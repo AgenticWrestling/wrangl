@@ -254,33 +254,74 @@ resolves to more than one repo, or has no open leaf.
    `cmd.assign`. An ack moves the run to `assigned`; a timeout puts it back in the queue.
 4. If no runner matches, and that template has fewer than `max_runners` runners including ones
    still launching, launch one.
-5. Reap runners idle longer than `idle_timeout_s`, and drained runners once they go idle.
+5. Reap drained runners once they go idle. Idle shutdown is a separate loop (below).
 6. When a precursor becomes `done`, re-evaluate `blocked` runs (§8) and waiting queued runs.
 
-**Instance-type selection, launch, user-data, IAM** are unchanged from rev 1:
-- Use the template's `instance_types` allowlist if set, otherwise `DescribeInstanceTypes`
-  filtered by arch and the minimums, smallest first.
-- Root gp3 volume sized at `min_disk_gib`, IMDSv2 required, tags `wrangl:managed|runner|template`.
-- User-data fetches `wrangl-linux-$(uname -m)` from `:4223`, checks its sha256, and runs
-  `wrangl runner bootstrap`.
-- Controller IAM: `RunInstances`, `CreateTags`, `Describe*`, `TerminateInstances` conditioned
-  on `wrangl:managed=true`, and `PassRole` for the runner profile only. The runner profile gets
-  `AmazonSSMManagedInstanceCore` so `ssm connect` works for debugging.
+**Launch** (built in M2):
+- **Instance type:** the template's `instance_types` allowlist if set (first type meeting the
+  minimums, in preference order), otherwise `DescribeInstanceTypes` filtered by arch,
+  current-generation and the minimums, smallest by vCPU and then memory.
+- **Instance settings:** a root gp3 volume of `min_disk_gib` (encrypted, `DeleteOnTermination`),
+  IMDSv2 required, and `InstanceInitiatedShutdownBehavior=terminate`.
+- **User-data** fetches `wrangl-linux-$(uname -m)` from `:4223`, checks its sha256 (pinned per
+  arch in the script), and runs `wrangl runner bootstrap`. Inputs are validated before
+  interpolation.
+- **AWS credentials:** the controller uses the SDK's default credential chain, which is the
+  controller host's **instance role**. No keys go in config. A least-privilege policy is in
+  `docs/wrangl/aws-iam.md`.
+
+**Tags.** Every instance, root volume and network interface is tagged `Name=wrangl-<runner>`,
+`wrangl:managed=true`, `wrangl:controller=<id>`, `wrangl:runner` and `wrangl:template`. The
+controller id is random, made at `init` and stored in `meta`. Before every terminate call, the
+controller re-reads the live instance and refuses (`ErrNotOwned`) unless it carries
+`wrangl:managed=true` **and** this controller's id.
+
+**Idle shutdown.** The reaper runs every 30 s and terminates *controller-launched* runners in
+these cases:
+- `idle` for longer than the template's `idle_timeout` (**default 30 min**)
+- `offline` for longer than that timeout
+- still `launching`/`enrolling` 15 min after launch
+
+`idle_since` survives an offline blip, so a flaky network can't keep an idle runner alive. In
+M4 it is cleared while a runner is busy. Adopted runners are never reaped.
+
+**Teardown and orphan safety nets.**
+- `wrangl fleet teardown` calls AWS **directly**, with local credentials and `--region` or
+  `--profile`, so it works when the controller is gone. It lists the tagged instances, asks for
+  confirmation and terminates them, scoped to one controller id (read locally on the controller
+  host, or `--controller-id`) or `--all-controllers`. Untagged instances are never touched.
+- A runner that can't reach its controller for **2 h** powers itself off, which terminates the
+  instance.
 
 ## 7. Enrolment and NATS security
 
-Unchanged from rev 1, renamed.
+Built and tested in M2.
 
-- **Operator/JWT mode.** The `WRANGL` account's signing key signs runner user JWTs, so adding a
-  runner needs no server reload. The controller connects in-process.
+- **Operator/JWT mode.** Keys are generated at `init` under `nats/` (0600): the operator, a
+  `SYS` account, and the `WRANGL` account with a separate signing key. JetStream limits are set
+  on the account claims. Runner user JWTs are signed by the signing key, so adding a runner needs
+  no server reload. The controller's own user is minted fresh at every start and never written
+  to disk.
+- **TLS.** A CA is created at `init`. `serve` issues a new leaf at each start for the configured
+  host plus loopback. TLS also applies to the controller's *in-process* connection: without a
+  client TLS config, nats.go deadlocks closing the pipe (found in M2).
 - **Enrolment steps:**
   1. The runner generates its NKey; the private seed never leaves the box.
-  2. It sends `POST :4223/enroll {token, nkey_public, instance_id, identity_doc, signature, facts}`.
-  3. The controller checks the token (hash, unused, unexpired, bound to that instance id),
-     verifies the identity document signature, checks the facts against the template
-     minimums, burns the token, and returns `{runner_id, user_jwt, nats_url, nats_ca}`.
-  4. Bootstrap writes `/etc/wrangl/runner.{yaml,creds}` and installs `wrangl-runner.service`
-     (`User=wrangl`).
+  2. It reads its instance id from IMDSv2, which is empty off EC2.
+  3. It sends `POST :4223/enroll {token, nkey_public, instance_id, facts}`.
+  4. The controller checks the token: hash, unused, unexpired.
+  5. For controller-launched runners it also checks that the token is bound to that
+     instance id, **and** that the request's TCP source IP equals the instance's private IP.
+     Inside the VPC there's no NAT, so this proves the request came from that instance. This
+     replaces the rev 1 plan of verifying the identity-document signature, which would have
+     needed embedded per-region AWS certificates.
+  6. It checks arch and size against the template minimums. RAM and disk get 10 % tolerance,
+     since the box reports less than the nominal size.
+  7. It burns the token in the same transaction, and returns
+     `{runner_id, name, user_jwt, nats_urls, nats_ca}`.
+  8. Bootstrap writes `/etc/wrangl/runner.{yaml,creds}` and `ca.pem` (owned by `wrangl`, creds
+     0600). It also writes a sudoers rule allowing only `systemctl poweroff`, then installs and
+     starts `wrangl-runner.service` (`User=wrangl`).
 
 | Subject | Dir | Kind |
 |---|---|---|
@@ -660,6 +701,8 @@ The client config `~/.config/wrangl/config.yaml` holds `controller` and an optio
 - **On restart:** runners buffer through the reconnect, and JetStream holds their events. Any
   runner whose heartbeat is older than 60 s is `offline`, and its run fails after 10 min unless
   the runner returns. When a run fails, its `in_progress` leaves revert to `open`.
+- **AWS:** see `docs/wrangl/aws-iam.md` for the controller and runner roles, the security
+  group and teardown.
 
 ## 14. Verified so far
 
@@ -682,6 +725,8 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
    CTE in FROM and use `COUNT(*) > 0`.
 3. A parameter compared to a CTE column needs an explicit `CAST(sqlc.arg(x) AS INTEGER)`.
 4. A bare `rank` column is parsed as the `RANK()` keyword. Always qualify it (`task.rank`).
+5. Never mix bare `?` with `sqlc.arg()`/`sqlc.narg()` in one query. sqlc emits `?N` for the named
+   parameters while SQLite keeps counting the bare ones, so arguments shift. Found in M2.
    Found while building M1.
 
 ## 15. Milestones
@@ -689,8 +734,8 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | M | Scope | Depends |
 |---|---|---|
 | **M1 ✅** | Cobra tree (stubs), config, `db` (full schema + hierarchy queries), `stack` primitives (sqids, fractional ranks), `controller init/serve/migrate/secret` skeleton with embedded NATS + healthz | — |
-| M2 | NATS operator/JWT, enrolment, `runner bootstrap/run`, heartbeat, `fleet list/show/enroll-token` | M1 |
-| M3 | Templates + apply, EC2 provisioner, scheduler scale-up/idle-reap, `fleet launch/cordon/drain/terminate` | M2 |
+| **M2 ✅** | NATS operator/JWT + TLS, enrolment, `runner bootstrap/run/status`, heartbeat, offline sweep, `fleet list/show/enroll-token`; **pulled forward from M3:** templates create/list/show/delete, EC2 provisioner with tagging, `fleet launch/terminate/teardown`, 30-min idle reaper, orphan poweroff | M1 |
+| M3 | Template apply on runners (mise) + `template edit` (versioning), scheduler (queue-driven scale-up), `fleet cordon/uncordon/drain` | M2 |
 | M4 | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/queue/…`), author-App tokens, workspace, headless work loop + PTY, ingest/logs/FTS, cancel/attach | M3 |
 | M5 | Hooks, MCP server with stack tools + scope/approval rules, Questions | M4 |
 | M6 | PR open, gates, review runs, reviewer App approve/merge, webhooks via CF bypass, revise + blocked-continuation runs | M5 |
@@ -724,6 +769,10 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D19 | Stack tools also exposed to the owner's agents (v2, M10) |
 | D20 | PWA: bottom-tab nav with Inbox; Backlog editor (drag/drop, new task, split); Runners view |
 | D21 | Split with agent ships in M8: `plan` run kind, read-only stack scope + `propose_split`, accepted from Inbox via the atomic split |
+| D22 | Every EC2 resource tagged (`wrangl:managed`, `wrangl:controller`, `wrangl:runner`, `wrangl:template`, `Name`); terminate re-checks tags; `fleet teardown` works directly against AWS |
+| D23 | Controller-launched runners idle (or offline) for 30 min are terminated; template `idle_timeout` overrides |
+| D24 | Controller uses the instance role (default credential chain); no AWS keys in config |
+| D25 | Enrolment proof for launched runners = token bound to instance id + source IP equals its private IP (replaces identity-document signature check) |
 
 ## 17. Open items
 

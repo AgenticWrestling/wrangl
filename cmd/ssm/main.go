@@ -11,15 +11,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 	"github.com/nreid/devhost/cmd/ssm/internal/cwlogs"
 	"github.com/nreid/devhost/cmd/ssm/internal/eic"
-	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
 	"github.com/nreid/devhost/cmd/ssm/internal/provision"
+	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
 	"github.com/nreid/devhost/cmd/ssm/internal/tunnel"
 	"github.com/nreid/devhost/cmd/ssm/internal/ui"
 	"github.com/nreid/devhost/cmd/ssm/internal/vpc"
+	"github.com/spf13/cobra"
 )
 
 func main() {

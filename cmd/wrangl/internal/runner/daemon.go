@@ -1,0 +1,154 @@
+package runner
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/nats-io/nats.go"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+)
+
+// Version is reported in heartbeats; set at build time with -ldflags.
+var Version = "dev"
+
+// DaemonOptions are test hooks; zero values give production behaviour.
+type DaemonOptions struct {
+	HeartbeatInterval time.Duration // default proto.HeartbeatInterval
+	OrphanAfter       time.Duration // default proto.OrphanPoweroff
+	Now               func() time.Time
+	Poweroff          func() error // default: run Config.PoweroffCommand
+	Log               *slog.Logger
+}
+
+// Connect opens the runner's NATS connection: TLS pinned to the controller CA, the
+// runner's own credentials and inbox prefix, retrying forever.
+func Connect(cfg *Config, extra ...nats.Option) (*nats.Conn, error) {
+	ca, err := os.ReadFile(cfg.CAFile)
+	if err != nil {
+		return nil, err
+	}
+	tlsCfg, err := natsd.ClientTLS(ca)
+	if err != nil {
+		return nil, err
+	}
+	opts := append([]nats.Option{
+		nats.UserCredentials(cfg.CredsFile),
+		nats.Secure(tlsCfg),
+		nats.CustomInboxPrefix(natsd.RunnerInboxPrefix(cfg.RunnerID)),
+		nats.Name("wrangl-runner-" + cfg.Name),
+		nats.MaxReconnects(-1),
+		nats.ReconnectWait(2 * time.Second),
+	}, extra...)
+	return nats.Connect(strings.Join(cfg.NATSURLs, ","), opts...)
+}
+
+// Run is the runner daemon. It returns when ctx ends, or after triggering poweroff.
+func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
+	if o.HeartbeatInterval == 0 {
+		o.HeartbeatInterval = proto.HeartbeatInterval
+	}
+	if o.OrphanAfter == 0 {
+		o.OrphanAfter = proto.OrphanPoweroff
+	}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.Log == nil {
+		o.Log = slog.Default()
+	}
+	if o.Poweroff == nil {
+		o.Poweroff = func() error {
+			if len(cfg.PoweroffCommand) == 0 {
+				return errors.New("no poweroff_command configured")
+			}
+			out, err := exec.Command(cfg.PoweroffCommand[0], cfg.PoweroffCommand[1:]...).CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%v: %s", err, out)
+			}
+			return nil
+		}
+	}
+
+	var mu sync.Mutex
+	lastConnected := o.Now()
+	connected := false
+	setConn := func(up bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		connected = up
+		lastConnected = o.Now()
+	}
+	nc, err := Connect(cfg,
+		nats.RetryOnFailedConnect(true),
+		nats.ConnectHandler(func(*nats.Conn) { setConn(true); o.Log.Info("connected to controller") }),
+		nats.ReconnectHandler(func(*nats.Conn) { setConn(true); o.Log.Info("reconnected to controller") }),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) { setConn(false); o.Log.Warn("disconnected from controller", "err", err) }),
+	)
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+	if nc.IsConnected() {
+		setConn(true)
+	}
+
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "ping"), func(m *nats.Msg) {
+		b, _ := json.Marshal(proto.Ping{RunnerID: cfg.RunnerID, Version: Version})
+		m.Respond(b)
+	}); err != nil {
+		return err
+	}
+
+	beat := func() {
+		if !nc.IsConnected() {
+			return
+		}
+		b, _ := json.Marshal(SampleHeartbeat(ctx, Version))
+		if err := nc.Publish(natsd.RunnerHeartbeatSubject(cfg.RunnerID), b); err != nil {
+			o.Log.Warn("heartbeat", "err", err)
+		}
+	}
+	beat()
+	t := time.NewTicker(o.HeartbeatInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+		}
+		beat()
+		mu.Lock()
+		orphaned := !connected && o.Now().Sub(lastConnected) >= o.OrphanAfter
+		since := lastConnected
+		mu.Unlock()
+		if orphaned {
+			o.Log.Error("controller unreachable; powering off (instance terminates on shutdown)", "since", since)
+			if err := o.Poweroff(); err != nil {
+				o.Log.Error("poweroff failed", "err", err)
+				continue // keep trying every tick
+			}
+			return nil
+		}
+	}
+}
+
+// Status connects once and measures a round trip to the controller.
+func Status(ctx context.Context, cfg *Config) (time.Duration, error) {
+	nc, err := Connect(cfg, nats.MaxReconnects(0), nats.Timeout(5*time.Second))
+	if err != nil {
+		return 0, err
+	}
+	defer nc.Close()
+	return nc.RTT()
+}

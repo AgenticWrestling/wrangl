@@ -72,6 +72,18 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 	return i, err
 }
 
+const deleteTemplate = `-- name: DeleteTemplate :execrows
+DELETE FROM runner_template WHERE name = ?
+`
+
+func (q *Queries) DeleteTemplate(ctx context.Context, name string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTemplate, name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getTemplateByName = `-- name: GetTemplateByName :one
 SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at FROM runner_template WHERE name = ?
 `

@@ -44,7 +44,7 @@ func NewRoot() *cobra.Command {
 	root.AddCommand(
 		controllerCmd(g), runnerCmd(g), tuiCmd(),
 		projectCmd(), repoCmd(), issueCmd(), taskCmd(), runCmd(), logsCmd(),
-		prCmd(), questionCmd(), templateCmd(), fleetCmd(), pushCmd(), configCmd(g),
+		prCmd(), questionCmd(), templateCmd(g), fleetCmd(g), pushCmd(), configCmd(g),
 	)
 	return root
 }

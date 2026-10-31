@@ -17,6 +17,7 @@ type EnrollmentToken struct {
 	ExpiresAt  string         `json:"expires_at"`
 	UsedAt     sql.NullString `json:"used_at"`
 	CreatedAt  string         `json:"created_at"`
+	RunnerName string         `json:"runner_name"`
 }
 
 type HookEvent struct {
@@ -176,6 +177,11 @@ type Runner struct {
 	LastMetricsJson string         `json:"last_metrics_json"`
 	CreatedAt       string         `json:"created_at"`
 	TerminatedAt    sql.NullString `json:"terminated_at"`
+	Launched        int64          `json:"launched"`
+	LaunchedAt      sql.NullString `json:"launched_at"`
+	EnrolledAt      sql.NullString `json:"enrolled_at"`
+	IdleSince       sql.NullString `json:"idle_since"`
+	OfflineSince    sql.NullString `json:"offline_since"`
 }
 
 type RunnerTemplate struct {

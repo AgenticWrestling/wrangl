@@ -10,29 +10,80 @@ import (
 	"database/sql"
 )
 
-const createRunner = `-- name: CreateRunner :one
-INSERT INTO runner (name, template_id, instance_id, instance_type, az, arch)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at
+const createAdoptedRunner = `-- name: CreateAdoptedRunner :one
+INSERT INTO runner (name, template_id, state, launched) VALUES (?, ?, 'enrolling', 0)
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since
 `
 
-type CreateRunnerParams struct {
+type CreateAdoptedRunnerParams struct {
+	Name       string `json:"name"`
+	TemplateID int64  `json:"template_id"`
+}
+
+func (q *Queries) CreateAdoptedRunner(ctx context.Context, arg CreateAdoptedRunnerParams) (Runner, error) {
+	row := q.db.QueryRowContext(ctx, createAdoptedRunner, arg.Name, arg.TemplateID)
+	var i Runner
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TemplateID,
+		&i.TemplateVersion,
+		&i.InstanceID,
+		&i.InstanceType,
+		&i.Az,
+		&i.PrivateIp,
+		&i.Arch,
+		&i.Vcpu,
+		&i.RamMib,
+		&i.DiskGib,
+		&i.NkeyPublic,
+		&i.State,
+		&i.MaxConcurrent,
+		&i.LastHeartbeatAt,
+		&i.LastMetricsJson,
+		&i.CreatedAt,
+		&i.TerminatedAt,
+		&i.Launched,
+		&i.LaunchedAt,
+		&i.EnrolledAt,
+		&i.IdleSince,
+		&i.OfflineSince,
+	)
+	return i, err
+}
+
+const createLaunchedRunner = `-- name: CreateLaunchedRunner :one
+
+INSERT INTO runner (name, template_id, instance_id, instance_type, az, arch, private_ip,
+                    state, launched, launched_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'launching', 1, ?)
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since
+`
+
+type CreateLaunchedRunnerParams struct {
 	Name         string         `json:"name"`
 	TemplateID   int64          `json:"template_id"`
 	InstanceID   sql.NullString `json:"instance_id"`
 	InstanceType string         `json:"instance_type"`
 	Az           string         `json:"az"`
 	Arch         string         `json:"arch"`
+	PrivateIp    string         `json:"private_ip"`
+	LaunchedAt   sql.NullString `json:"launched_at"`
 }
 
-func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Runner, error) {
-	row := q.db.QueryRowContext(ctx, createRunner,
+// NEVER mix bare ? with sqlc.arg()/sqlc.narg() in one query (see EnrollRunner).
+// Timestamps are passed in (RFC 3339 UTC) rather than taken from SQLite's clock so the
+// reaper and offline sweep can be tested with a fake clock.
+func (q *Queries) CreateLaunchedRunner(ctx context.Context, arg CreateLaunchedRunnerParams) (Runner, error) {
+	row := q.db.QueryRowContext(ctx, createLaunchedRunner,
 		arg.Name,
 		arg.TemplateID,
 		arg.InstanceID,
 		arg.InstanceType,
 		arg.Az,
 		arg.Arch,
+		arg.PrivateIp,
+		arg.LaunchedAt,
 	)
 	var i Runner
 	err := row.Scan(
@@ -55,43 +106,172 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 		&i.LastMetricsJson,
 		&i.CreatedAt,
 		&i.TerminatedAt,
+		&i.Launched,
+		&i.LaunchedAt,
+		&i.EnrolledAt,
+		&i.IdleSince,
+		&i.OfflineSince,
+	)
+	return i, err
+}
+
+const enrollRunner = `-- name: EnrollRunner :exec
+UPDATE runner
+SET nkey_public = ?1, instance_id = COALESCE(instance_id, ?2),
+    arch = ?3, vcpu = ?4, ram_mib = ?5,
+    disk_gib = ?6, private_ip = ?7,
+    state = 'enrolling', enrolled_at = ?8
+WHERE id = ?9
+`
+
+type EnrollRunnerParams struct {
+	NkeyPublic sql.NullString `json:"nkey_public"`
+	InstanceID sql.NullString `json:"instance_id"`
+	Arch       string         `json:"arch"`
+	Vcpu       int64          `json:"vcpu"`
+	RamMib     int64          `json:"ram_mib"`
+	DiskGib    int64          `json:"disk_gib"`
+	PrivateIp  string         `json:"private_ip"`
+	EnrolledAt sql.NullString `json:"enrolled_at"`
+	ID         int64          `json:"id"`
+}
+
+// All parameters are named: mixing bare ? with sqlc.arg/narg makes sqlc emit ?N for the
+// named ones while SQLite keeps counting the bare ones, so arguments shift (quirk 5).
+func (q *Queries) EnrollRunner(ctx context.Context, arg EnrollRunnerParams) error {
+	_, err := q.db.ExecContext(ctx, enrollRunner,
+		arg.NkeyPublic,
+		arg.InstanceID,
+		arg.Arch,
+		arg.Vcpu,
+		arg.RamMib,
+		arg.DiskGib,
+		arg.PrivateIp,
+		arg.EnrolledAt,
+		arg.ID,
+	)
+	return err
+}
+
+const getRunner = `-- name: GetRunner :one
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since FROM runner WHERE id = ?
+`
+
+func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
+	row := q.db.QueryRowContext(ctx, getRunner, id)
+	var i Runner
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TemplateID,
+		&i.TemplateVersion,
+		&i.InstanceID,
+		&i.InstanceType,
+		&i.Az,
+		&i.PrivateIp,
+		&i.Arch,
+		&i.Vcpu,
+		&i.RamMib,
+		&i.DiskGib,
+		&i.NkeyPublic,
+		&i.State,
+		&i.MaxConcurrent,
+		&i.LastHeartbeatAt,
+		&i.LastMetricsJson,
+		&i.CreatedAt,
+		&i.TerminatedAt,
+		&i.Launched,
+		&i.LaunchedAt,
+		&i.EnrolledAt,
+		&i.IdleSince,
+		&i.OfflineSince,
+	)
+	return i, err
+}
+
+const getRunnerByName = `-- name: GetRunnerByName :one
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since FROM runner WHERE name = ?
+`
+
+func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, error) {
+	row := q.db.QueryRowContext(ctx, getRunnerByName, name)
+	var i Runner
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TemplateID,
+		&i.TemplateVersion,
+		&i.InstanceID,
+		&i.InstanceType,
+		&i.Az,
+		&i.PrivateIp,
+		&i.Arch,
+		&i.Vcpu,
+		&i.RamMib,
+		&i.DiskGib,
+		&i.NkeyPublic,
+		&i.State,
+		&i.MaxConcurrent,
+		&i.LastHeartbeatAt,
+		&i.LastMetricsJson,
+		&i.CreatedAt,
+		&i.TerminatedAt,
+		&i.Launched,
+		&i.LaunchedAt,
+		&i.EnrolledAt,
+		&i.IdleSince,
+		&i.OfflineSince,
 	)
 	return i, err
 }
 
 const listRunners = `-- name: ListRunners :many
-SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at FROM runner WHERE state <> 'terminated' ORDER BY name
+SELECT r.id, r.name, r.template_id, r.template_version, r.instance_id, r.instance_type, r.az, r.private_ip, r.arch, r.vcpu, r.ram_mib, r.disk_gib, r.nkey_public, r.state, r.max_concurrent, r.last_heartbeat_at, r.last_metrics_json, r.created_at, r.terminated_at, r.launched, r.launched_at, r.enrolled_at, r.idle_since, r.offline_since, CAST(t.name AS TEXT) AS template_name
+FROM runner r JOIN runner_template t ON t.id = r.template_id
+WHERE r.state <> 'terminated' OR ?1 = 1
+ORDER BY r.name
 `
 
-func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
-	rows, err := q.db.QueryContext(ctx, listRunners)
+type ListRunnersRow struct {
+	Runner       Runner `json:"runner"`
+	TemplateName string `json:"template_name"`
+}
+
+func (q *Queries) ListRunners(ctx context.Context, includeTerminated interface{}) ([]ListRunnersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRunners, includeTerminated)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Runner{}
+	items := []ListRunnersRow{}
 	for rows.Next() {
-		var i Runner
+		var i ListRunnersRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.TemplateID,
-			&i.TemplateVersion,
-			&i.InstanceID,
-			&i.InstanceType,
-			&i.Az,
-			&i.PrivateIp,
-			&i.Arch,
-			&i.Vcpu,
-			&i.RamMib,
-			&i.DiskGib,
-			&i.NkeyPublic,
-			&i.State,
-			&i.MaxConcurrent,
-			&i.LastHeartbeatAt,
-			&i.LastMetricsJson,
-			&i.CreatedAt,
-			&i.TerminatedAt,
+			&i.Runner.ID,
+			&i.Runner.Name,
+			&i.Runner.TemplateID,
+			&i.Runner.TemplateVersion,
+			&i.Runner.InstanceID,
+			&i.Runner.InstanceType,
+			&i.Runner.Az,
+			&i.Runner.PrivateIp,
+			&i.Runner.Arch,
+			&i.Runner.Vcpu,
+			&i.Runner.RamMib,
+			&i.Runner.DiskGib,
+			&i.Runner.NkeyPublic,
+			&i.Runner.State,
+			&i.Runner.MaxConcurrent,
+			&i.Runner.LastHeartbeatAt,
+			&i.Runner.LastMetricsJson,
+			&i.Runner.CreatedAt,
+			&i.Runner.TerminatedAt,
+			&i.Runner.Launched,
+			&i.Runner.LaunchedAt,
+			&i.Runner.EnrolledAt,
+			&i.Runner.IdleSince,
+			&i.Runner.OfflineSince,
+			&i.TemplateName,
 		); err != nil {
 			return nil, err
 		}
@@ -104,6 +284,148 @@ func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markOffline = `-- name: MarkOffline :many
+UPDATE runner
+SET state = 'offline', offline_since = ?1
+WHERE state IN ('idle', 'busy', 'cordoned', 'draining', 'enrolling', 'provisioning')
+  AND last_heartbeat_at IS NOT NULL AND last_heartbeat_at < ?2
+RETURNING id, name
+`
+
+type MarkOfflineParams struct {
+	Now    sql.NullString `json:"now"`
+	Cutoff sql.NullString `json:"cutoff"`
+}
+
+type MarkOfflineRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// Runners whose last heartbeat is older than the cutoff.
+func (q *Queries) MarkOffline(ctx context.Context, arg MarkOfflineParams) ([]MarkOfflineRow, error) {
+	rows, err := q.db.QueryContext(ctx, markOffline, arg.Now, arg.Cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MarkOfflineRow{}
+	for rows.Next() {
+		var i MarkOfflineRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markTerminated = `-- name: MarkTerminated :exec
+UPDATE runner SET state = 'terminated', terminated_at = ? WHERE id = ?
+`
+
+type MarkTerminatedParams struct {
+	TerminatedAt sql.NullString `json:"terminated_at"`
+	ID           int64          `json:"id"`
+}
+
+func (q *Queries) MarkTerminated(ctx context.Context, arg MarkTerminatedParams) error {
+	_, err := q.db.ExecContext(ctx, markTerminated, arg.TerminatedAt, arg.ID)
+	return err
+}
+
+const reapCandidates = `-- name: ReapCandidates :many
+SELECT r.id, r.name, r.instance_id, r.state, CAST(t.idle_timeout_s AS INTEGER) AS idle_timeout_s
+FROM runner r JOIN runner_template t ON t.id = r.template_id
+WHERE r.launched = 1 AND r.instance_id IS NOT NULL AND (
+       (r.state = 'idle'    AND r.idle_since    <= strftime('%Y-%m-%dT%H:%M:%fZ', ?1, '-' || t.idle_timeout_s || ' seconds'))
+    OR (r.state = 'offline' AND r.offline_since <= strftime('%Y-%m-%dT%H:%M:%fZ', ?1, '-' || t.idle_timeout_s || ' seconds'))
+    OR (r.state IN ('launching', 'enrolling') AND r.launched_at <= ?2)
+)
+`
+
+type ReapCandidatesParams struct {
+	Now            interface{}    `json:"now"`
+	EnrollDeadline sql.NullString `json:"enroll_deadline"`
+}
+
+type ReapCandidatesRow struct {
+	ID           int64          `json:"id"`
+	Name         string         `json:"name"`
+	InstanceID   sql.NullString `json:"instance_id"`
+	State        string         `json:"state"`
+	IdleTimeoutS int64          `json:"idle_timeout_s"`
+}
+
+// Controller-launched runners to terminate: idle or offline past the template's idle
+// timeout, or stuck launching/enrolling past the enrol deadline. Comparisons are on
+// RFC 3339 UTC strings, which sort chronologically.
+func (q *Queries) ReapCandidates(ctx context.Context, arg ReapCandidatesParams) ([]ReapCandidatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, reapCandidates, arg.Now, arg.EnrollDeadline)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ReapCandidatesRow{}
+	for rows.Next() {
+		var i ReapCandidatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.InstanceID,
+			&i.State,
+			&i.IdleTimeoutS,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recordHeartbeat = `-- name: RecordHeartbeat :one
+UPDATE runner
+SET last_heartbeat_at = ?1, last_metrics_json = ?2,
+    offline_since = NULL,
+    idle_since = CASE WHEN state IN ('enrolling', 'provisioning') THEN ?1
+                      WHEN state = 'offline' THEN COALESCE(idle_since, ?1)
+                      ELSE idle_since END,
+    state = CASE WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
+                 ELSE state END
+WHERE id = ?3 AND state <> 'terminated'
+RETURNING state
+`
+
+type RecordHeartbeatParams struct {
+	Now     sql.NullString `json:"now"`
+	Metrics string         `json:"metrics"`
+	ID      int64          `json:"id"`
+}
+
+// First heartbeat after enrolment (or after being offline) makes the runner idle.
+// Busy/cordoned/draining runners keep their state.
+// Returning from offline keeps the existing idle_since: a network blip must not restart
+// the idle-shutdown clock (found by the M2 e2e test). A runner that went offline while
+// busy has idle_since NULL (cleared when work is assigned, M4) and starts afresh.
+func (q *Queries) RecordHeartbeat(ctx context.Context, arg RecordHeartbeatParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, recordHeartbeat, arg.Now, arg.Metrics, arg.ID)
+	var state string
+	err := row.Scan(&state)
+	return state, err
 }
 
 const updateRunnerState = `-- name: UpdateRunnerState :exec
