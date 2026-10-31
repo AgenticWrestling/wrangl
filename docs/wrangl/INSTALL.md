@@ -428,6 +428,47 @@ To follow a runner's progress:
 
 **Check:** `wrangl fleet list` shows the runner `idle` with CPU, memory and disk figures.
 
+### 8.1 Other agents, interactive sessions and Remote Control (experimental)
+
+`docs/wrangl/templates/` holds example templates:
+
+| File | Status | What it is |
+|---|---|---|
+| `claude-headless.yaml` | the one above | `claude -p` per subtask, one resumed session |
+| `claude-interactive.yaml` | **unverified** | one interactive Claude session per assignment; optional Remote Control with a full login |
+| `codex.yaml` | **unverified** | `codex exec` per subtask, MCP tools via `~/.codex/config.toml` |
+
+The unverified ones are tested only against fake agents. Try them on one runner first:
+
+```sh
+# interactive Claude with Remote Control: a full claude.ai login, not the setup-token
+wrangl controller secret set claude_credentials < ~/.claude/.credentials.json
+wrangl template create -f docs/wrangl/templates/claude-interactive.yaml
+wrangl project edit myapp --template claude-session   # or create a test project
+wrangl fleet launch --template claude-session
+wrangl task queue <sqid>
+wrangl run attach <run>      # watch the PTY: were the first-run prompts answered?
+```
+
+What to check, and what to change if it's wrong:
+- **First-run prompts.** If the session sits at a prompt, copy its text into an `expect`
+  rule's `match` (a regexp), with the keys it needs in `send` (`"\r"` is Enter). Then run
+  `template edit`.
+- **Remote Control.** Add the flag your `claude --help` documents for starting a session with
+  Remote Control to `start` and `resume`, named `"{{.SessionName}}"`. The session then
+  appears in the Claude app as `<runner>:<task>`.
+- **Chaining.** `wrangl logs <run>` shows `==> <sqid> … (same session)` each time the Stop
+  hook hands over the next task, and `ending the interactive session` at the end.
+- **Shared login.** Several runners refreshing one claude.ai login may log each other out.
+  Keep `max_runners: 1` until you've seen two runs in a row succeed.
+
+Template fields used here:
+- `drive: interactive` runs one session per assignment.
+- `secret_files` writes a controller secret to a file: 0600, owned by `agent`, deleted when
+  the run ends.
+- `expect` holds PTY prompt answers.
+- `{{.Home}}` is the agent user's home.
+
 ## 9. The first project and run
 
 ```sh
@@ -557,6 +598,7 @@ Watch these the first time and report anything odd:
 | `repo link` | CLI output | base branch detected; otherwise the App isn't installed on that repo |
 | Claude Code | `wrangl run attach <id>` | the agent works in the repo; `exited N` failures show its output in `wrangl logs <id>` |
 | Idle shutdown | `fleet list` 30+ min after the last run | the runner disappears; the EC2 console shows it terminated |
+| Interactive / Codex templates (8.1) | `wrangl run attach <id>`, `wrangl logs <id>` | prompts answered, `(same session)` hand-overs, the session ended at the end |
 
 ## 12. Day 2: backups, upgrades, teardown
 

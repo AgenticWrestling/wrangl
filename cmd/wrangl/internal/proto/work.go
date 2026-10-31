@@ -2,6 +2,9 @@ package proto
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -17,6 +20,65 @@ type AgentSpec struct {
 	// exits 0 completes its task (agents without MCP).
 	Completion string      `json:"completion,omitempty"`
 	Files      []AgentFile `json:"files,omitempty"`
+	// SecretFiles are written (0600, as the agent) before the first turn and removed when
+	// the run ends: login files an agent can only read from disk, such as a full Claude
+	// Code login for Remote Control, or Codex's auth.json. Resolved by the controller.
+	SecretFiles []SecretFileSpec `json:"secret_files,omitempty"`
+	// Expect answers prompts in the PTY (interactive drive): when the ANSI-stripped output
+	// matches, Send is typed. Each rule fires once unless Repeat is set.
+	Expect []ExpectRule `json:"expect,omitempty"`
+}
+
+// Drive modes.
+const (
+	DriveHeadless    = "headless"    // one agent process per turn (M4)
+	DriveInteractive = "interactive" // one session; the Stop hook chains the next task (M9)
+)
+
+// SecretFileSpec names a controller secret to materialise as a file on the runner.
+type SecretFileSpec struct {
+	Path   string `json:"path"`   // templated; relative paths are inside the workspace
+	Secret string `json:"secret"` // controller secret name
+	Mode   string `json:"mode,omitempty"`
+}
+
+// SecretFile is a resolved SecretFileSpec in an assignment.
+type SecretFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Mode    string `json:"mode,omitempty"`
+}
+
+// ExpectRule is one PTY prompt and its answer.
+type ExpectRule struct {
+	Match  string `json:"match"` // Go regexp
+	Send   string `json:"send"`
+	Repeat bool   `json:"repeat,omitempty"`
+}
+
+// Validate checks the parts of an agent block the runner would otherwise fail on late.
+func (a AgentSpec) Validate() error {
+	switch a.Drive {
+	case "", DriveHeadless, DriveInteractive:
+	default:
+		return fmt.Errorf("agent.drive %q: want headless or interactive", a.Drive)
+	}
+	for _, e := range a.Expect {
+		if _, err := regexp.Compile(e.Match); err != nil {
+			return fmt.Errorf("agent.expect %q: %w", e.Match, err)
+		}
+	}
+	for _, f := range a.SecretFiles {
+		if f.Path == "" || f.Secret == "" {
+			return fmt.Errorf("agent.secret_files: path and secret are required")
+		}
+		if f.Mode != "" {
+			if _, err := strconv.ParseUint(f.Mode, 8, 32); err != nil {
+				return fmt.Errorf("agent.secret_files mode %q: want octal like 0600", f.Mode)
+			}
+		}
+	}
+	return nil
 }
 
 // AgentFile is written (templated) into the workspace before the first turn.
@@ -50,6 +112,7 @@ type Assignment struct {
 	SessionUUID string            `json:"session_uuid"`
 	Agent       AgentSpec         `json:"agent"`
 	Env         map[string]string `json:"env,omitempty"` // resolved secrets for the agent process
+	SecretFiles []SecretFile      `json:"secret_files,omitempty"`
 }
 
 // Ack is a generic accepted/declined reply.

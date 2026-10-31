@@ -1,0 +1,37 @@
+# EXPERIMENTAL / UNVERIFIED (M9). OpenAI Codex CLI, headless drive.
+#
+# Codex has no hook system like Claude Code's, so there is no hook stream and no
+# interactive chaining. Subtasks complete through the wrangl MCP tools (task_complete),
+# with the usual nudge-then-ask fallback. If Codex does not pick up the MCP server, set
+# `completion: exit` so that a turn exiting 0 completes its subtask.
+#
+# Auth, one of:
+#   API key:      wrangl controller secret set openai_api_key   (and keep `secrets` below)
+#   ChatGPT login: wrangl controller secret set codex_auth < ~/.codex/auth.json
+#                 (and uncomment `secret_files`; drop `secrets`)
+#
+# Check on a runner (`wrangl run attach <id>`): the flags below against `codex exec --help`,
+# that `resume --last` picks up this run's session, and that the MCP server starts.
+name: codex
+arch: arm64
+min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
+max_runners: 1
+setup_script: |
+  dnf install -y git make gcc
+mise_toml: |
+  [tools]
+  node = "24"
+  "npm:@openai/codex" = "latest"
+agent:
+  start:  ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "{{.Prompt}}"]
+  resume: ["codex", "exec", "resume", "--last", "--dangerously-bypass-approvals-and-sandbox", "{{.Prompt}}"]
+  secrets: { OPENAI_API_KEY: openai_api_key }
+  # secret_files:
+  #   - { path: "{{.Home}}/.codex/auth.json", secret: codex_auth }
+  turn_timeout: 2h
+  files:
+    - path: "{{.Home}}/.codex/config.toml"
+      content: |
+        [mcp_servers.wrangl]
+        command = "wrangl"
+        args = ["runner", "mcp"]

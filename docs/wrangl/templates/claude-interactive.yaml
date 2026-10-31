@@ -1,0 +1,51 @@
+# EXPERIMENTAL / UNVERIFIED (M9). Claude Code as one interactive session per assignment,
+# optionally with Remote Control so you can watch or steer it from the Claude app.
+#
+# What wrangl guarantees (tested with a fake agent): one process for the whole assignment;
+# the Stop hook (`--continue-format claude`) checkpoints the task, nudges once if it was
+# not completed, then hands Claude the next ready task as a `{"decision":"block"}` reason;
+# when no task is left the session is ended; `expect` rules answer PTY prompts; the
+# login file is written 0600 for the agent and deleted when the run ends.
+#
+# What is NOT verified against a real Claude Code (check on a runner with
+# `wrangl run attach <id>` and adjust):
+#   - the exact first-run prompt texts the `expect` rules match, and the keys they need;
+#   - the Remote Control flag. Add whatever your `claude --help` documents for starting a
+#     session with Remote Control, named "{{.SessionName}}" (the spec's placeholder is
+#     `--rc <name>`);
+#   - several runners sharing one claude.ai login: refreshes may invalidate each other.
+#     Use max_runners: 1 until that is checked.
+#
+# Remote Control needs a full claude.ai login, not a setup-token. On a machine where you
+# ran `claude` and /login:
+#   wrangl controller secret set claude_credentials < ~/.claude/.credentials.json
+name: claude-session
+arch: arm64
+min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
+max_runners: 1
+setup_script: |
+  dnf install -y git make gcc
+mise_toml: |
+  [tools]
+  node = "24"
+  "npm:@anthropic-ai/claude-code" = "latest"
+agent:
+  drive: interactive
+  start:  ["claude", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  resume: ["claude", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  turn_timeout: 8h                     # the whole session is one turn
+  secret_files:
+    - { path: "{{.Home}}/.claude/.credentials.json", secret: claude_credentials }
+  expect:                              # unverified prompt texts
+    - { match: "(?i)do you trust the files in this folder", send: "\r" }
+    - { match: "(?i)bypass permissions mode", send: "2\r" }
+  files:
+    - path: .mcp.json
+      content: '{"mcpServers":{"wrangl":{"command":"wrangl","args":["runner","mcp"]}}}'
+    - path: .claude/settings.local.json
+      content: |
+        {"hooks": {
+          "PostToolUse":  [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse"}]}],
+          "Notification": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
+          "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop --continue-format claude","timeout":120}]}]},
+         "enableAllProjectMcpServers": true}

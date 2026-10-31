@@ -122,7 +122,16 @@ type session struct {
 	// continuedFrom is the existing branch head a revise/continuation run started from:
 	// "ahead" counts commits past it.
 	continuedFrom string
+	// interactive drive (M9): one agent session; its Stop hook asks onStop for the next
+	// prompt, and when there is none the daemon ends the session.
+	interactive bool
+	onStop      func(ctx context.Context) (string, bool)
+	secretPaths []string // secret files to remove when the run ends
 }
+
+// InteractiveEndGrace is how long an interactive session may take to exit by itself after
+// its Stop hook was told to stop, before the daemon terminates it (a TUI never exits).
+var InteractiveEndGrace = 5 * time.Second
 
 var ansi = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[@-Z\\-_]|\r`)
 
@@ -205,7 +214,8 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment) {
 	// Final states must be published even after a cancel.
 	pubCtx := context.WithoutCancel(ctx)
 	dir, id, err := w.workdir(a.RunID)
-	s := &session{w: w, a: a, id: id, dir: dir}
+	s := &session{w: w, a: a, id: id, dir: dir, interactive: a.Agent.Drive == proto.DriveInteractive && a.Kind == "work"}
+	defer s.removeSecrets()
 	fail := func(err error) {
 		s.logf("runner", "run failed: %v", err)
 		s.flush()
@@ -253,8 +263,19 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment) {
 			argv = a.Agent.Resume
 		}
 		s.resetSummary()
+		var ch *chain
+		if s.interactive {
+			ch = &chain{cur: n}
+			s.onStop = func(hctx context.Context) (string, bool) { return w.chainNext(hctx, s, ch) }
+		}
 		code, err := w.turn(ctx, s, argv, n, turnTimeout)
 		turns++
+		if ch != nil {
+			s.onStop = nil
+			ch.mu.Lock()
+			n, turns = ch.cur, turns+ch.extra // the session may have moved on to later tasks
+			ch.mu.Unlock()
+		}
 		if err != nil {
 			fail(fmt.Errorf("task %s: %w", n.Sqid, err))
 			return
@@ -391,12 +412,64 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 			os.Lchown(path, id.uid, id.gid)
 		}
 	}
+	for _, f := range a.SecretFiles {
+		if err := s.writeSecret(f, vars); err != nil {
+			return "", err
+		}
+	}
 	return base, nil
+}
+
+// writeSecret materialises one secret file for the agent (never logged).
+func (s *session) writeSecret(f proto.SecretFile, vars map[string]string) error {
+	path, err := render(f.Path, vars)
+	if err != nil {
+		return fmt.Errorf("secret file path %q: %w", f.Path, err)
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(s.dir, path)
+	}
+	mode := os.FileMode(0o600)
+	if f.Mode != "" {
+		if m, err := strconv.ParseUint(f.Mode, 8, 32); err == nil {
+			mode = os.FileMode(m)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if s.id.drop {
+		os.Lchown(filepath.Dir(path), s.id.uid, s.id.gid)
+	}
+	os.Remove(path) // never write through a symlink the agent planted
+	fh, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return fmt.Errorf("secret file %s: %w", path, err)
+	}
+	if s.id.drop {
+		fh.Chown(s.id.uid, s.id.gid)
+	}
+	_, err = fh.WriteString(f.Content)
+	if cerr := fh.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return fmt.Errorf("secret file %s: %w", path, err)
+	}
+	s.secretPaths = append(s.secretPaths, path)
+	s.logf("runner", "wrote secret file %s", path)
+	return nil
+}
+
+func (s *session) removeSecrets() {
+	for _, p := range s.secretPaths {
+		os.Remove(p)
+	}
 }
 
 func (s *session) vars(prompt string) map[string]string {
 	return map[string]string{
-		"Prompt": prompt, "Workdir": s.dir, "RunID": strconv.FormatInt(s.a.RunID, 10), "TaskSqid": s.a.TaskSqid,
+		"Prompt": prompt, "Workdir": s.dir, "Home": s.id.home, "RunID": strconv.FormatInt(s.a.RunID, 10), "TaskSqid": s.a.TaskSqid,
 		"SessionName": s.a.SessionName, "SessionUUID": s.a.SessionUUID, "Branch": s.a.Branch, "Repo": s.a.Repo,
 	}
 }
@@ -453,6 +526,31 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 		attrs.Credential = &syscall.Credential{Uid: uint32(s.id.uid), Gid: uint32(s.id.gid)}
 	}
 	cmd.SysProcAttr = attrs
+	// Interactive drive: the Stop hook asks for the next prompt; when there is none the
+	// session gets InteractiveEndGrace to exit by itself, then is terminated.
+	end := make(chan struct{})
+	if s.interactive {
+		var once sync.Once
+		onStop := s.onStop
+		w.mu.Lock()
+		w.continueFn = func(hctx context.Context) (string, bool) {
+			if onStop != nil {
+				if p, ok := onStop(hctx); ok {
+					return p, true
+				}
+			}
+			time.AfterFunc(InteractiveEndGrace, func() { once.Do(func() { close(end) }) })
+			return "", false
+		}
+		w.mu.Unlock()
+		defer func() { w.mu.Lock(); w.continueFn = nil; w.mu.Unlock() }()
+	}
+	rules := make([]expectRule, 0, len(s.a.Agent.Expect))
+	for _, e := range s.a.Agent.Expect {
+		if re, err := regexp.Compile(e.Match); err == nil {
+			rules = append(rules, expectRule{re: re, send: e.Send, repeat: e.Repeat})
+		}
+	}
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 50, Cols: 200})
 	if err != nil {
 		return 0, fmt.Errorf("start agent %s: %w", argv[0], err)
@@ -465,11 +563,28 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 		defer close(readDone)
 		buf := make([]byte, 32<<10)
 		var partial []byte
+		var screen string // ANSI-stripped recent output, for expect rules
 		for {
 			nr, err := f.Read(buf)
 			if nr > 0 {
 				chunk := append([]byte(nil), buf[:nr]...)
 				w.JS.PublishAsync(ptySubj, chunk)
+				if len(rules) > 0 {
+					screen += ansi.ReplaceAllString(string(chunk), "")
+					if len(screen) > 8<<10 {
+						screen = screen[len(screen)-(8<<10):]
+					}
+					for i := range rules {
+						r := &rules[i]
+						if r.done || !r.re.MatchString(screen) {
+							continue
+						}
+						s.logf("runner", "expect %q matched; answering", r.re.String())
+						f.WriteString(r.send)
+						screen, r.done = "", !r.repeat
+						break
+					}
+				}
 				partial = append(partial, chunk...)
 				for {
 					i := bytes.IndexByte(partial, '\n')
@@ -494,6 +609,17 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 	var werr error
 	select {
 	case werr = <-waitErr:
+	case <-end: // interactive session told to stop but still open
+		s.logf("runner", "ending the interactive session")
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		select {
+		case <-waitErr:
+		case <-time.After(killGrace):
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			<-waitErr
+		}
+		<-readDone
+		return 0, nil
 	case <-tctx.Done():
 		reason := "cancelled"
 		if ctx.Err() == nil {
@@ -617,6 +743,65 @@ func (w *Worker) Inspect(ctx context.Context, kind string, ref proto.RunRef) pro
 
 var errFailRun = errors.New("owner chose to fail the run")
 
+type expectRule struct {
+	re     *regexp.Regexp
+	send   string
+	repeat bool
+	done   bool
+}
+
+func finished(state string) bool {
+	return state == "in_review" || state == "done" || state == "cancelled"
+}
+
+// chain is the interactive session's position in the work stack.
+type chain struct {
+	mu     sync.Mutex
+	cur    *proto.StackNext
+	extra  int    // tasks taken on within the session after the first
+	nudged string // sqid already nudged in this session
+}
+
+// chainNext runs at the session's Stop hook: checkpoint the task, nudge once if it was not
+// completed, else hand the agent the next ready task in the same session.
+func (w *Worker) chainNext(ctx context.Context, s *session, ch *chain) (string, bool) {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	n := ch.cur
+	if err := w.checkpoint(ctx, s, n); err != nil {
+		s.logf("runner", "stop hook: %v", err)
+		return "", false
+	}
+	if s.a.Agent.Completion == "exit" {
+		if _, err := w.stack(ctx, "complete", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Summary: s.summary()}); err != nil {
+			s.logf("runner", "stop hook: complete %s: %v", n.Sqid, err)
+			return "", false
+		}
+	}
+	st, err := w.leafState(ctx, n.Sqid)
+	if err != nil {
+		s.logf("runner", "stop hook: %v", err)
+		return "", false
+	}
+	if !finished(st) {
+		if ch.nudged == n.Sqid {
+			return "", false // the run loop asks the owner
+		}
+		ch.nudged = n.Sqid
+		s.logf("runner", "agent stopped without completing %s; nudging in the session", n.Sqid)
+		return nudgePrompt(n), true
+	}
+	r, err := w.stack(ctx, "next", proto.StackRequest{RunID: s.a.RunID})
+	if err != nil || r.Next == nil || r.Next.Done || r.Next.Blocked {
+		return "", false
+	}
+	ch.cur, ch.extra = r.Next, ch.extra+1
+	s.logf("runner", "==> %s %s (same session)", r.Next.Sqid, r.Next.Title)
+	s.state(context.WithoutCancel(ctx), proto.RunState{State: "running", Status: r.Next.Sqid + " " + r.Next.Title})
+	s.resetSummary()
+	return r.Next.Prompt, true
+}
+
 // nudgePrompt is sent once when the agent ends a turn without completing its task.
 func nudgePrompt(n *proto.StackNext) string {
 	return fmt.Sprintf("You ended your turn without calling the task_complete tool for task %s (%q). "+
@@ -643,6 +828,9 @@ func (w *Worker) leafState(ctx context.Context, sqid string) (string, error) {
 // once, then ask the owner (retry / mark complete / fail).
 func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackNext, turns *int, timeout time.Duration) error {
 	if s.a.Agent.Completion == "exit" {
+		if st, err := w.leafState(ctx, n.Sqid); err == nil && finished(st) {
+			return nil // an interactive session's Stop already completed it
+		}
 		_, err := w.stack(ctx, "complete", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Summary: s.summary()})
 		return err
 	}
@@ -656,7 +844,7 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 		if err != nil {
 			return err
 		}
-		if st == "in_review" || st == "done" || st == "cancelled" {
+		if finished(st) {
 			return nil
 		}
 		if !nudged {

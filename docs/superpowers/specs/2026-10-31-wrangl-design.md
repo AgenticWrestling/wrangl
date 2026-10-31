@@ -432,11 +432,20 @@ subscription's limits. Other agents use the same mechanism with their own secret
   tokens "can only make model requests, so [they] can't establish Remote Control sessions."
   Remote Control needs a full claude.ai `/login`. Its server mode also prompts once to enable it
   and to trust the workspace, and has no documented unattended mode.
-- With `remote_control.enabled: true`, `drive` becomes `interactive`: the agent runs
-  `claude --rc "<session_name>" …` in the PTY, using a full credentials file copied from the
-  controller for that run. The runner answers the first-run prompts.
-- That mode is gated behind a prototype (M9). The risks to check there: several machines
-  refreshing the same login can invalidate each other, and the prompt handling is undocumented.
+- **As built (M9):** there is no special `remote_control` switch (D30). Remote Control is an
+  interactive-drive template:
+  - `drive: interactive` starts **one** agent session for the whole assignment, in the PTY.
+  - `secret_files` materialises the full login (for example
+    `{{.Home}}/.claude/.credentials.json` from the controller secret `claude_credentials`). It
+    is written 0600 for the agent, never logged, and deleted when the run ends. This is the one
+    place a secret touches a runner's disk, and only because the agent can read a login
+    nowhere else.
+  - The start command carries whatever flag the agent uses to enable Remote Control.
+  - `expect` rules (regexp → keystrokes, once each unless `repeat`) answer first-run prompts
+    in the PTY.
+  - Example: `docs/wrangl/templates/claude-interactive.yaml`. Its prompt texts, the Remote
+    Control flag, and shared-login refresh behaviour are **unverified** (marked as such in the
+    file). Use `max_runners: 1` until checked.
 
 ### The work loop
 
@@ -475,10 +484,22 @@ Steps:
      `blocked`. When the precursors are `done`, the scheduler queues a continuation run (a
      `revise`-kind run on the same branch and PR) automatically.
    - If there are no commits at all, the run moves to `blocked` without a PR.
-4. **Interactive drive** (Remote Control) does the same loop. The `Stop` hook acts as the turn
-   boundary: `wrangl runner hook Stop --continue-format claude` asks the daemon for the next
-   leaf and prints Claude Code's "continue" response with the next prompt, or exits 0 to let the
-   session stop. Hook output formats are verified per agent in M9.
+4. **Interactive drive** (`drive: interactive`, work runs only; plan/review/revise stay
+   headless) does the same loop inside one session. The `Stop` hook is the turn boundary:
+   `wrangl runner hook Stop --continue-format claude` asks the daemon, which:
+   - checkpoint-commits the current task;
+   - if it isn't completed, nudges once in the session;
+   - otherwise takes the next ready leaf and prints `{"decision":"block","reason":"<next
+     prompt>"}`, which Claude Code treats as "keep going with this".
+
+   With nothing left to hand out, the hook prints nothing (exit 0). The daemon then gives the
+   session `InteractiveEndGrace` (5 s) to exit by itself and terminates it, because a TUI
+   never exits. The run loop then carries on as in headless drive: a task still incomplete gets
+   a headless-style nudge turn and then the owner question, and the next ready leaf (if the
+   session stopped early) starts a resumed session. `--continue-format text` prints the bare
+   prompt for agents whose stop hooks read stdout. The Claude format is unit-tested; the
+   end-to-end path is tested with a fake session agent (trust prompt, login file, chaining,
+   nudge, termination).
 5. **Hooks** (`wrangl runner hook <event>`): read stdin JSON and post it to the daemon socket,
    which publishes `wr.evt.….hook`. They're fire-and-forget and never block the agent, except
    for the `--continue-format` mode above.
@@ -797,7 +818,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | **M6 ✅** | PR open (by the controller), gates (CI, size, protected globs), review runs + `submit_review`, reviewer-App approve/squash-merge, `pr_review` questions, revise runs on the PR branch, HMAC webhooks with dedupe + 15-min reconcile, blocked continuation, `pr` CLI | M5 |
 | **M7 ✅** | In-process event bus, `GET /api/v1/events` SSE (15 s keepalive), PTY as SSE with `Last-Event-ID` resume, `wrangl tui` (bubbletea: runners, runs, stack editing, questions, PRs; attach/logs/diff hand over the terminal) | M4 |
 | **M8 ✅** | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
-| M9 | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
+| **M9 ✅** | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
 | M10 | v2: controller-hosted remote MCP endpoint exposing the stack tools to the owner's own agents (auth design behind CF Access) | M5, M8 |
 
 ## 16. Decisions log
@@ -832,6 +853,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D27 | M5: the stuck-task question offers Retry / Mark complete / Fail run ("skip" would hand the same leaf back). Approvals apply inside the assignment; outside it the agent can only read. Approval questions outlive the run; agent/system questions are cancelled with it |
 | D28 | M6: the controller (author App) opens PRs after a push, so GitHub's API is only ever called from the controller. Without a reviewer App PRs are opened but not reviewed/merged by wrangl. One review run per PR head; a review run that submits nothing goes to the owner |
 | D29 | M8: the PWA uses stdlib `html/template` instead of templ (no code generation step, no extra tool in the gate) and vendors Datastar 1.0.0-beta.11, SortableJS and xterm.js into the binary instead of a CDN. `/ui/*` is the PWA's own action surface; `/api/v1` stays the stable client API |
+| D30 | M9: Remote Control is not a switch but an interactive-drive template: `drive: interactive` + `secret_files` (full login, 0600, deleted at run end) + `expect` rules for first-run prompts + the agent's own flag in `start`. Example templates for Claude (headless, interactive) and Codex ship in `docs/wrangl/templates/`, the interactive and Codex ones marked unverified |
 | D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 
 ## 17. Open items

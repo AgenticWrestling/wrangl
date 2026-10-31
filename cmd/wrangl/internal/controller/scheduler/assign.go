@@ -92,6 +92,18 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		env[k] = strings.TrimSpace(string(v))
 	}
 	spec.Secrets = nil // names stay on the controller
+	var files []proto.SecretFile
+	for _, f := range spec.SecretFiles {
+		if s.Secret == nil {
+			return fmt.Errorf("secret %q needed but no secret store", f.Secret)
+		}
+		v, err := s.Secret(f.Secret)
+		if err != nil {
+			return fmt.Errorf("template %s needs secret %q: %w (wrangl controller secret set %s)", tmpl.Name, f.Secret, err, f.Secret)
+		}
+		files = append(files, proto.SecretFile{Path: f.Path, Content: string(v), Mode: f.Mode})
+	}
+	spec.SecretFiles = nil
 
 	runner, err := d.Q.ClaimIdleRunner(ctx, r.TemplateID.Int64)
 	if err != nil {
@@ -120,7 +132,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	a := proto.Assignment{
 		RunID: r.ID, Kind: r.Kind, Continue: r.ContinueBranch == 1, TaskSqid: r.TaskSqid, Repo: repo.Owner + "/" + repo.Name,
 		CloneURL: repo.CloneUrl, BaseBranch: repo.DefaultBranch, Branch: r.Branch, GitToken: token,
-		SessionName: session, SessionUUID: r.SessionUuid, Agent: spec, Env: env,
+		SessionName: session, SessionUUID: r.SessionUuid, Agent: spec, Env: env, SecretFiles: files,
 	}
 	b, _ := json.Marshal(a)
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)

@@ -1,0 +1,28 @@
+# Claude Code, headless drive (the default; verified shape, see INSTALL.md section 8).
+# One `claude -p` process per subtask, all resuming one session id.
+name: go-claude
+arch: arm64
+min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
+max_runners: 2
+setup_script: |
+  dnf install -y git make gcc
+mise_toml: |
+  [tools]
+  go = "1.26"
+  node = "24"
+  "npm:@anthropic-ai/claude-code" = "latest"
+agent:
+  start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  turn_timeout: 2h
+  files:
+    - path: .mcp.json
+      content: '{"mcpServers":{"wrangl":{"command":"wrangl","args":["runner","mcp"]}}}'
+    - path: .claude/settings.local.json
+      content: |
+        {"hooks": {
+          "PostToolUse":  [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse"}]}],
+          "Notification": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
+          "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop"}]}]},
+         "enableAllProjectMcpServers": true}

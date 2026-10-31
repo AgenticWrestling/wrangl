@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 )
 
 // DefaultIdleTimeout is how long a controller-launched runner may sit idle before the
@@ -97,6 +98,13 @@ func ParseTemplate(b []byte) (dbgen.CreateTemplateParams, error) {
 	agent, err := json.Marshal(normalize(f.Agent))
 	if err != nil {
 		return p, fmt.Errorf("agent: %w", err)
+	}
+	spec, err := proto.ParseAgentSpec(string(agent))
+	if err != nil {
+		return p, fmt.Errorf("agent: %w", err)
+	}
+	if err := spec.Validate(); err != nil {
+		return p, err
 	}
 	return dbgen.CreateTemplateParams{
 		Name: f.Name, Description: f.Description, MiseToml: f.MiseTOML, SetupScript: f.SetupScript,
