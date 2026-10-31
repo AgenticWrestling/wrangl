@@ -119,6 +119,7 @@ wrangl
 │             move <sqid> [--parent <sqid> | --root] [--after | --before | --first | --last]
 │             needs add|rm <sqid> <precursor-sqid>
 │             split <sqid> [-f outline.md | --title … --title …] [--chain] [--copy-prompt]
+│             split <sqid> --agent [--guidance "…"]   # queue a plan run (§8)
 │             queue <sqid>                            # create a work run for this subtree
 │             complete | reopen | cancel <sqid> [-m reason] | delete <sqid>
 ├── run       list [--state --runner --project] | show | cancel <run>
@@ -180,17 +181,17 @@ bridge (agents) both call it, so the rules and the audit trail stay identical.
 | `runner_template` | `name`, `mise_toml`, `setup_script`, `agent_json` (§8), `min_vcpu`, `min_ram_mib`, `min_disk_gib`, `arch`, `instance_types`, `ami`, `max_runners`, `idle_timeout_s`, `version` |
 | `enrollment_token` | `token_hash`, `template_id`, `instance_id`, `expires_at`, `used_at`, `runner_id` |
 | `runner` | `name`, `template_id`, `template_version`, `instance_id`, `instance_type`, `az`, `private_ip`, `arch`, `vcpu`, `ram_mib`, `disk_gib`, `nkey_public`, `state`, `max_concurrent`, `last_heartbeat_at`, `last_metrics_json` |
-| `project` | `slug`, `name`, `default_template_id`, `auto_merge`, `protected_paths`, `max_auto_merge_lines`, `priority` (plus `auto_queue` in M4) |
+| `project` | `slug`, `name`, `default_template_id`, `plan_template_id`, `auto_merge`, `protected_paths`, `max_auto_merge_lines`, `priority` (plus `auto_queue` in M4) |
 | `repo` | `project_id`, `owner`, `name`, `default_branch`, `gh_installation_id` |
 | `issue` | `repo_id`, `gh_number`, `title`, `body`, `state`, `url`, `synced_at` |
 | `task` | `sqid` (unique, immutable), `project_id`, `parent_id`, `rank`, `repo_id?`/`template_id?` (NULL = inherit), `issue_id?`, `title`, `prompt`, `state`, `created_by`, `completion_summary`, `completed_run_id` |
 | `task_dependency` | (`task_id`, `depends_on_id`): precursors, same project |
 | `task_event` | audit: `task_sqid`, `run_id?`, `actor`, `op`, `diff_json`, `ts` |
-| `run` | `task_id` (assignment root), `current_task_id`, `runner_id`, `kind` (`work`/`review`/`revise`), `attempt`, `state`, `branch`, `session_name`, `base_sha`, `head_sha`, `status_text`, `exit_code`, `error`, timestamps |
+| `run` | `task_id` (assignment root), `current_task_id`, `runner_id`, `kind` (`work`/`review`/`revise`/`plan`), `attempt`, `state`, `branch`, `session_name`, `base_sha`, `head_sha`, `status_text`, `exit_code`, `error`, timestamps |
 | `pull_request` | `task_id` (root), `repo_id`, `run_id`, `gh_number`, `url`, `head_branch`, `state`, `risk`, `review_summary_md`, `gates_json`, `decision` |
 | `log_line` + `log_line_fts` | `run_id`, `seq`, `ts`, `stream`, `level`, `message`; FTS5 external-content index |
 | `hook_event` | `run_id`, `seq`, `ts`, `name`, `payload_json` |
-| `question` / `question_option` | `kind` (`agent`/`pr_review`/`approval`/`system`), prompt, options, answer |
+| `question` / `question_option` | `kind` (`agent`/`pr_review`/`approval`/`plan_review`/`system`), prompt, options, `payload_json` (e.g. a proposed split tree), answer |
 | `push_subscription` | Web Push endpoint + keys |
 
 ### Work stack rules
@@ -410,6 +411,31 @@ Steps:
 7. **Inspection:** `cmd.diff`, `cmd.tree` and `cmd.file`, capped at 4 MiB. Worktrees are
    removed 24 h after the run ends, or sooner when disk passes 85 %.
 
+### Plan runs ("Split with agent")
+
+A `plan` run decomposes one `open` task into a proposed subtree. It makes no repo changes.
+
+- **Queued by** the PWA's *Split with agent* button, `wrangl task split <sqid> --agent
+  [--guidance …]`, or the TUI. The task is locked while the run is active, so nobody queues it
+  or splits it by hand mid-plan.
+- **Template:** `project.plan_template_id`, falling back to the work template. A cheaper or
+  smaller template can be set for planning.
+- **On the runner:** the repo is checked out read-only for context, and nothing is pushed. The
+  agent gets the task, its ancestors' prompts, its sibling titles and the optional guidance.
+  - Tool scope: the **read** stack tools, `ask_question`, `report_status` and `propose_split`.
+    Every write tool is refused.
+  - One turn, plus at most one nudge if the agent ends without proposing.
+- **Result:** `propose_split` stores the tree in a `plan_review` Question's `payload_json`
+  (options *Accept* · *Edit* · *Reject*) and sends a web push. The run then succeeds.
+  - *Accept* applies the proposal through the same atomic `split` the manual path uses
+    (`actor = agent:<run>`, approved by `user`).
+  - *Edit* opens the Split sheet in the PWA pre-filled with the proposal, so you can tweak it
+    and confirm.
+  - *Reject* (with optional feedback) can re-queue another plan run with that feedback added to
+    the guidance.
+- **Staleness:** if the task changed after the proposal (it was edited, split by hand, or is no
+  longer `open`), *Accept* and *Edit* still open the sheet but show a warning banner.
+
 ### MCP tools (`wrangl runner mcp`)
 
 The MCP server is stdio, proxied through the daemon socket to `wr.stack.<r>.<op>`.
@@ -430,6 +456,7 @@ The MCP server is stdio, proxied through the daemon socket to `wr.stack.<r>.<op>
 | `ask_question(prompt, options[], allow_free_text, detail_md)` | blocks; run → `needs_input` |
 | `report_status(summary, percent?)` | |
 | `submit_review(risk, summary_md, concerns[])` | review runs only |
+| `propose_split(children[{title, prompt, children}], chain, rationale_md)` | plan runs only; ends the run |
 
 **Agent scope.** Agents can **read** the whole project. They can **write** only inside their
 assignment subtree:
@@ -554,9 +581,9 @@ notification deep-links into Inbox or into the item itself.
     children}], chain}` runs as one transaction and writes one `task_event` per create.
   - Refused for `in_progress`/`in_review` tasks. Splitting a container appends the new
     children after its existing ones.
-  - **Split with agent** (proposed, not yet decided, §17): queue a `plan` run that may only use
-    the stack tools to decompose the task. It makes no repo changes, and its result shows up in
-    Inbox for you to accept.
+  - **Split with agent:** a button on the same sheet, with an optional guidance field. It
+    queues a `plan` run (§8). The task shows a "planning on `<runner>`" badge. The proposal
+    arrives in Inbox as *Accept* · *Edit* (opens this sheet pre-filled) · *Reject*.
 - **Task detail** (tap a row): the prompt rendered as markdown; children; precursors and the
   tasks that depend on it (both editable); effective repo and template; linked issue;
   runs and the PR; the `task_event` history (who changed what: you or `agent:<run>`).
@@ -666,7 +693,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | M5 | Hooks, MCP server with stack tools + scope/approval rules, Questions | M4 |
 | M6 | PR open, gates, review runs, reviewer App approve/merge, webhooks via CF bypass, revise + blocked-continuation runs | M5 |
 | M7 | HTTP API + SSE + TUI (incl. tree editing) | M4 (parallel with M5/M6) |
-| M8 | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
+| M8 | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
 | M9 | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
 | M10 | v2: controller-hosted remote MCP endpoint exposing the stack tools to the owner's own agents (auth design behind CF Access) | M5, M8 |
 
@@ -693,8 +720,9 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D17 | One branch + one PR per assignment, checkpoint commit per subtask; one agent session per assignment |
 | D18 | Assignment ends when no open leaves remain; agents read project-wide, write within their subtree; deletes/cancels of others' tasks need approval |
 | D19 | Stack tools also exposed to the owner's agents (v2, M10) |
+| D20 | PWA: bottom-tab nav with Inbox; Backlog editor (drag/drop, new task, split); Runners view |
+| D21 | Split with agent ships in M8: `plan` run kind, read-only stack scope + `propose_split`, accepted from Inbox via the atomic split |
 
 ## 17. Open items
 
-1. **Split with agent:** a `plan` run kind (stack tools only, no repo changes, result accepted
-   from Inbox). Worth adding to M8, or later?
+None right now.

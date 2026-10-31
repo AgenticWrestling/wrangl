@@ -239,6 +239,7 @@ CREATE TABLE project (
     name                 TEXT    NOT NULL,
     description          TEXT    NOT NULL DEFAULT '',
     default_template_id  INTEGER REFERENCES runner_template (id),
+    plan_template_id     INTEGER REFERENCES runner_template (id),  -- NULL = default template
     auto_merge           INTEGER NOT NULL DEFAULT 0 CHECK (auto_merge IN (0, 1)),
     protected_paths      TEXT    NOT NULL DEFAULT '[".github/**","**/migrations/**","go.mod","**/*.tf","Dockerfile*"]',
     max_auto_merge_lines INTEGER NOT NULL DEFAULT 200,
@@ -353,7 +354,7 @@ CREATE TABLE run (
     task_id      INTEGER NOT NULL REFERENCES task (id) ON DELETE CASCADE,  -- assignment root
     current_task_id INTEGER REFERENCES task (id) ON DELETE SET NULL,       -- subtask in progress
     runner_id    INTEGER REFERENCES runner (id),
-    kind         TEXT    NOT NULL DEFAULT 'work' CHECK (kind IN ('work', 'review', 'revise')),
+    kind         TEXT    NOT NULL DEFAULT 'work' CHECK (kind IN ('work', 'review', 'revise', 'plan')),
     attempt      INTEGER NOT NULL DEFAULT 1,
     state        TEXT    NOT NULL DEFAULT 'queued' CHECK (state IN (
                      'queued', 'assigned', 'preparing', 'running', 'needs_input', 'blocked',
@@ -431,10 +432,11 @@ CREATE TABLE question (
     id                INTEGER PRIMARY KEY,
     task_id           INTEGER NOT NULL REFERENCES task (id) ON DELETE CASCADE,
     run_id            INTEGER REFERENCES run (id) ON DELETE SET NULL,
-    kind              TEXT    NOT NULL CHECK (kind IN ('agent', 'pr_review', 'approval', 'system')),
+    kind              TEXT    NOT NULL CHECK (kind IN ('agent', 'pr_review', 'approval', 'plan_review', 'system')),
     prompt            TEXT    NOT NULL,
     detail_md         TEXT    NOT NULL DEFAULT '',
     allow_free_text   INTEGER NOT NULL DEFAULT 0 CHECK (allow_free_text IN (0, 1)),
+    payload_json      TEXT    NOT NULL DEFAULT '{}',  -- e.g. plan_review: proposed split tree
     state             TEXT    NOT NULL DEFAULT 'open' CHECK (state IN (
                           'open', 'answered', 'cancelled')),
     answer_option_id  INTEGER REFERENCES question_option (id),
