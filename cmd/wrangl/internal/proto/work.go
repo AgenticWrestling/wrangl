@@ -15,8 +15,8 @@ type AgentSpec struct {
 	TurnTimeout string            `json:"turn_timeout,omitempty"`
 	// Completion: "tool" (default) = the agent calls task_complete; "exit" = a turn that
 	// exits 0 completes its task (agents without MCP).
-	Completion string `json:"completion,omitempty"`
-	Files       []AgentFile       `json:"files,omitempty"`
+	Completion string      `json:"completion,omitempty"`
+	Files      []AgentFile `json:"files,omitempty"`
 }
 
 // AgentFile is written (templated) into the workspace before the first turn.

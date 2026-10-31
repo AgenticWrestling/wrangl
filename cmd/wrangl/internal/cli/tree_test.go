@@ -79,10 +79,10 @@ func TestOutputFlagValidated(t *testing.T) {
 
 func TestStubsNameTheirMilestone(t *testing.T) {
 	cases := map[string][]string{
-		"wrangl pr list: not implemented yet (milestone M6)":       {"pr", "list"},
-		"wrangl task split: not implemented yet (milestone M8)":    {"task", "split", "abc123", "--agent"},
-		"wrangl question list: not implemented yet (milestone M5)": {"question", "list"},
-		"wrangl tui: not implemented yet (milestone M7)":           {"tui"},
+		"wrangl pr list: not implemented yet (milestone M6)":    {"pr", "list"},
+		"wrangl task split: not implemented yet (milestone M8)": {"task", "split", "abc123", "--agent"},
+		"wrangl push test: not implemented yet (milestone M8)":  {"push", "test"},
+		"wrangl tui: not implemented yet (milestone M7)":        {"tui"},
 	}
 	for want, args := range cases {
 		_, err := run(t, "", args...)
