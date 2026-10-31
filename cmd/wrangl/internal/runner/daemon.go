@@ -117,6 +117,8 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		return err
 	}
 	var applying atomic.Bool
+	worker := &Worker{Cfg: cfg, NC: nc, JS: js, Log: o.Log}
+	defer worker.Wait() // let a cancelled run publish its final state before we disconnect
 	applier := &Applier{Cfg: cfg, InstallMise: o.InstallMise}
 	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "template"), func(m *nats.Msg) {
 		var req proto.TemplateApply
@@ -127,6 +129,11 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		}
 		if !applying.CompareAndSwap(false, true) {
 			reply(proto.TemplateAck{Reason: "an apply is already running"})
+			return
+		}
+		if worker.Busy() != 0 {
+			applying.Store(false)
+			reply(proto.TemplateAck{Reason: "a run is in progress"})
 			return
 		}
 		reply(proto.TemplateAck{Accepted: true})
@@ -147,6 +154,47 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		return err
 	}
 
+	respond := func(m *nats.Msg, v any) { b, _ := json.Marshal(v); m.Respond(b) }
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "assign"), func(m *nats.Msg) {
+		var a proto.Assignment
+		if err := json.Unmarshal(m.Data, &a); err != nil || a.RunID <= 0 {
+			respond(m, proto.Ack{Reason: "bad assignment"})
+			return
+		}
+		if applying.Load() {
+			respond(m, proto.Ack{Reason: "applying a template"})
+			return
+		}
+		if err := worker.Start(ctx, a); err != nil {
+			respond(m, proto.Ack{Reason: err.Error()})
+			return
+		}
+		o.Log.Info("run assigned", "run", a.RunID, "task", a.TaskSqid, "repo", a.Repo)
+		respond(m, proto.Ack{Accepted: true})
+	}); err != nil {
+		return err
+	}
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "cancel"), func(m *nats.Msg) {
+		var ref proto.RunRef
+		json.Unmarshal(m.Data, &ref)
+		if !worker.Cancel(ref.RunID) {
+			respond(m, proto.Ack{Reason: fmt.Sprintf("run %d is not running here", ref.RunID)})
+			return
+		}
+		respond(m, proto.Ack{Accepted: true})
+	}); err != nil {
+		return err
+	}
+	for _, kind := range []string{"diff", "tree", "file"} {
+		if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, kind), func(m *nats.Msg) {
+			var ref proto.RunRef
+			json.Unmarshal(m.Data, &ref)
+			respond(m, worker.Inspect(ctx, kind, ref))
+		}); err != nil {
+			return err
+		}
+	}
+
 	beat := func() {
 		if !nc.IsConnected() {
 			return
@@ -154,6 +202,7 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		hb := SampleHeartbeat(ctx, Version)
 		hb.TemplateVersion = AppliedVersion(cfg)
 		hb.Applying = applying.Load()
+		hb.RunID = worker.Busy()
 		b, _ := json.Marshal(hb)
 		if err := nc.Publish(natsd.RunnerHeartbeatSubject(cfg.RunnerID), b); err != nil {
 			o.Log.Warn("heartbeat", "err", err)

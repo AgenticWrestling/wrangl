@@ -23,10 +23,15 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/api"
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/scheduler"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
+	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
 )
 
 // JetStream streams (spec §7).
@@ -51,6 +56,7 @@ type Server struct {
 
 	// Test hooks; production leaves them zero.
 	Provisioner         *provision.Provisioner // overrides the AWS-backed one
+	GH                  gh.API                 // overrides the GitHub App client built from config
 	Now                 func() time.Time
 	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
 	SchedulerInterval   time.Duration // scale-up cadence (default 10s)
@@ -61,10 +67,13 @@ type Server struct {
 	enrollAddr string
 	natsURL    string
 
-	db    *db.DB
-	nats  *natsd.Embedded
-	js    jetstream.JetStream
-	Fleet *fleet.Service
+	db       *db.DB
+	nats     *natsd.Embedded
+	js       jetstream.JetStream
+	Fleet    *fleet.Service
+	Stack    *stack.Service
+	Projects *projects.Service
+	Runs     *runs.Service
 }
 
 // New validates cfg and returns an unstarted server.
@@ -180,6 +189,43 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		BinDir: filepath.Join(s.cfg.DataDir, "bin"), Now: now, Log: s.log, AllowLoopbackEnroll: s.AllowLoopbackEnroll,
 	}
 
+	ghAPI, err := s.github()
+	if err != nil {
+		return err
+	}
+	alpha, err := s.db.RQ.GetMeta(ctx, MetaSqidsAlphabet)
+	if err != nil {
+		return fmt.Errorf("sqids alphabet: %w", err)
+	}
+	sq, err := stack.NewSqids(alpha)
+	if err != nil {
+		return err
+	}
+	s.Stack = &stack.Service{DB: s.db, Sqids: sq}
+	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
+	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log}
+
+	stackSub, err := s.nats.Conn.Subscribe(natsd.StackWildcard, func(m *nats.Msg) {
+		s.Runs.HandleStack(context.Background(), m)
+	})
+	if err != nil {
+		return err
+	}
+	defer stackSub.Unsubscribe()
+	for _, c := range []struct {
+		name, filter string
+		handle       func(context.Context, string, []byte) error
+	}{
+		{"controller-run-state", natsd.RunStateWildcard, s.Runs.HandleState},
+		{"controller-run-logs", natsd.RunLogWildcard, s.Runs.HandleLog},
+	} {
+		cc, err := s.consume(ctx, c.name, c.filter, c.handle)
+		if err != nil {
+			return err
+		}
+		defer cc.Stop()
+	}
+
 	hbSub, err := s.nats.Conn.Subscribe(natsd.HeartbeatWildcard, func(m *nats.Msg) {
 		if err := s.Fleet.Heartbeat(context.Background(), m.Subject, m.Data); err != nil {
 			s.log.Warn("heartbeat", "subject", m.Subject, "err", err)
@@ -229,10 +275,26 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if schedInterval == 0 {
 		schedInterval = 10 * time.Second
 	}
-	sched := &scheduler.Scheduler{Fleet: s.Fleet, Now: now, Log: s.log}
-	loops.Add(2)
+	sched := &scheduler.Scheduler{Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
+		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	loops.Add(3)
 	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
 	go func() { defer loops.Done(); sched.Loop(loopCtx, schedInterval) }()
+	go func() {
+		defer loops.Done()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-t.C:
+				if err := s.Runs.SweepLost(loopCtx); err != nil && loopCtx.Err() == nil {
+					s.log.Error("lost-run sweep", "err", err)
+				}
+			}
+		}
+	}()
 
 	apiSrv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
 	enrollSrv := &http.Server{Handler: api.EnrollHandler(s.Fleet), ReadHeaderTimeout: 10 * time.Second}
@@ -290,8 +352,49 @@ func listenUnix(path string) (net.Listener, error) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
-	api.Register(mux, s.Fleet)
+	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, JS: s.js})
 	return mux
+}
+
+// github builds the author App client from config (nil when not configured).
+func (s *Server) github() (gh.API, error) {
+	if s.GH != nil {
+		return s.GH, nil
+	}
+	app := s.cfg.GitHub.AuthorApp
+	if app.ID == 0 {
+		s.log.Warn("github.author_app not set: repo linking, issue sync and pushes to GitHub are disabled")
+		return nil, nil
+	}
+	key, err := gh.LoadKey(s.cfg.Path(app.PrivateKey))
+	if err != nil {
+		return nil, fmt.Errorf("github author app key: %w", err)
+	}
+	return &gh.Client{AppID: app.ID, Key: key}, nil
+}
+
+// consume runs handle for every message on a durable WR_EVT consumer: malformed or
+// forbidden messages are terminated, other errors redelivered.
+func (s *Server) consume(ctx context.Context, durable, filter string, handle func(context.Context, string, []byte) error) (jetstream.ConsumeContext, error) {
+	cons, err := s.js.CreateOrUpdateConsumer(ctx, StreamEvents, jetstream.ConsumerConfig{
+		Durable: durable, FilterSubject: filter, AckPolicy: jetstream.AckExplicitPolicy,
+		MaxDeliver: 10, AckWait: 30 * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("consumer %s: %w", durable, err)
+	}
+	return cons.Consume(func(m jetstream.Msg) {
+		if err := handle(context.Background(), m.Subject(), m.Data()); err != nil {
+			s.log.Error("event", "subject", m.Subject(), "err", err)
+			if errors.Is(err, errs.Invalid) || errors.Is(err, errs.Forbidden) || errors.Is(err, errs.NotFound) {
+				m.Term()
+				return
+			}
+			m.NakWithDelay(5 * time.Second)
+			return
+		}
+		m.Ack()
+	})
 }
 
 // healthz reports each dependency; any failure returns 503.

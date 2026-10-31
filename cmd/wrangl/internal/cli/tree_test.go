@@ -79,8 +79,8 @@ func TestOutputFlagValidated(t *testing.T) {
 
 func TestStubsNameTheirMilestone(t *testing.T) {
 	cases := map[string][]string{
-		"wrangl task create: not implemented yet (milestone M4)":   {"task", "create", "proj", "--title", "x"},
-		"wrangl logs: not implemented yet (milestone M4)":          {"logs", "42"}, // logs <run> itself, not a subcommand
+		"wrangl pr list: not implemented yet (milestone M6)":       {"pr", "list"},
+		"wrangl task split: not implemented yet (milestone M8)":    {"task", "split", "abc123", "--agent"},
 		"wrangl question list: not implemented yet (milestone M5)": {"question", "list"},
 		"wrangl tui: not implemented yet (milestone M7)":           {"tui"},
 	}

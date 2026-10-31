@@ -5,9 +5,113 @@ FROM run r
 JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
-WHERE r.state NOT IN ('succeeded', 'failed', 'cancelled')
+WHERE r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
 ORDER BY p.priority DESC, r.queued_at;
 
 -- name: CreateRun :one
 INSERT INTO run (task_id, kind, attempt) VALUES (?, ?, ?)
 RETURNING *;
+
+-- name: QueueRun :one
+INSERT INTO run (task_id, kind, attempt, template_id, repo_id, branch, session_uuid)
+VALUES (sqlc.arg(task_id), sqlc.arg(kind), sqlc.arg(attempt), sqlc.arg(template_id), sqlc.arg(repo_id),
+        sqlc.arg(branch), sqlc.arg(session_uuid))
+RETURNING *;
+
+-- name: CountRunsForTask :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM run WHERE task_id = ?;
+
+-- name: GetRun :one
+SELECT * FROM run WHERE id = ?;
+
+-- name: ListRuns :many
+-- Filter params are CAST so sqlc types them (quirk 7).
+SELECT sqlc.embed(r), CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
+       CAST(p.slug AS TEXT) AS project_slug, CAST(COALESCE(rn.name, '') AS TEXT) AS runner_name,
+       CAST(COALESCE(ct.sqid, '') AS TEXT) AS current_sqid
+FROM run r
+JOIN task t ON t.id = r.task_id
+JOIN project p ON p.id = t.project_id
+LEFT JOIN runner rn ON rn.id = r.runner_id
+LEFT JOIN task ct ON ct.id = r.current_task_id
+WHERE (CAST(sqlc.arg(state) AS TEXT) = '' OR r.state = CAST(sqlc.arg(state) AS TEXT)
+       OR (CAST(sqlc.arg(state) AS TEXT) = 'active' AND r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')))
+  AND (CAST(sqlc.arg(runner) AS TEXT) = '' OR rn.name = CAST(sqlc.arg(runner) AS TEXT))
+  AND (CAST(sqlc.arg(project) AS TEXT) = '' OR p.slug = CAST(sqlc.arg(project) AS TEXT))
+ORDER BY r.id DESC
+LIMIT sqlc.arg(lim);
+
+-- name: QueuedRunsForAssignment :many
+SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt,
+       CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
+FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
+WHERE r.state = 'queued'
+ORDER BY p.priority DESC, t.rank, r.queued_at;
+
+-- name: ClaimIdleRunner :one
+-- Oldest-idle runner on the template at its current version; claimed atomically.
+UPDATE runner SET state = 'busy', idle_since = NULL
+WHERE id = (
+    SELECT n.id FROM runner n JOIN runner_template t ON t.id = n.template_id
+    WHERE n.template_id = sqlc.arg(template_id) AND n.state = 'idle' AND n.cordoned = 0
+      AND n.template_version = t.version
+    ORDER BY n.idle_since
+    LIMIT 1)
+RETURNING id, name;
+
+-- name: AssignRun :execrows
+UPDATE run SET state = 'assigned', runner_id = sqlc.arg(runner_id), session_name = sqlc.arg(session_name)
+WHERE id = sqlc.arg(id) AND state = 'queued';
+
+-- name: UnassignRun :exec
+UPDATE run SET state = 'queued', runner_id = NULL WHERE id = ? AND state = 'assigned';
+
+-- name: ReleaseRunner :exec
+-- Back to idle (with a fresh idle clock) unless terminated.
+UPDATE runner SET state = 'idle', idle_since = sqlc.arg(now)
+WHERE id = sqlc.arg(id) AND state IN ('busy', 'offline');
+
+-- name: UpdateRunProgress :exec
+UPDATE run
+SET state = sqlc.arg(state),
+    started_at = COALESCE(started_at, sqlc.narg(started_at)),  -- caller decides (quirk 6)
+    base_sha = CASE WHEN CAST(sqlc.arg(base_sha) AS TEXT) <> '' THEN CAST(sqlc.arg(base_sha) AS TEXT) ELSE base_sha END,
+    head_sha = CASE WHEN CAST(sqlc.arg(head_sha) AS TEXT) <> '' THEN CAST(sqlc.arg(head_sha) AS TEXT) ELSE head_sha END,
+    status_text = sqlc.arg(status_text)
+WHERE id = sqlc.arg(id) AND state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled');
+
+-- name: FinishRun :exec
+UPDATE run
+SET state = sqlc.arg(state), finished_at = sqlc.arg(now), exit_code = sqlc.narg(exit_code),
+    error = sqlc.arg(error), status_text = sqlc.arg(status_text), pushed = sqlc.arg(pushed),
+    head_sha = CASE WHEN CAST(sqlc.arg(head_sha) AS TEXT) <> '' THEN CAST(sqlc.arg(head_sha) AS TEXT) ELSE head_sha END,
+    current_task_id = NULL
+WHERE id = sqlc.arg(id) AND state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled');
+
+-- name: CancelQueuedRun :execrows
+UPDATE run SET state = 'cancelled', finished_at = sqlc.arg(now), error = 'cancelled before assignment'
+WHERE id = sqlc.arg(id) AND state = 'queued';
+
+-- name: MarkRunCancelling :execrows
+UPDATE run SET state = 'cancelling'
+WHERE id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing');
+
+-- name: SetRunCurrentTask :exec
+UPDATE run SET current_task_id = sqlc.narg(task_id) WHERE id = sqlc.arg(id);
+
+-- name: ActiveRunForRunner :one
+SELECT * FROM run
+WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+ORDER BY id DESC LIMIT 1;
+
+-- name: RunsOnLostRunners :many
+-- Active runs whose runner is terminated, or offline since before the cutoff.
+SELECT r.id, r.runner_id, r.current_task_id FROM run r JOIN runner n ON n.id = r.runner_id
+WHERE r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+  AND (n.state = 'terminated' OR (n.state = 'offline' AND n.offline_since <= sqlc.arg(cutoff)));
+
+-- name: RunsForTask :many
+SELECT r.id, r.state, r.kind, r.attempt, r.branch, r.pushed, r.head_sha, r.queued_at, r.finished_at,
+       CAST(COALESCE(n.name, '') AS TEXT) AS runner_name
+FROM run r LEFT JOIN runner n ON n.id = r.runner_id
+WHERE r.task_id = ? ORDER BY r.id DESC;

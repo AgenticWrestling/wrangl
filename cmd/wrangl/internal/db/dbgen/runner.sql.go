@@ -407,14 +407,14 @@ const reapCandidates = `-- name: ReapCandidates :many
 SELECT r.id, r.name, r.instance_id, r.state, CAST(t.idle_timeout_s AS INTEGER) AS idle_timeout_s
 FROM runner r JOIN runner_template t ON t.id = r.template_id
 WHERE r.launched = 1 AND r.instance_id IS NOT NULL AND (
-       (r.state = 'idle'    AND r.idle_since    <= strftime('%Y-%m-%dT%H:%M:%fZ', ?1, '-' || t.idle_timeout_s || ' seconds'))
-    OR (r.state = 'offline' AND r.offline_since <= strftime('%Y-%m-%dT%H:%M:%fZ', ?1, '-' || t.idle_timeout_s || ' seconds'))
+       (r.state = 'idle'    AND r.idle_since    <= strftime('%Y-%m-%dT%H:%M:%fZ', CAST(?1 AS TEXT), '-' || t.idle_timeout_s || ' seconds'))
+    OR (r.state = 'offline' AND r.offline_since <= strftime('%Y-%m-%dT%H:%M:%fZ', CAST(?1 AS TEXT), '-' || t.idle_timeout_s || ' seconds'))
     OR (r.state IN ('launching', 'enrolling') AND r.launched_at <= ?2)
 )
 `
 
 type ReapCandidatesParams struct {
-	Now            interface{}    `json:"now"`
+	Now            string         `json:"now"`
 	EnrollDeadline sql.NullString `json:"enroll_deadline"`
 }
 
@@ -576,7 +576,8 @@ const templateDemand = `-- name: TemplateDemand :many
 SELECT t.id, t.name, t.version, t.failed_version, t.max_runners,
        CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
              JOIN project p ON p.id = k.project_id
-             WHERE r.state = 'queued' AND COALESCE(k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
+             WHERE r.state = 'queued'
+               AND COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
        CAST((SELECT COUNT(*) FROM runner n
              WHERE n.template_id = t.id AND n.cordoned = 0
                AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle')) AS INTEGER) AS supply,

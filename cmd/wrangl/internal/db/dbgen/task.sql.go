@@ -25,6 +25,90 @@ func (q *Queries) AddPrecursor(ctx context.Context, arg AddPrecursorParams) erro
 	return err
 }
 
+const ancestorChain = `-- name: AncestorChain :many
+WITH RECURSIVE up (id, parent_id, lvl) AS (
+    SELECT t.id, t.parent_id, 0 FROM task t WHERE t.id = ?1
+    UNION ALL
+    SELECT t.id, t.parent_id, up.lvl + 1 FROM task t JOIN up ON t.id = up.parent_id
+)
+SELECT task.id, task.sqid, task.project_id, task.parent_id, task.rank, task.repo_id, task.issue_id, task.template_id, task.title, task.prompt, task.state, task.created_by, task.completion_summary, task.completed_run_id, task.created_at, task.updated_at, task.completed_at FROM up JOIN task ON task.id = up.id ORDER BY up.lvl
+`
+
+// node first, then its parent, up to the root.
+func (q *Queries) AncestorChain(ctx context.Context, nodeID int64) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, ancestorChain, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.Sqid,
+			&i.ProjectID,
+			&i.ParentID,
+			&i.Rank,
+			&i.RepoID,
+			&i.IssueID,
+			&i.TemplateID,
+			&i.Title,
+			&i.Prompt,
+			&i.State,
+			&i.CreatedBy,
+			&i.CompletionSummary,
+			&i.CompletedRunID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const childStateCounts = `-- name: ChildStateCounts :one
+SELECT CAST(COUNT(*) AS INTEGER) AS total,
+       CAST(COALESCE(SUM(state = 'open'), 0) AS INTEGER) AS open,
+       CAST(COALESCE(SUM(state = 'in_progress'), 0) AS INTEGER) AS in_progress,
+       CAST(COALESCE(SUM(state = 'in_review'), 0) AS INTEGER) AS in_review,
+       CAST(COALESCE(SUM(state = 'done'), 0) AS INTEGER) AS done,
+       CAST(COALESCE(SUM(state = 'cancelled'), 0) AS INTEGER) AS cancelled
+FROM task WHERE parent_id = ?
+`
+
+type ChildStateCountsRow struct {
+	Total      int64 `json:"total"`
+	Open       int64 `json:"open"`
+	InProgress int64 `json:"in_progress"`
+	InReview   int64 `json:"in_review"`
+	Done       int64 `json:"done"`
+	Cancelled  int64 `json:"cancelled"`
+}
+
+func (q *Queries) ChildStateCounts(ctx context.Context, parentID sql.NullInt64) (ChildStateCountsRow, error) {
+	row := q.db.QueryRowContext(ctx, childStateCounts, parentID)
+	var i ChildStateCountsRow
+	err := row.Scan(
+		&i.Total,
+		&i.Open,
+		&i.InProgress,
+		&i.InReview,
+		&i.Done,
+		&i.Cancelled,
+	)
+	return i, err
+}
+
 const completeTask = `-- name: CompleteTask :exec
 UPDATE task SET state = 'in_review', completion_summary = ?, completed_run_id = ?, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -41,6 +125,58 @@ type CompleteTaskParams struct {
 func (q *Queries) CompleteTask(ctx context.Context, arg CompleteTaskParams) error {
 	_, err := q.db.ExecContext(ctx, completeTask, arg.CompletionSummary, arg.CompletedRunID, arg.ID)
 	return err
+}
+
+const completedInRun = `-- name: CompletedInRun :many
+SELECT CAST(COALESCE(sqid, '') AS TEXT) AS sqid, title, completion_summary FROM task
+WHERE completed_run_id = ? ORDER BY completed_at
+`
+
+type CompletedInRunRow struct {
+	Sqid              string `json:"sqid"`
+	Title             string `json:"title"`
+	CompletionSummary string `json:"completion_summary"`
+}
+
+func (q *Queries) CompletedInRun(ctx context.Context, completedRunID sql.NullInt64) ([]CompletedInRunRow, error) {
+	rows, err := q.db.QueryContext(ctx, completedInRun, completedRunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CompletedInRunRow{}
+	for rows.Next() {
+		var i CompletedInRunRow
+		if err := rows.Scan(&i.Sqid, &i.Title, &i.CompletionSummary); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countOpenLeaves = `-- name: CountOpenLeaves :one
+WITH RECURSIVE sub (id) AS (
+    SELECT t.id FROM task t WHERE t.id = ?1
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT CAST(COUNT(*) AS INTEGER) FROM sub JOIN task ON task.id = sub.id
+WHERE task.state IN ('open', 'in_progress')
+  AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled')
+`
+
+func (q *Queries) CountOpenLeaves(ctx context.Context, rootID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOpenLeaves, rootID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createTask = `-- name: CreateTask :one
@@ -78,6 +214,44 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (int64, 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const deleteTask = `-- name: DeleteTask :exec
+DELETE FROM task WHERE id = ?
+`
+
+func (q *Queries) DeleteTask(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTask, id)
+	return err
+}
+
+const getTask = `-- name: GetTask :one
+SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at FROM task WHERE id = ?
+`
+
+func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getTask, id)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Sqid,
+		&i.ProjectID,
+		&i.ParentID,
+		&i.Rank,
+		&i.RepoID,
+		&i.IssueID,
+		&i.TemplateID,
+		&i.Title,
+		&i.Prompt,
+		&i.State,
+		&i.CreatedBy,
+		&i.CompletionSummary,
+		&i.CompletedRunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
 }
 
 const getTaskBySqid = `-- name: GetTaskBySqid :one
@@ -221,6 +395,90 @@ func (q *Queries) ListChildren(ctx context.Context, parentID sql.NullInt64) ([]T
 	return items, nil
 }
 
+const listDependents = `-- name: ListDependents :many
+SELECT CAST(COALESCE(t.sqid, '') AS TEXT) AS sqid, t.title, t.state FROM task_dependency d JOIN task t ON t.id = d.task_id
+WHERE d.depends_on_id = ? ORDER BY t.id
+`
+
+type ListDependentsRow struct {
+	Sqid  string `json:"sqid"`
+	Title string `json:"title"`
+	State string `json:"state"`
+}
+
+func (q *Queries) ListDependents(ctx context.Context, dependsOnID int64) ([]ListDependentsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDependents, dependsOnID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDependentsRow{}
+	for rows.Next() {
+		var i ListDependentsRow
+		if err := rows.Scan(&i.Sqid, &i.Title, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPrecursors = `-- name: ListPrecursors :many
+SELECT CAST(COALESCE(p.sqid, '') AS TEXT) AS sqid, p.title, p.state FROM task_dependency d JOIN task p ON p.id = d.depends_on_id
+WHERE d.task_id = ? ORDER BY p.id
+`
+
+type ListPrecursorsRow struct {
+	Sqid  string `json:"sqid"`
+	Title string `json:"title"`
+	State string `json:"state"`
+}
+
+func (q *Queries) ListPrecursors(ctx context.Context, taskID int64) ([]ListPrecursorsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPrecursors, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPrecursorsRow{}
+	for rows.Next() {
+		var i ListPrecursorsRow
+		if err := rows.Scan(&i.Sqid, &i.Title, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectRepoCount = `-- name: ListProjectRepoCount :one
+SELECT CAST(COUNT(*) AS INTEGER) AS n, CAST(COALESCE(MIN(id), 0) AS INTEGER) AS only_id FROM repo WHERE project_id = ?
+`
+
+type ListProjectRepoCountRow struct {
+	N      int64 `json:"n"`
+	OnlyID int64 `json:"only_id"`
+}
+
+func (q *Queries) ListProjectRepoCount(ctx context.Context, projectID int64) (ListProjectRepoCountRow, error) {
+	row := q.db.QueryRowContext(ctx, listProjectRepoCount, projectID)
+	var i ListProjectRepoCountRow
+	err := row.Scan(&i.N, &i.OnlyID)
+	return i, err
+}
+
 const listRootTasks = `-- name: ListRootTasks :many
 SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at FROM task WHERE task.project_id = ? AND task.parent_id IS NULL ORDER BY task.rank
 `
@@ -266,6 +524,68 @@ func (q *Queries) ListRootTasks(ctx context.Context, projectID int64) ([]Task, e
 	return items, nil
 }
 
+const listTasks = `-- name: ListTasks :many
+SELECT t.id, t.sqid, t.project_id, t.parent_id, t.rank, t.repo_id, t.issue_id, t.template_id, t.title, t.prompt, t.state, t.created_by, t.completion_summary, t.completed_run_id, t.created_at, t.updated_at, t.completed_at, CAST(p.slug AS TEXT) AS project_slug FROM task t JOIN project p ON p.id = t.project_id
+WHERE (CAST(?1 AS TEXT) = '' OR p.slug = CAST(?1 AS TEXT))
+  AND (CAST(?2 AS TEXT) = '' OR t.state = CAST(?2 AS TEXT))
+  AND (CAST(?3 AS INTEGER) = 0 OR t.parent_id = CAST(?3 AS INTEGER))
+ORDER BY p.slug, t.id
+LIMIT 500
+`
+
+type ListTasksParams struct {
+	Project  string `json:"project"`
+	State    string `json:"state"`
+	ParentID int64  `json:"parent_id"`
+}
+
+type ListTasksRow struct {
+	Task        Task   `json:"task"`
+	ProjectSlug string `json:"project_slug"`
+}
+
+func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTasks, arg.Project, arg.State, arg.ParentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTasksRow{}
+	for rows.Next() {
+		var i ListTasksRow
+		if err := rows.Scan(
+			&i.Task.ID,
+			&i.Task.Sqid,
+			&i.Task.ProjectID,
+			&i.Task.ParentID,
+			&i.Task.Rank,
+			&i.Task.RepoID,
+			&i.Task.IssueID,
+			&i.Task.TemplateID,
+			&i.Task.Title,
+			&i.Task.Prompt,
+			&i.Task.State,
+			&i.Task.CreatedBy,
+			&i.Task.CompletionSummary,
+			&i.Task.CompletedRunID,
+			&i.Task.CreatedAt,
+			&i.Task.UpdatedAt,
+			&i.Task.CompletedAt,
+			&i.ProjectSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markRunTasksDone = `-- name: MarkRunTasksDone :exec
 UPDATE task SET state = 'done', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE completed_run_id = ? AND state = 'in_review'
@@ -274,6 +594,23 @@ WHERE completed_run_id = ? AND state = 'in_review'
 // PR merged: everything this run completed becomes done.
 func (q *Queries) MarkRunTasksDone(ctx context.Context, completedRunID sql.NullInt64) error {
 	_, err := q.db.ExecContext(ctx, markRunTasksDone, completedRunID)
+	return err
+}
+
+const moveTask = `-- name: MoveTask :exec
+UPDATE task SET parent_id = ?1, rank = ?2,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?3
+`
+
+type MoveTaskParams struct {
+	ParentID sql.NullInt64 `json:"parent_id"`
+	Rank     string        `json:"rank"`
+	ID       int64         `json:"id"`
+}
+
+func (q *Queries) MoveTask(ctx context.Context, arg MoveTaskParams) error {
+	_, err := q.db.ExecContext(ctx, moveTask, arg.ParentID, arg.Rank, arg.ID)
 	return err
 }
 
@@ -344,6 +681,131 @@ func (q *Queries) PrecursorReaches(ctx context.Context, arg PrecursorReachesPara
 	return hit, err
 }
 
+const projectTree = `-- name: ProjectTree :many
+WITH RECURSIVE sub (id, depth, path) AS (
+    SELECT t.id, 0, t.rank FROM task t WHERE t.project_id = ?1 AND t.parent_id IS NULL
+    UNION ALL
+    SELECT c.id, sub.depth + 1, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT task.id, CAST(COALESCE(task.sqid, '') AS TEXT) AS sqid, task.parent_id, task.title, task.state, task.rank,
+       task.repo_id, task.template_id, task.created_by,
+       CAST(sub.depth AS INTEGER) AS depth,
+       CAST((SELECT COUNT(*) FROM task_dependency d JOIN task p ON p.id = d.depends_on_id
+             WHERE d.task_id = task.id AND p.state <> 'done') AS INTEGER) AS unmet,
+       CAST((SELECT COUNT(*) FROM task k WHERE k.parent_id = task.id) AS INTEGER) AS children
+FROM sub JOIN task ON task.id = sub.id
+ORDER BY sub.path
+`
+
+type ProjectTreeRow struct {
+	ID         int64         `json:"id"`
+	Sqid       string        `json:"sqid"`
+	ParentID   sql.NullInt64 `json:"parent_id"`
+	Title      string        `json:"title"`
+	State      string        `json:"state"`
+	Rank       string        `json:"rank"`
+	RepoID     sql.NullInt64 `json:"repo_id"`
+	TemplateID sql.NullInt64 `json:"template_id"`
+	CreatedBy  string        `json:"created_by"`
+	Depth      int64         `json:"depth"`
+	Unmet      int64         `json:"unmet"`
+	Children   int64         `json:"children"`
+}
+
+// The whole project, depth-first in rank order, with unmet-precursor and child counts.
+func (q *Queries) ProjectTree(ctx context.Context, projectID int64) ([]ProjectTreeRow, error) {
+	rows, err := q.db.QueryContext(ctx, projectTree, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectTreeRow{}
+	for rows.Next() {
+		var i ProjectTreeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Sqid,
+			&i.ParentID,
+			&i.Title,
+			&i.State,
+			&i.Rank,
+			&i.RepoID,
+			&i.TemplateID,
+			&i.CreatedBy,
+			&i.Depth,
+			&i.Unmet,
+			&i.Children,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const removePrecursor = `-- name: RemovePrecursor :execrows
+DELETE FROM task_dependency WHERE task_id = ? AND depends_on_id = ?
+`
+
+type RemovePrecursorParams struct {
+	TaskID      int64 `json:"task_id"`
+	DependsOnID int64 `json:"depends_on_id"`
+}
+
+func (q *Queries) RemovePrecursor(ctx context.Context, arg RemovePrecursorParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, removePrecursor, arg.TaskID, arg.DependsOnID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revertInProgress = `-- name: RevertInProgress :exec
+UPDATE task SET state = 'open', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ? AND state = 'in_progress'
+`
+
+// A run ended without finishing its current leaf: put it back.
+func (q *Queries) RevertInProgress(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, revertInProgress, id)
+	return err
+}
+
+const setContainerState = `-- name: SetContainerState :exec
+UPDATE task SET state = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?2 AND state <> ?1
+`
+
+type SetContainerStateParams struct {
+	State string `json:"state"`
+	ID    int64  `json:"id"`
+}
+
+func (q *Queries) SetContainerState(ctx context.Context, arg SetContainerStateParams) error {
+	_, err := q.db.ExecContext(ctx, setContainerState, arg.State, arg.ID)
+	return err
+}
+
+const setTaskIssue = `-- name: SetTaskIssue :exec
+UPDATE task SET issue_id = ?1 WHERE id = ?2
+`
+
+type SetTaskIssueParams struct {
+	IssueID sql.NullInt64 `json:"issue_id"`
+	ID      int64         `json:"id"`
+}
+
+func (q *Queries) SetTaskIssue(ctx context.Context, arg SetTaskIssueParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskIssue, arg.IssueID, arg.ID)
+	return err
+}
+
 const setTaskSqid = `-- name: SetTaskSqid :exec
 UPDATE task SET sqid = ? WHERE id = ?
 `
@@ -355,6 +817,34 @@ type SetTaskSqidParams struct {
 
 func (q *Queries) SetTaskSqid(ctx context.Context, arg SetTaskSqidParams) error {
 	_, err := q.db.ExecContext(ctx, setTaskSqid, arg.Sqid, arg.ID)
+	return err
+}
+
+const setTaskState = `-- name: SetTaskState :exec
+UPDATE task SET state = ?1, completion_summary = ?2,
+       completed_run_id = ?3, completed_at = ?4,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?5
+`
+
+type SetTaskStateParams struct {
+	State          string         `json:"state"`
+	Summary        string         `json:"summary"`
+	CompletedRunID sql.NullInt64  `json:"completed_run_id"`
+	CompletedAt    sql.NullString `json:"completed_at"`
+	ID             int64          `json:"id"`
+}
+
+// completed_at is computed by the caller: sqlc leaves sqlc.arg() unrewritten inside
+// CASE WHEN ... IN (...) (quirk 6), so no CASE on parameters here.
+func (q *Queries) SetTaskState(ctx context.Context, arg SetTaskStateParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskState,
+		arg.State,
+		arg.Summary,
+		arg.CompletedRunID,
+		arg.CompletedAt,
+		arg.ID,
+	)
 	return err
 }
 
@@ -372,7 +862,7 @@ WITH RECURSIVE up (id, parent_id) AS (
 )
 SELECT CAST(COUNT(*) > 0 AS INTEGER) AS locked
 FROM run r JOIN near ON near.id = r.task_id
-WHERE r.state NOT IN ('succeeded', 'failed', 'cancelled')
+WHERE r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
 `
 
 // 1 if an active run's root is an ancestor-or-self or a descendant of root_id.
@@ -438,4 +928,110 @@ func (q *Queries) SubtreeOrdered(ctx context.Context, rootID int64) ([]SubtreeOr
 		return nil, err
 	}
 	return items, nil
+}
+
+const subtreeRepoIDs = `-- name: SubtreeRepoIDs :many
+WITH RECURSIVE sub (id) AS (
+    SELECT t.id FROM task t WHERE t.id = ?1
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT DISTINCT CAST(task.repo_id AS INTEGER) AS repo_id FROM sub JOIN task ON task.id = sub.id
+WHERE task.repo_id IS NOT NULL
+`
+
+// Distinct explicit repo ids anywhere in the subtree.
+func (q *Queries) SubtreeRepoIDs(ctx context.Context, rootID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, subtreeRepoIDs, rootID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var repo_id int64
+		if err := rows.Scan(&repo_id); err != nil {
+			return nil, err
+		}
+		items = append(items, repo_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const taskEvents = `-- name: TaskEvents :many
+SELECT id, task_sqid, run_id, actor, op, diff_json, ts FROM task_event WHERE task_sqid = ? ORDER BY id
+`
+
+func (q *Queries) TaskEvents(ctx context.Context, taskSqid string) ([]TaskEvent, error) {
+	rows, err := q.db.QueryContext(ctx, taskEvents, taskSqid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskEvent{}
+	for rows.Next() {
+		var i TaskEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskSqid,
+			&i.RunID,
+			&i.Actor,
+			&i.Op,
+			&i.DiffJson,
+			&i.Ts,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateTaskText = `-- name: UpdateTaskText :one
+UPDATE task SET title = ?1, prompt = ?2,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?3 RETURNING id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at
+`
+
+type UpdateTaskTextParams struct {
+	Title  string `json:"title"`
+	Prompt string `json:"prompt"`
+	ID     int64  `json:"id"`
+}
+
+func (q *Queries) UpdateTaskText(ctx context.Context, arg UpdateTaskTextParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, updateTaskText, arg.Title, arg.Prompt, arg.ID)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Sqid,
+		&i.ProjectID,
+		&i.ParentID,
+		&i.Rank,
+		&i.RepoID,
+		&i.IssueID,
+		&i.TemplateID,
+		&i.Title,
+		&i.Prompt,
+		&i.State,
+		&i.CreatedBy,
+		&i.CompletionSummary,
+		&i.CompletedRunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
 }

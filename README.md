@@ -85,10 +85,14 @@ A single binary that runs as a **controller** (SQLite, embedded NATS + JetStream
 **runner** (enrols, applies a mise-based template, drives a coding agent through a hierarchical
 task stack), plus the client CLI/TUI. Design: [`docs/superpowers/specs/2026-10-31-wrangl-design.md`](docs/superpowers/specs/2026-10-31-wrangl-design.md).
 
-Status: **M3** — controller (SQLite, NATS with operator JWTs + TLS, enrolment, heartbeats, EC2
-launch with tagging, 30-minute idle reaper, scale-up scheduler, template versioning), runner
-(`bootstrap`, root daemon applying mise templates for an unprivileged `agent` user, `status`),
-and `fleet`/`template` commands. Unbuilt commands report the milestone that delivers them.
+Status: **M4**. Runners do real work. You give wrangl a hierarchical, ranked task stack; it
+launches tagged EC2 runners (terminated after 30 idle minutes), installs your template's
+toolchain for an unprivileged `agent` user, and drives a coding agent through each queued
+subtree in a PTY. It makes a checkpoint commit per subtask and pushes the branch. Live
+terminal, searchable logs and workspace inspection come from the CLI.
+
+**Install:** [`docs/wrangl/INSTALL.md`](docs/wrangl/INSTALL.md) covers AWS, the controller
+host, the GitHub Apps, the Claude token, templates, Cloudflare, and teardown. Unbuilt commands report the milestone that delivers them.
 AWS setup (instance roles, security group, teardown): [`docs/wrangl/aws-iam.md`](docs/wrangl/aws-iam.md).
 
 ```sh

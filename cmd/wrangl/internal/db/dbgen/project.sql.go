@@ -13,7 +13,7 @@ import (
 const createProject = `-- name: CreateProject :one
 INSERT INTO project (slug, name, description, default_template_id)
 VALUES (?, ?, ?, ?)
-RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue
 `
 
 type CreateProjectParams struct {
@@ -44,12 +44,154 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.Priority,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AutoQueue,
+	)
+	return i, err
+}
+
+const createRepo = `-- name: CreateRepo :one
+INSERT INTO repo (project_id, owner, name, default_branch, gh_installation_id, clone_url)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url
+`
+
+type CreateRepoParams struct {
+	ProjectID        int64         `json:"project_id"`
+	Owner            string        `json:"owner"`
+	Name             string        `json:"name"`
+	DefaultBranch    string        `json:"default_branch"`
+	GhInstallationID sql.NullInt64 `json:"gh_installation_id"`
+	CloneUrl         string        `json:"clone_url"`
+}
+
+func (q *Queries) CreateRepo(ctx context.Context, arg CreateRepoParams) (Repo, error) {
+	row := q.db.QueryRowContext(ctx, createRepo,
+		arg.ProjectID,
+		arg.Owner,
+		arg.Name,
+		arg.DefaultBranch,
+		arg.GhInstallationID,
+		arg.CloneUrl,
+	)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Owner,
+		&i.Name,
+		&i.DefaultBranch,
+		&i.GhInstallationID,
+		&i.CreatedAt,
+		&i.CloneUrl,
+	)
+	return i, err
+}
+
+const deleteProject = `-- name: DeleteProject :execrows
+DELETE FROM project WHERE id = ?
+`
+
+func (q *Queries) DeleteProject(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteProject, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteRepo = `-- name: DeleteRepo :execrows
+DELETE FROM repo WHERE id = ?
+`
+
+func (q *Queries) DeleteRepo(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRepo, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getIssue = `-- name: GetIssue :one
+SELECT id, repo_id, gh_number, title, body, state, url, synced_at FROM issue WHERE id = ?
+`
+
+func (q *Queries) GetIssue(ctx context.Context, id int64) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, getIssue, id)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.GhNumber,
+		&i.Title,
+		&i.Body,
+		&i.State,
+		&i.Url,
+		&i.SyncedAt,
+	)
+	return i, err
+}
+
+const getIssueByNumber = `-- name: GetIssueByNumber :one
+SELECT i.id, i.repo_id, i.gh_number, i.title, i.body, i.state, i.url, i.synced_at FROM issue i JOIN repo r ON r.id = i.repo_id
+WHERE r.project_id = ?1 AND r.owner = ?2 AND r.name = ?3
+  AND i.gh_number = ?4
+`
+
+type GetIssueByNumberParams struct {
+	ProjectID int64  `json:"project_id"`
+	Owner     string `json:"owner"`
+	Name      string `json:"name"`
+	Number    int64  `json:"number"`
+}
+
+func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberParams) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, getIssueByNumber,
+		arg.ProjectID,
+		arg.Owner,
+		arg.Name,
+		arg.Number,
+	)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.GhNumber,
+		&i.Title,
+		&i.Body,
+		&i.State,
+		&i.Url,
+		&i.SyncedAt,
+	)
+	return i, err
+}
+
+const getProject = `-- name: GetProject :one
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue FROM project WHERE id = ?
+`
+
+func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
+	row := q.db.QueryRowContext(ctx, getProject, id)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.DefaultTemplateID,
+		&i.PlanTemplateID,
+		&i.AutoMerge,
+		&i.ProtectedPaths,
+		&i.MaxAutoMergeLines,
+		&i.Priority,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AutoQueue,
 	)
 	return i, err
 }
 
 const getProjectBySlug = `-- name: GetProjectBySlug :one
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at FROM project WHERE slug = ?
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue FROM project WHERE slug = ?
 `
 
 func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (Project, error) {
@@ -68,12 +210,117 @@ func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (Project, e
 		&i.Priority,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AutoQueue,
 	)
 	return i, err
 }
 
+const getProjectRepo = `-- name: GetProjectRepo :one
+SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url FROM repo WHERE project_id = ? AND owner = ? AND name = ?
+`
+
+type GetProjectRepoParams struct {
+	ProjectID int64  `json:"project_id"`
+	Owner     string `json:"owner"`
+	Name      string `json:"name"`
+}
+
+func (q *Queries) GetProjectRepo(ctx context.Context, arg GetProjectRepoParams) (Repo, error) {
+	row := q.db.QueryRowContext(ctx, getProjectRepo, arg.ProjectID, arg.Owner, arg.Name)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Owner,
+		&i.Name,
+		&i.DefaultBranch,
+		&i.GhInstallationID,
+		&i.CreatedAt,
+		&i.CloneUrl,
+	)
+	return i, err
+}
+
+const getRepo = `-- name: GetRepo :one
+SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url FROM repo WHERE id = ?
+`
+
+func (q *Queries) GetRepo(ctx context.Context, id int64) (Repo, error) {
+	row := q.db.QueryRowContext(ctx, getRepo, id)
+	var i Repo
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Owner,
+		&i.Name,
+		&i.DefaultBranch,
+		&i.GhInstallationID,
+		&i.CreatedAt,
+		&i.CloneUrl,
+	)
+	return i, err
+}
+
+const listIssues = `-- name: ListIssues :many
+SELECT i.id, i.repo_id, i.gh_number, i.title, i.body, i.state, i.url, i.synced_at, CAST(r.owner AS TEXT) AS repo_owner, CAST(r.name AS TEXT) AS repo_name,
+       CAST(COALESCE((SELECT t.sqid FROM task t WHERE t.issue_id = i.id LIMIT 1), '') AS TEXT) AS task_sqid
+FROM issue i JOIN repo r ON r.id = i.repo_id
+WHERE (CAST(?1 AS INTEGER) = 0 OR r.project_id = CAST(?1 AS INTEGER))
+  AND (CAST(?2 AS TEXT) = 'all' OR i.state = CAST(?2 AS TEXT))
+ORDER BY r.owner, r.name, i.gh_number
+`
+
+type ListIssuesParams struct {
+	ProjectID int64  `json:"project_id"`
+	State     string `json:"state"`
+}
+
+type ListIssuesRow struct {
+	Issue     Issue  `json:"issue"`
+	RepoOwner string `json:"repo_owner"`
+	RepoName  string `json:"repo_name"`
+	TaskSqid  string `json:"task_sqid"`
+}
+
+// Filter params are CAST so sqlc types them; untyped (interface{}) params left unset
+// become NULL and silently match nothing (quirk 7).
+func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListIssuesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listIssues, arg.ProjectID, arg.State)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListIssuesRow{}
+	for rows.Next() {
+		var i ListIssuesRow
+		if err := rows.Scan(
+			&i.Issue.ID,
+			&i.Issue.RepoID,
+			&i.Issue.GhNumber,
+			&i.Issue.Title,
+			&i.Issue.Body,
+			&i.Issue.State,
+			&i.Issue.Url,
+			&i.Issue.SyncedAt,
+			&i.RepoOwner,
+			&i.RepoName,
+			&i.TaskSqid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjects = `-- name: ListProjects :many
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at FROM project ORDER BY slug
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue FROM project ORDER BY slug
 `
 
 func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
@@ -98,6 +345,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.Priority,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AutoQueue,
 		); err != nil {
 			return nil, err
 		}
@@ -110,4 +358,142 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const listRepos = `-- name: ListRepos :many
+SELECT r.id, r.project_id, r.owner, r.name, r.default_branch, r.gh_installation_id, r.created_at, r.clone_url, CAST(p.slug AS TEXT) AS project_slug
+FROM repo r JOIN project p ON p.id = r.project_id
+WHERE ?1 = 0 OR r.project_id = ?1
+ORDER BY p.slug, r.owner, r.name
+`
+
+type ListReposRow struct {
+	Repo        Repo   `json:"repo"`
+	ProjectSlug string `json:"project_slug"`
+}
+
+func (q *Queries) ListRepos(ctx context.Context, projectID interface{}) ([]ListReposRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRepos, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReposRow{}
+	for rows.Next() {
+		var i ListReposRow
+		if err := rows.Scan(
+			&i.Repo.ID,
+			&i.Repo.ProjectID,
+			&i.Repo.Owner,
+			&i.Repo.Name,
+			&i.Repo.DefaultBranch,
+			&i.Repo.GhInstallationID,
+			&i.Repo.CreatedAt,
+			&i.Repo.CloneUrl,
+			&i.ProjectSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateProject = `-- name: UpdateProject :one
+UPDATE project
+SET name = ?1, description = ?2,
+    default_template_id = ?3, plan_template_id = ?4,
+    auto_merge = ?5, auto_queue = ?6, priority = ?7,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?8
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue
+`
+
+type UpdateProjectParams struct {
+	Name              string        `json:"name"`
+	Description       string        `json:"description"`
+	DefaultTemplateID sql.NullInt64 `json:"default_template_id"`
+	PlanTemplateID    sql.NullInt64 `json:"plan_template_id"`
+	AutoMerge         int64         `json:"auto_merge"`
+	AutoQueue         int64         `json:"auto_queue"`
+	Priority          int64         `json:"priority"`
+	ID                int64         `json:"id"`
+}
+
+func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error) {
+	row := q.db.QueryRowContext(ctx, updateProject,
+		arg.Name,
+		arg.Description,
+		arg.DefaultTemplateID,
+		arg.PlanTemplateID,
+		arg.AutoMerge,
+		arg.AutoQueue,
+		arg.Priority,
+		arg.ID,
+	)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.DefaultTemplateID,
+		&i.PlanTemplateID,
+		&i.AutoMerge,
+		&i.ProtectedPaths,
+		&i.MaxAutoMergeLines,
+		&i.Priority,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AutoQueue,
+	)
+	return i, err
+}
+
+const upsertIssue = `-- name: UpsertIssue :one
+INSERT INTO issue (repo_id, gh_number, title, body, state, url, synced_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+ON CONFLICT (repo_id, gh_number) DO UPDATE
+SET title = excluded.title, body = excluded.body, state = excluded.state, url = excluded.url, synced_at = excluded.synced_at
+RETURNING id, repo_id, gh_number, title, body, state, url, synced_at
+`
+
+type UpsertIssueParams struct {
+	RepoID   int64  `json:"repo_id"`
+	GhNumber int64  `json:"gh_number"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	State    string `json:"state"`
+	Url      string `json:"url"`
+	SyncedAt string `json:"synced_at"`
+}
+
+func (q *Queries) UpsertIssue(ctx context.Context, arg UpsertIssueParams) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, upsertIssue,
+		arg.RepoID,
+		arg.GhNumber,
+		arg.Title,
+		arg.Body,
+		arg.State,
+		arg.Url,
+		arg.SyncedAt,
+	)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.RepoID,
+		&i.GhNumber,
+		&i.Title,
+		&i.Body,
+		&i.State,
+		&i.Url,
+		&i.SyncedAt,
+	)
+	return i, err
 }

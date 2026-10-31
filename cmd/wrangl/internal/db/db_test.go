@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -131,5 +133,41 @@ func TestMetaSetIfAbsent(t *testing.T) {
 	d.Q.SetMetaIfAbsent(ctx, dbgen.SetMetaIfAbsentParams{Key: "k", Value: "second"})
 	if v, err := d.RQ.GetMeta(ctx, "k"); err != nil || v != "first" {
 		t.Fatalf("%q %v", v, err)
+	}
+}
+
+// sqlc silently leaves sqlc.arg()/sqlc.narg() unrewritten in some positions (e.g. inside
+// CASE WHEN ... IN (...)); SQLite then fails at runtime. Catch it at test time.
+func TestGeneratedSQLHasNoUnrewrittenArgs(t *testing.T) {
+	files, _ := filepath.Glob("dbgen/*.sql.go")
+	if len(files) == 0 {
+		t.Fatal("no generated files found")
+	}
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		for i, line := range strings.Split(string(b), "\n") {
+			if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "--") {
+				continue // comments may mention the macros
+			}
+			if strings.Contains(line, "sqlc.arg(") || strings.Contains(line, "sqlc.narg(") || strings.Contains(line, "sqlc.embed(") {
+				t.Errorf("%s:%d: unrewritten sqlc macro: %s", f, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}
+
+// An untyped (interface{}) sqlc parameter left at its zero value becomes NULL, and
+// `NULL = ”` is never true, so optional filters silently match nothing. CAST every such
+// parameter in the query so sqlc gives it a real type.
+func TestGeneratedParamsAreTyped(t *testing.T) {
+	files, _ := filepath.Glob("dbgen/*.sql.go")
+	field := regexp.MustCompile(`^\t[A-Z]\w*\s+interface\{\}\s+` + "`")
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		for i, line := range strings.Split(string(b), "\n") {
+			if field.MatchString(line) {
+				t.Errorf("%s:%d: untyped parameter (CAST it in the query): %s", f, i+1, strings.TrimSpace(line))
+			}
+		}
 	}
 }

@@ -19,6 +19,19 @@ func RunnerTemplateEventSubject(r int64) string { return fmt.Sprintf("wr.evt.%d.
 // TemplateEventWildcard matches every runner's template results.
 const TemplateEventWildcard = "wr.evt.*.template"
 
+// Run event and output subjects (r = runner, x = run).
+func RunStateSubject(r, x int64) string      { return fmt.Sprintf("wr.evt.%d.%d.state", r, x) }
+func RunLogSubject(r, x int64) string        { return fmt.Sprintf("wr.evt.%d.%d.log", r, x) }
+func RunPTYSubject(r, x int64) string        { return fmt.Sprintf("wr.pty.%d.%d", r, x) }
+func StackSubject(r int64, op string) string { return fmt.Sprintf("wr.stack.%d.%s", r, op) }
+
+// Wildcards the controller consumes.
+const (
+	RunStateWildcard = "wr.evt.*.*.state"
+	RunLogWildcard   = "wr.evt.*.*.log"
+	StackWildcard    = "wr.stack.*.*"
+)
+
 // HeartbeatWildcard matches every runner's heartbeat.
 const HeartbeatWildcard = "wr.r.*.hb"
 

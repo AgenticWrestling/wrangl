@@ -29,15 +29,16 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 )
 
 // Errors the API maps to HTTP status codes.
 var (
-	ErrNotFound  = errors.New("not found")
-	ErrInvalid   = errors.New("invalid request")
-	ErrForbidden = errors.New("forbidden")
-	ErrConflict  = errors.New("conflict")
+	ErrNotFound  = errs.NotFound
+	ErrInvalid   = errs.Invalid
+	ErrForbidden = errs.Forbidden
+	ErrConflict  = errs.Conflict
 	ErrNoAWS     = errors.New("AWS is not configured on this controller (set aws.region, aws.subnet_ids, aws.security_group_id)")
 )
 

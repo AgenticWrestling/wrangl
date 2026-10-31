@@ -762,7 +762,14 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 4. A bare `rank` column is parsed as the `RANK()` keyword. Always qualify it (`task.rank`).
 5. Never mix bare `?` with `sqlc.arg()`/`sqlc.narg()` in one query. sqlc emits `?N` for the named
    parameters while SQLite keeps counting the bare ones, so arguments shift. Found in M2.
-   Found while building M1.
+6. `sqlc.arg()` inside `CASE WHEN … IN (…)` is left unrewritten, so the literal text reaches
+   SQLite (a syntax error at runtime). Compute such values in Go. Found in M4.
+7. A parameter sqlc can't type becomes `interface{}`. Left at its zero value it's `NULL`, and
+   `NULL = ''` never matches, so optional filters silently return nothing. `CAST` every such
+   parameter. Found in M4.
+
+`db_test.go` guards quirks 6 and 7 by scanning the generated code: it fails on any unrewritten
+`sqlc.*()` macro and on any `interface{}` parameter.
 
 ## 15. Milestones
 
@@ -771,7 +778,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | **M1 ✅** | Cobra tree (stubs), config, `db` (full schema + hierarchy queries), `stack` primitives (sqids, fractional ranks), `controller init/serve/migrate/secret` skeleton with embedded NATS + healthz | — |
 | **M2 ✅** | NATS operator/JWT + TLS, enrolment, `runner bootstrap/run/status`, heartbeat, offline sweep, `fleet list/show/enroll-token`; **pulled forward from M3:** templates create/list/show/delete, EC2 provisioner with tagging, `fleet launch/terminate/teardown`, 30-min idle reaper, orphan poweroff | M1 |
 | **M3 ✅** | `agent` user + root daemon (D26), template apply on runners (mise) + `template edit` (versioning, failure handling), scheduler scale-up with backoff, `fleet cordon/uncordon/drain` | M2 |
-| M4 | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/queue/…`), author-App tokens, workspace, headless work loop + PTY, ingest/logs/FTS, cancel/attach | M3 |
+| **M4 ✅** | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/split/queue/…`), GitHub App client (author tokens; tested against a fake), assignment, headless work loop in a PTY as `agent`, checkpoint commits + push, ingest/logs/FTS, cancel/attach/diff/files/cat, install guide (`docs/wrangl/INSTALL.md`) | M3 |
 | M5 | Hooks, MCP server with stack tools + scope/approval rules, Questions | M4 |
 | M6 | PR open, gates, review runs, reviewer App approve/merge, webhooks via CF bypass, revise + blocked-continuation runs | M5 |
 | M7 | HTTP API + SSE + TUI (incl. tree editing) | M4 (parallel with M5/M6) |

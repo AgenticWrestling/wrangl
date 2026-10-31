@@ -11,9 +11,15 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
 )
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -25,7 +31,9 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func writeErr(w http.ResponseWriter, err error) {
 	code := http.StatusInternalServerError
 	switch {
-	case errors.Is(err, fleet.ErrNotFound):
+	case errors.Is(err, projects.ErrNoGitHub):
+		code = http.StatusServiceUnavailable
+	case errors.Is(err, errs.NotFound):
 		code = http.StatusNotFound
 	case errors.Is(err, fleet.ErrInvalid):
 		code = http.StatusBadRequest
@@ -48,8 +56,19 @@ func decode(r *http.Request, v any) error {
 	return nil
 }
 
+// Deps are the services the API exposes.
+type Deps struct {
+	Fleet    *fleet.Service
+	Stack    *stack.Service
+	Projects *projects.Service
+	Runs     *runs.Service
+	JS       jetstream.JetStream
+}
+
 // Register mounts /api/v1 on mux.
-func Register(mux *http.ServeMux, f *fleet.Service) {
+func Register(mux *http.ServeMux, d Deps) {
+	f := d.Fleet
+	registerWork(mux, d)
 	mux.HandleFunc("GET /api/v1/runners", func(w http.ResponseWriter, r *http.Request) {
 		all := int64(0)
 		if r.URL.Query().Get("all") == "1" {

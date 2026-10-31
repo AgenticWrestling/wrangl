@@ -1,6 +1,40 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"io"
+
+	"github.com/spf13/cobra"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+)
+
+// projectReq builds a request from only the flags the user actually set.
+func projectReq(c *cobra.Command) proto.ProjectRequest {
+	var r proto.ProjectRequest
+	f := c.Flags()
+	str := func(name string) *string {
+		if !f.Changed(name) {
+			return nil
+		}
+		v, _ := f.GetString(name)
+		return &v
+	}
+	boolean := func(name string) *bool {
+		if !f.Changed(name) {
+			return nil
+		}
+		v, _ := f.GetBool(name)
+		return &v
+	}
+	r.Name, r.Description, r.Template, r.PlanTemplate = str("name"), str("description"), str("template"), str("plan-template")
+	r.AutoMerge, r.AutoQueue = boolean("auto-merge"), boolean("auto-queue")
+	if f.Changed("priority") {
+		v, _ := f.GetInt64("priority")
+		r.Priority = &v
+	}
+	return r
+}
 
 func projectFlags(c *cobra.Command) {
 	f := c.Flags()
@@ -9,20 +43,93 @@ func projectFlags(c *cobra.Command) {
 	f.String("template", "", "default runner template")
 	f.String("plan-template", "", "runner template for plan runs (default: --template)")
 	f.Bool("auto-merge", false, "auto-merge PRs that pass every gate and review as low risk")
-	f.Bool("auto-queue", false, "queue top-level tasks in rank order automatically")
-	f.Int("priority", 0, "scheduling priority across projects (higher first)")
+	f.Bool("auto-queue", false, "queue new top-level tasks automatically")
+	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
 }
 
-func projectCmd() *cobra.Command {
-	create := leaf("create <slug>", "Create a project", "M4", cobra.ExactArgs(1))
+func printProject(w io.Writer, p proto.ProjectView) {
+	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\n",
+		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority)
+	if p.Description != "" {
+		fmt.Fprintf(w, "description\t%s\n", p.Description)
+	}
+}
+
+func projectCmd(g *Global) *cobra.Command {
+	create := &cobra.Command{
+		Use: "create <slug>", Short: "Create a project", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			req := projectReq(cmd)
+			req.Slug = args[0]
+			p, err := c.CreateProject(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, p, func(w io.Writer) { printProject(w, p) })
+		},
+	}
 	projectFlags(create)
-	edit := leaf("edit <slug>", "Edit a project", "M4", cobra.ExactArgs(1))
+	edit := &cobra.Command{
+		Use: "edit <slug>", Short: "Edit a project (only the flags you pass change)", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			p, err := c.UpdateProject(cmd.Context(), args[0], projectReq(cmd))
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, p, func(w io.Writer) { printProject(w, p) })
+		},
+	}
 	projectFlags(edit)
-	return group("project", "Manage projects",
-		create,
-		leaf("list", "List projects", "M4", cobra.NoArgs),
-		leaf("show <slug>", "Show a project", "M4", cobra.ExactArgs(1)),
-		edit,
-		leaf("delete <slug>", "Delete a project and its tasks", "M4", cobra.ExactArgs(1)),
-	)
+	list := &cobra.Command{
+		Use: "list", Short: "List projects", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			ps, err := c.Projects(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, ps, func(w io.Writer) {
+				fmt.Fprintln(w, "SLUG\tNAME\tTEMPLATE\tPRIORITY\tAUTO-MERGE\tAUTO-QUEUE")
+				for _, p := range ps {
+					fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%v\t%v\n", p.Slug, p.Name, dash(p.Template), p.Priority, p.AutoMerge, p.AutoQueue)
+				}
+			})
+		},
+	}
+	show := &cobra.Command{
+		Use: "show <slug>", Short: "Show a project", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			p, err := c.Project(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, p, func(w io.Writer) { printProject(w, p) })
+		},
+	}
+	del := &cobra.Command{
+		Use: "delete <slug>", Short: "Delete a project and all its tasks", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			return c.DeleteProject(cmd.Context(), args[0])
+		},
+	}
+	return group("project", "Manage projects", create, list, show, edit, del)
 }

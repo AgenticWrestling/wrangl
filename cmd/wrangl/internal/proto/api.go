@@ -78,3 +78,190 @@ type EnrollTokenResponse struct {
 type APIError struct {
 	Error string `json:"error"`
 }
+
+// ProjectView is a project as the API returns it.
+type ProjectView struct {
+	Slug         string `json:"slug"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	Template     string `json:"template,omitempty"`
+	PlanTemplate string `json:"plan_template,omitempty"`
+	AutoMerge    bool   `json:"auto_merge"`
+	AutoQueue    bool   `json:"auto_queue"`
+	Priority     int64  `json:"priority"`
+}
+
+// ProjectRequest creates or patches a project (nil = unchanged).
+type ProjectRequest struct {
+	Slug         string  `json:"slug,omitempty"`
+	Name         *string `json:"name,omitempty"`
+	Description  *string `json:"description,omitempty"`
+	Template     *string `json:"template,omitempty"`
+	PlanTemplate *string `json:"plan_template,omitempty"`
+	AutoMerge    *bool   `json:"auto_merge,omitempty"`
+	AutoQueue    *bool   `json:"auto_queue,omitempty"`
+	Priority     *int64  `json:"priority,omitempty"`
+}
+
+// RepoView is a linked repo.
+type RepoView struct {
+	Project       string `json:"project"`
+	Repo          string `json:"repo"`
+	DefaultBranch string `json:"default_branch"`
+	CloneURL      string `json:"clone_url"`
+}
+
+// LinkRepoRequest links owner/name to a project.
+type LinkRepoRequest struct {
+	Repo   string `json:"repo"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// IssueView is a synced issue.
+type IssueView struct {
+	Ref   string `json:"ref"` // owner/name#n
+	Title string `json:"title"`
+	State string `json:"state"`
+	URL   string `json:"url"`
+	Body  string `json:"body,omitempty"`
+	Task  string `json:"task,omitempty"` // sqid of a task made from it
+}
+
+// TaskNode is one row of a ranked tree.
+type TaskNode struct {
+	Sqid     string `json:"sqid"`
+	Parent   string `json:"parent,omitempty"`
+	Title    string `json:"title"`
+	State    string `json:"state"`
+	Depth    int64  `json:"depth"`
+	Unmet    int64  `json:"unmet_precursors,omitempty"`
+	Children int64  `json:"children,omitempty"`
+	LockedBy string `json:"locked_by,omitempty"` // runner working on its subtree
+}
+
+// TaskRef is a task in a list (precursor, dependent, child).
+type TaskRef struct {
+	Sqid  string `json:"sqid"`
+	Title string `json:"title"`
+	State string `json:"state"`
+}
+
+// TaskEventView is one audit entry.
+type TaskEventView struct {
+	TS    string          `json:"ts"`
+	Actor string          `json:"actor"`
+	Op    string          `json:"op"`
+	Diff  json.RawMessage `json:"diff,omitempty"`
+}
+
+// TaskRunView is a run of a task.
+type TaskRunView struct {
+	ID       int64  `json:"id"`
+	State    string `json:"state"`
+	Runner   string `json:"runner,omitempty"`
+	Branch   string `json:"branch"`
+	Pushed   bool   `json:"pushed"`
+	HeadSHA  string `json:"head_sha,omitempty"`
+	QueuedAt string `json:"queued_at"`
+}
+
+// TaskDetail is GET /api/v1/tasks/{sqid}.
+type TaskDetail struct {
+	Sqid       string          `json:"sqid"`
+	Project    string          `json:"project"`
+	Parent     string          `json:"parent,omitempty"`
+	Title      string          `json:"title"`
+	Prompt     string          `json:"prompt"`
+	State      string          `json:"state"`
+	CreatedBy  string          `json:"created_by"`
+	Summary    string          `json:"summary,omitempty"`
+	Children   []TaskRef       `json:"children"`
+	Precursors []TaskRef       `json:"precursors"`
+	Dependents []TaskRef       `json:"dependents"`
+	Runs       []TaskRunView   `json:"runs"`
+	Events     []TaskEventView `json:"events"`
+}
+
+// TaskCreateRequest is POST /api/v1/tasks.
+type TaskCreateRequest struct {
+	Project  string   `json:"project"`
+	Parent   string   `json:"parent,omitempty"`
+	Title    string   `json:"title"`
+	Prompt   string   `json:"prompt,omitempty"`
+	First    bool     `json:"first,omitempty"`
+	After    string   `json:"after,omitempty"`
+	Before   string   `json:"before,omitempty"`
+	Repo     string   `json:"repo,omitempty"`
+	Template string   `json:"template,omitempty"`
+	Issue    string   `json:"issue,omitempty"`
+	Needs    []string `json:"needs,omitempty"`
+}
+
+// TaskPatchRequest edits title/prompt.
+type TaskPatchRequest struct {
+	Title  *string `json:"title,omitempty"`
+	Prompt *string `json:"prompt,omitempty"`
+}
+
+// TaskMoveRequest moves/reranks a task. Parent nil + Root false = keep parent.
+type TaskMoveRequest struct {
+	Parent *string `json:"parent,omitempty"`
+	Root   bool    `json:"root,omitempty"`
+	First  bool    `json:"first,omitempty"`
+	After  string  `json:"after,omitempty"`
+	Before string  `json:"before,omitempty"`
+}
+
+// SplitNode is a subtask in a split request.
+type SplitNode struct {
+	Title    string      `json:"title"`
+	Prompt   string      `json:"prompt,omitempty"`
+	Children []SplitNode `json:"children,omitempty"`
+}
+
+// TaskSplitRequest splits a task: children, or an outline to parse.
+type TaskSplitRequest struct {
+	Children   []SplitNode `json:"children,omitempty"`
+	Outline    string      `json:"outline,omitempty"`
+	Chain      bool        `json:"chain,omitempty"`
+	CopyPrompt bool        `json:"copy_prompt,omitempty"`
+}
+
+// MessageRequest carries a reason/summary.
+type MessageRequest struct {
+	Message string `json:"message,omitempty"`
+}
+
+// RunView is a run as the API returns it.
+type RunView struct {
+	ID         int64  `json:"id"`
+	Task       string `json:"task"`
+	TaskTitle  string `json:"task_title"`
+	Project    string `json:"project"`
+	Kind       string `json:"kind"`
+	State      string `json:"state"`
+	Runner     string `json:"runner,omitempty"`
+	Current    string `json:"current,omitempty"` // sqid of the leaf in progress
+	Branch     string `json:"branch"`
+	Session    string `json:"session,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Pushed     bool   `json:"pushed"`
+	BaseSHA    string `json:"base_sha,omitempty"`
+	HeadSHA    string `json:"head_sha,omitempty"`
+	Error      string `json:"error,omitempty"`
+	QueuedAt   string `json:"queued_at"`
+	StartedAt  string `json:"started_at,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
+}
+
+// LogView is a stored log line.
+type LogView struct {
+	ID      int64  `json:"id"`
+	RunID   int64  `json:"run_id"`
+	TS      string `json:"ts"`
+	Stream  string `json:"stream"`
+	Message string `json:"message"`
+	Project string `json:"project,omitempty"`
+	Runner  string `json:"runner,omitempty"`
+	Task    string `json:"task,omitempty"`
+}

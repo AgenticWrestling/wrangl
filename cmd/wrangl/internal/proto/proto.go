@@ -47,6 +47,8 @@ type Heartbeat struct {
 	TemplateVersion int64 `json:"template_version"`
 	// Applying is true while a template apply is running.
 	Applying bool `json:"applying"`
+	// RunID is the run in progress (0 = none).
+	RunID int64 `json:"run_id,omitempty"`
 }
 
 // TemplateApply is the cmd.template request: everything needed to (re)apply a template.

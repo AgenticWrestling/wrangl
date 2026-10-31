@@ -30,6 +30,8 @@ for i in 1 2 3 4 5; do
 done
 echo "${SUM}  /usr/local/bin/wrangl" | sha256sum -c -
 chmod 0755 /usr/local/bin/wrangl
+# The runner clones and pushes with git.
+command -v git >/dev/null || dnf install -y git || (apt-get update && apt-get install -y git)
 exec /usr/local/bin/wrangl runner bootstrap --controller "{{.EnrollURL}}" --token "{{.Token}}"
 `))
 

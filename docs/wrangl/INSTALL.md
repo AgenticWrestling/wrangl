@@ -1,0 +1,562 @@
+# Installing wrangl
+
+This guide takes you from an empty AWS account to a runner finishing a task and pushing a
+branch to GitHub. Do the steps in order. Each step ends with a check.
+
+> **What has been verified, and what hasn't.** Everything in wrangl is covered by tests that
+> run a real controller and a real runner daemon in one process. Five pieces have **not**
+> yet run against the real service, because the build sandbox had no access to it:
+> - EC2 (launch, tags, terminate)
+> - the IAM policy below
+> - the GitHub App
+> - `mise install`
+> - Claude Code
+>
+> Treat your first launch, first `repo link` and first run as the real test, and watch them.
+> Step 11 lists what to look at.
+
+**Contents**
+
+0. [What you end up with](#0-what-you-end-up-with)
+1. [Prerequisites](#1-prerequisites)
+2. [Build the binaries](#2-build-the-binaries)
+3. [AWS network](#3-aws-network)
+4. [IAM roles](#4-iam-roles)
+5. [The controller host](#5-the-controller-host)
+6. [GitHub Apps](#6-github-apps)
+7. [The Claude Code token](#7-the-claude-code-token)
+8. [A runner template, and the first runner](#8-a-runner-template-and-the-first-runner)
+9. [The first project and run](#9-the-first-project-and-run)
+10. [Cloudflare Zero Trust](#10-cloudflare-zero-trust-remote-cli-now-pwa-in-m8)
+11. [First-run checklist](#11-first-run-checklist-the-unverified-parts)
+12. [Day 2: backups, upgrades, teardown](#12-day-2-backups-upgrades-teardown)
+13. [Troubleshooting](#13-troubleshooting)
+
+---
+
+## 0. What you end up with
+
+```
+                Cloudflare Zero Trust ──▶ cloudflared ─┐
+                                                      │ 127.0.0.1:8080 (API, later the PWA)
+  VPC, private subnet + NAT gateway                   ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │  controller (t4g.small)       runners (launched on demand)   │
+  │  wrangl controller serve ◀────  wrangl runner run             │
+  │    :4222 NATS (TLS)    ◀──────  enrol on :4223, then NATS     │
+  │    :4223 enrol + binary          agent runs as user `agent`  │
+  └──────────────────────────────────────────────────────────────┘
+       all EC2 calls use instance roles; no AWS keys anywhere
+```
+
+- The controller launches runners itself, sized by each template's minimum vCPU, RAM and disk.
+- Runners that sit idle for 30 minutes are terminated.
+- Every runner instance, volume and network interface is tagged `wrangl:managed=true`, so
+  `wrangl fleet teardown` can always find and remove them.
+
+## 1. Prerequisites
+
+| You need | For |
+|---|---|
+| An AWS account with an admin you can use from a laptop (`aws` CLI v2, the session-manager plugin) | steps 3–5 |
+| A GitHub account or org where you can create GitHub Apps and install them on repos | step 6 |
+| A Claude Pro, Max, Team or Enterprise plan, with Claude Code installed on your laptop | step 7 |
+| A Cloudflare account with Zero Trust (the free plan is enough), and a domain on Cloudflare | step 10 (optional for now) |
+| Go 1.26+, [Task](https://taskfile.dev) and git on your laptop | step 2 |
+| This repo's `ssm` tool (`task install`) | connecting to the controller without opening port 22 |
+
+Pick a region and use it throughout:
+
+```sh
+export AWS_REGION=us-west-2
+```
+
+## 2. Build the binaries
+
+```sh
+git clone https://github.com/njreid/devhost && cd devhost
+task build-wrangl
+ls build/
+# wrangl  wrangl-linux-aarch64  wrangl-linux-x86_64
+```
+
+`build/wrangl` is for your laptop, as the CLI. The two `wrangl-linux-*` binaries go on the
+controller, which serves them to runners as they boot.
+
+## 3. AWS network
+
+Runners and the controller share one VPC subnet and one security group. Runners need outbound
+internet access for mise, GitHub and the Claude API, so use a **private subnet with a NAT
+gateway**. Nothing needs inbound access from the internet.
+
+If you already have a VPC with a private subnet and NAT, reuse it. Otherwise, create one in the
+VPC console with the "VPC and more" wizard: 1 AZ, 1 public + 1 private subnet, 1 NAT gateway.
+
+```sh
+export VPC_ID=vpc-...        # your VPC
+export SUBNET_ID=subnet-...  # a PRIVATE subnet with a route to a NAT gateway
+
+# One security group for controller + runners; members may reach each other on 4222-4223.
+export SG_ID=$(aws ec2 create-security-group --group-name wrangl \
+  --description "wrangl controller and runners" --vpc-id "$VPC_ID" \
+  --query GroupId --output text)
+aws ec2 authorize-security-group-ingress --group-id "$SG_ID" \
+  --ip-permissions "IpProtocol=tcp,FromPort=4222,ToPort=4223,UserIdGroupPairs=[{GroupId=$SG_ID}]"
+```
+
+**Check:** the SG has one inbound rule, TCP 4222–4223 from itself:
+`aws ec2 describe-security-groups --group-ids "$SG_ID"`
+
+> The enrolment check compares a request's source IP with the instance's private IP. Runners
+> must reach the controller **directly inside the VPC**, with no NAT, proxy or load balancer
+> in between. Same subnet, or routable subnets in the same VPC.
+
+## 4. IAM roles
+
+Two roles, both trusted by EC2.
+
+```sh
+cat > ec2-trust.json <<'EOF'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}
+EOF
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+# Runner role: Session Manager only (so you can `ssm connect` to a runner to debug).
+aws iam create-role --role-name wrangl-runner --assume-role-policy-document file://ec2-trust.json
+aws iam attach-role-policy --role-name wrangl-runner \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+aws iam create-instance-profile --instance-profile-name wrangl-runner
+aws iam add-role-to-instance-profile --instance-profile-name wrangl-runner --role-name wrangl-runner
+
+# Controller role: launch, tag and terminate wrangl runners only.
+aws iam create-role --role-name wrangl-controller --assume-role-policy-document file://ec2-trust.json
+aws iam attach-role-policy --role-name wrangl-controller \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+```
+
+Copy the policy JSON from [`aws-iam.md`](aws-iam.md) into `controller-policy.json`. Replace
+`REGION` and `ACCOUNT`, then attach it:
+
+```sh
+sed -i "s/REGION/$AWS_REGION/g; s/ACCOUNT/$ACCOUNT/g" controller-policy.json
+aws iam put-role-policy --role-name wrangl-controller --policy-name wrangl-controller \
+  --policy-document file://controller-policy.json
+aws iam create-instance-profile --instance-profile-name wrangl-controller
+aws iam add-role-to-instance-profile --instance-profile-name wrangl-controller --role-name wrangl-controller
+```
+
+**Check:** both instance profiles exist:
+`aws iam list-instance-profiles --query 'InstanceProfiles[].InstanceProfileName'`
+
+## 5. The controller host
+
+### 5.1 Launch it
+
+A small arm64 instance is plenty. **Don't tag it `wrangl:managed`**: that tag marks runners,
+and `fleet teardown` would terminate the controller too.
+
+```sh
+aws ec2 run-instances \
+  --image-id resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
+  --instance-type t4g.small --subnet-id "$SUBNET_ID" --security-group-ids "$SG_ID" \
+  --iam-instance-profile Name=wrangl-controller \
+  --metadata-options HttpTokens=required,HttpEndpoint=enabled \
+  --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":30,"VolumeType":"gp3","Encrypted":true}}]' \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=wrangl-controller}]' \
+  --query 'Instances[0].[InstanceId,PrivateIpAddress]' --output text
+```
+
+Note the private IP (for example `10.0.1.5`): runners will be told to dial it. Connect with
+this repo's tool:
+
+```sh
+ssm connect "$AWS_REGION/wrangl-controller"
+```
+
+### 5.2 Copy the binaries over
+
+Use `ssm setup "$AWS_REGION/wrangl-controller"` once to get an SSH config entry that goes
+through EC2 Instance Connect, then:
+
+```sh
+scp build/wrangl-linux-aarch64 build/wrangl-linux-x86_64 wrangl-controller:/tmp/
+```
+
+If you'd rather not use SSH, `aws s3 cp` the files through a bucket the controller can read.
+
+### 5.3 Install
+
+Run these on the controller:
+
+```sh
+sudo install -m 0755 /tmp/wrangl-linux-aarch64 /usr/local/bin/wrangl
+sudo useradd --system --home-dir /var/lib/wrangl --shell /sbin/nologin wrangl
+sudo install -d -o wrangl -g wrangl -m 0750 /etc/wrangl /var/lib/wrangl
+sudo install -d -o wrangl -g wrangl -m 0750 /var/lib/wrangl/bin
+sudo install -o wrangl -g wrangl -m 0755 /tmp/wrangl-linux-aarch64 /tmp/wrangl-linux-x86_64 /var/lib/wrangl/bin/
+sudo usermod -aG wrangl ec2-user   # lets you use the CLI on this host (log out and back in)
+
+sudo -u wrangl wrangl --config /etc/wrangl/controller.yaml controller init --data-dir /var/lib/wrangl
+```
+
+`init` creates:
+- the database
+- the NATS operator, account and signing keys, and the TLS CA (`/var/lib/wrangl/nats/`)
+- the per-install task-id alphabet
+- this controller's id (`wr-…`), which tags its instances
+- a config skeleton at `/etc/wrangl/controller.yaml`
+
+It's safe to run again; it never overwrites anything.
+
+### 5.4 Configure
+
+Edit `/etc/wrangl/controller.yaml`. Fill in the AWS section, and put the controller's
+**private IP** on the NATS and enrol listeners (launches refuse a loopback address, because
+runners could never reach it):
+
+```yaml
+data_dir: /var/lib/wrangl
+listen:
+  http: 127.0.0.1:8080          # API (cloudflared connects here)
+  unix: /run/wrangl/api.sock    # local CLI
+  nats: 10.0.1.5:4222           # <- controller private IP
+  enroll: 10.0.1.5:4223         # <- controller private IP
+aws:
+  region: us-west-2
+  subnet_ids: [subnet-...]      # the private subnet from step 3
+  security_group_id: sg-...     # the wrangl SG
+  runner_instance_profile: wrangl-runner
+github:                         # filled in at step 6
+  author_app: { id: 0, private_key: secrets/gh-author.pem }
+  reviewer_app: { id: 0, private_key: secrets/gh-reviewer.pem, webhook_secret: secrets/gh-webhook }
+cloudflare: { team: "", aud: "", owner_email: "" }   # step 10 / M8
+web: { public_url: "" }
+```
+
+You can read the private IP on the host with:
+`TOKEN=$(curl -sX PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60'); curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4`
+
+### 5.5 Run it under systemd
+
+```sh
+sudo tee /etc/systemd/system/wrangl-controller.service >/dev/null <<'EOF'
+[Unit]
+Description=wrangl controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=wrangl
+Group=wrangl
+ExecStart=/usr/local/bin/wrangl --config /etc/wrangl/controller.yaml controller serve
+Restart=always
+RestartSec=5
+RuntimeDirectory=wrangl
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now wrangl-controller
+```
+
+**Check:**
+
+```sh
+journalctl -u wrangl-controller -n 20     # "controller serving ... aws=true"
+curl --unix-socket /run/wrangl/api.sock http://x/healthz
+# {"db":"ok","jetstream":"ok","nats":"ok"}
+```
+
+From here on, `wrangl` commands run on the controller host go to the local socket. Step 10
+covers running them from your laptop.
+
+## 6. GitHub Apps
+
+wrangl uses **two** GitHub Apps, because GitHub won't let a PR's author approve it:
+
+| App | Does | Used from |
+|---|---|---|
+| **author** | clones, pushes branches, opens PRs, reads issues | M4 (now) |
+| **reviewer** | reviews, approves and merges PRs; receives webhooks | M6 |
+
+### 6.1 The author App (needed now)
+
+GitHub → Settings (your account or org) → Developer settings → GitHub Apps → **New GitHub App**:
+
+- **Name:** `wrangl-author-<yourname>` (names are global on GitHub)
+- **Homepage URL:** anything, for example this repo's URL
+- **Webhook:** untick **Active**
+- **Repository permissions:**
+  - Contents: **Read and write**
+  - Pull requests: **Read and write**
+  - Issues: **Read-only**
+  - Metadata: **Read-only** (mandatory)
+- **Where can this App be installed:** Only on this account
+
+Create it, then:
+
+1. Note the **App ID** shown at the top of the App's page.
+2. **Generate a private key**, which downloads a `.pem` file.
+3. **Install App** → choose **Only select repositories** → pick the repos wrangl may work on.
+
+Put the key on the controller and set the ID:
+
+```sh
+# on the controller
+sudo install -o wrangl -g wrangl -m 0600 /tmp/wrangl-author.pem /var/lib/wrangl/secrets/gh-author.pem
+sudo -u wrangl sed -i 's/author_app: { id: 0/author_app: { id: 123456/' /etc/wrangl/controller.yaml
+sudo systemctl restart wrangl-controller
+```
+
+Replace 123456 with your App ID. The controller logs a warning at start while
+`github.author_app` is unset.
+
+The controller mints a fresh installation token for each run, scoped to **one** repo with
+`contents:write` and `pull_requests:write`. Only the runner daemon (root) uses it for clone
+and push; the agent never sees it.
+
+### 6.2 The reviewer App (create it now or at M6)
+
+Same steps, with these differences:
+
+- **Name:** `wrangl-reviewer-<yourname>`
+- **Webhook:** **Active**. URL `https://<your-hostname>/gh/webhook` (step 10). Secret: the
+  output of `openssl rand -hex 32`, which you also store as `secrets/gh-webhook` on the
+  controller (mode 0600, owned by wrangl).
+- **Repository permissions:**
+  - Pull requests: **Read and write**
+  - Contents: **Read and write** (needed to merge)
+  - Checks: **Read-only**
+  - Issues: **Read-only**
+  - Metadata: **Read-only**
+- **Subscribe to events:** Check run, Check suite, Pull request, Pull request review, Issues
+- Install it on the same repos. Store its key as `secrets/gh-reviewer.pem` and set
+  `reviewer_app.id`.
+
+> **Branch protection (M6 caveat).** It hasn't been verified yet that an approval from a GitHub
+> App satisfies a "required approvals" rule. If it doesn't, add the reviewer App to the
+> ruleset's bypass list.
+
+## 7. The Claude Code token
+
+Runners run Claude Code headless, authenticated by a long-lived token tied to your plan.
+`setup-token` needs a browser, so run it on your laptop:
+
+```sh
+claude setup-token          # opens a browser, then prints a token valid for one year
+```
+
+Then store it on the controller. `secret set` reads stdin and writes
+`/var/lib/wrangl/secrets/claude_oauth_token` with mode 0600:
+
+```sh
+sudo -u wrangl wrangl --config /etc/wrangl/controller.yaml controller secret set claude_oauth_token
+# paste the token, then Ctrl-D
+sudo -u wrangl wrangl --config /etc/wrangl/controller.yaml controller secret list
+```
+
+The controller sends it to each run in the agent's process environment only. It's never
+written to a runner's disk. Every runner draws on this one plan's usage limits.
+
+## 8. A runner template, and the first runner
+
+A template says what to install on a runner (a mise config plus an optional root setup
+script), how big the machine must be, and how to start the agent. Save this as
+`go-claude.yaml`:
+
+```yaml
+name: go-claude
+arch: arm64
+min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
+instance_types: [m7g.large, m7g.xlarge]     # optional; omit to pick the smallest that fits
+max_runners: 2
+idle_timeout: 30m                           # terminated after this long idle (default 30m)
+setup_script: |                             # runs as root, only when it changes
+  dnf install -y git make gcc
+mise_toml: |                                # installed for the unprivileged `agent` user
+  [tools]
+  go = "1.26"
+  node = "24"
+  "npm:@anthropic-ai/claude-code" = "latest"
+agent:
+  start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  turn_timeout: 2h
+```
+
+Notes:
+- **One Claude session per assignment.** The first subtask uses `start` with a fresh session
+  id, and later subtasks `resume` it, so the agent keeps context across subtasks.
+- **What the agent runs as.** `bypassPermissions` runs as the unprivileged `agent` user on a
+  disposable box that can't read the runner's NATS credentials or the GitHub token. That box
+  is the security boundary, not Claude's permission prompts.
+- **How a subtask completes (M4).** A turn that exits 0 completes its subtask; the runner then
+  checkpoint-commits whatever the agent left uncommitted. M5 switches this to the agent
+  calling a `task_complete` tool.
+
+Create the template and launch a runner:
+
+```sh
+wrangl template create -f go-claude.yaml
+wrangl fleet launch --template go-claude
+wrangl fleet list          # watch: launching -> enrolling -> provisioning -> idle
+```
+
+To follow a runner's progress:
+- `fleet show <runner>` shows whether the template applied (`applied v1 of v1`).
+- On failure it shows the last error and the tail of the output, and cordons the runner.
+- Booting, enrolling and `mise install` take a few minutes the first time.
+
+**Check:** `wrangl fleet list` shows the runner `idle` with CPU, memory and disk figures.
+
+## 9. The first project and run
+
+```sh
+wrangl project create web --template go-claude
+wrangl repo link web your-org/your-repo            # the author App must be installed on it
+wrangl issue sync web && wrangl issue list --project web
+
+# a task with two subtasks; the second waits for the first
+wrangl task create web --title "Add a health endpoint" --prompt "Add GET /healthz returning 200."
+wrangl task tree web                                # note the sqid, e.g. k3Xp9a
+wrangl task split k3Xp9a --title "Write the handler and a test" --title "Document it in README" --chain
+wrangl task queue k3Xp9a
+
+wrangl run list --state active
+wrangl run attach <run-id>            # live terminal, replayed from the start
+wrangl logs <run-id> -f --stream agent
+wrangl run diff <run-id> --stat       # live from the runner's workspace
+```
+
+When the run finishes, the branch `wrangl/<sqid>-<attempt>` is on GitHub with one commit per
+subtask (`[sqid] title`). The subtasks show ◐ (in review) in `task tree`. Opening the PR,
+review and merge are M6; for now, open the PR yourself and `wrangl task complete <sqid>` once
+it's merged.
+
+`wrangl logs search 'panic OR timeout' --project web` searches every run's output.
+
+## 10. Cloudflare Zero Trust (remote CLI now, PWA in M8)
+
+This puts the controller's API on a hostname you can reach from anywhere, behind Cloudflare
+Access, with no inbound ports.
+
+1. **Install cloudflared on the controller** and create a tunnel:
+   ```sh
+   sudo dnf install -y https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-aarch64.rpm
+   cloudflared tunnel login
+   cloudflared tunnel create wrangl
+   cloudflared tunnel route dns wrangl wrangl.example.com
+   ```
+   `/etc/cloudflared/config.yml`:
+   ```yaml
+   tunnel: wrangl
+   credentials-file: /root/.cloudflared/<tunnel-id>.json
+   ingress:
+     - hostname: wrangl.example.com
+       service: http://127.0.0.1:8080
+     - service: http_status:404
+   ```
+   Then `sudo cloudflared service install && sudo systemctl enable --now cloudflared`.
+2. **Access application.** Zero Trust → Access → Applications → Add → **Self-hosted**,
+   domain `wrangl.example.com`. Add a policy allowing only your email, and set a long session
+   duration (an installed PWA re-authenticates awkwardly).
+3. **Service token for the CLI.** Access → Service Auth → Create service token. Add an
+   Access policy with action **Service Auth** that includes that token. Then on your laptop
+   put this in `~/.config/wrangl/config.yaml`:
+   ```yaml
+   controller: https://wrangl.example.com
+   cf_service_token: { id: "<client id>.access", secret: "<client secret>" }
+   ```
+   **Check:** `wrangl fleet list` from the laptop.
+4. **Webhook bypass (M6).** Add a second Access application for
+   `wrangl.example.com/gh/webhook` with a **Bypass** policy (everyone). GitHub authenticates
+   with the HMAC secret from step 6.2 instead.
+
+> **Until M8**, Cloudflare Access at the edge is the only check on the TCP API. The controller
+> doesn't yet verify the `Cf-Access-Jwt-Assertion` header itself. Keep `listen.http` on
+> 127.0.0.1, which is the default, so only cloudflared can reach it.
+
+## 11. First-run checklist (the unverified parts)
+
+Watch these the first time and report anything odd:
+
+| Step | Where to look | What to expect |
+|---|---|---|
+| `fleet launch` | `journalctl -u wrangl-controller`, EC2 console | instance running, tagged `wrangl:managed=true`, `wrangl:controller=wr-…`, `wrangl:runner`, `wrangl:template`; volume and ENI tagged too |
+| IAM policy | controller log on launch/terminate | no `UnauthorizedOperation`; if you see one, the message names the missing action |
+| Enrolment | `fleet list` (enrolling → provisioning) | if stuck in `launching`: `ssm connect` to the runner, read `/var/log/cloud-init-output.log` |
+| `mise install` | `fleet show <runner>` template log | tools installed under `/home/agent/.local/share/mise` |
+| `repo link` | CLI output | base branch detected; otherwise the App isn't installed on that repo |
+| Claude Code | `wrangl run attach <id>` | the agent works in the repo; `exited N` failures show its output in `wrangl logs <id>` |
+| Idle shutdown | `fleet list` 30+ min after the last run | the runner disappears; the EC2 console shows it terminated |
+
+## 12. Day 2: backups, upgrades, teardown
+
+### Backups
+
+`wrangl controller backup <path>` writes a consistent copy of the database while the
+controller runs. A nightly timer to S3 (give the controller role `s3:PutObject` on the bucket):
+
+```sh
+sudo tee /etc/systemd/system/wrangl-backup.service >/dev/null <<'EOF'
+[Service]
+Type=oneshot
+User=wrangl
+ExecStart=/bin/sh -c 'f=/var/lib/wrangl/backup-$(date +%%F).db; rm -f $f; /usr/local/bin/wrangl --config /etc/wrangl/controller.yaml controller backup $f && aws s3 cp $f s3://YOUR-BUCKET/wrangl/ && rm -f $f'
+EOF
+sudo tee /etc/systemd/system/wrangl-backup.timer >/dev/null <<'EOF'
+[Timer]
+OnCalendar=daily
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+sudo systemctl daemon-reload && sudo systemctl enable --now wrangl-backup.timer
+```
+
+Also back up `/var/lib/wrangl/nats/*.nk`, `nats/ca*.pem` and `secrets/`. Without the NATS
+keys, every enrolled runner's credentials stop working.
+
+### Upgrades
+
+1. Copy the new binaries.
+2. `sudo install` them to `/usr/local/bin/wrangl` and `/var/lib/wrangl/bin/`.
+3. `sudo systemctl restart wrangl-controller`.
+
+Migrations run on start. Runners keep running through the restart and reconnect. Newly
+launched runners download the new binary; existing ones keep theirs until they're replaced.
+
+### Teardown
+
+```sh
+wrangl fleet teardown                         # on the controller: this controller's runners
+wrangl fleet teardown --region us-west-2 --controller-id wr-xxxxxxxxxx   # from a laptop
+wrangl fleet teardown --region us-west-2 --all-controllers --yes
+```
+
+Teardown talks to AWS directly, so it works even if the controller is gone. It never touches
+untagged instances, and root volumes are deleted with their instances. Two safety nets cover
+the case where nobody runs teardown: an orphaned runner powers itself off after 2 hours
+without its controller, and the shutdown terminates the instance. Then delete the controller
+instance, the instance profiles and roles, the SG and the NAT gateway if you made one.
+
+## 13. Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `fleet launch`: "listen.enroll must be the controller's private VPC IP" | `listen.nats` / `listen.enroll` still on 127.0.0.1 (step 5.4) |
+| `fleet launch`: "no aarch64 runner binary" | copy `wrangl-linux-aarch64` into `/var/lib/wrangl/bin/` |
+| Runner stuck `launching` | SG doesn't allow 4222–4223 from itself; subnet has no NAT (can't reach dnf/GitHub); look at cloud-init output on the runner |
+| Enrol rejected "request from X, but instance has private IP Y" | something between runner and controller rewrites the source IP (NAT, proxy, different VPC) |
+| Runner `idle (cordoned)` with "last error" | template apply failed; `wrangl fleet show <runner>` has the output tail. Fix with `wrangl template edit` |
+| `repo link`: "GitHub is not configured" / "not installed" | `github.author_app` unset, or the App isn't installed on that repo |
+| Run `failed`, "agent exited N" | `wrangl logs <run>` and `wrangl run attach <run>` show what the agent printed |
+| Run `blocked` | remaining subtasks wait on tasks outside the run; finish those, then `wrangl task queue` again |
+| CLI from laptop: HTTP 403 from Cloudflare | the service-token policy is missing, or the `cf_service_token` id/secret are wrong |
+
+Useful on any runner (`ssm connect <region>/wrangl-<runner>`):
+- `sudo wrangl --config /etc/wrangl/runner.yaml runner status`
+- `journalctl -u wrangl-runner`

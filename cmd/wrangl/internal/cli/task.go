@@ -1,9 +1,94 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
 
-func taskCmd() *cobra.Command {
-	create := leaf("create <project>", "Create a task", "M4", cobra.ExactArgs(1))
+	"github.com/spf13/cobra"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+)
+
+var stateGlyph = map[string]string{"open": "○", "in_progress": "▶", "in_review": "◐", "done": "✓", "cancelled": "✗"}
+
+func printTree(w io.Writer, nodes []proto.TaskNode) {
+	if len(nodes) == 0 {
+		fmt.Fprintln(w, "(no tasks)")
+		return
+	}
+	base := nodes[0].Depth
+	for _, n := range nodes {
+		extra := ""
+		if n.Unmet > 0 {
+			extra += fmt.Sprintf("  ⏸ waits on %d", n.Unmet)
+		}
+		if n.LockedBy != "" {
+			extra += "  🔒 " + n.LockedBy
+		}
+		fmt.Fprintf(w, "%s%s %s %s%s\n", strings.Repeat("  ", int(n.Depth-base)), n.Sqid, stateGlyph[n.State], n.Title, extra)
+	}
+}
+
+// promptArg reads --prompt or -f.
+func promptArg(c *cobra.Command) (*string, error) {
+	f := c.Flags()
+	if f.Changed("file") {
+		path, _ := f.GetString("file")
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		s := string(b)
+		return &s, nil
+	}
+	if f.Changed("prompt") {
+		s, _ := f.GetString("prompt")
+		return &s, nil
+	}
+	return nil, nil
+}
+
+func positionArgs(c *cobra.Command) (first bool, after, before string) {
+	f := c.Flags()
+	first, _ = f.GetBool("first")
+	after, _ = f.GetString("after")
+	before, _ = f.GetString("before")
+	return
+}
+
+func taskCmd(g *Global) *cobra.Command {
+	client := func() (*clientT, error) { return apiClient(g) }
+
+	create := &cobra.Command{
+		Use: "create <project>", Short: "Create a task", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			f := cmd.Flags()
+			req := proto.TaskCreateRequest{Project: args[0]}
+			req.Title, _ = f.GetString("title")
+			req.Parent, _ = f.GetString("parent")
+			req.Repo, _ = f.GetString("repo")
+			req.Template, _ = f.GetString("template")
+			req.Issue, _ = f.GetString("issue")
+			req.Needs, _ = f.GetStringSlice("needs")
+			req.First, req.After, req.Before = positionArgs(cmd)
+			if p, err := promptArg(cmd); err != nil {
+				return err
+			} else if p != nil {
+				req.Prompt = *p
+			}
+			t, err := c.CreateTask(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, t, func(w io.Writer) { fmt.Fprintf(w, "created %s: %s\n", t.Sqid, t.Title) })
+		},
+	}
 	cf := create.Flags()
 	cf.String("title", "", "title (required)")
 	cf.String("prompt", "", "prompt text")
@@ -11,32 +96,217 @@ func taskCmd() *cobra.Command {
 	cf.String("parent", "", "parent task sqid (default: top level)")
 	cf.String("repo", "", "owner/name (default: inherited)")
 	cf.String("template", "", "runner template (default: inherited)")
-	cf.String("issue", "", "linked GitHub issue")
+	cf.String("issue", "", "linked GitHub issue (owner/name#number)")
 	cf.StringSlice("needs", nil, "precursor task sqids")
 	positionFlags(create)
 	create.MarkFlagsMutuallyExclusive("prompt", "file")
+	create.MarkFlagRequired("title")
 
-	tree := leaf("tree [project|sqid]", "Show the ranked task tree", "M4", cobra.MaximumNArgs(1))
-	tree.Flags().Bool("all", false, "include done and cancelled tasks")
+	var treeAll bool
+	tree := &cobra.Command{
+		Use: "tree <project|sqid>", Short: "Show the ranked task tree", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			nodes, err := c.ProjectTree(cmd.Context(), args[0], treeAll)
+			if err != nil { // not a project? try a task sqid
+				var terr error
+				if nodes, terr = c.TaskTree(cmd.Context(), args[0], treeAll); terr != nil {
+					return err
+				}
+			}
+			out := cmd.OutOrStdout()
+			if g.Output != "table" {
+				return emit(cmd, g, nodes, nil)
+			}
+			printTree(out, nodes)
+			return nil
+		},
+	}
+	tree.Flags().BoolVar(&treeAll, "all", false, "include done and cancelled tasks")
 
-	list := leaf("list", "List tasks", "M4", cobra.NoArgs)
-	list.Flags().String("project", "", "only this project")
-	list.Flags().String("state", "", "only this state")
-	list.Flags().String("parent", "", "only children of this sqid")
+	var lProject, lState, lParent string
+	list := &cobra.Command{
+		Use: "list", Short: "List tasks", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			ts, err := c.Tasks(cmd.Context(), lProject, lState, lParent)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, ts, func(w io.Writer) {
+				fmt.Fprintln(w, "SQID\tSTATE\tTITLE")
+				for _, t := range ts {
+					fmt.Fprintf(w, "%s\t%s\t%s\n", t.Sqid, t.State, t.Title)
+				}
+			})
+		},
+	}
+	list.Flags().StringVar(&lProject, "project", "", "only this project")
+	list.Flags().StringVar(&lState, "state", "", "only this state")
+	list.Flags().StringVar(&lParent, "parent", "", "only children of this sqid")
 
-	edit := leaf("edit <sqid>", "Edit a task's title or prompt", "M4", cobra.ExactArgs(1))
+	show := &cobra.Command{
+		Use: "show <sqid>", Short: "Show a task with its precursors, runs and history", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			t, err := c.Task(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, t, func(w io.Writer) {
+				fmt.Fprintf(w, "task\t%s %s %s\nproject\t%s\nparent\t%s\ncreated by\t%s\n", t.Sqid, stateGlyph[t.State], t.Title, t.Project, dash(t.Parent), t.CreatedBy)
+				if t.Summary != "" {
+					fmt.Fprintf(w, "summary\t%s\n", t.Summary)
+				}
+				refs := func(label string, rs []proto.TaskRef) {
+					for i, r := range rs {
+						l := ""
+						if i == 0 {
+							l = label
+						}
+						fmt.Fprintf(w, "%s\t%s %s %s\n", l, r.Sqid, stateGlyph[r.State], r.Title)
+					}
+				}
+				refs("subtasks", t.Children)
+				refs("needs", t.Precursors)
+				refs("needed by", t.Dependents)
+				for i, r := range t.Runs {
+					l := ""
+					if i == 0 {
+						l = "runs"
+					}
+					fmt.Fprintf(w, "%s\t#%d %s %s %s pushed=%v\n", l, r.ID, r.State, dash(r.Runner), r.Branch, r.Pushed)
+				}
+				for i, e := range t.Events {
+					l := ""
+					if i == 0 {
+						l = "history"
+					}
+					fmt.Fprintf(w, "%s\t%s %s %s %s\n", l, e.TS, e.Actor, e.Op, string(e.Diff))
+				}
+				if strings.TrimSpace(t.Prompt) != "" {
+					fmt.Fprintf(w, "\n%s\n", t.Prompt)
+				}
+			})
+		},
+	}
+
+	edit := &cobra.Command{
+		Use: "edit <sqid>", Short: "Edit a task's title or prompt", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			var req proto.TaskPatchRequest
+			if cmd.Flags().Changed("title") {
+				t, _ := cmd.Flags().GetString("title")
+				req.Title = &t
+			}
+			if req.Prompt, err = promptArg(cmd); err != nil {
+				return err
+			}
+			_, err = c.EditTask(cmd.Context(), args[0], req)
+			return err
+		},
+	}
 	edit.Flags().String("title", "", "new title")
 	edit.Flags().String("prompt", "", "new prompt")
 	edit.Flags().StringP("file", "f", "", "read the new prompt from a file")
 	edit.MarkFlagsMutuallyExclusive("prompt", "file")
 
-	move := leaf("move <sqid>", "Move or rerank a task", "M4", cobra.ExactArgs(1))
+	move := &cobra.Command{
+		Use: "move <sqid>", Short: "Move or rerank a task", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			var req proto.TaskMoveRequest
+			req.Root, _ = cmd.Flags().GetBool("root")
+			if cmd.Flags().Changed("parent") {
+				p, _ := cmd.Flags().GetString("parent")
+				req.Parent = &p
+			}
+			req.First, req.After, req.Before = positionArgs(cmd)
+			_, err = c.MoveTask(cmd.Context(), args[0], req)
+			return err
+		},
+	}
 	move.Flags().String("parent", "", "new parent sqid")
 	move.Flags().Bool("root", false, "move to top level")
 	move.MarkFlagsMutuallyExclusive("parent", "root")
 	positionFlags(move)
 
-	split := leaf("split <sqid>", "Split a task into subtasks", "M4", cobra.ExactArgs(1))
+	needs := group("needs", "Manage precursor tasks",
+		&cobra.Command{Use: "add <sqid> <precursor-sqid>", Short: "Add a precursor", Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				c, err := client()
+				if err != nil {
+					return err
+				}
+				return c.NeedsAdd(cmd.Context(), args[0], args[1])
+			}},
+		&cobra.Command{Use: "rm <sqid> <precursor-sqid>", Short: "Remove a precursor", Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				c, err := client()
+				if err != nil {
+					return err
+				}
+				return c.NeedsRm(cmd.Context(), args[0], args[1])
+			}},
+	)
+
+	split := &cobra.Command{
+		Use: "split <sqid>", Short: "Split a task into subtasks", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			f := cmd.Flags()
+			if agent, _ := f.GetBool("agent"); agent {
+				return stub("M8")(cmd, args)
+			}
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			var req proto.TaskSplitRequest
+			req.Chain, _ = f.GetBool("chain")
+			req.CopyPrompt, _ = f.GetBool("copy-prompt")
+			if f.Changed("file") {
+				path, _ := f.GetString("file")
+				b, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				req.Outline = string(b)
+			} else {
+				titles, _ := f.GetStringArray("title")
+				if len(titles) == 0 {
+					return fmt.Errorf("give -f outline.md or one or more --title")
+				}
+				for _, t := range titles {
+					req.Children = append(req.Children, proto.SplitNode{Title: t})
+				}
+			}
+			created, err := c.SplitTask(cmd.Context(), args[0], req)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, created, func(w io.Writer) {
+				for _, t := range created {
+					fmt.Fprintf(w, "created %s: %s\n", t.Sqid, t.Title)
+				}
+			})
+		},
+	}
 	sf := split.Flags()
 	sf.StringP("file", "f", "", "outline file: one subtask per line, indent to nest")
 	sf.StringArray("title", nil, "subtask title (repeatable)")
@@ -46,23 +316,51 @@ func taskCmd() *cobra.Command {
 	sf.String("guidance", "", "guidance for the planning agent (with --agent)")
 	split.MarkFlagsMutuallyExclusive("file", "title", "agent")
 
-	reason := func(c *cobra.Command) *cobra.Command {
-		c.Flags().StringP("message", "m", "", "reason or summary")
+	queue := &cobra.Command{
+		Use: "queue <sqid>", Short: "Queue a work run for this subtree", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			id, branch, err := c.QueueTask(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "queued run %d (branch %s)\n", id, branch)
+			return nil
+		},
+	}
+	action := func(op, short string) *cobra.Command {
+		c := &cobra.Command{Use: op + " <sqid>", Short: short, Args: cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cl, err := client()
+				if err != nil {
+					return err
+				}
+				msg, _ := cmd.Flags().GetString("message")
+				return cl.TaskAction(cmd.Context(), args[0], op, msg)
+			}}
+		if op != "reopen" {
+			c.Flags().StringP("message", "m", "", "reason or summary")
+		}
 		return c
 	}
+	del := &cobra.Command{
+		Use: "delete <sqid>", Short: "Delete a task and its subtree", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			return c.DeleteTask(cmd.Context(), args[0])
+		},
+	}
 	return group("task", "Manage the hierarchical work stack",
-		create, tree, list,
-		leaf("show <sqid>", "Show a task", "M4", cobra.ExactArgs(1)),
-		edit, move,
-		group("needs", "Manage precursor tasks",
-			leaf("add <sqid> <precursor-sqid>", "Add a precursor", "M4", cobra.ExactArgs(2)),
-			leaf("rm <sqid> <precursor-sqid>", "Remove a precursor", "M4", cobra.ExactArgs(2)),
-		),
-		split,
-		leaf("queue <sqid>", "Queue a work run for this subtree", "M4", cobra.ExactArgs(1)),
-		reason(leaf("complete <sqid>", "Mark a task complete", "M4", cobra.ExactArgs(1))),
-		leaf("reopen <sqid>", "Reopen a task", "M4", cobra.ExactArgs(1)),
-		reason(leaf("cancel <sqid>", "Cancel a task", "M4", cobra.ExactArgs(1))),
-		leaf("delete <sqid>", "Delete a task and its subtree", "M4", cobra.ExactArgs(1)),
+		create, tree, list, show, edit, move, needs, split, queue,
+		action("complete", "Mark a leaf done (finished and merged)"),
+		action("reopen", "Reopen a leaf"),
+		action("cancel", "Cancel a task and its unfinished subtasks"),
+		del,
 	)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
 )
 
 // Backoff after a failed launch, per template: doubles from MinBackoff to MaxBackoff.
@@ -25,9 +26,11 @@ type backoff struct {
 
 // Scheduler launches runners to meet queued demand, within each template's max_runners.
 type Scheduler struct {
-	Fleet *fleet.Service
-	Now   func() time.Time
-	Log   *slog.Logger
+	Fleet  *fleet.Service
+	Now    func() time.Time
+	Log    *slog.Logger
+	GH     gh.API                            // nil: no tokens (file:// repos in tests)
+	Secret func(name string) ([]byte, error) // controller secret store
 
 	mu      sync.Mutex
 	backoff map[int64]*backoff
@@ -97,6 +100,11 @@ func (s *Scheduler) Loop(ctx context.Context, interval time.Duration) {
 		}
 		if _, err := s.Tick(ctx); err != nil && ctx.Err() == nil {
 			s.Log.Debug("scheduler tick", "err", err)
+		}
+		if s.Fleet.NC != nil {
+			if _, err := s.Assign(ctx); err != nil && ctx.Err() == nil {
+				s.Log.Warn("assign", "err", err)
+			}
 		}
 	}
 }

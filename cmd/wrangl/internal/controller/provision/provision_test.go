@@ -145,7 +145,7 @@ func TestRenderUserData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"aarch64) SUM=" + sum, "/dl/wrangl-linux-${ARCH}", "sha256sum -c", "--token \"wre_abc-123\""} {
+	for _, want := range []string{"aarch64) SUM=" + sum, "/dl/wrangl-linux-${ARCH}", "sha256sum -c", "command -v git", "--token \"wre_abc-123\""} {
 		if !strings.Contains(ud, want) {
 			t.Errorf("user-data missing %q:\n%s", want, ud)
 		}

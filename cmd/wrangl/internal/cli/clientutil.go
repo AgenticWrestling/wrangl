@@ -14,6 +14,8 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
 )
 
+type clientT = client.Client
+
 // apiClient resolves the controller (flag > env > client config > local socket).
 func apiClient(g *Global) (*client.Client, error) {
 	p, err := clientConfigPath(g)
@@ -38,6 +40,11 @@ func emit(cmd *cobra.Command, g *Global, v any, table func(w io.Writer)) error {
 		return e.Encode(v)
 	case "yaml":
 		return yaml.NewEncoder(out).Encode(v)
+	}
+	if table == nil {
+		e := json.NewEncoder(out)
+		e.SetIndent("", "  ")
+		return e.Encode(v)
 	}
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	table(tw)

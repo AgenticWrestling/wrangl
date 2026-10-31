@@ -36,6 +36,60 @@ func (q *Queries) InsertLogLine(ctx context.Context, arg InsertLogLineParams) er
 	return err
 }
 
+const runLogs = `-- name: RunLogs :many
+SELECT id, run_id, seq, ts, stream, level, message FROM log_line
+WHERE run_id = ?1 AND id > ?2
+  AND (CAST(?3 AS TEXT) = '' OR stream = CAST(?3 AS TEXT))
+  AND (CAST(?4 AS TEXT) = '' OR ts >= CAST(?4 AS TEXT))
+ORDER BY id
+LIMIT ?5
+`
+
+type RunLogsParams struct {
+	RunID   int64  `json:"run_id"`
+	AfterID int64  `json:"after_id"`
+	Stream  string `json:"stream"`
+	Since   string `json:"since"`
+	Lim     int64  `json:"lim"`
+}
+
+func (q *Queries) RunLogs(ctx context.Context, arg RunLogsParams) ([]LogLine, error) {
+	rows, err := q.db.QueryContext(ctx, runLogs,
+		arg.RunID,
+		arg.AfterID,
+		arg.Stream,
+		arg.Since,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogLine{}
+	for rows.Next() {
+		var i LogLine
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.Seq,
+			&i.Ts,
+			&i.Stream,
+			&i.Level,
+			&i.Message,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchLogs = `-- name: SearchLogs :many
 SELECT l.id, l.run_id, l.ts, l.stream, l.message
 FROM log_line_fts f
@@ -73,6 +127,81 @@ func (q *Queries) SearchLogs(ctx context.Context, arg SearchLogsParams) ([]Searc
 			&i.Ts,
 			&i.Stream,
 			&i.Message,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchLogsFiltered = `-- name: SearchLogsFiltered :many
+SELECT l.id, l.run_id, l.ts, l.stream, l.message,
+       CAST(p.slug AS TEXT) AS project_slug, CAST(COALESCE(rn.name, '') AS TEXT) AS runner_name,
+       CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
+FROM log_line_fts f
+JOIN log_line l ON l.id = f.rowid
+JOIN run r ON r.id = l.run_id
+JOIN task t ON t.id = r.task_id
+JOIN project p ON p.id = t.project_id
+LEFT JOIN runner rn ON rn.id = r.runner_id
+WHERE f.message MATCH ?1
+  AND (CAST(?2 AS TEXT) = '' OR p.slug = CAST(?2 AS TEXT))
+  AND (CAST(?3 AS TEXT) = '' OR rn.name = CAST(?3 AS TEXT))
+  AND (CAST(?4 AS TEXT) = '' OR l.ts >= CAST(?4 AS TEXT))
+ORDER BY l.id DESC
+LIMIT ?5
+`
+
+type SearchLogsFilteredParams struct {
+	Query   string `json:"query"`
+	Project string `json:"project"`
+	Runner  string `json:"runner"`
+	Since   string `json:"since"`
+	Lim     int64  `json:"lim"`
+}
+
+type SearchLogsFilteredRow struct {
+	ID          int64  `json:"id"`
+	RunID       int64  `json:"run_id"`
+	Ts          string `json:"ts"`
+	Stream      string `json:"stream"`
+	Message     string `json:"message"`
+	ProjectSlug string `json:"project_slug"`
+	RunnerName  string `json:"runner_name"`
+	TaskSqid    string `json:"task_sqid"`
+}
+
+func (q *Queries) SearchLogsFiltered(ctx context.Context, arg SearchLogsFilteredParams) ([]SearchLogsFilteredRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchLogsFiltered,
+		arg.Query,
+		arg.Project,
+		arg.Runner,
+		arg.Since,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchLogsFilteredRow{}
+	for rows.Next() {
+		var i SearchLogsFilteredRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.Ts,
+			&i.Stream,
+			&i.Message,
+			&i.ProjectSlug,
+			&i.RunnerName,
+			&i.TaskSqid,
 		); err != nil {
 			return nil, err
 		}

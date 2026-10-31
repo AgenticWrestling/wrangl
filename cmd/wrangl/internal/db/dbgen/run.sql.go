@@ -10,9 +10,116 @@ import (
 	"database/sql"
 )
 
+const activeRunForRunner = `-- name: ActiveRunForRunner :one
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed FROM run
+WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+ORDER BY id DESC LIMIT 1
+`
+
+func (q *Queries) ActiveRunForRunner(ctx context.Context, runnerID sql.NullInt64) (Run, error) {
+	row := q.db.QueryRowContext(ctx, activeRunForRunner, runnerID)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.CurrentTaskID,
+		&i.RunnerID,
+		&i.Kind,
+		&i.Attempt,
+		&i.State,
+		&i.Branch,
+		&i.SessionName,
+		&i.BaseSha,
+		&i.HeadSha,
+		&i.StatusText,
+		&i.ExitCode,
+		&i.Error,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.TemplateID,
+		&i.RepoID,
+		&i.SessionUuid,
+		&i.Pushed,
+	)
+	return i, err
+}
+
+const assignRun = `-- name: AssignRun :execrows
+UPDATE run SET state = 'assigned', runner_id = ?1, session_name = ?2
+WHERE id = ?3 AND state = 'queued'
+`
+
+type AssignRunParams struct {
+	RunnerID    sql.NullInt64 `json:"runner_id"`
+	SessionName string        `json:"session_name"`
+	ID          int64         `json:"id"`
+}
+
+func (q *Queries) AssignRun(ctx context.Context, arg AssignRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, assignRun, arg.RunnerID, arg.SessionName, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const cancelQueuedRun = `-- name: CancelQueuedRun :execrows
+UPDATE run SET state = 'cancelled', finished_at = ?1, error = 'cancelled before assignment'
+WHERE id = ?2 AND state = 'queued'
+`
+
+type CancelQueuedRunParams struct {
+	Now sql.NullString `json:"now"`
+	ID  int64          `json:"id"`
+}
+
+func (q *Queries) CancelQueuedRun(ctx context.Context, arg CancelQueuedRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelQueuedRun, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const claimIdleRunner = `-- name: ClaimIdleRunner :one
+UPDATE runner SET state = 'busy', idle_since = NULL
+WHERE id = (
+    SELECT n.id FROM runner n JOIN runner_template t ON t.id = n.template_id
+    WHERE n.template_id = ?1 AND n.state = 'idle' AND n.cordoned = 0
+      AND n.template_version = t.version
+    ORDER BY n.idle_since
+    LIMIT 1)
+RETURNING id, name
+`
+
+type ClaimIdleRunnerRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// Oldest-idle runner on the template at its current version; claimed atomically.
+func (q *Queries) ClaimIdleRunner(ctx context.Context, templateID int64) (ClaimIdleRunnerRow, error) {
+	row := q.db.QueryRowContext(ctx, claimIdleRunner, templateID)
+	var i ClaimIdleRunnerRow
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const countRunsForTask = `-- name: CountRunsForTask :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM run WHERE task_id = ?
+`
+
+func (q *Queries) CountRunsForTask(ctx context.Context, taskID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunsForTask, taskID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createRun = `-- name: CreateRun :one
 INSERT INTO run (task_id, kind, attempt) VALUES (?, ?, ?)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed
 `
 
 type CreateRunParams struct {
@@ -42,6 +149,77 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.QueuedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.TemplateID,
+		&i.RepoID,
+		&i.SessionUuid,
+		&i.Pushed,
+	)
+	return i, err
+}
+
+const finishRun = `-- name: FinishRun :exec
+UPDATE run
+SET state = ?1, finished_at = ?2, exit_code = ?3,
+    error = ?4, status_text = ?5, pushed = ?6,
+    head_sha = CASE WHEN CAST(?7 AS TEXT) <> '' THEN CAST(?7 AS TEXT) ELSE head_sha END,
+    current_task_id = NULL
+WHERE id = ?8 AND state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
+`
+
+type FinishRunParams struct {
+	State      string         `json:"state"`
+	Now        sql.NullString `json:"now"`
+	ExitCode   sql.NullInt64  `json:"exit_code"`
+	Error      string         `json:"error"`
+	StatusText string         `json:"status_text"`
+	Pushed     int64          `json:"pushed"`
+	HeadSha    string         `json:"head_sha"`
+	ID         int64          `json:"id"`
+}
+
+func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
+	_, err := q.db.ExecContext(ctx, finishRun,
+		arg.State,
+		arg.Now,
+		arg.ExitCode,
+		arg.Error,
+		arg.StatusText,
+		arg.Pushed,
+		arg.HeadSha,
+		arg.ID,
+	)
+	return err
+}
+
+const getRun = `-- name: GetRun :one
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed FROM run WHERE id = ?
+`
+
+func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
+	row := q.db.QueryRowContext(ctx, getRun, id)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.CurrentTaskID,
+		&i.RunnerID,
+		&i.Kind,
+		&i.Attempt,
+		&i.State,
+		&i.Branch,
+		&i.SessionName,
+		&i.BaseSha,
+		&i.HeadSha,
+		&i.StatusText,
+		&i.ExitCode,
+		&i.Error,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.TemplateID,
+		&i.RepoID,
+		&i.SessionUuid,
+		&i.Pushed,
 	)
 	return i, err
 }
@@ -53,7 +231,7 @@ FROM run r
 JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
-WHERE r.state NOT IN ('succeeded', 'failed', 'cancelled')
+WHERE r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
 ORDER BY p.priority DESC, r.queued_at
 `
 
@@ -100,4 +278,371 @@ func (q *Queries) ListActiveRuns(ctx context.Context) ([]ListActiveRunsRow, erro
 		return nil, err
 	}
 	return items, nil
+}
+
+const listRuns = `-- name: ListRuns :many
+SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
+       CAST(p.slug AS TEXT) AS project_slug, CAST(COALESCE(rn.name, '') AS TEXT) AS runner_name,
+       CAST(COALESCE(ct.sqid, '') AS TEXT) AS current_sqid
+FROM run r
+JOIN task t ON t.id = r.task_id
+JOIN project p ON p.id = t.project_id
+LEFT JOIN runner rn ON rn.id = r.runner_id
+LEFT JOIN task ct ON ct.id = r.current_task_id
+WHERE (CAST(?1 AS TEXT) = '' OR r.state = CAST(?1 AS TEXT)
+       OR (CAST(?1 AS TEXT) = 'active' AND r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')))
+  AND (CAST(?2 AS TEXT) = '' OR rn.name = CAST(?2 AS TEXT))
+  AND (CAST(?3 AS TEXT) = '' OR p.slug = CAST(?3 AS TEXT))
+ORDER BY r.id DESC
+LIMIT ?4
+`
+
+type ListRunsParams struct {
+	State   string `json:"state"`
+	Runner  string `json:"runner"`
+	Project string `json:"project"`
+	Lim     int64  `json:"lim"`
+}
+
+type ListRunsRow struct {
+	Run         Run    `json:"run"`
+	TaskSqid    string `json:"task_sqid"`
+	TaskTitle   string `json:"task_title"`
+	ProjectSlug string `json:"project_slug"`
+	RunnerName  string `json:"runner_name"`
+	CurrentSqid string `json:"current_sqid"`
+}
+
+// Filter params are CAST so sqlc types them (quirk 7).
+func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRuns,
+		arg.State,
+		arg.Runner,
+		arg.Project,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRunsRow{}
+	for rows.Next() {
+		var i ListRunsRow
+		if err := rows.Scan(
+			&i.Run.ID,
+			&i.Run.TaskID,
+			&i.Run.CurrentTaskID,
+			&i.Run.RunnerID,
+			&i.Run.Kind,
+			&i.Run.Attempt,
+			&i.Run.State,
+			&i.Run.Branch,
+			&i.Run.SessionName,
+			&i.Run.BaseSha,
+			&i.Run.HeadSha,
+			&i.Run.StatusText,
+			&i.Run.ExitCode,
+			&i.Run.Error,
+			&i.Run.QueuedAt,
+			&i.Run.StartedAt,
+			&i.Run.FinishedAt,
+			&i.Run.TemplateID,
+			&i.Run.RepoID,
+			&i.Run.SessionUuid,
+			&i.Run.Pushed,
+			&i.TaskSqid,
+			&i.TaskTitle,
+			&i.ProjectSlug,
+			&i.RunnerName,
+			&i.CurrentSqid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markRunCancelling = `-- name: MarkRunCancelling :execrows
+UPDATE run SET state = 'cancelling'
+WHERE id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing')
+`
+
+func (q *Queries) MarkRunCancelling(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markRunCancelling, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const queueRun = `-- name: QueueRun :one
+INSERT INTO run (task_id, kind, attempt, template_id, repo_id, branch, session_uuid)
+VALUES (?1, ?2, ?3, ?4, ?5,
+        ?6, ?7)
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed
+`
+
+type QueueRunParams struct {
+	TaskID      int64         `json:"task_id"`
+	Kind        string        `json:"kind"`
+	Attempt     int64         `json:"attempt"`
+	TemplateID  sql.NullInt64 `json:"template_id"`
+	RepoID      sql.NullInt64 `json:"repo_id"`
+	Branch      string        `json:"branch"`
+	SessionUuid string        `json:"session_uuid"`
+}
+
+func (q *Queries) QueueRun(ctx context.Context, arg QueueRunParams) (Run, error) {
+	row := q.db.QueryRowContext(ctx, queueRun,
+		arg.TaskID,
+		arg.Kind,
+		arg.Attempt,
+		arg.TemplateID,
+		arg.RepoID,
+		arg.Branch,
+		arg.SessionUuid,
+	)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.CurrentTaskID,
+		&i.RunnerID,
+		&i.Kind,
+		&i.Attempt,
+		&i.State,
+		&i.Branch,
+		&i.SessionName,
+		&i.BaseSha,
+		&i.HeadSha,
+		&i.StatusText,
+		&i.ExitCode,
+		&i.Error,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.TemplateID,
+		&i.RepoID,
+		&i.SessionUuid,
+		&i.Pushed,
+	)
+	return i, err
+}
+
+const queuedRunsForAssignment = `-- name: QueuedRunsForAssignment :many
+SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt,
+       CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
+FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
+WHERE r.state = 'queued'
+ORDER BY p.priority DESC, t.rank, r.queued_at
+`
+
+type QueuedRunsForAssignmentRow struct {
+	ID          int64         `json:"id"`
+	TaskID      int64         `json:"task_id"`
+	TemplateID  sql.NullInt64 `json:"template_id"`
+	RepoID      sql.NullInt64 `json:"repo_id"`
+	Branch      string        `json:"branch"`
+	SessionUuid string        `json:"session_uuid"`
+	Attempt     int64         `json:"attempt"`
+	TaskSqid    string        `json:"task_sqid"`
+}
+
+func (q *Queries) QueuedRunsForAssignment(ctx context.Context) ([]QueuedRunsForAssignmentRow, error) {
+	rows, err := q.db.QueryContext(ctx, queuedRunsForAssignment)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []QueuedRunsForAssignmentRow{}
+	for rows.Next() {
+		var i QueuedRunsForAssignmentRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.TemplateID,
+			&i.RepoID,
+			&i.Branch,
+			&i.SessionUuid,
+			&i.Attempt,
+			&i.TaskSqid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const releaseRunner = `-- name: ReleaseRunner :exec
+UPDATE runner SET state = 'idle', idle_since = ?1
+WHERE id = ?2 AND state IN ('busy', 'offline')
+`
+
+type ReleaseRunnerParams struct {
+	Now sql.NullString `json:"now"`
+	ID  int64          `json:"id"`
+}
+
+// Back to idle (with a fresh idle clock) unless terminated.
+func (q *Queries) ReleaseRunner(ctx context.Context, arg ReleaseRunnerParams) error {
+	_, err := q.db.ExecContext(ctx, releaseRunner, arg.Now, arg.ID)
+	return err
+}
+
+const runsForTask = `-- name: RunsForTask :many
+SELECT r.id, r.state, r.kind, r.attempt, r.branch, r.pushed, r.head_sha, r.queued_at, r.finished_at,
+       CAST(COALESCE(n.name, '') AS TEXT) AS runner_name
+FROM run r LEFT JOIN runner n ON n.id = r.runner_id
+WHERE r.task_id = ? ORDER BY r.id DESC
+`
+
+type RunsForTaskRow struct {
+	ID         int64          `json:"id"`
+	State      string         `json:"state"`
+	Kind       string         `json:"kind"`
+	Attempt    int64          `json:"attempt"`
+	Branch     string         `json:"branch"`
+	Pushed     int64          `json:"pushed"`
+	HeadSha    string         `json:"head_sha"`
+	QueuedAt   string         `json:"queued_at"`
+	FinishedAt sql.NullString `json:"finished_at"`
+	RunnerName string         `json:"runner_name"`
+}
+
+func (q *Queries) RunsForTask(ctx context.Context, taskID int64) ([]RunsForTaskRow, error) {
+	rows, err := q.db.QueryContext(ctx, runsForTask, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RunsForTaskRow{}
+	for rows.Next() {
+		var i RunsForTaskRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.State,
+			&i.Kind,
+			&i.Attempt,
+			&i.Branch,
+			&i.Pushed,
+			&i.HeadSha,
+			&i.QueuedAt,
+			&i.FinishedAt,
+			&i.RunnerName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const runsOnLostRunners = `-- name: RunsOnLostRunners :many
+SELECT r.id, r.runner_id, r.current_task_id FROM run r JOIN runner n ON n.id = r.runner_id
+WHERE r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+  AND (n.state = 'terminated' OR (n.state = 'offline' AND n.offline_since <= ?1))
+`
+
+type RunsOnLostRunnersRow struct {
+	ID            int64         `json:"id"`
+	RunnerID      sql.NullInt64 `json:"runner_id"`
+	CurrentTaskID sql.NullInt64 `json:"current_task_id"`
+}
+
+// Active runs whose runner is terminated, or offline since before the cutoff.
+func (q *Queries) RunsOnLostRunners(ctx context.Context, cutoff sql.NullString) ([]RunsOnLostRunnersRow, error) {
+	rows, err := q.db.QueryContext(ctx, runsOnLostRunners, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RunsOnLostRunnersRow{}
+	for rows.Next() {
+		var i RunsOnLostRunnersRow
+		if err := rows.Scan(&i.ID, &i.RunnerID, &i.CurrentTaskID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setRunCurrentTask = `-- name: SetRunCurrentTask :exec
+UPDATE run SET current_task_id = ?1 WHERE id = ?2
+`
+
+type SetRunCurrentTaskParams struct {
+	TaskID sql.NullInt64 `json:"task_id"`
+	ID     int64         `json:"id"`
+}
+
+func (q *Queries) SetRunCurrentTask(ctx context.Context, arg SetRunCurrentTaskParams) error {
+	_, err := q.db.ExecContext(ctx, setRunCurrentTask, arg.TaskID, arg.ID)
+	return err
+}
+
+const unassignRun = `-- name: UnassignRun :exec
+UPDATE run SET state = 'queued', runner_id = NULL WHERE id = ? AND state = 'assigned'
+`
+
+func (q *Queries) UnassignRun(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, unassignRun, id)
+	return err
+}
+
+const updateRunProgress = `-- name: UpdateRunProgress :exec
+UPDATE run
+SET state = ?1,
+    started_at = COALESCE(started_at, ?2),  -- caller decides (quirk 6)
+    base_sha = CASE WHEN CAST(?3 AS TEXT) <> '' THEN CAST(?3 AS TEXT) ELSE base_sha END,
+    head_sha = CASE WHEN CAST(?4 AS TEXT) <> '' THEN CAST(?4 AS TEXT) ELSE head_sha END,
+    status_text = ?5
+WHERE id = ?6 AND state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
+`
+
+type UpdateRunProgressParams struct {
+	State      string         `json:"state"`
+	StartedAt  sql.NullString `json:"started_at"`
+	BaseSha    string         `json:"base_sha"`
+	HeadSha    string         `json:"head_sha"`
+	StatusText string         `json:"status_text"`
+	ID         int64          `json:"id"`
+}
+
+func (q *Queries) UpdateRunProgress(ctx context.Context, arg UpdateRunProgressParams) error {
+	_, err := q.db.ExecContext(ctx, updateRunProgress,
+		arg.State,
+		arg.StartedAt,
+		arg.BaseSha,
+		arg.HeadSha,
+		arg.StatusText,
+		arg.ID,
+	)
+	return err
 }

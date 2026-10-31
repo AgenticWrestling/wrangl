@@ -72,6 +72,7 @@ type Project struct {
 	Priority          int64         `json:"priority"`
 	CreatedAt         string        `json:"created_at"`
 	UpdatedAt         string        `json:"updated_at"`
+	AutoQueue         int64         `json:"auto_queue"`
 }
 
 type PullRequest struct {
@@ -135,6 +136,7 @@ type Repo struct {
 	DefaultBranch    string        `json:"default_branch"`
 	GhInstallationID sql.NullInt64 `json:"gh_installation_id"`
 	CreatedAt        string        `json:"created_at"`
+	CloneUrl         string        `json:"clone_url"`
 }
 
 type Run struct {
@@ -155,6 +157,10 @@ type Run struct {
 	QueuedAt      string         `json:"queued_at"`
 	StartedAt     sql.NullString `json:"started_at"`
 	FinishedAt    sql.NullString `json:"finished_at"`
+	TemplateID    sql.NullInt64  `json:"template_id"`
+	RepoID        sql.NullInt64  `json:"repo_id"`
+	SessionUuid   string         `json:"session_uuid"`
+	Pushed        int64          `json:"pushed"`
 }
 
 type Runner struct {
