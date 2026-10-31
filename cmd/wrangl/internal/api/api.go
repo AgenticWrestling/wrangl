@@ -19,6 +19,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
 )
@@ -65,12 +66,14 @@ type Deps struct {
 	Runs     *runs.Service
 	PRs      *prs.Service
 	JS       jetstream.JetStream
+	Bus      *events.Bus
 }
 
 // Register mounts /api/v1 on mux.
 func Register(mux *http.ServeMux, d Deps) {
 	f := d.Fleet
 	registerWork(mux, d)
+	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { streamEvents(w, r, d.Bus) })
 	mux.HandleFunc("GET /api/v1/runners", func(w http.ResponseWriter, r *http.Request) {
 		all := int64(0)
 		if r.URL.Query().Get("all") == "1" {
@@ -305,4 +308,49 @@ func EnrollHandler(f *fleet.Service) http.Handler {
 		http.ServeFile(w, r, path)
 	})
 	return mux
+}
+
+// KeepAlive is how often an idle SSE stream sends a comment (Cloudflare drops idle
+// connections after ~100 s).
+var KeepAlive = 15 * time.Second
+
+// sseStart sets SSE headers and returns the flusher.
+func sseStart(w http.ResponseWriter) http.Flusher {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	fl, _ := w.(http.Flusher)
+	fmt.Fprint(w, ": connected\n\n")
+	if fl != nil {
+		fl.Flush()
+	}
+	return fl
+}
+
+// streamEvents is GET /api/v1/events: change notices as SSE until the client leaves.
+func streamEvents(w http.ResponseWriter, r *http.Request, bus *events.Bus) {
+	if bus == nil {
+		writeErr(w, fmt.Errorf("event stream unavailable"))
+		return
+	}
+	ch, stop := bus.Subscribe()
+	defer stop()
+	fl := sseStart(w)
+	tick := time.NewTicker(KeepAlive)
+	defer tick.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case e := <-ch:
+			b, _ := json.Marshal(e)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Kind, b)
+		case <-tick.C:
+			fmt.Fprint(w, ": ping\n\n")
+		}
+		if fl != nil {
+			fl.Flush()
+		}
+	}
 }

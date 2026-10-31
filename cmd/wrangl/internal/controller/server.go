@@ -33,6 +33,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/scheduler"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
 )
 
@@ -79,6 +80,7 @@ type Server struct {
 	Projects *projects.Service
 	Runs     *runs.Service
 	PRs      *prs.Service
+	Bus      *events.Bus
 }
 
 // New validates cfg and returns an unstarted server.
@@ -206,10 +208,12 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	s.Stack = &stack.Service{DB: s.db, Sqids: sq}
+	s.Bus = &events.Bus{}
+	s.Fleet.Bus = s.Bus
+	s.Stack = &stack.Service{DB: s.db, Sqids: sq, Bus: s.Bus}
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
-		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}}
+		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, Bus: s.Bus}
 	reviewer, err := s.reviewer()
 	if err != nil {
 		return err
@@ -222,7 +226,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			s.log.Warn("github webhook secret unreadable; webhooks disabled", "err", err)
 		}
 	}
-	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log}
+	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
 	s.Runs.OnRunFinished = func(_ context.Context, runID int64) {
 		go s.PRs.OnRunFinished(context.Background(), runID) // GitHub calls must not hold up event ingest
 	}
@@ -395,7 +399,7 @@ func listenUnix(path string) (net.Listener, error) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
-	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, JS: s.js})
+	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, JS: s.js, Bus: s.Bus})
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	return mux
 }

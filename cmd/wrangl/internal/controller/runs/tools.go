@@ -374,6 +374,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		if len(status) > 300 {
 			status = status[:300]
 		}
+		defer s.Bus.Publish("run", fmt.Sprint(sc.RunID))
 		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
 
 	case "submit_review", "propose_split":

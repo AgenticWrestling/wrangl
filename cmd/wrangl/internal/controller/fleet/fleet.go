@@ -30,6 +30,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 )
 
@@ -66,6 +67,7 @@ type Service struct {
 	BinDir                           string // <data-dir>/bin
 	Now                              func() time.Time
 	Log                              *slog.Logger
+	Bus                              *events.Bus // change notices
 	// AllowLoopbackEnroll lets tests launch with a 127.0.0.1 enrol URL. Production
 	// refuses: a runner on another host could never reach it.
 	AllowLoopbackEnroll bool
@@ -264,6 +266,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 		return zero, err
 	}
 	s.Log.Info("launched runner", "runner", name, "instance", inst.ID, "type", inst.Type)
+	s.Bus.Publish("runner", name)
 	return r, nil
 }
 
@@ -292,6 +295,7 @@ func (s *Service) terminate(ctx context.Context, id int64, name, instanceID, rea
 		return err
 	}
 	s.Log.Info("terminated runner", "runner", name, "instance", instanceID, "reason", reason)
+	defer s.Bus.Publish("runner", name)
 	return s.DB.Q.MarkTerminated(ctx, dbgen.MarkTerminatedParams{TerminatedAt: nullStr(ts(s.now())), ID: id})
 }
 
@@ -424,6 +428,7 @@ func (s *Service) Heartbeat(ctx context.Context, subject string, data []byte) er
 	if err != nil {
 		return err
 	}
+	s.Bus.Publish("runner", strconv.FormatInt(id, 10))
 	return s.reconcileTemplate(ctx, id, hb)
 }
 

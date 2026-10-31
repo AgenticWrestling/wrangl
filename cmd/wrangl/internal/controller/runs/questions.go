@@ -46,6 +46,7 @@ func (s *Service) NewQuestion(ctx context.Context, q dbgen.CreateQuestionParams,
 	})
 	if err == nil {
 		s.Log.Info("question asked", "id", out.ID, "kind", out.Kind, "prompt", out.Prompt)
+		s.Bus.Publish("question", fmt.Sprint(out.ID))
 		if s.OnQuestion != nil {
 			s.OnQuestion(out)
 		}
@@ -101,6 +102,7 @@ func (s *Service) Answer(ctx context.Context, id int64, value, text string) erro
 		s.DB.Q.SetRunState(ctx, dbgen.SetRunStateParams{State: "running", ID: q.RunID.Int64, FromState: "needs_input"})
 	}
 	s.Log.Info("question answered", "id", id, "kind", q.Kind, "value", value)
+	s.Bus.Publish("question", fmt.Sprint(id))
 	switch q.Kind {
 	case "agent", "system":
 		return s.sendAnswer(ctx, q, proto.Answer{QuestionID: id, Value: value, Text: text})

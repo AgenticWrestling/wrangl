@@ -289,3 +289,32 @@ func (c *Client) PR(ctx context.Context, id int64) (proto.PRView, error) {
 func (c *Client) PRAction(ctx context.Context, id int64, op, message string) error {
 	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/prs/%d/%s", id, op), proto.MessageRequest{Message: message}, nil)
 }
+
+// Event is a change notice from GET /api/v1/events.
+type Event struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+// Events streams change notices to fn until ctx ends or the stream breaks.
+func (c *Client) Events(ctx context.Context, fn func(Event)) error {
+	resp, err := c.streamReq(ctx, "/api/v1/events")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		line := sc.Text()
+		if data, ok := strings.CutPrefix(line, "data: "); ok {
+			var e Event
+			if json.Unmarshal([]byte(data), &e) == nil {
+				fn(e)
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	return sc.Err()
+}

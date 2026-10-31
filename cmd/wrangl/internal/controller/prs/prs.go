@@ -27,6 +27,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
 )
@@ -41,6 +42,7 @@ type Service struct {
 	WebhookSecret []byte
 	Now           func() time.Time
 	Log           *slog.Logger
+	Bus           *events.Bus
 
 	mu       sync.Mutex
 	reviewed map[int64]string // pr id -> head sha a review run was queued for
@@ -208,6 +210,7 @@ func Protected(files []gh.PRFile, globs []string) []string {
 
 // Evaluate brings a PR's state up to date and moves it along: gates, review, decision.
 func (s *Service) Evaluate(ctx context.Context, prID int64) error {
+	defer s.Bus.Publish("pr", fmt.Sprint(prID))
 	pr, err := s.DB.RQ.GetPR(ctx, prID)
 	if err != nil {
 		return err

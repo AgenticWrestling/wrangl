@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -867,12 +868,21 @@ func streamPTY(w http.ResponseWriter, r *http.Request, d Deps, runID int64) {
 		writeErr(w, fmt.Errorf("%w: run %d has not started", errs.Conflict, runID))
 		return
 	}
-	cons, err := d.JS.OrderedConsumer(ctx, "WR_PTY", jetstream.OrderedConsumerConfig{
+	occ := jetstream.OrderedConsumerConfig{
 		FilterSubjects: []string{natsd.RunPTYSubject(run.RunnerID.Int64, runID)},
 		DeliverPolicy:  jetstream.DeliverAllPolicy,
-	})
+	}
+	sse := r.URL.Query().Get("format") == "sse"
+	if last, err := strconv.ParseUint(r.Header.Get("Last-Event-ID"), 10, 64); sse && err == nil && last > 0 {
+		occ.DeliverPolicy, occ.OptStartSeq = jetstream.DeliverByStartSequencePolicy, last+1 // resume
+	}
+	cons, err := d.JS.OrderedConsumer(ctx, "WR_PTY", occ)
 	if err != nil {
 		writeErr(w, err)
+		return
+	}
+	if sse {
+		streamPTYSSE(w, r, d, runID, cons)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -895,6 +905,47 @@ func streamPTY(w http.ResponseWriter, r *http.Request, d Deps, runID int64) {
 		}
 		if cur, err := d.Fleet.DB.RQ.GetRun(ctx, runID); err != nil || proto.Terminal(cur.State) {
 			return // caught up and the run is over
+		}
+	}
+}
+
+// streamPTYSSE sends terminal output as SSE: each event's id is the stream sequence (so a
+// reconnect resumes with Last-Event-ID) and data is base64; "end" when the run is over.
+func streamPTYSSE(w http.ResponseWriter, r *http.Request, d Deps, runID int64, cons jetstream.Consumer) {
+	ctx := r.Context()
+	fl := sseStart(w)
+	idle := time.Now()
+	for {
+		msg, err := cons.Next(jetstream.FetchMaxWait(time.Second))
+		if err == nil {
+			meta, _ := msg.Metadata()
+			var seq uint64
+			if meta != nil {
+				seq = meta.Sequence.Stream
+			}
+			fmt.Fprintf(w, "id: %d\nevent: pty\ndata: %s\n\n", seq, base64.StdEncoding.EncodeToString(msg.Data()))
+			idle = time.Now()
+			if fl != nil {
+				fl.Flush()
+			}
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if cur, err := d.Fleet.DB.RQ.GetRun(ctx, runID); err != nil || proto.Terminal(cur.State) {
+			fmt.Fprint(w, "event: end\ndata: {}\n\n")
+			if fl != nil {
+				fl.Flush()
+			}
+			return
+		}
+		if time.Since(idle) > KeepAlive {
+			fmt.Fprint(w, ": ping\n\n")
+			idle = time.Now()
+			if fl != nil {
+				fl.Flush()
+			}
 		}
 	}
 }

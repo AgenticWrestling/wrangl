@@ -15,6 +15,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 )
 
 // Actor identifies who changed the work stack: "user" or "agent:<run id>".
@@ -30,6 +31,7 @@ func AgentActor(runID int64) Actor { return Actor("agent:" + strconv.FormatInt(r
 type Service struct {
 	DB    *db.DB
 	Sqids *Sqids
+	Bus   *events.Bus // change notices (nil = none)
 }
 
 // Position says where among its siblings a task goes. Zero value = last.
@@ -79,7 +81,13 @@ func hasChildren(ctx context.Context, q *dbgen.Queries, id int64) (bool, error) 
 	return c.Total > 0, err
 }
 
-func event(ctx context.Context, q *dbgen.Queries, sqid string, actor Actor, op string, diff map[string]any) error {
+// Changed publishes a task change notice (called by writes; also usable by other services).
+func (s *Service) Changed(sqid string) { s.Bus.Publish("task", sqid) }
+
+// event records an audit entry and publishes a change notice. Subscribers may refetch a
+// moment before the surrounding transaction commits, so they debounce (see events).
+func (s *Service) event(ctx context.Context, q *dbgen.Queries, sqid string, actor Actor, op string, diff map[string]any) error {
+	defer s.Bus.Publish("task", sqid)
 	b, _ := json.Marshal(diff)
 	var runID sql.NullInt64
 	if strings.HasPrefix(string(actor), "agent:") {
@@ -155,7 +163,7 @@ func (s *Service) newTask(ctx context.Context, q *dbgen.Queries, p dbgen.CreateT
 	if err := q.SetTaskSqid(ctx, dbgen.SetTaskSqidParams{Sqid: nstr(sq), ID: id}); err != nil {
 		return dbgen.Task{}, err
 	}
-	if err := event(ctx, q, sq, actor, "create", map[string]any{"title": p.Title}); err != nil {
+	if err := s.event(ctx, q, sq, actor, "create", map[string]any{"title": p.Title}); err != nil {
 		return dbgen.Task{}, err
 	}
 	return q.GetTask(ctx, id)
@@ -346,7 +354,7 @@ func (s *Service) Edit(ctx context.Context, sqid string, title, prompt *string, 
 		if out, err = q.UpdateTaskText(ctx, dbgen.UpdateTaskTextParams{Title: nt, Prompt: np, ID: t.ID}); err != nil {
 			return err
 		}
-		return event(ctx, q, sqid, actor, "update", diff)
+		return s.event(ctx, q, sqid, actor, "update", diff)
 	})
 	return out, err
 }
@@ -397,7 +405,7 @@ func (s *Service) Move(ctx context.Context, sqid string, newParent *string, pos 
 		if err := q.MoveTask(ctx, dbgen.MoveTaskParams{ParentID: nint(parentID), Rank: rank, ID: t.ID}); err != nil {
 			return err
 		}
-		if err := event(ctx, q, sqid, actor, op, map[string]any{"parent_id": parentID, "rank": rank}); err != nil {
+		if err := s.event(ctx, q, sqid, actor, op, map[string]any{"parent_id": parentID, "rank": rank}); err != nil {
 			return err
 		}
 		if err := recompute(ctx, q, t.ParentID); err != nil {
@@ -446,7 +454,7 @@ func (s *Service) addNeed(ctx context.Context, q *dbgen.Queries, t dbgen.Task, p
 		}
 		return err
 	}
-	return event(ctx, q, t.Sqid.String, actor, "add_precursor", map[string]any{"precursor": preSqid})
+	return s.event(ctx, q, t.Sqid.String, actor, "add_precursor", map[string]any{"precursor": preSqid})
 }
 
 // NeedsAdd makes sqid depend on pre.
@@ -478,7 +486,7 @@ func (s *Service) NeedsRm(ctx context.Context, sqid, pre string, actor Actor) er
 		if n == 0 {
 			return fmt.Errorf("%w: %s does not need %s", errs.NotFound, sqid, pre)
 		}
-		return event(ctx, q, sqid, actor, "remove_precursor", map[string]any{"precursor": pre})
+		return s.event(ctx, q, sqid, actor, "remove_precursor", map[string]any{"precursor": pre})
 	})
 }
 
@@ -498,7 +506,7 @@ func (s *Service) setLeafState(ctx context.Context, sqid, state, summary string,
 		if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: state, Summary: summary, CompletedAt: completedAt(state), ID: t.ID}); err != nil {
 			return err
 		}
-		if err := event(ctx, q, sqid, actor, op, map[string]any{"state": state}); err != nil {
+		if err := s.event(ctx, q, sqid, actor, op, map[string]any{"state": state}); err != nil {
 			return err
 		}
 		return recompute(ctx, q, t.ParentID)
@@ -535,7 +543,7 @@ func (s *Service) Cancel(ctx context.Context, sqid, reason string, actor Actor) 
 			if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: "cancelled", Summary: reason, CompletedAt: completedAt("cancelled"), ID: r.ID}); err != nil {
 				return err
 			}
-			if err := event(ctx, q, r.Sqid.String, actor, "cancel", map[string]any{"reason": reason}); err != nil {
+			if err := s.event(ctx, q, r.Sqid.String, actor, "cancel", map[string]any{"reason": reason}); err != nil {
 				return err
 			}
 			if err := recompute(ctx, q, r.ParentID); err != nil {
@@ -563,7 +571,7 @@ func (s *Service) Delete(ctx context.Context, sqid string, actor Actor) error {
 		if err := q.DeleteTask(ctx, t.ID); err != nil {
 			return err
 		}
-		if err := event(ctx, q, sqid, actor, "delete", map[string]any{"title": t.Title}); err != nil {
+		if err := s.event(ctx, q, sqid, actor, "delete", map[string]any{"title": t.Title}); err != nil {
 			return err
 		}
 		return recompute(ctx, q, t.ParentID)
@@ -902,7 +910,7 @@ func (s *Service) AgentComplete(ctx context.Context, runID int64, sqid, summary 
 		if err := q.CompleteTask(ctx, dbgen.CompleteTaskParams{CompletionSummary: summary, CompletedRunID: nint(runID), ID: t.ID}); err != nil {
 			return err
 		}
-		if err := event(ctx, q, sqid, AgentActor(runID), "complete", map[string]any{"summary": summary}); err != nil {
+		if err := s.event(ctx, q, sqid, AgentActor(runID), "complete", map[string]any{"summary": summary}); err != nil {
 			return err
 		}
 		return recompute(ctx, q, t.ParentID)

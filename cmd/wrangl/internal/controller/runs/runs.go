@@ -19,6 +19,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
 )
@@ -34,6 +35,7 @@ type Service struct {
 	Now   func() time.Time
 	Log   *slog.Logger
 
+	Bus *events.Bus // change notices
 	// OnQuestion is called after a question is created (web push in M8).
 	OnQuestion func(q dbgen.Question)
 	// AnswerHandlers handle answers for kinds other than agent/system/approval.
@@ -89,6 +91,7 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 	if err != nil {
 		return err
 	}
+	defer s.Bus.Publish("run", strconv.FormatInt(runID, 10))
 	if !proto.Terminal(st.State) {
 		started := sql.NullString{}
 		if st.State == "preparing" || st.State == "running" {

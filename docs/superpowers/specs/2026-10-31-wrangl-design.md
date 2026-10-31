@@ -781,7 +781,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | **M4 ✅** | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/split/queue/…`), GitHub App client (author tokens; tested against a fake), assignment, headless work loop in a PTY as `agent`, checkpoint commits + push, ingest/logs/FTS, cancel/attach/diff/files/cat, install guide (`docs/wrangl/INSTALL.md`) | M3 |
 | **M5 ✅** | Agent socket (peer-uid auth), `runner hook/mcp/tool`, dependency-free MCP core, stack tools with subtree scope + approvals, Questions (agent/system/approval), `task_complete`-driven completion with one nudge then an owner question | M4 |
 | **M6 ✅** | PR open (by the controller), gates (CI, size, protected globs), review runs + `submit_review`, reviewer-App approve/squash-merge, `pr_review` questions, revise runs on the PR branch, HMAC webhooks with dedupe + 15-min reconcile, blocked continuation, `pr` CLI | M5 |
-| M7 | HTTP API + SSE + TUI (incl. tree editing) | M4 (parallel with M5/M6) |
+| **M7 ✅** | In-process event bus, `GET /api/v1/events` SSE (15 s keepalive), PTY as SSE with `Last-Event-ID` resume, `wrangl tui` (bubbletea: runners, runs, stack editing, questions, PRs; attach/logs/diff hand over the terminal) | M4 |
 | M8 | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
 | M9 | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
 | M10 | v2: controller-hosted remote MCP endpoint exposing the stack tools to the owner's own agents (auth design behind CF Access) | M5, M8 |

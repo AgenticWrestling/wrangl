@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,6 +75,9 @@ func TestPRFlowEndToEnd(t *testing.T) {
 	<-srv.Ready()
 	api, _ := client.New("unix://"+cfg.Listen.Unix, nil)
 	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t}
+	var kindsMu sync.Mutex
+	kinds := map[string]int{}
+	go api.Events(ctx, func(ev client.Event) { kindsMu.Lock(); kinds[ev.Kind]++; kindsMu.Unlock() })
 
 	tmpl := fmt.Sprintf("name: tiny\narch: %s\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmise_toml: \"\"\nagent:\n  start: [%q, \"{{.Prompt}}\"]\n", ec2Arch(), agentPath)
 	if _, err := api.CreateTemplate(ctx, []byte(tmpl)); err != nil {
@@ -235,6 +240,27 @@ func TestPRFlowEndToEnd(t *testing.T) {
 	ps, _ := api.PRs(ctx, "merged")
 	if len(ps) != 3 {
 		t.Fatalf("merged PRs: %+v", ps)
+	}
+	// M7: the event stream carried every kind of change.
+	kindsMu.Lock()
+	for _, k := range []string{"run", "task", "question", "pr", "runner"} {
+		if kinds[k] == 0 {
+			t.Errorf("no %q events (got %v)", k, kinds)
+		}
+	}
+	kindsMu.Unlock()
+	// M7: terminal output as SSE (base64 chunks with stream-sequence ids, then "end").
+	hc := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", cfg.Listen.Unix)
+	}}}
+	resp, err := hc.Get("http://x/api/v1/runs/1/pty?format=sse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sseBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(sseBody), "event: pty") || !strings.Contains(string(sseBody), "event: end") || !strings.Contains(string(sseBody), "\nid: ") {
+		t.Fatalf("pty sse: %.300s", sseBody)
 	}
 
 	stopDaemon()
