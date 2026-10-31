@@ -780,7 +780,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | **M3 ✅** | `agent` user + root daemon (D26), template apply on runners (mise) + `template edit` (versioning, failure handling), scheduler scale-up with backoff, `fleet cordon/uncordon/drain` | M2 |
 | **M4 ✅** | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/split/queue/…`), GitHub App client (author tokens; tested against a fake), assignment, headless work loop in a PTY as `agent`, checkpoint commits + push, ingest/logs/FTS, cancel/attach/diff/files/cat, install guide (`docs/wrangl/INSTALL.md`) | M3 |
 | **M5 ✅** | Agent socket (peer-uid auth), `runner hook/mcp/tool`, dependency-free MCP core, stack tools with subtree scope + approvals, Questions (agent/system/approval), `task_complete`-driven completion with one nudge then an owner question | M4 |
-| M6 | PR open, gates, review runs, reviewer App approve/merge, webhooks via CF bypass, revise + blocked-continuation runs | M5 |
+| **M6 ✅** | PR open (by the controller), gates (CI, size, protected globs), review runs + `submit_review`, reviewer-App approve/squash-merge, `pr_review` questions, revise runs on the PR branch, HMAC webhooks with dedupe + 15-min reconcile, blocked continuation, `pr` CLI | M5 |
 | M7 | HTTP API + SSE + TUI (incl. tree editing) | M4 (parallel with M5/M6) |
 | M8 | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
 | M9 | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
@@ -816,6 +816,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D24 | Controller uses the instance role (default credential chain); no AWS keys in config |
 | D25 | Enrolment proof for launched runners = token bound to instance id + source IP equals its private IP (replaces identity-document signature check) |
 | D27 | M5: the stuck-task question offers Retry / Mark complete / Fail run ("skip" would hand the same leaf back). Approvals apply inside the assignment; outside it the agent can only read. Approval questions outlive the run; agent/system questions are cancelled with it |
+| D28 | M6: the controller (author App) opens PRs after a push, so GitHub's API is only ever called from the controller. Without a reviewer App PRs are opened but not reviewed/merged by wrangl. One review run per PR head; a review run that submits nothing goes to the owner |
 | D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 
 ## 17. Open items

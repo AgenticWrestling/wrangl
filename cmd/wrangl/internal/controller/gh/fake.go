@@ -10,14 +10,20 @@ import (
 // Fake is an in-memory GitHub for tests. Repos are added with AddRepo; their CloneURL can
 // point at a local bare repository (file://...).
 type Fake struct {
-	mu     sync.Mutex
-	repos  map[string]Repo
-	issues map[string][]Issue
-	Tokens int // RepoToken calls
+	mu        sync.Mutex
+	repos     map[string]Repo
+	issues    map[string][]Issue
+	Tokens    int // RepoToken calls
+	prs       map[int64]*fakePR
+	nextPR    int64
+	checks    map[string]string
+	defChecks string
 }
 
 // NewFake returns an empty fake.
-func NewFake() *Fake { return &Fake{repos: map[string]Repo{}, issues: map[string][]Issue{}} }
+func NewFake() *Fake {
+	return &Fake{repos: map[string]Repo{}, issues: map[string][]Issue{}, prs: map[int64]*fakePR{}, checks: map[string]string{}}
+}
 
 // AddRepo makes the App "installed" on r.
 func (f *Fake) AddRepo(r Repo, issues ...Issue) {

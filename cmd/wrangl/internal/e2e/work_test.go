@@ -31,6 +31,8 @@ first=$(printf '%s' "$1" | head -1)
 echo "fake agent starting: $first"
 printf '%s\n' "$first" >> NOTES.md
 tool() { curl -s --unix-socket "$WRANGL_SOCK" -d "$2" "http://x/tool/$1"; }
+# M6 review runs: submit a review and stop (never act on the reviewed task's markers).
+case "$first" in "Review pull request"*) tool submit_review '{"risk":"low","summary_md":"ok"}'; exit 0;; esac
 case "$1" in *SLOW*) echo "going slow"; sleep 60;; esac
 case "$1" in *EXPLODE*) echo "boom"; exit 3;; esac
 case "$1" in *ASKME*)

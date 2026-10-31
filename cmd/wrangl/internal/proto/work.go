@@ -44,6 +44,7 @@ type Assignment struct {
 	CloneURL    string            `json:"clone_url"`
 	BaseBranch  string            `json:"base_branch"`
 	Branch      string            `json:"branch"`
+	Continue    bool              `json:"continue,omitempty"`  // Branch already exists (revise / continuation): clone it
 	GitToken    string            `json:"git_token,omitempty"` // installation token; daemon-only, never given to the agent
 	SessionName string            `json:"session_name"`
 	SessionUUID string            `json:"session_uuid"`

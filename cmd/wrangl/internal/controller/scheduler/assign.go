@@ -30,7 +30,17 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		if !r.TemplateID.Valid || !r.RepoID.Valid {
 			continue
 		}
-		// Only runs with a leaf ready right now (fresh run, so nothing completed in it yet).
+		// Work runs need a leaf ready right now; review/revise/plan runs carry their prompt.
+		if r.Kind != "work" {
+			if err := s.assignOne(ctx, r); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
+				}
+				continue
+			}
+			assigned = append(assigned, r.ID)
+			continue
+		}
 		if _, err := q.RQ.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: r.TaskID, RunID: sql.NullInt64{Int64: r.ID, Valid: true}}); errors.Is(err, sql.ErrNoRows) {
 			open, err := q.RQ.CountOpenLeaves(ctx, r.TaskID)
 			if err == nil && open == 0 {
@@ -108,7 +118,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 	}
 	a := proto.Assignment{
-		RunID: r.ID, Kind: "work", TaskSqid: r.TaskSqid, Repo: repo.Owner + "/" + repo.Name,
+		RunID: r.ID, Kind: r.Kind, Continue: r.ContinueBranch == 1, TaskSqid: r.TaskSqid, Repo: repo.Owner + "/" + repo.Name,
 		CloneURL: repo.CloneUrl, BaseBranch: repo.DefaultBranch, Branch: r.Branch, GitToken: token,
 		SessionName: session, SessionUUID: r.SessionUuid, Agent: spec, Env: env,
 	}

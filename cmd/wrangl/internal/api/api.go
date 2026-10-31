@@ -15,6 +15,7 @@ import (
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/prs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
@@ -62,6 +63,7 @@ type Deps struct {
 	Stack    *stack.Service
 	Projects *projects.Service
 	Runs     *runs.Service
+	PRs      *prs.Service
 	JS       jetstream.JetStream
 }
 

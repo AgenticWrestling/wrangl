@@ -119,6 +119,9 @@ type session struct {
 	seq   int64
 	mu    sync.Mutex
 	lines []string // recent agent output lines (for summaries)
+	// continuedFrom is the existing branch head a revise/continuation run started from:
+	// "ahead" counts commits past it.
+	continuedFrom string
 }
 
 var ansi = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[@-Z\\-_]|\r`)
@@ -262,9 +265,15 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment) {
 			s.state(pubCtx, proto.RunState{State: "failed", ExitCode: &c, Error: fmt.Sprintf("agent exited %d on task %s", code, n.Sqid)})
 			return
 		}
+		if a.Kind == "review" || a.Kind == "plan" {
+			continue // read-only runs: no commits; the controller records what they submitted
+		}
 		if err := w.checkpoint(ctx, s, n); err != nil {
 			fail(err)
 			return
+		}
+		if a.Kind != "work" {
+			continue // revise: one composed prompt, no leaf to complete
 		}
 		if err := w.ensureComplete(ctx, s, n, &turns, turnTimeout); err != nil {
 			if errors.Is(err, errFailRun) {
@@ -278,8 +287,15 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment) {
 	}
 
 	head, _ := gitAsAgent(ctx, id, dir, "rev-parse", "HEAD")
-	ahead, _ := gitAsAgent(ctx, id, dir, "rev-list", "--count", base+"..HEAD")
+	from := base
+	if s.continuedFrom != "" {
+		from = s.continuedFrom
+	}
+	ahead, _ := gitAsAgent(ctx, id, dir, "rev-list", "--count", from+"..HEAD")
 	pushed := false
+	if a.Kind == "review" || a.Kind == "plan" {
+		ahead = "0" // never push from a read-only run
+	}
 	if ahead != "" && ahead != "0" {
 		s.state(pubCtx, proto.RunState{State: "pushing", Status: fmt.Sprintf("pushing %s commits to %s", ahead, a.Branch)})
 		if out, err := gitAsDaemon(ctx, dir, a.GitToken, "push", "origin", "HEAD:refs/heads/"+a.Branch); err != nil {
@@ -310,27 +326,47 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 		return "", err
 	}
 	os.RemoveAll(dir) // a retried run starts clean
-	s.logf("runner", "cloning %s (%s)", a.Repo, a.BaseBranch)
-	if out, err := gitAsDaemon(ctx, filepath.Dir(dir), a.GitToken, "clone", "--branch", a.BaseBranch, a.CloneURL, dir); err != nil {
+	cloneBranch := a.BaseBranch
+	if a.Continue {
+		cloneBranch = a.Branch // revise / continuation: build on the existing branch
+	}
+	s.logf("runner", "cloning %s (%s)", a.Repo, cloneBranch)
+	if out, err := gitAsDaemon(ctx, filepath.Dir(dir), a.GitToken, "clone", "--branch", cloneBranch, a.CloneURL, dir); err != nil {
 		return "", fmt.Errorf("clone: %w: %s", err, out)
 	}
 	if err := chownTree(dir, id); err != nil {
 		return "", err
 	}
-	for _, args := range [][]string{
-		{"checkout", "-b", a.Branch},
+	setup := [][]string{
 		{"config", "user.name", "wrangl agent (" + a.SessionName + ")"},
 		{"config", "user.email", "agent@wrangl.invalid"},
-	} {
+	}
+	if !a.Continue {
+		setup = append([][]string{{"checkout", "-b", a.Branch}}, setup...)
+	}
+	for _, args := range setup {
 		if out, err := gitAsAgent(ctx, id, dir, args...); err != nil {
 			return "", fmt.Errorf("git %s: %w: %s", args[0], err, out)
 		}
+	}
+	if a.Continue {
+		// Base = where the branch left the base branch, so diffs and "ahead" count only
+		// this run's commits plus the earlier ones on the branch.
+		mb, err := gitAsAgent(ctx, id, dir, "merge-base", "HEAD", "origin/"+a.BaseBranch)
+		if err != nil {
+			return "", fmt.Errorf("merge-base: %w: %s", err, mb)
+		}
+		head, _ := gitAsAgent(ctx, id, dir, "rev-parse", "HEAD")
+		os.WriteFile(filepath.Join(dir, ".git", "wrangl-base"), []byte(mb+"\n"), 0o644)
+		s.continuedFrom = head
 	}
 	base, err := gitAsAgent(ctx, id, dir, "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	os.WriteFile(filepath.Join(dir, ".git", "wrangl-base"), []byte(base+"\n"), 0o644)
+	if !a.Continue {
+		os.WriteFile(filepath.Join(dir, ".git", "wrangl-base"), []byte(base+"\n"), 0o644)
+	}
 	vars := s.vars("")
 	for _, f := range a.Agent.Files {
 		path, err := render(f.Path, vars)

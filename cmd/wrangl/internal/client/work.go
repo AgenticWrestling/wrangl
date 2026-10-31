@@ -272,3 +272,20 @@ func (c *Client) RunHooks(ctx context.Context, id int64) ([]map[string]any, erro
 	var out []map[string]any
 	return out, c.json(ctx, http.MethodGet, fmt.Sprintf("/api/v1/runs/%d/hooks", id), nil, &out)
 }
+
+// PRs lists pull requests (state: open | merged | closed | all).
+func (c *Client) PRs(ctx context.Context, state string) ([]proto.PRView, error) {
+	var out []proto.PRView
+	return out, c.json(ctx, http.MethodGet, "/api/v1/prs?state="+url.QueryEscape(state), nil, &out)
+}
+
+// PR returns one pull request.
+func (c *Client) PR(ctx context.Context, id int64) (proto.PRView, error) {
+	var out proto.PRView
+	return out, c.json(ctx, http.MethodGet, fmt.Sprintf("/api/v1/prs/%d", id), nil, &out)
+}
+
+// PRAction posts approve | request-changes | close.
+func (c *Client) PRAction(ctx context.Context, id int64, op, message string) error {
+	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/prs/%d/%s", id, op), proto.MessageRequest{Message: message}, nil)
+}

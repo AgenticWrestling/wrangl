@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/prs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/scheduler"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
@@ -57,6 +59,8 @@ type Server struct {
 	// Test hooks; production leaves them zero.
 	Provisioner         *provision.Provisioner // overrides the AWS-backed one
 	GH                  gh.API                 // overrides the GitHub App client built from config
+	Reviewer            gh.API                 // overrides the reviewer App client built from config
+	ReconcileInterval   time.Duration          // PR reconcile poll (default 15m)
 	Now                 func() time.Time
 	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
 	SchedulerInterval   time.Duration // scale-up cadence (default 10s)
@@ -74,6 +78,7 @@ type Server struct {
 	Stack    *stack.Service
 	Projects *projects.Service
 	Runs     *runs.Service
+	PRs      *prs.Service
 }
 
 // New validates cfg and returns an unstarted server.
@@ -203,7 +208,26 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	s.Stack = &stack.Service{DB: s.db, Sqids: sq}
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
-	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log}
+	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
+		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}}
+	reviewer, err := s.reviewer()
+	if err != nil {
+		return err
+	}
+	var whSecret []byte
+	if p := s.cfg.GitHub.ReviewerApp.WebhookSecret; p != "" {
+		if b, err := os.ReadFile(s.cfg.Path(p)); err == nil {
+			whSecret = []byte(strings.TrimSpace(string(b)))
+		} else {
+			s.log.Warn("github webhook secret unreadable; webhooks disabled", "err", err)
+		}
+	}
+	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log}
+	s.Runs.OnRunFinished = func(_ context.Context, runID int64) {
+		go s.PRs.OnRunFinished(context.Background(), runID) // GitHub calls must not hold up event ingest
+	}
+	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
+	s.Runs.AnswerHandlers["pr_review"] = s.PRs.AnswerPR
 
 	stackSub, err := s.nats.Conn.Subscribe(natsd.StackWildcard, func(m *nats.Msg) {
 		s.Runs.HandleStack(context.Background(), m)
@@ -278,7 +302,25 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	sched := &scheduler.Scheduler{Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
-	loops.Add(3)
+	reconcile := s.ReconcileInterval
+	if reconcile == 0 {
+		reconcile = 15 * time.Minute
+	}
+	loops.Add(4)
+	go func() {
+		defer loops.Done()
+		s.PRs.Reconcile(loopCtx)
+		t := time.NewTicker(reconcile)
+		defer t.Stop()
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-t.C:
+				s.PRs.Reconcile(loopCtx)
+			}
+		}
+	}()
 	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
 	go func() { defer loops.Done(); sched.Loop(loopCtx, schedInterval) }()
 	go func() {
@@ -353,8 +395,26 @@ func listenUnix(path string) (net.Listener, error) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
-	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, JS: s.js})
+	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, JS: s.js})
+	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	return mux
+}
+
+// reviewer builds the reviewer App client from config (nil when not configured).
+func (s *Server) reviewer() (gh.API, error) {
+	if s.Reviewer != nil {
+		return s.Reviewer, nil
+	}
+	app := s.cfg.GitHub.ReviewerApp
+	if app.ID == 0 {
+		s.log.Warn("github.reviewer_app not set: PRs are opened but not reviewed or merged by wrangl")
+		return nil, nil
+	}
+	key, err := gh.LoadKey(s.cfg.Path(app.PrivateKey))
+	if err != nil {
+		return nil, fmt.Errorf("github reviewer app key: %w", err)
+	}
+	return &gh.Client{AppID: app.ID, Key: key}, nil
 }
 
 // github builds the author App client from config (nil when not configured).

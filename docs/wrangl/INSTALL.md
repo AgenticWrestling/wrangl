@@ -448,9 +448,25 @@ wrangl run diff <run-id> --stat       # live from the runner's workspace
 ```
 
 When the run finishes, the branch `wrangl/<sqid>-<attempt>` is on GitHub with one commit per
-subtask (`[sqid] title`). The subtasks show ◐ (in review) in `task tree`. Opening the PR,
-review and merge are M6; for now, open the PR yourself and `wrangl task complete <sqid>` once
-it's merged.
+subtask (`[sqid] title`), and the controller opens a PR (as the author App). The subtasks
+show ◐ (in review) until it merges. What happens next:
+
+1. **Gates:** CI green (or no CI), changed lines ≤ the project's limit, no protected paths
+   (`.github/**`, migrations, `go.mod`, `*.tf`, `Dockerfile*`).
+2. **Review:** a review run on a runner reads the PR and calls `submit_review` with a risk.
+3. **Decision:** with `--auto-merge` on the project, a low-risk PR that passes every gate is
+   approved and squash-merged by the reviewer App. Anything else becomes a question:
+   ```sh
+   wrangl question list                    # kind pr_review
+   wrangl question answer <id> approve
+   wrangl question answer <id> request_changes --text "rename the handler"   # queues a revise run
+   wrangl pr list && wrangl pr show <id>   # or: wrangl pr approve|request-changes|close <id>
+   ```
+4. **Merged:** the subtasks become ✓ done, and blocked work waiting on them is queued again
+   automatically.
+
+CI results and merges done on GitHub arrive by webhook (step 10.4), with a reconcile poll every
+15 minutes as a backstop.
 
 `wrangl logs search 'panic OR timeout' --project web` searches every run's output.
 

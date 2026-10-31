@@ -39,4 +39,41 @@ type API interface {
 	RepoToken(ctx context.Context, r Repo) (token string, expires time.Time, err error)
 	// Issues lists issues (state: open | closed | all).
 	Issues(ctx context.Context, r Repo, state string) ([]Issue, error)
+	PRAPI
+}
+
+// PR is a pull request.
+type PR struct {
+	Number  int64
+	URL     string
+	HeadSHA string
+	State   string // open | closed
+	Merged  bool
+}
+
+// PRFile is one changed file.
+type PRFile struct {
+	Path                 string
+	Additions, Deletions int
+}
+
+// Checks summarises CI on a commit.
+const (
+	ChecksSuccess = "success"
+	ChecksPending = "pending"
+	ChecksFailure = "failure"
+	ChecksNone    = "none" // no checks configured
+)
+
+// PRAPI is the M6 pull-request surface. The author App creates PRs; the reviewer App
+// reviews, approves and merges them (GitHub forbids approving your own PR).
+type PRAPI interface {
+	CreatePR(ctx context.Context, r Repo, head, base, title, body string) (PR, error)
+	GetPR(ctx context.Context, r Repo, number int64) (PR, error)
+	PRFiles(ctx context.Context, r Repo, number int64) ([]PRFile, error)
+	PRDiff(ctx context.Context, r Repo, number int64) (string, error)
+	Checks(ctx context.Context, r Repo, sha string) (string, error)
+	Review(ctx context.Context, r Repo, number int64, event, body string) error // APPROVE | REQUEST_CHANGES | COMMENT
+	Merge(ctx context.Context, r Repo, number int64, title string) error        // squash
+	ClosePR(ctx context.Context, r Repo, number int64) error
 }

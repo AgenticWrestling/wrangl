@@ -42,7 +42,7 @@ ORDER BY r.id DESC
 LIMIT sqlc.arg(lim);
 
 -- name: QueuedRunsForAssignment :many
-SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt,
+SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt, r.kind, r.continue_branch,
        CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
 FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
 WHERE r.state = 'queued'

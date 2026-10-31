@@ -575,6 +575,77 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		writeJSON(w, http.StatusOK, out)
 	})
 
+	// --- pull requests ---
+	prView := func(x dbgen.ListPRsRow) proto.PRView {
+		v := proto.PRView{ID: x.PullRequest.ID, Number: x.PullRequest.GhNumber, URL: x.PullRequest.Url, Repo: x.Repo, Task: x.TaskSqid,
+			Title: x.TaskTitle, Branch: x.PullRequest.HeadBranch, State: x.PullRequest.State, Risk: x.PullRequest.Risk.String,
+			Decision: x.PullRequest.Decision.String, Checks: x.PullRequest.Checks, Review: x.PullRequest.ReviewSummaryMd}
+		if g := x.PullRequest.GatesJson; g != "" && g != "{}" {
+			v.Gates = json.RawMessage(g)
+		}
+		return v
+	}
+	mux.HandleFunc("GET /api/v1/prs", func(w http.ResponseWriter, r *http.Request) {
+		state := r.URL.Query().Get("state")
+		if state == "" {
+			state = "open"
+		}
+		rows, err := db.RQ.ListPRs(r.Context(), state)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		out := []proto.PRView{}
+		for _, x := range rows {
+			out = append(out, prView(x))
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("GET /api/v1/prs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		rows, err := db.RQ.ListPRs(r.Context(), "all")
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		for _, x := range rows {
+			if x.PullRequest.ID == id {
+				writeJSON(w, http.StatusOK, prView(x))
+				return
+			}
+		}
+		writeErr(w, fmt.Errorf("%w: PR %d", errs.NotFound, id))
+	})
+	for _, op := range []string{"approve", "request-changes", "close"} {
+		mux.HandleFunc("POST /api/v1/prs/{id}/"+op, func(w http.ResponseWriter, r *http.Request) {
+			id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+			if err != nil {
+				writeErr(w, fmt.Errorf("%w: PR id", errs.Invalid))
+				return
+			}
+			var req proto.MessageRequest
+			if r.ContentLength > 0 {
+				if err := decode(r, &req); err != nil {
+					writeErr(w, err)
+					return
+				}
+			}
+			switch op {
+			case "approve":
+				err = d.PRs.Approve(r.Context(), id)
+			case "request-changes":
+				err = d.PRs.RequestChanges(r.Context(), id, req.Message)
+			case "close":
+				err = d.PRs.Close(r.Context(), id)
+			}
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+
 	// --- runs ---
 	runView := func(x dbgen.ListRunsRow) proto.RunView {
 		return proto.RunView{ID: x.Run.ID, Task: x.TaskSqid, TaskTitle: x.TaskTitle, Project: x.ProjectSlug, Kind: x.Run.Kind,

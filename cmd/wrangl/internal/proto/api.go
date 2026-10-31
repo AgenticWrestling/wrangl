@@ -265,3 +265,20 @@ type LogView struct {
 	Runner  string `json:"runner,omitempty"`
 	Task    string `json:"task,omitempty"`
 }
+
+// PRView is a pull request as the API returns it.
+type PRView struct {
+	ID       int64           `json:"id"`
+	Number   int64           `json:"number"`
+	URL      string          `json:"url"`
+	Repo     string          `json:"repo"`
+	Task     string          `json:"task"`
+	Title    string          `json:"title"`
+	Branch   string          `json:"branch"`
+	State    string          `json:"state"`
+	Risk     string          `json:"risk,omitempty"`
+	Decision string          `json:"decision,omitempty"`
+	Checks   string          `json:"checks,omitempty"`
+	Gates    json.RawMessage `json:"gates,omitempty"`
+	Review   string          `json:"review,omitempty"`
+}

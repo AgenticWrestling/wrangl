@@ -778,6 +778,22 @@ func (s *Service) NextForRun(ctx context.Context, runID int64) (Next, error) {
 		if err != nil {
 			return err
 		}
+		if run.Kind != "work" { // review / revise / plan: one composed prompt, then done
+			n, err := q.UseOverride(ctx, runID)
+			if err != nil {
+				return err
+			}
+			if n == 0 || run.PromptOverride == "" {
+				out = Next{Done: true}
+				return nil
+			}
+			root, err := q.GetTask(ctx, run.TaskID)
+			if err != nil {
+				return err
+			}
+			out = Next{Sqid: root.Sqid.String, Title: run.Kind + " " + root.Title, Prompt: run.PromptOverride}
+			return nil
+		}
 		leaf, err := q.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: run.TaskID, RunID: nint(runID)})
 		if errors.Is(err, sql.ErrNoRows) {
 			open, err := q.CountOpenLeaves(ctx, run.TaskID)

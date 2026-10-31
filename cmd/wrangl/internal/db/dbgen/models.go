@@ -20,6 +20,11 @@ type EnrollmentToken struct {
 	RunnerName string         `json:"runner_name"`
 }
 
+type GhDelivery struct {
+	ID         string `json:"id"`
+	ReceivedAt string `json:"received_at"`
+}
+
 type HookEvent struct {
 	ID          int64  `json:"id"`
 	RunID       int64  `json:"run_id"`
@@ -90,6 +95,9 @@ type PullRequest struct {
 	Decision        sql.NullString `json:"decision"`
 	CreatedAt       string         `json:"created_at"`
 	UpdatedAt       string         `json:"updated_at"`
+	HeadSha         string         `json:"head_sha"`
+	Checks          string         `json:"checks"`
+	ReviewedSha     string         `json:"reviewed_sha"`
 }
 
 type PushSubscription struct {
@@ -140,27 +148,31 @@ type Repo struct {
 }
 
 type Run struct {
-	ID            int64          `json:"id"`
-	TaskID        int64          `json:"task_id"`
-	CurrentTaskID sql.NullInt64  `json:"current_task_id"`
-	RunnerID      sql.NullInt64  `json:"runner_id"`
-	Kind          string         `json:"kind"`
-	Attempt       int64          `json:"attempt"`
-	State         string         `json:"state"`
-	Branch        string         `json:"branch"`
-	SessionName   string         `json:"session_name"`
-	BaseSha       string         `json:"base_sha"`
-	HeadSha       string         `json:"head_sha"`
-	StatusText    string         `json:"status_text"`
-	ExitCode      sql.NullInt64  `json:"exit_code"`
-	Error         string         `json:"error"`
-	QueuedAt      string         `json:"queued_at"`
-	StartedAt     sql.NullString `json:"started_at"`
-	FinishedAt    sql.NullString `json:"finished_at"`
-	TemplateID    sql.NullInt64  `json:"template_id"`
-	RepoID        sql.NullInt64  `json:"repo_id"`
-	SessionUuid   string         `json:"session_uuid"`
-	Pushed        int64          `json:"pushed"`
+	ID             int64          `json:"id"`
+	TaskID         int64          `json:"task_id"`
+	CurrentTaskID  sql.NullInt64  `json:"current_task_id"`
+	RunnerID       sql.NullInt64  `json:"runner_id"`
+	Kind           string         `json:"kind"`
+	Attempt        int64          `json:"attempt"`
+	State          string         `json:"state"`
+	Branch         string         `json:"branch"`
+	SessionName    string         `json:"session_name"`
+	BaseSha        string         `json:"base_sha"`
+	HeadSha        string         `json:"head_sha"`
+	StatusText     string         `json:"status_text"`
+	ExitCode       sql.NullInt64  `json:"exit_code"`
+	Error          string         `json:"error"`
+	QueuedAt       string         `json:"queued_at"`
+	StartedAt      sql.NullString `json:"started_at"`
+	FinishedAt     sql.NullString `json:"finished_at"`
+	TemplateID     sql.NullInt64  `json:"template_id"`
+	RepoID         sql.NullInt64  `json:"repo_id"`
+	SessionUuid    string         `json:"session_uuid"`
+	Pushed         int64          `json:"pushed"`
+	PromptOverride string         `json:"prompt_override"`
+	OverrideUsed   int64          `json:"override_used"`
+	PrID           sql.NullInt64  `json:"pr_id"`
+	ContinueBranch int64          `json:"continue_branch"`
 }
 
 type Runner struct {

@@ -91,6 +91,7 @@ UPDATE task SET state = 'in_review', completion_summary = ?, completed_run_id = 
 WHERE id = ?;
 
 -- name: MarkRunTasksDone :exec
+-- (also used by M6 merges)
 -- PR merged: everything this run completed becomes done.
 UPDATE task SET state = 'done', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE completed_run_id = ? AND state = 'in_review';

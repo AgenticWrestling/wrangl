@@ -591,6 +591,7 @@ UPDATE task SET state = 'done', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now
 WHERE completed_run_id = ? AND state = 'in_review'
 `
 
+// (also used by M6 merges)
 // PR merged: everything this run completed becomes done.
 func (q *Queries) MarkRunTasksDone(ctx context.Context, completedRunID sql.NullInt64) error {
 	_, err := q.db.ExecContext(ctx, markRunTasksDone, completedRunID)
