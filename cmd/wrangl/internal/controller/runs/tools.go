@@ -106,6 +106,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		Needs                                                                         []string
 		Position                                                                      *posArg
 		Percent                                                                       *int
+		Limit                                                                         *int
 		// ask_question
 		DetailMD      string                 `json:"detail_md"`
 		AllowFreeText bool                   `json:"allow_free_text"`
@@ -124,6 +125,53 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		return nil
 	}
 	switch tool {
+	case "project_list":
+		ps, err := s.DB.RQ.ListProjects(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := []map[string]any{}
+		for _, p := range ps {
+			m := map[string]any{"slug": p.Slug, "name": p.Name, "auto_merge": p.AutoMerge == 1, "auto_queue": p.AutoQueue == 1}
+			if p.DefaultTemplateID.Valid {
+				if t, err := s.DB.RQ.GetTemplate(ctx, p.DefaultTemplateID.Int64); err == nil {
+					m["template"] = t.Name
+				}
+			}
+			out = append(out, m)
+		}
+		return out, nil
+
+	case "task_queue":
+		if err := need(a.Sqid, "sqid"); err != nil {
+			return nil, err
+		}
+		if _, err := s.task(ctx, sc, a.Sqid); err != nil {
+			return nil, err
+		}
+		run, err := s.Stack.Queue(ctx, a.Sqid)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"run_id": run.ID, "state": run.State}, nil
+
+	case "run_list":
+		lim := int64(20)
+		if a.Limit != nil && *a.Limit > 0 && *a.Limit <= 200 {
+			lim = int64(*a.Limit)
+		}
+		rows, err := s.DB.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: a.State, Project: a.Project, Lim: lim})
+		if err != nil {
+			return nil, err
+		}
+		out := []map[string]any{}
+		for _, r := range rows {
+			out = append(out, map[string]any{"id": r.Run.ID, "kind": r.Run.Kind, "state": r.Run.State, "task": r.TaskSqid,
+				"title": r.TaskTitle, "project": r.ProjectSlug, "runner": r.RunnerName, "status": r.Run.StatusText,
+				"error": r.Run.Error, "queued_at": r.Run.QueuedAt})
+		}
+		return out, nil
+
 	case "task_get":
 		if err := need(a.Sqid, "sqid"); err != nil {
 			return nil, err

@@ -38,7 +38,10 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/events"
+	"github.com/nreid/devhost/cmd/wrangl/internal/mcp"
+	"github.com/nreid/devhost/cmd/wrangl/internal/runner"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/nreid/devhost/cmd/wrangl/internal/stacktools"
 	"github.com/nreid/devhost/cmd/wrangl/internal/web"
 )
 
@@ -449,6 +452,13 @@ func (s *Server) routes() http.Handler {
 		panic(fmt.Sprintf("web templates: %v", err))
 	}
 	ui.Register(mux)
+	// M10: the owner's own agents get the work-stack tools over MCP (Streamable HTTP).
+	// Same exposure as /api/v1: the unix socket, and TCP behind Cloudflare Access.
+	remote := &mcp.Server{Name: "wrangl", Version: runner.Version, Tools: stacktools.For("user"),
+		Call: func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+			return s.Runs.ExecTool(ctx, runs.UserScope(), name, args)
+		}}
+	mux.Handle("/mcp", remote.HTTPHandler())
 	return mux
 }
 

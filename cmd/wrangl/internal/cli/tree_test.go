@@ -29,7 +29,7 @@ var wantPaths = []string{
 	"template create", "template list", "template show", "template edit", "template delete",
 	"fleet list", "fleet show", "fleet launch", "fleet cordon", "fleet uncordon",
 	"fleet drain", "fleet terminate", "fleet enroll-token",
-	"push test",
+	"push test", "mcp",
 	"config use", "config show",
 }
 

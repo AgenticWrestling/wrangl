@@ -85,14 +85,21 @@ A single binary that runs as a **controller** (SQLite, embedded NATS + JetStream
 **runner** (enrols, applies a mise-based template, drives a coding agent through a hierarchical
 task stack), plus the client CLI/TUI. Design: [`docs/superpowers/specs/2026-10-31-wrangl-design.md`](docs/superpowers/specs/2026-10-31-wrangl-design.md).
 
-Status: **M4**. Runners do real work. You give wrangl a hierarchical, ranked task stack; it
-launches tagged EC2 runners (terminated after 30 idle minutes), installs your template's
-toolchain for an unprivileged `agent` user, and drives a coding agent through each queued
-subtree in a PTY. It makes a checkpoint commit per subtask and pushes the branch. Live
-terminal, searchable logs and workspace inspection come from the CLI.
+Status: **M1–M10 built**, tested against fakes for AWS, GitHub and the agents (see the
+install guide's first-run checklist for what still needs a real account).
+- You give wrangl a hierarchical, ranked task stack.
+- It launches tagged EC2 runners, which are terminated after 30 idle minutes, and installs
+  your template's toolchain for an unprivileged `agent` user.
+- It drives a coding agent through each queued subtree in a PTY: headless, or as one
+  interactive session with optional Remote Control. Agents manage their own subtasks over MCP.
+- It makes a checkpoint commit per subtask, opens a PR, has a review run assess it, and
+  auto-merges low-risk work or asks you.
+- You run it from the CLI, a TUI, or an installable mobile PWA with web push, behind
+  Cloudflare Access. Your own agents can manage the backlog through the controller's MCP
+  endpoint (`wrangl mcp`).
 
 **Install:** [`docs/wrangl/INSTALL.md`](docs/wrangl/INSTALL.md) covers AWS, the controller
-host, the GitHub Apps, the Claude token, templates, Cloudflare, and teardown. Unbuilt commands report the milestone that delivers them.
+host, the GitHub Apps, the Claude token, templates, Cloudflare, and teardown.
 AWS setup (instance roles, security group, teardown): [`docs/wrangl/aws-iam.md`](docs/wrangl/aws-iam.md).
 
 ```sh

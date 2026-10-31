@@ -1,14 +1,21 @@
 package cli
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/nreid/devhost/cmd/wrangl/internal/client"
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
 	"github.com/nreid/devhost/cmd/wrangl/internal/tui"
 )
@@ -67,4 +74,62 @@ func pushCmd(g *Global) *cobra.Command {
 				return nil
 			}},
 	)
+}
+
+// mcpCmd bridges stdio MCP to the controller's /mcp endpoint, so a local agent can use
+// the work-stack tools with the CLI's own controller URL and Cloudflare service token:
+//
+//	claude mcp add wrangl -- wrangl mcp
+func mcpCmd(g *Global) *cobra.Command {
+	return &cobra.Command{
+		Use: "mcp", Short: "Serve the work-stack tools to a local agent over stdio (relayed to the controller)", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			return relayMCP(cmd.Context(), c, cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+}
+
+// relayMCP forwards newline-delimited JSON-RPC messages; a transport failure becomes a
+// JSON-RPC error for that request so the agent sees why.
+func relayMCP(ctx context.Context, c *client.Client, in io.Reader, out io.Writer) error {
+	sc := bufio.NewScanner(in)
+	sc.Buffer(make([]byte, 64<<10), 8<<20)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	write := func(b []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		out.Write(append(bytes.TrimSpace(b), '\n'))
+	}
+	for sc.Scan() {
+		line := append([]byte(nil), sc.Bytes()...)
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := c.MCP(ctx, line)
+			if err != nil {
+				var req struct {
+					ID json.RawMessage `json:"id"`
+				}
+				if json.Unmarshal(line, &req) == nil && len(req.ID) > 0 {
+					b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID,
+						"error": map[string]any{"code": -32603, "message": err.Error()}})
+					write(b)
+				}
+				return
+			}
+			if resp != nil {
+				write(resp)
+			}
+		}()
+	}
+	wg.Wait()
+	return sc.Err()
 }

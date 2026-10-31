@@ -614,6 +614,18 @@ Using two Apps avoids GitHub's rule that a PR's author can't approve it.
   - Keys: `a` attach · `l` logs (`/` filter) · `d` diff · `c` cancel · `n` new task (child or
     sibling) · `J/K` rerank · `>`/`<` indent/outdent · `N` add precursor · `Q` queue subtree ·
     `x` complete · `s` split · `p` projects · `r` link repo · `q` answer.
+- **Remote MCP (M10).** `POST /mcp` serves the work-stack tools to the owner's own agents
+  (MCP Streamable HTTP, JSON responses only; `GET` returns 405).
+  - It is exposed like `/api/v1`: on the unix socket, and over TCP only behind Cloudflare
+    Access. An agent off the box uses an Access service token.
+  - Scope is `runs.UserScope()`: the owner as actor, every project, no subtree lock.
+    Cancels and deletes apply directly, with no approval.
+  - Tools: the stack CRUD set plus owner-only `project_list`, `task_queue` and `run_list`.
+    `task_create` takes `project` for top-level tasks.
+  - It does not offer `ask_question`, `report_status` or `task_next`, which only make sense
+    inside a run, nor the review/plan tools.
+  - `wrangl mcp` is a stdio bridge to `/mcp`. It uses the CLI's controller URL and service
+    token, so `claude mcp add wrangl -- wrangl mcp` works anywhere the CLI does.
 
 ## 11. Web PWA (Datastar)
 
@@ -819,7 +831,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | **M7 ✅** | In-process event bus, `GET /api/v1/events` SSE (15 s keepalive), PTY as SSE with `Last-Event-ID` resume, `wrangl tui` (bubbletea: runners, runs, stack editing, questions, PRs; attach/logs/diff hand over the terminal) | M4 |
 | **M8 ✅** | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
 | **M9 ✅** | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
-| M10 | v2: controller-hosted remote MCP endpoint exposing the stack tools to the owner's own agents (auth design behind CF Access) | M5, M8 |
+| **M10 ✅** | v2: controller-hosted remote MCP endpoint exposing the stack tools to the owner's own agents (auth design behind CF Access) | M5, M8 |
 
 ## 16. Decisions log
 
@@ -854,6 +866,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D28 | M6: the controller (author App) opens PRs after a push, so GitHub's API is only ever called from the controller. Without a reviewer App PRs are opened but not reviewed/merged by wrangl. One review run per PR head; a review run that submits nothing goes to the owner |
 | D29 | M8: the PWA uses stdlib `html/template` instead of templ (no code generation step, no extra tool in the gate) and vendors Datastar 1.0.0-beta.11, SortableJS and xterm.js into the binary instead of a CDN. `/ui/*` is the PWA's own action surface; `/api/v1` stays the stable client API |
 | D30 | M9: Remote Control is not a switch but an interactive-drive template: `drive: interactive` + `secret_files` (full login, 0600, deleted at run end) + `expect` rules for first-run prompts + the agent's own flag in `start`. Example templates for Claude (headless, interactive) and Codex ship in `docs/wrangl/templates/`, the interactive and Codex ones marked unverified |
+| D31 | M10: the remote MCP endpoint reuses the API's exposure and auth (unix socket; TCP behind Cloudflare Access, verified in-process when configured) rather than a separate token scheme; `wrangl mcp` bridges stdio so agents need no Access headers of their own. The owner scope may cancel/delete without approval (the owner *is* the approver) |
 | D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 
 ## 17. Open items

@@ -585,6 +585,34 @@ reviews). **More** (projects, templates, launching a runner, push).
 If a session expires, the installed app shows Cloudflare's login page. Sign in again; a long
 Access session duration (step 2) keeps this rare.
 
+### 10.2 The work stack from your own agents (remote MCP)
+
+The controller serves the work-stack tools over MCP at `/mcp`. The tools let an agent list
+projects, create, edit, move and split tasks, add precursors, complete or cancel tasks, queue
+a task, and list runs. Your own Claude Code, on your laptop or on the controller, can then
+plan and manage the backlog.
+
+**Easiest: the stdio bridge.** It works wherever the `wrangl` CLI already reaches the
+controller, using the service token from step 3:
+
+```sh
+claude mcp add wrangl -- wrangl mcp
+```
+
+**Direct HTTP** (without the CLI installed), with the same Access service token:
+
+```sh
+claude mcp add --transport http wrangl https://wrangl.example.com/mcp \
+  --header "CF-Access-Client-Id: <client id>.access" \
+  --header "CF-Access-Client-Secret: <client secret>"
+```
+
+**Check:** in Claude Code, `/mcp` lists `wrangl` with its tools. Ask it to "list my wrangl
+projects".
+
+Changes made this way are recorded as yours (`user` in task history). Cancels and deletes
+need no approval, because you are the approver.
+
 ## 11. First-run checklist (the unverified parts)
 
 Watch these the first time and report anything odd:
@@ -598,6 +626,7 @@ Watch these the first time and report anything odd:
 | `repo link` | CLI output | base branch detected; otherwise the App isn't installed on that repo |
 | Claude Code | `wrangl run attach <id>` | the agent works in the repo; `exited N` failures show its output in `wrangl logs <id>` |
 | Idle shutdown | `fleet list` 30+ min after the last run | the runner disappears; the EC2 console shows it terminated |
+| Remote MCP (10.2) | `/mcp` in Claude Code | `wrangl` connected; with direct HTTP, a 401/403 means the service-token headers or the Access policy |
 | Interactive / Codex templates (8.1) | `wrangl run attach <id>`, `wrangl logs <id>` | prompts answered, `(same session)` hand-overs, the session ended at the end |
 
 ## 12. Day 2: backups, upgrades, teardown

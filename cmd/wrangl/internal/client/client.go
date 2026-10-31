@@ -163,3 +163,34 @@ func (c *Client) UpdateTemplate(ctx context.Context, name string, yamlBody []byt
 func (c *Client) RunnerAction(ctx context.Context, name, action string) error {
 	return c.json(ctx, http.MethodPost, "/api/v1/runners/"+url.PathEscape(name)+"/"+action, nil, nil)
 }
+
+// MCP posts one JSON-RPC message (or batch) to the controller's /mcp endpoint and returns
+// the response body (nil for a notification).
+func (c *Client) MCP(ctx context.Context, msg []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/mcp", bytes.NewReader(msg))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if c.cf != nil {
+		req.Header.Set("CF-Access-Client-Id", c.cf.ID)
+		req.Header.Set("CF-Access-Client-Secret", c.cf.Secret)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("controller unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusAccepted {
+		return nil, nil
+	}
+	if resp.StatusCode >= 300 {
+		return nil, &Error{Status: resp.StatusCode, Message: strings.TrimSpace(string(b))}
+	}
+	return b, nil
+}

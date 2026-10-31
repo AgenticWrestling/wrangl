@@ -51,6 +51,20 @@ var All = []mcp.Tool{
 		InputSchema: raw(`{"type":"object","required":["children"],"properties":{"chain":{"type":"boolean","description":"each top-level subtask needs the previous"},"rationale_md":{"type":"string"},"children":{"type":"array","items":{"type":"object","required":["title"],"properties":{"title":{"type":"string"},"prompt":{"type":"string"},"children":{"type":"array"}}}}}}`)},
 }
 
+// UserTools are only for the owner's own agents (the controller's /mcp endpoint).
+var UserTools = []mcp.Tool{
+	{Name: "project_list", Description: "List projects (slug, name, default template, auto-merge).",
+		InputSchema: mcp.Schema(nil)},
+	{Name: "task_queue", Description: "Queue a task (and its open subtasks) to run on a runner. Returns the run id.",
+		InputSchema: mcp.Schema(map[string]string{"sqid": "string"}, "sqid")},
+	{Name: "run_list", Description: "List recent runs, optionally filtered by state (queued, active, needs_input, succeeded, failed, ...) and project.",
+		InputSchema: mcp.Schema(map[string]string{"state": "string", "project": "string", "limit": "integer"})},
+}
+
+// userTaskCreate replaces task_create for the owner: a top-level task needs a project.
+var userTaskCreate = mcp.Tool{Name: "task_create", Description: "Create a task: top-level in a project (give project), or a subtask (give parent).",
+	InputSchema: raw(`{"type":"object","required":["title"],"properties":{"project":{"type":"string","description":"project slug, for a top-level task"},"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + position + `}}`)}
+
 var readTools = []string{"task_get", "task_tree", "task_list", "task_next", "ask_question", "report_status"}
 
 // Allowed lists the tools a run of the given kind may call ("user" = the owner's own
@@ -71,6 +85,9 @@ func Allowed(kind string) map[string]bool {
 			delete(m, "task_next")
 			delete(m, "ask_question")
 			delete(m, "report_status")
+			for _, t := range UserTools {
+				m[t.Name] = true
+			}
 		}
 	case "review":
 		m["submit_review"] = true
@@ -86,8 +103,14 @@ func For(kind string) []mcp.Tool {
 	var out []mcp.Tool
 	for _, t := range All {
 		if ok[t.Name] {
+			if kind == "user" && t.Name == "task_create" {
+				t = userTaskCreate
+			}
 			out = append(out, t)
 		}
+	}
+	if kind == "user" {
+		out = append(out, UserTools...)
 	}
 	return out
 }
