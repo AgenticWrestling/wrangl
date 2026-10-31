@@ -681,12 +681,14 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 2. A recursive CTE referenced only inside `EXISTS` in a FROM-less SELECT is unresolved. Put the
    CTE in FROM and use `COUNT(*) > 0`.
 3. A parameter compared to a CTE column needs an explicit `CAST(sqlc.arg(x) AS INTEGER)`.
+4. A bare `rank` column is parsed as the `RANK()` keyword. Always qualify it (`task.rank`).
+   Found while building M1.
 
 ## 15. Milestones
 
 | M | Scope | Depends |
 |---|---|---|
-| **M1** | Cobra tree (stubs), config, `db` (full schema + hierarchy queries), `stack` primitives (sqids, fractional ranks), `controller init/serve/migrate/secret` skeleton with embedded NATS + healthz | — |
+| **M1 ✅** | Cobra tree (stubs), config, `db` (full schema + hierarchy queries), `stack` primitives (sqids, fractional ranks), `controller init/serve/migrate/secret` skeleton with embedded NATS + healthz | — |
 | M2 | NATS operator/JWT, enrolment, `runner bootstrap/run`, heartbeat, `fleet list/show/enroll-token` | M1 |
 | M3 | Templates + apply, EC2 provisioner, scheduler scale-up/idle-reap, `fleet launch/cordon/drain/terminate` | M2 |
 | M4 | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/queue/…`), author-App tokens, workspace, headless work loop + PTY, ingest/logs/FTS, cancel/attach | M3 |

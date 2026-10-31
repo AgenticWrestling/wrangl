@@ -27,6 +27,29 @@ tasks:
       - cp {{.BINARY}} {{.INSTALL_PATH}}
       - echo "Installed to {{.INSTALL_PATH}}"
 
+  build-wrangl:
+    desc: Build wrangl for this host plus linux runner binaries (named by `uname -m`)
+    cmds:
+      - mkdir -p build
+      - CGO_ENABLED=0 go build -o build/wrangl ./cmd/wrangl
+      - CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o build/wrangl-linux-aarch64 ./cmd/wrangl
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/wrangl-linux-x86_64 ./cmd/wrangl
+    sources:
+      - cmd/wrangl/**/*
+      - go.mod
+
+  sqlc:
+    desc: Regenerate wrangl's sqlc code (cmd/wrangl/internal/db/dbgen)
+    dir: cmd/wrangl/internal/db
+    cmds:
+      - sqlc generate
+
+  sqlc-check:
+    desc: Fail if wrangl's generated sqlc code is stale
+    dir: cmd/wrangl/internal/db
+    cmds:
+      - sqlc diff
+
   test:
     desc: Run all tests
     cmds:

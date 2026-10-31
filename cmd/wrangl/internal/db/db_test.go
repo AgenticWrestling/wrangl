@@ -1,0 +1,135 @@
+package db_test
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/db"
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+)
+
+func open(t *testing.T) (*db.DB, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "wrangl.db")
+	d, err := db.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d, path
+}
+
+func exec(t *testing.T, d *db.DB, q string, args ...any) {
+	t.Helper()
+	if _, err := d.W.Exec(q, args...); err != nil {
+		t.Fatalf("%s: %v", q, err)
+	}
+}
+
+func TestSchemaEndToEnd(t *testing.T) {
+	d, path := open(t)
+	ctx := context.Background()
+	exec(t, d, `INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('go','[tools]','{}',4,16384,100)`)
+	p, err := d.Q.CreateProject(ctx, dbgen.CreateProjectParams{Slug: "dh", Name: "devhost", DefaultTemplateID: sql.NullInt64{Int64: 1, Valid: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(t, d, `INSERT INTO repo (project_id, owner, name) VALUES (?, 'njreid', 'devhost')`, p.ID)
+	exec(t, d, `INSERT INTO task (project_id, repo_id, template_id, title, prompt, rank) VALUES (?, 1, 1, 'add cobra tree', 'do it', 'V')`, p.ID)
+	exec(t, d, `INSERT INTO run (task_id) VALUES (1)`)
+	for i, m := range []string{"compiling cobra commands", "disk usage at 91 percent"} {
+		if err := d.Q.InsertLogLine(ctx, dbgen.InsertLogLineParams{RunID: 1, Seq: int64(i + 1), Ts: "now", Stream: "agent", Level: "info", Message: m}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Replayed JetStream delivery: same (run, seq) is ignored, not duplicated.
+	if err := d.Q.InsertLogLine(ctx, dbgen.InsertLogLineParams{RunID: 1, Seq: 2, Ts: "now", Stream: "agent", Level: "info", Message: "disk usage at 91 percent"}); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := d.RQ.ListActiveRuns(ctx)
+	if err != nil || len(runs) != 1 || runs[0].TaskTitle != "add cobra tree" {
+		t.Fatalf("active runs: %+v %v", runs, err)
+	}
+	hits, err := d.RQ.SearchLogs(ctx, dbgen.SearchLogsParams{Message: "disk", Limit: 10})
+	if err != nil || len(hits) != 1 || hits[0].Message != "disk usage at 91 percent" {
+		t.Fatalf("fts: %+v %v", hits, err)
+	}
+	if _, err := d.W.Exec(`INSERT INTO task (project_id, repo_id, template_id, title, prompt, rank) VALUES (1,1,99,'x','y','W')`); err == nil {
+		t.Fatal("foreign key not enforced")
+	}
+	if _, err := d.W.Exec(`UPDATE run SET state = 'bogus' WHERE id = 1`); err == nil {
+		t.Fatal("CHECK not enforced")
+	}
+	d.Close()
+	var out bytes.Buffer
+	if err := db.Migrate(ctx, path, "status", &out); err != nil || !strings.Contains(out.String(), "applied") {
+		t.Fatalf("status: %q %v", out.String(), err)
+	}
+	if err := db.Migrate(ctx, path, "down", &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx, path, "up", &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx, path, "sideways", &out); err == nil {
+		t.Fatal("want error for bad direction")
+	}
+}
+
+func TestTxRollsBack(t *testing.T) {
+	d, _ := open(t)
+	ctx := context.Background()
+	boom := errors.New("boom")
+	err := d.Tx(ctx, func(q *dbgen.Queries) error {
+		if _, err := q.CreateProject(ctx, dbgen.CreateProjectParams{Slug: "a", Name: "A"}); err != nil {
+			return err
+		}
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("got %v", err)
+	}
+	if ps, _ := d.RQ.ListProjects(ctx); len(ps) != 0 {
+		t.Fatal("rolled-back insert is visible")
+	}
+	if err := d.Tx(ctx, func(q *dbgen.Queries) error {
+		_, err := q.CreateProject(ctx, dbgen.CreateProjectParams{Slug: "a", Name: "A"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ps, _ := d.RQ.ListProjects(ctx); len(ps) != 1 {
+		t.Fatal("committed insert not visible to reader")
+	}
+}
+
+func TestPlanKinds(t *testing.T) {
+	d, _ := open(t)
+	for _, s := range []string{
+		`INSERT INTO project (slug, name) VALUES ('a','A')`,
+		`INSERT INTO task (project_id, rank, title) VALUES (1, 'V', 't')`,
+		`INSERT INTO run (task_id, kind) VALUES (1, 'plan')`,
+		`INSERT INTO question (task_id, run_id, kind, prompt, payload_json) VALUES (1, 1, 'plan_review', 'accept split?', '{"children":[]}')`,
+	} {
+		exec(t, d, s)
+	}
+	if _, err := d.W.Exec(`INSERT INTO run (task_id, kind) VALUES (1, 'bogus')`); err == nil {
+		t.Fatal("run.kind CHECK not enforced")
+	}
+}
+
+func TestMetaSetIfAbsent(t *testing.T) {
+	d, _ := open(t)
+	ctx := context.Background()
+	d.Q.SetMetaIfAbsent(ctx, dbgen.SetMetaIfAbsentParams{Key: "k", Value: "first"})
+	d.Q.SetMetaIfAbsent(ctx, dbgen.SetMetaIfAbsentParams{Key: "k", Value: "second"})
+	if v, err := d.RQ.GetMeta(ctx, "k"); err != nil || v != "first" {
+		t.Fatalf("%q %v", v, err)
+	}
+}

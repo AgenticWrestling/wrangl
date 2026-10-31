@@ -78,3 +78,23 @@ ssm setup us-west-2/myhost
 task test    # run tests
 task clean   # remove ./build
 ```
+
+## wrangl
+
+A single binary that runs as a **controller** (SQLite, embedded NATS + JetStream, HTTP API) or a
+**runner** (enrols, applies a mise-based template, drives a coding agent through a hierarchical
+task stack), plus the client CLI/TUI. Design: [`docs/superpowers/specs/2026-10-31-wrangl-design.md`](docs/superpowers/specs/2026-10-31-wrangl-design.md).
+
+Status: **M1** — full command tree (unbuilt commands report their milestone), config, database
+(goose + sqlc), work-stack primitives, and `controller init|serve|migrate|backup|secret`.
+
+```sh
+task build-wrangl      # build/wrangl + build/wrangl-linux-{aarch64,x86_64}
+task sqlc              # regenerate cmd/wrangl/internal/db/dbgen after editing SQL
+task sqlc-check        # fail if dbgen is stale
+
+build/wrangl --config ./c.yaml controller init --data-dir ./data
+build/wrangl --config ./c.yaml controller serve
+curl --unix-socket /run/wrangl/api.sock http://x/healthz
+```
+

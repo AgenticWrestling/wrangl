@@ -41,6 +41,27 @@ in the SQL below — **do not "simplify" them back**:
 3. A parameter compared to a CTE column → same error. Cast it:
    `CAST(sqlc.arg(x) AS INTEGER)`.
 
+## As built (2026-10-31) — deviations from the steps below
+
+M1 is complete. Where the implementation differs from this plan, the code is authoritative:
+
+- **sqlc quirk 4:** a bare `rank` column (`ORDER BY rank`, `AS rank`) fails to parse because sqlc
+  treats it as the `RANK()` keyword. Every query qualifies it (`task.rank`); see the note at the
+  top of `queries/task.sql`.
+- **Rank growth bound:** plain midpoint appends grow about one character every six appends, so
+  the "≤ 12 chars after 1,000 appends" target was not reachable without an integer-style
+  variable-length head. `RankAfter`/`RankBefore` increment or decrement a digit instead
+  (33 chars after 1,000 appends), and the test bounds it at 40. That is plenty for sibling lists
+  of tens to hundreds of tasks.
+- **goose Provider API** (`goose.NewProvider`) instead of the package-level
+  `SetBaseFS`/`SetDialect`, so parallel tests share no global state.
+  `db.Migrate(ctx, path, direction, out io.Writer)` writes `status` output to `out`.
+- **`controller backup`** is implemented (`VACUUM INTO`, refuses to overwrite) rather than stubbed.
+- **`stack.Sqids.Encode`** returns `(string, error)` and rejects ids ≤ 0, and
+  `ShuffledAlphabet(r io.Reader)` returns `(string, error)`.
+- **Serve** refuses to start if another process is listening on the unix socket, and reclaims a
+  stale socket file left by an unclean exit.
+
 ---
 
 ### Task 1: Dependencies, scaffold, Taskfile
