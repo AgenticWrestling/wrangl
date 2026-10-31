@@ -14,9 +14,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/plans"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/prs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/webpush"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/events"
@@ -65,6 +67,8 @@ type Deps struct {
 	Projects *projects.Service
 	Runs     *runs.Service
 	PRs      *prs.Service
+	Plans    *plans.Service
+	Push     *webpush.Service
 	JS       jetstream.JetStream
 	Bus      *events.Bus
 }
@@ -74,6 +78,36 @@ func Register(mux *http.ServeMux, d Deps) {
 	f := d.Fleet
 	registerWork(mux, d)
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { streamEvents(w, r, d.Bus) })
+	mux.HandleFunc("GET /api/v1/push/key", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"public_key": d.Push.Keys.Public})
+	})
+	mux.HandleFunc("POST /api/v1/push/subscribe", func(w http.ResponseWriter, r *http.Request) {
+		var sub struct {
+			Endpoint string `json:"endpoint"`
+			Keys     struct {
+				P256dh string `json:"p256dh"`
+				Auth   string `json:"auth"`
+			} `json:"keys"`
+			ExpirationTime any `json:"expirationTime"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&sub); err != nil {
+			writeErr(w, fmt.Errorf("%w: %v", errs.Invalid, err))
+			return
+		}
+		if err := d.Push.Subscribe(r.Context(), sub.Endpoint, sub.Keys.P256dh, sub.Keys.Auth, r.UserAgent()); err != nil {
+			writeErr(w, fmt.Errorf("%w: %v", errs.Invalid, err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /api/v1/push/test", func(w http.ResponseWriter, r *http.Request) {
+		n, err := d.Push.Send(r.Context(), webpush.Notification{Title: "wrangl", Body: "Test notification", URL: "/", Tag: "test"})
+		if err != nil && n == 0 {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int{"delivered": n})
+	})
 	mux.HandleFunc("GET /api/v1/runners", func(w http.ResponseWriter, r *http.Request) {
 		all := int64(0)
 		if r.URL.Query().Get("all") == "1" {

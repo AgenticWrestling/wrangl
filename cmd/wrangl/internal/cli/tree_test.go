@@ -77,16 +77,22 @@ func TestOutputFlagValidated(t *testing.T) {
 	}
 }
 
-func TestStubsNameTheirMilestone(t *testing.T) {
-	cases := map[string][]string{
-		"wrangl task split: not implemented yet (milestone M8)": {"task", "split", "abc123", "--agent"},
-		"wrangl push test: not implemented yet (milestone M8)":  {"push", "test"},
-	}
-	for want, args := range cases {
-		_, err := run(t, "", args...)
-		if !errors.Is(err, ErrNotImplemented) || err.Error() != want {
-			t.Errorf("%v: got %v", args, err)
+// Every command is built (M1-M8). Fail if one is ever wired to the stub helper again.
+func TestNoStubsRemain(t *testing.T) {
+	files, _ := filepath.Glob("*.go")
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
 		}
+		b, _ := os.ReadFile(f)
+		for i, line := range strings.Split(string(b), "\n") {
+			if strings.Contains(line, "leaf(") && !strings.Contains(line, "func leaf(") {
+				t.Errorf("%s:%d still uses a stub: %s", f, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	if _, err := run(t, "", "push", "test"); errors.Is(err, ErrNotImplemented) {
+		t.Fatal("push test is still a stub")
 	}
 }
 
@@ -144,7 +150,7 @@ func TestControllerLifecycleCommands(t *testing.T) {
 		t.Fatalf("migrate status: %q", out)
 	}
 	c("tok-123\n", "controller", "secret", "set", "claude_oauth_token")
-	if out := c("", "controller", "secret", "list"); strings.TrimSpace(out) != "claude_oauth_token" {
+	if out := c("", "controller", "secret", "list"); strings.TrimSpace(out) != "claude_oauth_token\nvapid.json" { // init creates the VAPID keys
 		t.Fatalf("secret list: %q", out)
 	}
 	if b, _ := os.ReadFile(filepath.Join(data, "secrets", "claude_oauth_token")); string(b) != "tok-123" {

@@ -173,6 +173,7 @@ type Run struct {
 	OverrideUsed   int64          `json:"override_used"`
 	PrID           sql.NullInt64  `json:"pr_id"`
 	ContinueBranch int64          `json:"continue_branch"`
+	Guidance       string         `json:"guidance"`
 }
 
 type Runner struct {

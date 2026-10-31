@@ -7,7 +7,76 @@ package dbgen
 
 import (
 	"context"
+	"database/sql"
 )
+
+const deletePushSubscription = `-- name: DeletePushSubscription :exec
+DELETE FROM push_subscription WHERE endpoint = ?
+`
+
+func (q *Queries) DeletePushSubscription(ctx context.Context, endpoint string) error {
+	_, err := q.db.ExecContext(ctx, deletePushSubscription, endpoint)
+	return err
+}
+
+const listPushSubscriptions = `-- name: ListPushSubscriptions :many
+SELECT id, endpoint, p256dh, auth, user_agent, failures, last_success_at, created_at FROM push_subscription ORDER BY id
+`
+
+func (q *Queries) ListPushSubscriptions(ctx context.Context) ([]PushSubscription, error) {
+	rows, err := q.db.QueryContext(ctx, listPushSubscriptions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PushSubscription{}
+	for rows.Next() {
+		var i PushSubscription
+		if err := rows.Scan(
+			&i.ID,
+			&i.Endpoint,
+			&i.P256dh,
+			&i.Auth,
+			&i.UserAgent,
+			&i.Failures,
+			&i.LastSuccessAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pushFailed = `-- name: PushFailed :exec
+UPDATE push_subscription SET failures = failures + 1 WHERE id = ?
+`
+
+func (q *Queries) PushFailed(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, pushFailed, id)
+	return err
+}
+
+const pushSucceeded = `-- name: PushSucceeded :exec
+UPDATE push_subscription SET failures = 0, last_success_at = ? WHERE id = ?
+`
+
+type PushSucceededParams struct {
+	LastSuccessAt sql.NullString `json:"last_success_at"`
+	ID            int64          `json:"id"`
+}
+
+func (q *Queries) PushSucceeded(ctx context.Context, arg PushSucceededParams) error {
+	_, err := q.db.ExecContext(ctx, pushSucceeded, arg.LastSuccessAt, arg.ID)
+	return err
+}
 
 const upsertPushSubscription = `-- name: UpsertPushSubscription :exec
 INSERT INTO push_subscription (endpoint, p256dh, auth, user_agent)

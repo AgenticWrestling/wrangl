@@ -444,6 +444,23 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /api/v1/tasks/{sqid}/plan", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Guidance string `json:"guidance,omitempty"`
+		}
+		if r.ContentLength > 0 {
+			if err := decode(r, &req); err != nil {
+				writeErr(w, err)
+				return
+			}
+		}
+		run, err := d.Plans.Queue(r.Context(), r.PathValue("sqid"), req.Guidance)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"run_id": run.ID})
+	})
 	mux.HandleFunc("POST /api/v1/tasks/{sqid}/split", func(w http.ResponseWriter, r *http.Request) {
 		var req proto.TaskSplitRequest
 		if err := decode(r, &req); err != nil {

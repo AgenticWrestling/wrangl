@@ -129,3 +129,6 @@ ON CONFLICT (run_id, seq) DO NOTHING;
 
 -- name: RunHookEvents :many
 SELECT * FROM hook_event WHERE run_id = ? ORDER BY seq;
+
+-- name: SetRunGuidance :exec
+UPDATE run SET guidance = ? WHERE id = ?;

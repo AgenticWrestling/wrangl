@@ -34,6 +34,9 @@ case "$1" in
     risk=low; case "$(printf '%s' "$1" | head -1)" in *RISKY*) risk=high;; esac
     tool submit_review "{\"risk\":\"$risk\",\"summary_md\":\"Reviewed by the fake agent.\",\"concerns\":[\"naming\"]}"
     echo "reviewed: $risk"; exit 0;;
+  "Plan task"*)
+    tool propose_split '{"chain":true,"rationale_md":"two steps","children":[{"title":"design it","prompt":"write the design"},{"title":"build it","children":[{"title":"backend"}]}]}'
+    echo "planned"; exit 0;;
   "The owner requested changes"*)
     printf 'revised per review\n' >> NOTES.md; echo "revised"; exit 0;;
 esac
@@ -241,6 +244,64 @@ func TestPRFlowEndToEnd(t *testing.T) {
 	if len(ps) != 3 {
 		t.Fatalf("merged PRs: %+v", ps)
 	}
+	// M8: split with agent. The proposal arrives as a plan_review question; accept applies
+	// it through the atomic split; reject queues another plan run with the feedback.
+	big := e.mk(proto.TaskCreateRequest{Title: "big job", Prompt: "do the whole thing"})
+	if _, err := api.PlanTask(ctx, big, "keep it small"); err != nil {
+		t.Fatal(err)
+	}
+	var pq proto.QuestionView
+	waitFor(t, "plan_review question", 30*time.Second, func() (bool, string) {
+		qs, _ := api.Questions(ctx, false)
+		for _, x := range qs {
+			if x.Kind == "plan_review" && x.Task == big {
+				pq = x
+				return true, ""
+			}
+		}
+		return false, ""
+	})
+	if !strings.Contains(pq.DetailMD, "two steps") || !strings.Contains(pq.DetailMD, "  - backend") || !strings.Contains(string(pq.Payload), "keep it small") {
+		t.Fatalf("plan question: %+v %s", pq, pq.Payload)
+	}
+	if err := api.Answer(ctx, pq.ID, "accept", ""); err != nil {
+		t.Fatal(err)
+	}
+	d := e.task(big)
+	if len(d.Children) != 2 || d.Children[0].Title != "design it" {
+		t.Fatalf("split not applied: %+v", d.Children)
+	}
+	if built := e.task(d.Children[1].Sqid); len(built.Precursors) != 1 || len(built.Children) != 1 {
+		t.Fatalf("chain/nesting: %+v", built)
+	}
+	other := e.mk(proto.TaskCreateRequest{Title: "another big job"})
+	api.PlanTask(ctx, other, "")
+	waitFor(t, "second plan question", 30*time.Second, func() (bool, string) {
+		qs, _ := api.Questions(ctx, false)
+		for _, x := range qs {
+			if x.Kind == "plan_review" && x.Task == other {
+				pq = x
+				return true, ""
+			}
+		}
+		return false, ""
+	})
+	if err := api.Answer(ctx, pq.ID, "reject", "fewer steps please"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "re-plan with feedback", 30*time.Second, func() (bool, string) {
+		qs, _ := api.Questions(ctx, false)
+		for _, x := range qs {
+			if x.Kind == "plan_review" && x.Task == other && x.ID != pq.ID && strings.Contains(string(x.Payload), "fewer steps please") {
+				return true, ""
+			}
+		}
+		return false, ""
+	})
+	if d := e.task(other); len(d.Children) != 0 {
+		t.Fatalf("rejected proposal was applied: %+v", d.Children)
+	}
+
 	// M7: the event stream carried every kind of change.
 	kindsMu.Lock()
 	for _, k := range []string{"run", "task", "question", "pr", "runner"} {

@@ -318,3 +318,19 @@ func (c *Client) Events(ctx context.Context, fn func(Event)) error {
 	}
 	return sc.Err()
 }
+
+// PlanTask queues a plan run ("split with agent").
+func (c *Client) PlanTask(ctx context.Context, sqid, guidance string) (int64, error) {
+	var out struct {
+		RunID int64 `json:"run_id"`
+	}
+	return out.RunID, c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/plan", map[string]string{"guidance": guidance}, &out)
+}
+
+// PushTest sends a test notification to every subscribed browser.
+func (c *Client) PushTest(ctx context.Context) (int, error) {
+	var out struct {
+		Delivered int `json:"delivered"`
+	}
+	return out.Delivered, c.json(ctx, http.MethodPost, "/api/v1/push/test", nil, &out)
+}

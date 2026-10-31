@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -50,8 +51,20 @@ func tuiCmd(g *Global) *cobra.Command {
 	}
 }
 
-func pushCmd() *cobra.Command {
+func pushCmd(g *Global) *cobra.Command {
 	return group("push", "Web push notifications",
-		leaf("test", "Send a test notification to every subscription", "M8", cobra.NoArgs),
+		&cobra.Command{Use: "test", Short: "Send a test notification to every subscribed browser", Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				c, err := apiClient(g)
+				if err != nil {
+					return err
+				}
+				n, err := c.PushTest(cmd.Context())
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "delivered to %d browser(s)\n", n)
+				return nil
+			}},
 	)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/webpush"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
@@ -104,7 +105,9 @@ func Init(ctx context.Context, dataDir, configPath string) (*InitResult, error) 
 	if _, err := natsd.EnsureCA(filepath.Join(dataDir, "nats")); err != nil {
 		return nil, fmt.Errorf("nats CA: %w", err)
 	}
-	// M8: generate VAPID keys for web push.
+	if _, err := webpush.EnsureKeys(SecretsDir(dataDir)); err != nil {
+		return nil, fmt.Errorf("VAPID keys: %w", err)
+	}
 	return res, nil
 }
 

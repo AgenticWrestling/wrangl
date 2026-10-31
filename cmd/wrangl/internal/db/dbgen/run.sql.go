@@ -11,7 +11,7 @@ import (
 )
 
 const activeRunForRunner = `-- name: ActiveRunForRunner :one
-SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch FROM run
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance FROM run
 WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
 ORDER BY id DESC LIMIT 1
 `
@@ -45,6 +45,7 @@ func (q *Queries) ActiveRunForRunner(ctx context.Context, runnerID sql.NullInt64
 		&i.OverrideUsed,
 		&i.PrID,
 		&i.ContinueBranch,
+		&i.Guidance,
 	)
 	return i, err
 }
@@ -123,7 +124,7 @@ func (q *Queries) CountRunsForTask(ctx context.Context, taskID int64) (int64, er
 
 const createRun = `-- name: CreateRun :one
 INSERT INTO run (task_id, kind, attempt) VALUES (?, ?, ?)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance
 `
 
 type CreateRunParams struct {
@@ -161,6 +162,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.OverrideUsed,
 		&i.PrID,
 		&i.ContinueBranch,
+		&i.Guidance,
 	)
 	return i, err
 }
@@ -200,7 +202,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch FROM run WHERE id = ?
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance FROM run WHERE id = ?
 `
 
 func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
@@ -232,6 +234,7 @@ func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
 		&i.OverrideUsed,
 		&i.PrID,
 		&i.ContinueBranch,
+		&i.Guidance,
 	)
 	return i, err
 }
@@ -317,7 +320,7 @@ func (q *Queries) ListActiveRuns(ctx context.Context) ([]ListActiveRunsRow, erro
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
+SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, r.guidance, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(p.slug AS TEXT) AS project_slug, CAST(COALESCE(rn.name, '') AS TEXT) AS runner_name,
        CAST(COALESCE(ct.sqid, '') AS TEXT) AS current_sqid
 FROM run r
@@ -390,6 +393,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 			&i.Run.OverrideUsed,
 			&i.Run.PrID,
 			&i.Run.ContinueBranch,
+			&i.Run.Guidance,
 			&i.TaskSqid,
 			&i.TaskTitle,
 			&i.ProjectSlug,
@@ -426,7 +430,7 @@ const queueRun = `-- name: QueueRun :one
 INSERT INTO run (task_id, kind, attempt, template_id, repo_id, branch, session_uuid)
 VALUES (?1, ?2, ?3, ?4, ?5,
         ?6, ?7)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance
 `
 
 type QueueRunParams struct {
@@ -476,6 +480,7 @@ func (q *Queries) QueueRun(ctx context.Context, arg QueueRunParams) (Run, error)
 		&i.OverrideUsed,
 		&i.PrID,
 		&i.ContinueBranch,
+		&i.Guidance,
 	)
 	return i, err
 }
@@ -686,6 +691,20 @@ type SetRunCurrentTaskParams struct {
 
 func (q *Queries) SetRunCurrentTask(ctx context.Context, arg SetRunCurrentTaskParams) error {
 	_, err := q.db.ExecContext(ctx, setRunCurrentTask, arg.TaskID, arg.ID)
+	return err
+}
+
+const setRunGuidance = `-- name: SetRunGuidance :exec
+UPDATE run SET guidance = ? WHERE id = ?
+`
+
+type SetRunGuidanceParams struct {
+	Guidance string `json:"guidance"`
+	ID       int64  `json:"id"`
+}
+
+func (q *Queries) SetRunGuidance(ctx context.Context, arg SetRunGuidanceParams) error {
+	_, err := q.db.ExecContext(ctx, setRunGuidance, arg.Guidance, arg.ID)
 	return err
 }
 

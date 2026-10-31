@@ -23,15 +23,19 @@ import (
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/api"
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/cfaccess"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/plans"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/prs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/scheduler"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/webpush"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
@@ -80,6 +84,8 @@ type Server struct {
 	Projects *projects.Service
 	Runs     *runs.Service
 	PRs      *prs.Service
+	Plans    *plans.Service
+	Push     *webpush.Service
 	Bus      *events.Bus
 }
 
@@ -227,10 +233,33 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		}
 	}
 	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
-	s.Runs.OnRunFinished = func(_ context.Context, runID int64) {
+	vapid, err := webpush.EnsureKeys(SecretsDir(s.cfg.DataDir))
+	if err != nil {
+		return fmt.Errorf("VAPID keys: %w", err)
+	}
+	subject := "mailto:" + s.cfg.Cloudflare.OwnerEmail
+	if s.cfg.Cloudflare.OwnerEmail == "" {
+		subject = "https://github.com/nreid/devhost"
+	}
+	s.Push = &webpush.Service{DB: s.db, Keys: vapid, Subject: subject, Log: s.log}
+	s.Runs.OnQuestion = func(q dbgen.Question) {
+		title := map[string]string{"agent": "An agent has a question", "approval": "Approval needed", "pr_review": "PR waiting for review",
+			"plan_review": "Proposed split ready", "system": "A run needs you"}[q.Kind]
+		s.Push.Notify(webpush.Notification{Title: title, Body: q.Prompt, URL: fmt.Sprintf("/inbox#q%d", q.ID), Tag: fmt.Sprintf("q%d", q.ID)})
+	}
+	s.Fleet.OnOffline = func(name string) {
+		s.Push.Notify(webpush.Notification{Title: "Runner offline", Body: name + " stopped sending heartbeats", URL: "/runners", Tag: "runner-" + name})
+	}
+	s.Runs.OnRunFinished = func(ctx context.Context, runID int64) {
+		if r, err := s.db.RQ.GetRun(ctx, runID); err == nil && (r.State == "failed" || r.State == "blocked") {
+			s.Push.Notify(webpush.Notification{Title: "Run " + r.State, Body: fmt.Sprintf("run %d: %s", runID, r.Error+r.StatusText), URL: fmt.Sprintf("/run/%d", runID), Tag: fmt.Sprintf("run%d", runID)})
+		}
 		go s.PRs.OnRunFinished(context.Background(), runID) // GitHub calls must not hold up event ingest
 	}
 	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
+	s.Plans = &plans.Service{DB: s.db, Stack: s.Stack, Runs: s.Runs, Log: s.log}
+	s.Runs.ToolHandlers["propose_split"] = s.Plans.ProposeSplit
+	s.Runs.AnswerHandlers["plan_review"] = s.Plans.Answer
 	s.Runs.AnswerHandlers["pr_review"] = s.PRs.AnswerPR
 
 	stackSub, err := s.nats.Conn.Subscribe(natsd.StackWildcard, func(m *nats.Msg) {
@@ -343,7 +372,18 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		}
 	}()
 
-	apiSrv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
+	routes := s.routes()
+	apiSrv := &http.Server{Handler: routes, ReadHeaderTimeout: 10 * time.Second} // unix socket: trusted by file permissions
+	tcpHandler := routes
+	if cf := s.cfg.Cloudflare; cf.Team != "" {
+		v := &cfaccess.Verifier{Team: cf.Team, AUD: cf.AUD, Owner: cf.OwnerEmail}
+		tcpHandler = v.Middleware(routes, func(r *http.Request) bool {
+			return r.URL.Path == "/gh/webhook" || r.URL.Path == "/healthz" // HMAC-verified / no data
+		})
+	} else {
+		s.log.Warn("cloudflare.team not set: the TCP API is not verified (keep listen.http on loopback)")
+	}
+	tcpSrv := &http.Server{Handler: tcpHandler, ReadHeaderTimeout: 10 * time.Second}
 	enrollSrv := &http.Server{Handler: api.EnrollHandler(s.Fleet), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, len(listeners)+1)
 	serve := func(srv *http.Server, l net.Listener) {
@@ -351,7 +391,8 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			errc <- err
 		}
 	}
-	for _, l := range listeners {
+	go serve(tcpSrv, apiLn)
+	for _, l := range listeners[1:] {
 		go serve(apiSrv, l)
 	}
 	go serve(enrollSrv, enrollLn)
@@ -371,7 +412,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	loops.Wait()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return errors.Join(err, apiSrv.Shutdown(shutCtx), enrollSrv.Shutdown(shutCtx))
+	return errors.Join(err, tcpSrv.Shutdown(shutCtx), apiSrv.Shutdown(shutCtx), enrollSrv.Shutdown(shutCtx))
 }
 
 func listenUnix(path string) (net.Listener, error) {
@@ -399,7 +440,7 @@ func listenUnix(path string) (net.Listener, error) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
-	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, JS: s.js, Bus: s.Bus})
+	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus})
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	return mux
 }

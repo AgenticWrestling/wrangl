@@ -270,12 +270,18 @@ func taskCmd(g *Global) *cobra.Command {
 		Use: "split <sqid>", Short: "Split a task into subtasks", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			f := cmd.Flags()
-			if agent, _ := f.GetBool("agent"); agent {
-				return stub("M8")(cmd, args)
-			}
 			c, err := client()
 			if err != nil {
 				return err
+			}
+			if agent, _ := f.GetBool("agent"); agent {
+				guidance, _ := f.GetString("guidance")
+				id, err := c.PlanTask(cmd.Context(), args[0], guidance)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "queued plan run %d; its proposal will appear in `wrangl question list`\n", id)
+				return nil
 			}
 			var req proto.TaskSplitRequest
 			req.Chain, _ = f.GetBool("chain")
@@ -312,7 +318,7 @@ func taskCmd(g *Global) *cobra.Command {
 	sf.StringArray("title", nil, "subtask title (repeatable)")
 	sf.Bool("chain", false, "each subtask needs the previous one")
 	sf.Bool("copy-prompt", false, "copy the parent prompt into each subtask")
-	sf.Bool("agent", false, "queue a plan run to propose the split (milestone M8)")
+	sf.Bool("agent", false, "queue a plan run: an agent proposes the split for you to accept")
 	sf.String("guidance", "", "guidance for the planning agent (with --agent)")
 	split.MarkFlagsMutuallyExclusive("file", "title", "agent")
 

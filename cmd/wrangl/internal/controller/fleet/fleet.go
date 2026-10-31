@@ -67,7 +67,8 @@ type Service struct {
 	BinDir                           string // <data-dir>/bin
 	Now                              func() time.Time
 	Log                              *slog.Logger
-	Bus                              *events.Bus // change notices
+	Bus                              *events.Bus         // change notices
+	OnOffline                        func(runner string) // web push (M8)
 	// AllowLoopbackEnroll lets tests launch with a 127.0.0.1 enrol URL. Production
 	// refuses: a runner on another host could never reach it.
 	AllowLoopbackEnroll bool
@@ -440,6 +441,10 @@ func (s *Service) SweepOffline(ctx context.Context) error {
 	})
 	for _, r := range rows {
 		s.Log.Warn("runner offline", "runner", r.Name)
+		s.Bus.Publish("runner", r.Name)
+		if s.OnOffline != nil {
+			s.OnOffline(r.Name)
+		}
 	}
 	return err
 }
