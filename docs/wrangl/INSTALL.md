@@ -38,7 +38,7 @@ branch to GitHub. Do the steps in order. Each step ends with a check.
 
 ```
                 Cloudflare Zero Trust ──▶ cloudflared ─┐
-                                                      │ 127.0.0.1:8080 (API, later the PWA)
+                                                      │ 127.0.0.1:8080 (API + PWA)        
   VPC, private subnet + NAT gateway                   ▼
   ┌──────────────────────────────────────────────────────────────┐
   │  controller (t4g.small)       runners (launched on demand)   │
@@ -470,7 +470,7 @@ CI results and merges done on GitHub arrive by webhook (step 10.4), with a recon
 
 `wrangl logs search 'panic OR timeout' --project web` searches every run's output.
 
-## 10. Cloudflare Zero Trust (remote CLI now, PWA in M8)
+## 10. Cloudflare Zero Trust, and the PWA
 
 This puts the controller's API on a hostname you can reach from anywhere, behind Cloudflare
 Access, with no inbound ports.
@@ -507,9 +507,42 @@ Access, with no inbound ports.
    `wrangl.example.com/gh/webhook` with a **Bypass** policy (everyone). GitHub authenticates
    with the HMAC secret from step 6.2 instead.
 
-> **Until M8**, Cloudflare Access at the edge is the only check on the TCP API. The controller
-> doesn't yet verify the `Cf-Access-Jwt-Assertion` header itself. Keep `listen.http` on
-> 127.0.0.1, which is the default, so only cloudflared can reach it.
+5. **Let the controller verify Access itself.** Copy the application's **AUD tag**
+   (Access → Applications → wrangl → Overview). Then in the controller config:
+   ```yaml
+   cloudflare:
+     team: yourteam            # yourteam.cloudflareaccess.com
+     aud: "<AUD tag>"
+     owner_email: you@example.com
+   ```
+   Restart the controller. Every TCP request except `/gh/webhook` (HMAC-verified) and
+   `/healthz` must now carry a valid `Cf-Access-Jwt-Assertion` for that AUD, issued to
+   `owner_email` or to a service token. The unix socket is unaffected. `owner_email` also
+   becomes the VAPID contact for web push.
+   **Check:** `curl -i http://127.0.0.1:8080/backlog` on the controller returns 401, and the
+   same page loads through the tunnel.
+
+### 10.1 Install the PWA on your phone
+
+1. Open `https://wrangl.example.com/` on the phone and sign in to Access. The page lands on
+   the Backlog.
+2. **iOS (16.4+):** Share → **Add to Home Screen**, then open wrangl from the Home Screen icon.
+   Web push only works from the installed app. **Android/Chrome:** menu → **Install app**.
+3. In the app: **More → Enable push on this device**, and allow notifications. The VAPID key
+   pair is generated once at `<data_dir>/secrets/vapid.json`. Back it up with the rest of
+   `secrets/`, because a new key invalidates every subscription.
+4. **Check:** push arrives when a question is asked (for example, plan a task with
+   **Split → Plan with agent**). Tapping it opens Inbox.
+
+What the PWA does: **Backlog** (drag a task by its ⠿ handle to reorder or re-parent it; ＋ New;
+open a task to edit, split, add subtasks or precursors, queue, or **Plan with agent**).
+**Runners** (cards with CPU/mem/disk and a CPU sparkline; detail page with cordon, drain and
+terminate). **Runs** (log filter, read-only live terminal, diff, file browser with markdown
+preview). **Inbox** (agent questions, plan proposals with Accept / Edit / Reject, and PR
+reviews). **More** (projects, templates, launching a runner, push).
+
+If a session expires, the installed app shows Cloudflare's login page. Sign in again; a long
+Access session duration (step 2) keeps this rare.
 
 ## 11. First-run checklist (the unverified parts)
 

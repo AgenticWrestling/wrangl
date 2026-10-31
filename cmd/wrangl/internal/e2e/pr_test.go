@@ -324,6 +324,9 @@ func TestPRFlowEndToEnd(t *testing.T) {
 		t.Fatalf("pty sse: %.300s", sseBody)
 	}
 
+	runners := mustRunners(t, api, ctx)
+	checkPWA(t, e, hc, runners[0].Name, big, other, pq.ID)
+
 	stopDaemon()
 	<-ddone
 	cancel()

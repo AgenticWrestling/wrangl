@@ -1,0 +1,36 @@
+{{define "main-backlog"}}
+<div class="bar">
+  <select aria-label="Project" onchange="location.assign('/backlog?project=' + encodeURIComponent(this.value))">
+    {{range .Projects}}<option value="{{.Slug}}"{{if eq .Slug $.Project}} selected{{end}}>{{.Slug}}</option>{{end}}
+  </select>
+  {{if .Project}}<a class="chip" href="/backlog?project={{.Project}}{{if not .All}}&amp;all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
+  <button class="btn primary" onclick="openSheet('sheet-new')">＋ New</button>{{end}}
+</div>
+{{if not .Projects}}<p class="empty">No projects yet. Create one under <a href="/more">More</a>.</p>
+{{else if not .Roots}}<p class="empty">Nothing open in {{.Project}}. Tap ＋ New to add a task.</p>{{end}}
+<ul class="tasks sortable root" data-parent="">{{template "tasklist" .Roots}}</ul>
+{{end}}
+
+{{define "tasklist"}}{{range .}}<li class="task st-{{.State}}" data-sqid="{{.Sqid}}">
+  <div class="row">
+    <span class="handle" aria-label="Drag to reorder">⠿</span>
+    <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
+    <a class="title" href="/task/{{.Sqid}}">{{.Title}}</a>
+    <code class="sqid">{{.Sqid}}</code>
+    {{if .Unmet}}<span class="pill warn" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
+    {{if .LockedBy}}<span class="pill lock" title="locked by a run">🔒 {{.LockedBy}}</span>{{end}}
+  </div>
+  <ul class="tasks sortable" data-parent="{{.Sqid}}">{{template "tasklist" .Kids}}</ul>
+</li>{{end}}{{end}}
+
+{{define "post-backlog"}}{{if .Project}}
+<dialog id="sheet-new" class="sheet">
+  <h2>New task in {{.Project}}</h2>
+  <label>Title<input data-bind="title" placeholder="What needs doing?" autocomplete="off"></label>
+  <label>Prompt<textarea data-bind="prompt" rows="6" placeholder="Instructions for the agent (markdown)"></textarea></label>
+  <label class="check"><input type="checkbox" data-bind="queue"> Queue it now</label>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/task-new?project={{.Project}}')" data-close>Create</button>
+  </div>
+</dialog>{{end}}{{end}}

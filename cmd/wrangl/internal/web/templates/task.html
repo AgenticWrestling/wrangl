@@ -1,0 +1,92 @@
+{{define "main-task"}}{{$t := .Task}}
+<section class="card">
+  <div class="meta">
+    <span class="pill st-{{$t.State}}">{{glyph $t.State}} {{$t.State}}</span>
+    <code>{{$t.Sqid.String}}</code>
+    <a href="/backlog?project={{.Project}}">{{.Project}}</a>
+    {{with .Parent}}› <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{end}}
+  </div>
+  <h2>{{$t.Title}}</h2>
+  <div class="prose">{{if $t.Prompt}}{{md $t.Prompt}}{{else}}<p class="empty">No prompt.</p>{{end}}</div>
+  {{if $t.CompletionSummary}}<h3>Completion summary</h3><div class="prose">{{md $t.CompletionSummary}}</div>{{end}}
+  <div class="actions wrap">
+    {{if eq $t.State "open"}}<button class="btn primary" data-on-click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">Queue</button>{{end}}
+    <button class="btn" onclick="openSheet('sheet-edit')">Edit</button>
+    <button class="btn" onclick="openSheet('sheet-split')">Split</button>
+    <button class="btn" onclick="openSheet('sheet-sub')">＋ Subtask</button>
+    <button class="btn" onclick="openSheet('sheet-needs')">Needs…</button>
+    {{if or (eq $t.State "done") (eq $t.State "cancelled")}}<button class="btn" data-on-click="@post('/ui/act/task-reopen?sqid={{$t.Sqid.String}}')">Reopen</button>
+    {{else}}<button class="btn" data-on-click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">Complete</button>
+    <button class="btn" data-on-click="@post('/ui/act/task-cancel?sqid={{$t.Sqid.String}}')">Cancel</button>{{end}}
+    <button class="btn danger" data-on-click="confirm('Delete this task and its subtasks?') && @post('/ui/act/task-delete?sqid={{$t.Sqid.String}}')">Delete</button>
+  </div>
+</section>
+
+{{if .Kids}}<section class="card"><h3>Subtasks</h3>
+<ul class="tasks sortable" data-parent="{{$t.Sqid.String}}">{{range .Kids}}<li class="task st-{{.State}}" data-sqid="{{.Sqid.String}}"><div class="row">
+  <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span><a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a><code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
+</section>{{end}}
+
+{{if or .Pre .Dep}}<section class="card"><h3>Dependencies</h3>
+  {{range .Pre}}<div class="row">needs <span class="glyph">{{glyph .State}}</span><a href="/task/{{.Sqid}}">{{.Title}}</a> <code>{{.Sqid}}</code></div>{{end}}
+  {{range .Dep}}<div class="row">blocks <span class="glyph">{{glyph .State}}</span><a href="/task/{{.Sqid}}">{{.Title}}</a> <code>{{.Sqid}}</code></div>{{end}}
+</section>{{end}}
+
+{{if .Runs}}<section class="card"><h3>Runs</h3>
+  {{range .Runs}}<a class="row link" href="/run/{{.ID}}"><span class="pill run-{{.State}}">{{.State}}</span> #{{.ID}} {{.Kind}}{{if gt .Attempt 1}} (attempt {{.Attempt}}){{end}} <span class="dim">{{.RunnerName}} · {{ago .QueuedAt}}</span></a>{{end}}
+</section>{{end}}
+
+{{if .Events}}<details class="card"><summary>History ({{len .Events}})</summary>
+  {{range .Events}}<div class="row small"><span class="dim">{{ago .Ts}}</span> {{.Actor}} <b>{{.Op}}</b></div>{{end}}
+</details>{{end}}
+{{end}}
+
+{{define "post-task"}}{{$t := .Task}}{{$s := $t.Sqid.String}}
+<dialog id="sheet-edit" class="sheet" data-signals-etitle="{{json $t.Title}}" data-signals-eprompt="{{json $t.Prompt}}">
+  <h2>Edit {{$s}}</h2>
+  <label>Title<input data-bind="etitle"></label>
+  <label>Prompt<textarea data-bind="eprompt" rows="10"></textarea></label>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/task-edit?sqid={{$s}}')" data-close>Save</button>
+  </div>
+</dialog>
+
+<dialog id="sheet-split" class="sheet" data-signals-outline="{{json .SplitOutline}}">
+  <h2>Split {{$s}}</h2>
+  <p class="hint">One subtask per line; indent two spaces to nest. Text after <code>: </code> becomes the prompt.</p>
+  <textarea data-bind="outline" rows="10" placeholder="- Write the migration&#10;- Add the endpoint&#10;  - tests"></textarea>
+  <label class="check"><input type="checkbox" data-bind="chain"> Chain: each subtask needs the one before</label>
+  <label class="check"><input type="checkbox" data-bind="copy"> Copy the parent prompt into each subtask</label>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/task-split?sqid={{$s}}')" data-close>Split</button>
+  </div>
+  <hr>
+  <h3>Split with agent</h3>
+  <p class="hint">A plan run reads the repo and proposes subtasks; the proposal arrives in Inbox for approval.</p>
+  <textarea data-bind="guidance" rows="3" placeholder="Optional guidance, e.g. 'keep each subtask under a day'"></textarea>
+  <div class="actions">
+    <button class="btn primary" data-on-click="@post('/ui/act/task-plan?sqid={{$s}}')" data-close>Plan with agent</button>
+  </div>
+</dialog>
+
+<dialog id="sheet-sub" class="sheet">
+  <h2>New subtask of {{$s}}</h2>
+  <label>Title<input data-bind="title" autocomplete="off"></label>
+  <label>Prompt<textarea data-bind="prompt" rows="6"></textarea></label>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/task-new?project={{.Project}}&amp;parent={{$s}}')" data-close>Create</button>
+  </div>
+</dialog>
+
+<dialog id="sheet-needs" class="sheet">
+  <h2>{{$s}} needs…</h2>
+  <label>Precursor sqid<input data-bind="precursor" autocomplete="off" autocapitalize="off"></label>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/task-needs?sqid={{$s}}')" data-close>Add</button>
+  </div>
+</dialog>
+{{end}}

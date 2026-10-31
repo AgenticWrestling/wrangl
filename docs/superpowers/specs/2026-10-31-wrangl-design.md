@@ -596,12 +596,26 @@ Using two Apps avoids GitHub's rule that a PR's author can't approve it.
 
 ## 11. Web PWA (Datastar)
 
-`templ` plus the Datastar Go SDK, server-rendered, with SSE patches. Mobile-first (designed at
+Server-rendered `html/template` pages (D29) made live by Datastar. Mobile-first (designed at
 360–430 px, works on desktop) and installable.
 
-There are two JS dependencies beyond Datastar, both pinned and loaded from a CDN:
-- **SortableJS** for touch drag-and-drop. Datastar has no drag-and-drop.
-- **xterm.js** for the terminal.
+**As built (M8):** every page opens one Datastar stream, `GET /ui/live?view=…`, that
+re-renders the page's `<main id="main">` and morphs it in whenever the event bus fires
+(debounced 250 ms, 15 s keepalive), plus the Inbox badge. Sheets (`<dialog>`) and the
+terminal sit outside `#main`, so a live morph never closes a sheet or resets the terminal.
+Actions are `@post('/ui/act/<action>')`. Datastar sends its signals as JSON, and the answer is
+a toast fragment, optionally with `merge-signals` (clear the form) or `execute-script`
+(navigate). Markdown is goldmark (GFM) sanitised by bluemonday. Files are highlighted by
+chroma with classes, with light and dark styles at `/static/chroma.css`. Icons are an SVG plus
+PNGs generated at `/icons/<n>.png`. The service worker handles push only and caches nothing.
+
+All JS is vendored into the binary, pinned, with checksums in `internal/web/static/vendor/VENDOR.md`.
+No CDN is used, so the PWA works behind Access with no third-party origins:
+- **Datastar 1.0.0-beta.11** (the version the attribute syntax here targets).
+- **SortableJS 1.15.7** for touch drag-and-drop. It uses `forceFallback` because native HTML5
+  DnD is unreliable on iOS. A drop calls `POST /api/v1/tasks/{sqid}/move` with the new parent
+  and the previous sibling.
+- **xterm.js 6.0.0 + addon-fit 0.11.0** for the terminal, fed by the PTY SSE stream.
 
 ### Navigation
 
@@ -782,7 +796,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | **M5 ✅** | Agent socket (peer-uid auth), `runner hook/mcp/tool`, dependency-free MCP core, stack tools with subtree scope + approvals, Questions (agent/system/approval), `task_complete`-driven completion with one nudge then an owner question | M4 |
 | **M6 ✅** | PR open (by the controller), gates (CI, size, protected globs), review runs + `submit_review`, reviewer-App approve/squash-merge, `pr_review` questions, revise runs on the PR branch, HMAC webhooks with dedupe + 15-min reconcile, blocked continuation, `pr` CLI | M5 |
 | **M7 ✅** | In-process event bus, `GET /api/v1/events` SSE (15 s keepalive), PTY as SSE with `Last-Event-ID` resume, `wrangl tui` (bubbletea: runners, runs, stack editing, questions, PRs; attach/logs/diff hand over the terminal) | M4 |
-| M8 | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
+| **M8 ✅** | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
 | M9 | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
 | M10 | v2: controller-hosted remote MCP endpoint exposing the stack tools to the owner's own agents (auth design behind CF Access) | M5, M8 |
 
@@ -817,6 +831,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D25 | Enrolment proof for launched runners = token bound to instance id + source IP equals its private IP (replaces identity-document signature check) |
 | D27 | M5: the stuck-task question offers Retry / Mark complete / Fail run ("skip" would hand the same leaf back). Approvals apply inside the assignment; outside it the agent can only read. Approval questions outlive the run; agent/system questions are cancelled with it |
 | D28 | M6: the controller (author App) opens PRs after a push, so GitHub's API is only ever called from the controller. Without a reviewer App PRs are opened but not reviewed/merged by wrangl. One review run per PR head; a review run that submits nothing goes to the owner |
+| D29 | M8: the PWA uses stdlib `html/template` instead of templ (no code generation step, no extra tool in the gate) and vendors Datastar 1.0.0-beta.11, SortableJS and xterm.js into the binary instead of a CDN. `/ui/*` is the PWA's own action surface; `/api/v1` stays the stable client API |
 | D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 
 ## 17. Open items

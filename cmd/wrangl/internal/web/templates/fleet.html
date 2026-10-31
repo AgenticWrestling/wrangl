@@ -1,0 +1,60 @@
+{{define "main-runners"}}
+{{if .Demand}}<section class="card"><h3>Templates</h3>
+  {{range .Demand}}<div class="row">
+    <b>{{.Name}}</b> <span class="dim">v{{.Version}}{{if eq .FailedVersion .Version}} ⚠ apply failed{{end}}</span>
+    <span class="grow"></span>
+    <span class="dim">{{.Demand}} queued · {{.Live}}/{{.MaxRunners}} live</span>
+    <button class="btn small" data-on-click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button>
+  </div>{{end}}
+</section>{{end}}
+{{if not .Cards}}<p class="empty">No runners. Launch one from a template above, or <code>wrangl fleet launch</code>.</p>{{end}}
+{{range .Cards}}<a class="card runner st-{{.R.State}}" href="/runner/{{.R.Name}}">
+  <div class="row"><b>{{.R.Name}}</b> <span class="pill">{{.R.State}}</span>{{if .R.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if .R.DrainRequested}}<span class="pill warn">draining</span>{{end}}<span class="grow"></span><span class="dim">{{.T.Name}}</span></div>
+  <div class="row small dim">{{.R.InstanceType}} · {{.R.Vcpu}} vCPU · {{.R.RamMib}} MiB · {{.R.Az}}</div>
+  <div class="row small">
+    <span>CPU {{pct .M.CPUPercent}}</span><span>Mem {{pct .M.MemPercent}}</span><span>Disk {{pct .M.DiskPercent}}</span>
+    <span class="grow"></span>{{spark .Spark}}
+  </div>
+  {{with .Run}}<div class="row small">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</div>
+  {{else}}{{if .R.IdleSince.Valid}}<div class="row small dim">idle since {{ago .R.IdleSince.String}}</div>{{end}}{{end}}
+</a>{{end}}
+{{end}}
+
+{{define "main-runner"}}{{$r := .R}}
+<section class="card">
+  <div class="row"><span class="pill">{{$r.State}}</span>{{if $r.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if $r.DrainRequested}}<span class="pill warn">draining</span>{{end}}<span class="grow"></span>{{.T.Name}} v{{$r.TemplateVersion}}</div>
+  <dl class="kv">
+    <dt>Instance</dt><dd>{{$r.InstanceID.String}} {{$r.InstanceType}} ({{$r.Arch}}) {{$r.Az}}</dd>
+    <dt>Size</dt><dd>{{$r.Vcpu}} vCPU · {{$r.RamMib}} MiB · {{$r.DiskGib}} GiB</dd>
+    <dt>IP</dt><dd>{{$r.PrivateIp}}</dd>
+    <dt>Heartbeat</dt><dd>{{if $r.LastHeartbeatAt.Valid}}{{ago $r.LastHeartbeatAt.String}}{{else}}never{{end}}</dd>
+    <dt>Load</dt><dd>CPU {{pct .M.CPUPercent}} · Mem {{pct .M.MemPercent}} · Disk {{pct .M.DiskPercent}} · load1 {{printf "%.2f" .M.Load1}}</dd>
+    {{if $r.IdleSince.Valid}}<dt>Idle</dt><dd>since {{ago $r.IdleSince.String}}</dd>{{end}}
+    {{if $r.LastError}}<dt>Error</dt><dd class="err">{{$r.LastError}}</dd>{{end}}
+  </dl>
+  {{spark .Spark}}
+  <div class="actions wrap">
+    {{if $r.Cordoned}}<button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')">Uncordon</button>
+    {{else}}<button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')">Cordon</button>{{end}}
+    <button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')">Drain</button>
+    <button class="btn danger" data-on-click="confirm('Terminate {{$r.Name}}?') && @post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')">Terminate</button>
+  </div>
+</section>
+{{with .Run}}<section class="card"><h3>Working on</h3>
+  <a class="row link" href="/run/{{.ID}}">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</a>
+  {{if $.Progress}}<ul class="progress">{{range $.Progress}}<li class="st-{{.State}}" style="padding-left: {{.Depth}}em"><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .ID $.Run.CurrentTaskID.Int64}} <span class="pill">current</span>{{end}}</li>{{end}}</ul>{{end}}
+</section>{{end}}
+{{if $r.TemplateLog}}<details class="card"><summary>Template apply log</summary><pre class="log">{{$r.TemplateLog}}</pre></details>{{end}}
+{{if .Recent}}<section class="card"><h3>Recent runs</h3>{{template "runrows" .Recent}}</section>{{end}}
+{{end}}
+
+{{define "runrows"}}{{range .}}<a class="row link" href="/run/{{.Run.ID}}">
+  <span class="pill run-{{.Run.State}}">{{.Run.State}}</span>
+  <span class="title">#{{.Run.ID}} {{.TaskTitle}}</span>
+  <span class="dim small">{{.ProjectSlug}}/{{.TaskSqid}}{{if ne .Run.Kind "work"}} · {{.Run.Kind}}{{end}}{{if .RunnerName}} · {{.RunnerName}}{{end}} · {{ago .Run.QueuedAt}}</span>
+</a>{{end}}{{end}}
+
+{{define "main-runs"}}{{$g := .Groups}}
+{{range $name := .Order}}{{with index $g $name}}<section class="card"><h3>{{$name}}</h3>{{template "runrows" .}}</section>{{end}}{{end}}
+{{if not .Groups}}<p class="empty">No runs yet. Queue a task from the backlog.</p>{{end}}
+{{end}}

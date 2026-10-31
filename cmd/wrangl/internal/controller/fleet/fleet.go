@@ -69,6 +69,7 @@ type Service struct {
 	Log                              *slog.Logger
 	Bus                              *events.Bus         // change notices
 	OnOffline                        func(runner string) // web push (M8)
+	hist                             history             // recent heartbeats for sparklines
 	// AllowLoopbackEnroll lets tests launch with a 127.0.0.1 enrol URL. Production
 	// refuses: a runner on another host could never reach it.
 	AllowLoopbackEnroll bool
@@ -429,6 +430,7 @@ func (s *Service) Heartbeat(ctx context.Context, subject string, data []byte) er
 	if err != nil {
 		return err
 	}
+	s.hist.add(id, hb, s.now())
 	s.Bus.Publish("runner", strconv.FormatInt(id, 10))
 	return s.reconcileTemplate(ctx, id, hb)
 }

@@ -1,0 +1,39 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f6f5c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>{{.Title}} · wrangl</title>
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/180.png">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/chroma.css">
+{{if eq .View "run"}}<link rel="stylesheet" href="/static/vendor/xterm-6.0.0.css">
+<script src="/static/vendor/xterm-6.0.0.js" defer></script>
+<script src="/static/vendor/xterm-addon-fit-0.11.0.js" defer></script>{{end}}
+<script src="/static/vendor/sortable-1.15.7.min.js" defer></script>
+<script src="/static/app.js" defer></script>
+<script type="module" src="/static/vendor/datastar-1.0.0-beta.11.js"></script>
+</head>
+<body data-view="{{.View}}">
+<header class="top">
+  {{if ne .View "backlog"}}<button class="back" onclick="history.length > 1 ? history.back() : location.assign('/backlog')" aria-label="Back">‹</button>{{end}}
+  <h1>{{.Title}}</h1>
+</header>
+<div id="live" data-on-load="@get('{{.LiveURL}}')"></div>
+{{.Pre}}
+<main id="main">{{.Main}}</main>
+{{.Post}}
+<div id="toast" class="toast"></div>
+<nav class="tabs">
+  <a href="/backlog" class="{{if or (eq .View "backlog") (eq .View "task")}}on{{end}}"><span>☰</span>Backlog</a>
+  <a href="/runners" class="{{if or (eq .View "runners") (eq .View "runner")}}on{{end}}"><span>⚙</span>Runners</a>
+  <a href="/runs" class="{{if or (eq .View "runs") (eq .View "run") (eq .View "diff") (eq .View "files")}}on{{end}}"><span>▶</span>Runs</a>
+  <a href="/inbox" class="{{if eq .View "inbox"}}on{{end}}"><span>✉</span>Inbox<span id="inbox-badge" class="badge">{{if .Inbox}}{{.Inbox}}{{end}}</span></a>
+  <a href="/more" class="{{if eq .View "more"}}on{{end}}"><span>…</span>More</a>
+</nav>
+</body>
+</html>{{end}}

@@ -39,6 +39,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/nreid/devhost/cmd/wrangl/internal/web"
 )
 
 // JetStream streams (spec §7).
@@ -440,8 +441,14 @@ func listenUnix(path string) (net.Listener, error) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
-	api.Register(mux, api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus})
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus}
+	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
+	ui, err := web.New(deps)
+	if err != nil { // embedded templates: a parse error is a build bug, caught by tests
+		panic(fmt.Sprintf("web templates: %v", err))
+	}
+	ui.Register(mux)
 	return mux
 }
 
