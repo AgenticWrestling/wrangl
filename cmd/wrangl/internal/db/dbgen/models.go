@@ -158,30 +158,35 @@ type Run struct {
 }
 
 type Runner struct {
-	ID              int64          `json:"id"`
-	Name            string         `json:"name"`
-	TemplateID      int64          `json:"template_id"`
-	TemplateVersion int64          `json:"template_version"`
-	InstanceID      sql.NullString `json:"instance_id"`
-	InstanceType    string         `json:"instance_type"`
-	Az              string         `json:"az"`
-	PrivateIp       string         `json:"private_ip"`
-	Arch            string         `json:"arch"`
-	Vcpu            int64          `json:"vcpu"`
-	RamMib          int64          `json:"ram_mib"`
-	DiskGib         int64          `json:"disk_gib"`
-	NkeyPublic      sql.NullString `json:"nkey_public"`
-	State           string         `json:"state"`
-	MaxConcurrent   int64          `json:"max_concurrent"`
-	LastHeartbeatAt sql.NullString `json:"last_heartbeat_at"`
-	LastMetricsJson string         `json:"last_metrics_json"`
-	CreatedAt       string         `json:"created_at"`
-	TerminatedAt    sql.NullString `json:"terminated_at"`
-	Launched        int64          `json:"launched"`
-	LaunchedAt      sql.NullString `json:"launched_at"`
-	EnrolledAt      sql.NullString `json:"enrolled_at"`
-	IdleSince       sql.NullString `json:"idle_since"`
-	OfflineSince    sql.NullString `json:"offline_since"`
+	ID                int64          `json:"id"`
+	Name              string         `json:"name"`
+	TemplateID        int64          `json:"template_id"`
+	TemplateVersion   int64          `json:"template_version"`
+	InstanceID        sql.NullString `json:"instance_id"`
+	InstanceType      string         `json:"instance_type"`
+	Az                string         `json:"az"`
+	PrivateIp         string         `json:"private_ip"`
+	Arch              string         `json:"arch"`
+	Vcpu              int64          `json:"vcpu"`
+	RamMib            int64          `json:"ram_mib"`
+	DiskGib           int64          `json:"disk_gib"`
+	NkeyPublic        sql.NullString `json:"nkey_public"`
+	State             string         `json:"state"`
+	MaxConcurrent     int64          `json:"max_concurrent"`
+	LastHeartbeatAt   sql.NullString `json:"last_heartbeat_at"`
+	LastMetricsJson   string         `json:"last_metrics_json"`
+	CreatedAt         string         `json:"created_at"`
+	TerminatedAt      sql.NullString `json:"terminated_at"`
+	Launched          int64          `json:"launched"`
+	LaunchedAt        sql.NullString `json:"launched_at"`
+	EnrolledAt        sql.NullString `json:"enrolled_at"`
+	IdleSince         sql.NullString `json:"idle_since"`
+	OfflineSince      sql.NullString `json:"offline_since"`
+	Cordoned          int64          `json:"cordoned"`
+	DrainRequested    int64          `json:"drain_requested"`
+	LastError         string         `json:"last_error"`
+	TemplateLog       string         `json:"template_log"`
+	ProvisioningSince sql.NullString `json:"provisioning_since"`
 }
 
 type RunnerTemplate struct {
@@ -202,6 +207,7 @@ type RunnerTemplate struct {
 	Version       int64  `json:"version"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+	FailedVersion int64  `json:"failed_version"`
 }
 
 type Task struct {

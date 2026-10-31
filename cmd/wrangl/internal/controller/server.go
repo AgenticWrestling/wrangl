@@ -25,6 +25,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/scheduler"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 )
 
@@ -52,6 +53,7 @@ type Server struct {
 	Provisioner         *provision.Provisioner // overrides the AWS-backed one
 	Now                 func() time.Time
 	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
+	SchedulerInterval   time.Duration // scale-up cadence (default 10s)
 	AllowLoopbackEnroll bool
 
 	mu         sync.Mutex
@@ -172,7 +174,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		subnet = s.cfg.AWS.SubnetIDs[0]
 	}
 	s.Fleet = &fleet.Service{
-		DB: s.db, Keys: s.nats.Keys, NATSCA: s.nats.CA.CertPEM, NATSURLs: []string{s.nats.URL()},
+		DB: s.db, Keys: s.nats.Keys, NC: s.nats.Conn, NATSCA: s.nats.CA.CertPEM, NATSURLs: []string{s.nats.URL()},
 		Prov: prov, ControllerID: controllerID, EnrollURL: "http://" + enrollLn.Addr().String(),
 		SubnetID: subnet, SecurityGroupID: s.cfg.AWS.SecurityGroupID, InstanceProfile: s.cfg.AWS.RunnerInstanceProfile,
 		BinDir: filepath.Join(s.cfg.DataDir, "bin"), Now: now, Log: s.log, AllowLoopbackEnroll: s.AllowLoopbackEnroll,
@@ -188,13 +190,49 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	defer hbSub.Unsubscribe()
 
+	// Template apply results: durable, so results published while the controller was
+	// down are processed when it returns.
+	tmplCons, err := s.js.CreateOrUpdateConsumer(ctx, StreamEvents, jetstream.ConsumerConfig{
+		Durable: "controller-template-results", FilterSubject: natsd.TemplateEventWildcard,
+		AckPolicy: jetstream.AckExplicitPolicy, MaxDeliver: 10, AckWait: 30 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("template consumer: %w", err)
+	}
+	tmplCC, err := tmplCons.Consume(func(m jetstream.Msg) {
+		if err := s.Fleet.TemplateResult(context.Background(), m.Subject(), m.Data()); err != nil {
+			s.log.Error("template result", "subject", m.Subject(), "err", err)
+			if errors.Is(err, fleet.ErrInvalid) {
+				m.Term() // malformed: never redeliver
+				return
+			}
+			m.NakWithDelay(5 * time.Second)
+			return
+		}
+		m.Ack()
+	})
+	if err != nil {
+		return err
+	}
+	defer tmplCC.Stop()
+
+	// Background loops must stop before the deferred NATS/DB teardown runs, or a tick in
+	// flight hits a closed database (found by the M3 e2e test under -race).
 	loopCtx, stopLoop := context.WithCancel(ctx)
-	defer stopLoop()
+	var loops sync.WaitGroup
+	defer func() { stopLoop(); loops.Wait() }()
 	interval := s.LoopInterval
 	if interval == 0 {
 		interval = 30 * time.Second
 	}
-	go s.Fleet.Loop(loopCtx, interval)
+	schedInterval := s.SchedulerInterval
+	if schedInterval == 0 {
+		schedInterval = 10 * time.Second
+	}
+	sched := &scheduler.Scheduler{Fleet: s.Fleet, Now: now, Log: s.log}
+	loops.Add(2)
+	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
+	go func() { defer loops.Done(); sched.Loop(loopCtx, schedInterval) }()
 
 	apiSrv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
 	enrollSrv := &http.Server{Handler: api.EnrollHandler(s.Fleet), ReadHeaderTimeout: 10 * time.Second}
@@ -221,6 +259,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	case err = <-errc:
 	}
 	stopLoop()
+	loops.Wait()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return errors.Join(err, apiSrv.Shutdown(shutCtx), enrollSrv.Shutdown(shutCtx))

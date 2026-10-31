@@ -1,13 +1,18 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 )
 
 func templateCmd(g *Global) *cobra.Command {
@@ -88,9 +93,93 @@ func templateCmd(g *Global) *cobra.Command {
 			return c.DeleteTemplate(cmd.Context(), args[0])
 		},
 	}
-	edit := leaf("edit <name>", "Replace a template (bumps its version)", "M3", cobra.ExactArgs(1))
-	edit.Flags().StringP("file", "f", "", "template YAML (default: open $EDITOR)")
+	var editFile string
+	edit := &cobra.Command{
+		Use:   "edit <name>",
+		Short: "Replace a template (bumps its version; runners re-apply it when idle)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			var body []byte
+			if editFile != "" {
+				if body, err = os.ReadFile(editFile); err != nil {
+					return err
+				}
+			} else {
+				cur, err := c.Template(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				if body, err = editInEditor(TemplateYAML(cur)); err != nil {
+					return err
+				}
+			}
+			t, err := c.UpdateTemplate(cmd.Context(), args[0], body)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "template %s is now version %d\n", t.Name, t.Version)
+			return nil
+		},
+	}
+	edit.Flags().StringVarP(&editFile, "file", "f", "", "template YAML (default: open $EDITOR on the current definition)")
 	return group("template", "Runner templates (mise config, specs, agent)", create, list, show, edit, del)
+}
+
+// TemplateYAML renders a template back into the file format `template create` accepts.
+func TemplateYAML(t proto.TemplateView) []byte {
+	var agent any
+	json.Unmarshal(t.Agent, &agent)
+	doc := map[string]any{
+		"name": t.Name, "arch": t.Arch,
+		"min":            map[string]any{"vcpu": t.MinVCPU, "ram": mib(t.MinRAMMiB), "disk": fmt.Sprintf("%dGiB", t.MinDiskGiB)},
+		"instance_types": t.InstanceTypes, "ami": t.AMI, "max_runners": t.MaxRunners,
+		"idle_timeout": (time.Duration(t.IdleTimeoutS) * time.Second).String(),
+		"mise_toml":    t.MiseTOML,
+	}
+	if t.Description != "" {
+		doc["description"] = t.Description
+	}
+	if t.SetupScript != "" {
+		doc["setup_script"] = t.SetupScript
+	}
+	if m, ok := agent.(map[string]any); ok && len(m) > 0 {
+		doc["agent"] = agent
+	}
+	b, _ := yaml.Marshal(doc)
+	return b
+}
+
+func editInEditor(initial []byte) ([]byte, error) {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	f, err := os.CreateTemp("", "wrangl-template-*.yaml")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(initial); err != nil {
+		return nil, err
+	}
+	f.Close()
+	cmd := exec.Command("/bin/sh", "-c", editor+` "$1"`, "sh", f.Name())
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("editor: %w", err)
+	}
+	b, err := os.ReadFile(f.Name())
+	if err != nil {
+		return nil, err
+	}
+	if string(b) == string(initial) {
+		return nil, fmt.Errorf("no changes")
+	}
+	return b, nil
 }
 
 // mib renders a MiB quantity as GiB when it is a whole number of GiB.

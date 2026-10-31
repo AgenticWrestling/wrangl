@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -21,7 +22,9 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 	"github.com/nreid/devhost/cmd/wrangl/internal/runner"
+	"github.com/nreid/devhost/cmd/wrangl/internal/runner/runnertest"
 )
 
 type clock struct {
@@ -76,6 +79,7 @@ func TestLaunchEnrolHeartbeatIdleReap(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.Now, srv.LoopInterval, srv.AllowLoopbackEnroll = clk.Now, 50*time.Millisecond, true
+	srv.SchedulerInterval = 50 * time.Millisecond
 	srv.Provisioner = &provision.Provisioner{EC2: fake, SSM: fake} // controller id filled in at start
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Run(ctx) }()
@@ -85,7 +89,10 @@ func TestLaunchEnrolHeartbeatIdleReap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl := fmt.Sprintf("name: tiny\narch: %s\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmise_toml: \"\"\n", ec2Arch())
+	tmplFor := func(mise string) []byte {
+		return []byte(fmt.Sprintf("name: tiny\narch: %s\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmax_runners: 2\nmise_toml: %q\n", ec2Arch(), mise))
+	}
+	tmpl := tmplFor("[tools]\ngo = \"1.26\"\n")
 	if _, err := api.CreateTemplate(ctx, []byte(tmpl)); err != nil {
 		t.Fatal(err)
 	}
@@ -138,13 +145,57 @@ func TestLaunchEnrolHeartbeatIdleReap(t *testing.T) {
 	defer stopDaemon()
 	go runner.Run(daemonCtx, loaded, runner.DaemonOptions{
 		HeartbeatInterval: 50 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Poweroff: func() error { t.Error("daemon powered off while the controller was up"); return nil },
+		Poweroff:    func() error { t.Error("daemon powered off while the controller was up"); return nil },
+		InstallMise: runnertest.MiseInstaller(nil), // never the real installer in tests
 	})
 
-	waitFor(t, "runner idle with metrics", 10*time.Second, func() (bool, string) {
-		v, err := api.Runner(ctx, r.Name)
-		return err == nil && v.State == "idle" && len(v.Metrics) > 0 && v.VCPU > 0, fmt.Sprintf("%+v %v", v, err)
+	// M3: the runner applies template v1 for the agent, then goes idle.
+	waitApplied := func(version int64) {
+		t.Helper()
+		waitFor(t, fmt.Sprintf("template v%d applied and idle", version), 10*time.Second, func() (bool, string) {
+			v, err := api.Runner(ctx, r.Name)
+			return err == nil && v.State == "idle" && v.TemplateVersion == version && len(v.Metrics) > 0,
+				fmt.Sprintf("state=%s applied=%d want=%d err=%v last_error=%q", v.State, v.TemplateVersion, v.WantVersion, err, v.LastError)
+		})
+	}
+	waitApplied(1)
+	calls, _ := os.ReadFile(filepath.Join(root, "home/agent/mise-calls.log"))
+	if !strings.Contains(string(calls), "install --yes HOME="+filepath.Join(root, "home/agent")) {
+		t.Fatalf("mise not run for the agent home: %q", calls)
+	}
+
+	// Editing the template is picked up by the idle runner.
+	if _, err := api.UpdateTemplate(ctx, "tiny", tmplFor("[tools]\ngo = \"1.27\"\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitApplied(2)
+
+	// A broken edit fails on the runner: cordoned, error recorded, launches blocked.
+	if _, err := api.UpdateTemplate(ctx, "tiny", tmplFor("[tools]\nFAIL = \"latest\"\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "template v3 failure recorded", 10*time.Second, func() (bool, string) {
+		v, _ := api.Runner(ctx, r.Name)
+		return v.Cordoned && strings.Contains(v.LastError, "mise install") && strings.Contains(v.TemplateLog, "FAIL@latest"), fmt.Sprintf("%+v", v)
 	})
+	queueRun(t, srv)
+	time.Sleep(400 * time.Millisecond) // several scheduler ticks
+	if fake.RunCount() != 1 {
+		t.Fatalf("scheduler launched for a template whose version failed (%d launches)", fake.RunCount())
+	}
+
+	// Fixing the template: the cordoned runner re-applies it, and since a cordoned runner
+	// is not supply, the queued run makes the scheduler launch one more.
+	if _, err := api.UpdateTemplate(ctx, "tiny", tmplFor("[tools]\ngo = \"1.27\"\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitApplied(4)
+	waitFor(t, "scale-up launch for the queued run", 5*time.Second, func() (bool, string) {
+		return fake.RunCount() == 2, fmt.Sprintf("%d launches", fake.RunCount())
+	})
+	if err := api.RunnerAction(ctx, r.Name, "uncordon"); err != nil {
+		t.Fatal(err)
+	}
 	if rtt, err := runner.Status(ctx, loaded); err != nil || rtt <= 0 {
 		t.Fatalf("runner status: %v %v", rtt, err)
 	}
@@ -161,8 +212,10 @@ func TestLaunchEnrolHeartbeatIdleReap(t *testing.T) {
 		v, _ := api.Runner(ctx, r.Name)
 		return v.State == "terminated" && fake.State(r.InstanceID) == "terminated", v.State + "/" + fake.State(r.InstanceID)
 	})
-	if rs, _ := api.Runners(ctx, false); len(rs) != 0 {
-		t.Fatalf("terminated runner still listed: %+v", rs)
+	for _, v := range mustRunners(t, api, ctx) {
+		if v.Name == r.Name {
+			t.Fatalf("terminated runner still listed: %+v", v)
+		}
 	}
 
 	stopDaemon()
@@ -174,7 +227,7 @@ func TestLaunchEnrolHeartbeatIdleReap(t *testing.T) {
 
 func userData(t *testing.T, f *provision.Fake) string {
 	t.Helper()
-	b, err := decodeB64(*f.Runs[len(f.Runs)-1].UserData)
+	b, err := decodeB64(*f.LastRun().UserData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,4 +241,28 @@ func between(s, a, b string) string {
 	}
 	s = s[i+len(a):]
 	return s[:strings.Index(s, b)]
+}
+
+// queueRun inserts a project, task and queued run for template tiny (task CRUD is M4).
+func queueRun(t *testing.T, srv *controller.Server) {
+	t.Helper()
+	d := srv.Fleet.DB.W
+	for _, q := range []string{
+		`INSERT INTO project (slug, name, default_template_id) VALUES ('p', 'P', (SELECT id FROM runner_template WHERE name = 'tiny'))`,
+		`INSERT INTO task (project_id, rank, title) VALUES (1, 'V', 'demo')`,
+		`INSERT INTO run (task_id) VALUES (1)`,
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func mustRunners(t *testing.T, api *client.Client, ctx context.Context) []proto.RunnerView {
+	t.Helper()
+	rs, err := api.Runners(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rs
 }

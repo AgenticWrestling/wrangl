@@ -283,7 +283,9 @@ these cases:
 - still `launching`/`enrolling` 15 min after launch
 
 `idle_since` survives an offline blip, so a flaky network can't keep an idle runner alive. In
-M4 it is cleared while a runner is busy. Adopted runners are never reaped.
+M4 it is cleared while a runner is busy. Adopted runners are never reaped. Cordon is a flag,
+not a state, so a cordoned idle runner is reaped like any other. Drained runners are
+terminated as soon as they're idle.
 
 **Teardown and orphan safety nets.**
 - `wrangl fleet teardown` calls AWS **directly**, with local credentials and `--region` or
@@ -319,9 +321,9 @@ Built and tested in M2.
      since the box reports less than the nominal size.
   7. It burns the token in the same transaction, and returns
      `{runner_id, name, user_jwt, nats_urls, nats_ca}`.
-  8. Bootstrap writes `/etc/wrangl/runner.{yaml,creds}` and `ca.pem` (owned by `wrangl`, creds
-     0600). It also writes a sudoers rule allowing only `systemctl poweroff`, then installs and
-     starts `wrangl-runner.service` (`User=wrangl`).
+  8. Bootstrap writes `/etc/wrangl/runner.{yaml,creds}` and `ca.pem` (root-owned, creds 0600),
+     creates the unprivileged `agent` user, then installs and starts `wrangl-runner.service`
+     (runs as root; see "Runner users" in §8).
 
 | Subject | Dir | Kind |
 |---|---|---|
@@ -374,10 +376,43 @@ agent:
 
 - Template variables: `Prompt`, `Workdir`, `RunID`, `TaskSqid`, `SessionName`, `SessionUUID`,
   `Branch`, `Repo`.
-- Applying a template is idempotent (mise config → `mise install` → `setup_script` if its hash
-  changed). Editing a template bumps its version, and runners re-apply it when idle.
+- **Applying a template** (built in M3). Every step is skipped when already done, so
+  re-applying is safe:
+  1. install mise to `/usr/local/bin` if missing (download the official installer to a file
+     and run it, never `curl | sh`)
+  2. run `setup_script` as root if its sha256 changed
+  3. write `~agent/.config/mise/config.toml`
+  4. run `mise install --yes` as `agent`
+
+  Reconciliation is driven by heartbeats, which carry the applied version and whether an apply
+  is running. When a runner is behind, the controller claims it (`provisioning`) and sends
+  `cmd.template`. The result goes back durably over JetStream (`wr.evt.<r>.template`).
+- **A failed apply** records the error and the last 8 KiB of output on the runner, cordons it,
+  and marks the template version failed. The scheduler won't launch for a failed version, the
+  idle reaper still removes the box after the timeout, and `template edit` clears the failure.
 - Agents stay generic. Codex fits the same shape (`codex exec …` / `codex exec resume …`).
   Antigravity gets its own template once its headless interface is checked.
+
+### Runner users
+
+There are two identities on every runner (D26):
+
+- **The daemon runs as root.** It holds the NATS credentials
+  (`/etc/wrangl/runner.creds`, root 0600). It applies templates: it installs mise to
+  `/usr/local/bin` and runs the template's `setup_script` as root, since templates are
+  owner-authored. It powers the box off when orphaned.
+- **The agent runs as `agent`,** an unprivileged user with no sudo and its home in
+  `/home/agent`. mise tools are installed into *its* home (`~agent/.config/mise/config.toml`,
+  `mise install` run as `agent`). Worktrees live under `~agent/work`, and the daemon starts the
+  agent, its hooks and the MCP shim as this user.
+- **What that buys:** a subverted agent can't read the runner's NATS credentials, so it can't
+  fake runner events or work-stack calls by going around the MCP layer. Its only channel to the
+  daemon is the local socket `/run/wrangl/runner.sock`. From M5 the daemon authenticates callers
+  on that socket by peer UID (`SO_PEERCRED`) and accepts only the `agent` UID for the run in
+  progress.
+- **What the agent can still reach:** the model token and the per-run GitHub token in its own
+  environment, and anything the runner's network allows. That's the blast radius the
+  disposable runner exists to contain.
 
 ### Agent credentials
 
@@ -735,7 +770,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 |---|---|---|
 | **M1 ✅** | Cobra tree (stubs), config, `db` (full schema + hierarchy queries), `stack` primitives (sqids, fractional ranks), `controller init/serve/migrate/secret` skeleton with embedded NATS + healthz | — |
 | **M2 ✅** | NATS operator/JWT + TLS, enrolment, `runner bootstrap/run/status`, heartbeat, offline sweep, `fleet list/show/enroll-token`; **pulled forward from M3:** templates create/list/show/delete, EC2 provisioner with tagging, `fleet launch/terminate/teardown`, 30-min idle reaper, orphan poweroff | M1 |
-| M3 | Template apply on runners (mise) + `template edit` (versioning), scheduler (queue-driven scale-up), `fleet cordon/uncordon/drain` | M2 |
+| **M3 ✅** | `agent` user + root daemon (D26), template apply on runners (mise) + `template edit` (versioning, failure handling), scheduler scale-up with backoff, `fleet cordon/uncordon/drain` | M2 |
 | M4 | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/queue/…`), author-App tokens, workspace, headless work loop + PTY, ingest/logs/FTS, cancel/attach | M3 |
 | M5 | Hooks, MCP server with stack tools + scope/approval rules, Questions | M4 |
 | M6 | PR open, gates, review runs, reviewer App approve/merge, webhooks via CF bypass, revise + blocked-continuation runs | M5 |
@@ -773,6 +808,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D23 | Controller-launched runners idle (or offline) for 30 min are terminated; template `idle_timeout` overrides |
 | D24 | Controller uses the instance role (default credential chain); no AWS keys in config |
 | D25 | Enrolment proof for launched runners = token bound to instance id + source IP equals its private IP (replaces identity-document signature check) |
+| D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 
 ## 17. Open items
 

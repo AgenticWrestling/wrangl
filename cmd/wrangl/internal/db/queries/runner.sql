@@ -76,3 +76,62 @@ UPDATE runner SET state = 'terminated', terminated_at = ? WHERE id = ?;
 
 -- name: UpdateRunnerState :exec
 UPDATE runner SET state = ? WHERE id = ?;
+
+-- name: StartProvisioning :one
+-- Claim a runner for a template apply. Succeeds only from a state where applying is
+-- allowed, and for a runner already provisioning only after the resend grace period.
+UPDATE runner
+SET state = 'provisioning', provisioning_since = sqlc.arg(now)
+WHERE id = sqlc.arg(id)
+  AND (state IN ('enrolling', 'idle')
+       OR (state = 'provisioning' AND (provisioning_since IS NULL OR provisioning_since <= sqlc.arg(resend_before))))
+RETURNING id;
+
+-- name: TemplateApplied :exec
+-- Successful apply: record the version; a provisioning runner becomes idle with a
+-- fresh idle clock.
+UPDATE runner
+SET template_version = sqlc.arg(version), template_log = sqlc.arg(log), last_error = '',
+    provisioning_since = NULL,
+    idle_since = CASE WHEN state = 'provisioning' THEN sqlc.arg(now) ELSE idle_since END,
+    state = CASE WHEN state = 'provisioning' THEN 'idle' ELSE state END
+WHERE id = sqlc.arg(id) AND state <> 'terminated';
+
+-- name: TemplateFailed :exec
+-- Failed apply: keep the box for debugging but cordon it; it is reaped after the idle
+-- timeout like any idle runner.
+UPDATE runner
+SET last_error = sqlc.arg(error), template_log = sqlc.arg(log), cordoned = 1,
+    provisioning_since = NULL,
+    idle_since = CASE WHEN state = 'provisioning' THEN sqlc.arg(now) ELSE idle_since END,
+    state = CASE WHEN state = 'provisioning' THEN 'idle' ELSE state END
+WHERE id = sqlc.arg(id) AND state <> 'terminated';
+
+-- name: SetCordon :execrows
+UPDATE runner SET cordoned = sqlc.arg(cordoned),
+       drain_requested = CASE WHEN sqlc.arg(cordoned) = 0 THEN 0 ELSE drain_requested END
+WHERE name = sqlc.arg(name) AND state <> 'terminated';
+
+-- name: RequestDrain :execrows
+UPDATE runner SET cordoned = 1, drain_requested = 1 WHERE name = sqlc.arg(name) AND state <> 'terminated';
+
+-- name: DrainCandidates :many
+-- Drained, launched runners with nothing to do: terminate now.
+SELECT id, name, instance_id FROM runner
+WHERE drain_requested = 1 AND launched = 1 AND instance_id IS NOT NULL
+  AND state IN ('idle', 'offline', 'enrolling', 'provisioning');
+
+-- name: TemplateDemand :many
+-- Per template: queued runs (demand), uncordoned runners that are or will be idle
+-- (supply), and live runners (counted against max_runners).
+SELECT t.id, t.name, t.version, t.failed_version, t.max_runners,
+       CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
+             JOIN project p ON p.id = k.project_id
+             WHERE r.state = 'queued' AND COALESCE(k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
+       CAST((SELECT COUNT(*) FROM runner n
+             WHERE n.template_id = t.id AND n.cordoned = 0
+               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle')) AS INTEGER) AS supply,
+       CAST((SELECT COUNT(*) FROM runner n
+             WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
+FROM runner_template t
+ORDER BY t.name;

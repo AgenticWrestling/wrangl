@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
@@ -53,6 +54,7 @@ const (
 type Service struct {
 	DB                               *db.DB
 	Keys                             *natsd.Keys
+	NC                               *nats.Conn // controller connection, for commands to runners
 	NATSCA                           []byte
 	NATSURLs                         []string
 	Prov                             *provision.Provisioner // nil when AWS is not configured
@@ -418,7 +420,10 @@ func (s *Service) Heartbeat(ctx context.Context, subject string, data []byte) er
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil // terminated or unknown runner: ignore
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return s.reconcileTemplate(ctx, id, hb)
 }
 
 // SweepOffline marks runners offline after proto.OfflineAfter without a heartbeat.
@@ -477,6 +482,9 @@ func (s *Service) Loop(ctx context.Context, interval time.Duration) {
 		}
 		if _, err := s.Reap(ctx); err != nil {
 			s.Log.Error("reaper", "err", err)
+		}
+		if _, err := s.SweepDrained(ctx); err != nil {
+			s.Log.Error("drain sweep", "err", err)
 		}
 	}
 }

@@ -43,6 +43,31 @@ type Heartbeat struct {
 	DiskPercent float64   `json:"disk_percent"`
 	Load1       float64   `json:"load1"`
 	UptimeS     uint64    `json:"uptime_s"`
+	// TemplateVersion is the template version last applied successfully (0 = none).
+	TemplateVersion int64 `json:"template_version"`
+	// Applying is true while a template apply is running.
+	Applying bool `json:"applying"`
+}
+
+// TemplateApply is the cmd.template request: everything needed to (re)apply a template.
+type TemplateApply struct {
+	Version     int64  `json:"version"`
+	MiseTOML    string `json:"mise_toml"`
+	SetupScript string `json:"setup_script"`
+}
+
+// TemplateAck is the immediate reply to cmd.template; the outcome arrives as an event.
+type TemplateAck struct {
+	Accepted bool   `json:"accepted"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// TemplateResult is published (JetStream) on wr.evt.<r>.template when an apply ends.
+type TemplateResult struct {
+	Version int64  `json:"version"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Log     string `json:"log"` // tail of the combined output
 }
 
 // Timing shared by both sides.

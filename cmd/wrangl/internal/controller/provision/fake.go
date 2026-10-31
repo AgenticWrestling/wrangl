@@ -202,3 +202,20 @@ func (f *Fake) SetRunning(id string) {
 	defer f.mu.Unlock()
 	f.Instances[id].State = &types.InstanceState{Name: types.InstanceStateNameRunning}
 }
+
+// RunCount is the number of RunInstances calls so far (safe for concurrent use).
+func (f *Fake) RunCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.Runs)
+}
+
+// LastRun is the most recent RunInstances input (safe for concurrent use).
+func (f *Fake) LastRun() *ec2.RunInstancesInput {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.Runs) == 0 {
+		return nil
+	}
+	return f.Runs[len(f.Runs)-1]
+}

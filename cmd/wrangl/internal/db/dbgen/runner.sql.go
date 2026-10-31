@@ -12,7 +12,7 @@ import (
 
 const createAdoptedRunner = `-- name: CreateAdoptedRunner :one
 INSERT INTO runner (name, template_id, state, launched) VALUES (?, ?, 'enrolling', 0)
-RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since
 `
 
 type CreateAdoptedRunnerParams struct {
@@ -48,6 +48,11 @@ func (q *Queries) CreateAdoptedRunner(ctx context.Context, arg CreateAdoptedRunn
 		&i.EnrolledAt,
 		&i.IdleSince,
 		&i.OfflineSince,
+		&i.Cordoned,
+		&i.DrainRequested,
+		&i.LastError,
+		&i.TemplateLog,
+		&i.ProvisioningSince,
 	)
 	return i, err
 }
@@ -57,7 +62,7 @@ const createLaunchedRunner = `-- name: CreateLaunchedRunner :one
 INSERT INTO runner (name, template_id, instance_id, instance_type, az, arch, private_ip,
                     state, launched, launched_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'launching', 1, ?)
-RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since
 `
 
 type CreateLaunchedRunnerParams struct {
@@ -111,8 +116,49 @@ func (q *Queries) CreateLaunchedRunner(ctx context.Context, arg CreateLaunchedRu
 		&i.EnrolledAt,
 		&i.IdleSince,
 		&i.OfflineSince,
+		&i.Cordoned,
+		&i.DrainRequested,
+		&i.LastError,
+		&i.TemplateLog,
+		&i.ProvisioningSince,
 	)
 	return i, err
+}
+
+const drainCandidates = `-- name: DrainCandidates :many
+SELECT id, name, instance_id FROM runner
+WHERE drain_requested = 1 AND launched = 1 AND instance_id IS NOT NULL
+  AND state IN ('idle', 'offline', 'enrolling', 'provisioning')
+`
+
+type DrainCandidatesRow struct {
+	ID         int64          `json:"id"`
+	Name       string         `json:"name"`
+	InstanceID sql.NullString `json:"instance_id"`
+}
+
+// Drained, launched runners with nothing to do: terminate now.
+func (q *Queries) DrainCandidates(ctx context.Context) ([]DrainCandidatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, drainCandidates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DrainCandidatesRow{}
+	for rows.Next() {
+		var i DrainCandidatesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.InstanceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const enrollRunner = `-- name: EnrollRunner :exec
@@ -154,7 +200,7 @@ func (q *Queries) EnrollRunner(ctx context.Context, arg EnrollRunnerParams) erro
 }
 
 const getRunner = `-- name: GetRunner :one
-SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since FROM runner WHERE id = ?
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since FROM runner WHERE id = ?
 `
 
 func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
@@ -185,12 +231,17 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 		&i.EnrolledAt,
 		&i.IdleSince,
 		&i.OfflineSince,
+		&i.Cordoned,
+		&i.DrainRequested,
+		&i.LastError,
+		&i.TemplateLog,
+		&i.ProvisioningSince,
 	)
 	return i, err
 }
 
 const getRunnerByName = `-- name: GetRunnerByName :one
-SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since FROM runner WHERE name = ?
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since FROM runner WHERE name = ?
 `
 
 func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, error) {
@@ -221,12 +272,17 @@ func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, err
 		&i.EnrolledAt,
 		&i.IdleSince,
 		&i.OfflineSince,
+		&i.Cordoned,
+		&i.DrainRequested,
+		&i.LastError,
+		&i.TemplateLog,
+		&i.ProvisioningSince,
 	)
 	return i, err
 }
 
 const listRunners = `-- name: ListRunners :many
-SELECT r.id, r.name, r.template_id, r.template_version, r.instance_id, r.instance_type, r.az, r.private_ip, r.arch, r.vcpu, r.ram_mib, r.disk_gib, r.nkey_public, r.state, r.max_concurrent, r.last_heartbeat_at, r.last_metrics_json, r.created_at, r.terminated_at, r.launched, r.launched_at, r.enrolled_at, r.idle_since, r.offline_since, CAST(t.name AS TEXT) AS template_name
+SELECT r.id, r.name, r.template_id, r.template_version, r.instance_id, r.instance_type, r.az, r.private_ip, r.arch, r.vcpu, r.ram_mib, r.disk_gib, r.nkey_public, r.state, r.max_concurrent, r.last_heartbeat_at, r.last_metrics_json, r.created_at, r.terminated_at, r.launched, r.launched_at, r.enrolled_at, r.idle_since, r.offline_since, r.cordoned, r.drain_requested, r.last_error, r.template_log, r.provisioning_since, CAST(t.name AS TEXT) AS template_name
 FROM runner r JOIN runner_template t ON t.id = r.template_id
 WHERE r.state <> 'terminated' OR ?1 = 1
 ORDER BY r.name
@@ -271,6 +327,11 @@ func (q *Queries) ListRunners(ctx context.Context, includeTerminated interface{}
 			&i.Runner.EnrolledAt,
 			&i.Runner.IdleSince,
 			&i.Runner.OfflineSince,
+			&i.Runner.Cordoned,
+			&i.Runner.DrainRequested,
+			&i.Runner.LastError,
+			&i.Runner.TemplateLog,
+			&i.Runner.ProvisioningSince,
 			&i.TemplateName,
 		); err != nil {
 			return nil, err
@@ -426,6 +487,176 @@ func (q *Queries) RecordHeartbeat(ctx context.Context, arg RecordHeartbeatParams
 	var state string
 	err := row.Scan(&state)
 	return state, err
+}
+
+const requestDrain = `-- name: RequestDrain :execrows
+UPDATE runner SET cordoned = 1, drain_requested = 1 WHERE name = ?1 AND state <> 'terminated'
+`
+
+func (q *Queries) RequestDrain(ctx context.Context, name string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requestDrain, name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setCordon = `-- name: SetCordon :execrows
+UPDATE runner SET cordoned = ?1,
+       drain_requested = CASE WHEN ?1 = 0 THEN 0 ELSE drain_requested END
+WHERE name = ?2 AND state <> 'terminated'
+`
+
+type SetCordonParams struct {
+	Cordoned int64  `json:"cordoned"`
+	Name     string `json:"name"`
+}
+
+func (q *Queries) SetCordon(ctx context.Context, arg SetCordonParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setCordon, arg.Cordoned, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const startProvisioning = `-- name: StartProvisioning :one
+UPDATE runner
+SET state = 'provisioning', provisioning_since = ?1
+WHERE id = ?2
+  AND (state IN ('enrolling', 'idle')
+       OR (state = 'provisioning' AND (provisioning_since IS NULL OR provisioning_since <= ?3)))
+RETURNING id
+`
+
+type StartProvisioningParams struct {
+	Now          sql.NullString `json:"now"`
+	ID           int64          `json:"id"`
+	ResendBefore sql.NullString `json:"resend_before"`
+}
+
+// Claim a runner for a template apply. Succeeds only from a state where applying is
+// allowed, and for a runner already provisioning only after the resend grace period.
+func (q *Queries) StartProvisioning(ctx context.Context, arg StartProvisioningParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, startProvisioning, arg.Now, arg.ID, arg.ResendBefore)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const templateApplied = `-- name: TemplateApplied :exec
+UPDATE runner
+SET template_version = ?1, template_log = ?2, last_error = '',
+    provisioning_since = NULL,
+    idle_since = CASE WHEN state = 'provisioning' THEN ?3 ELSE idle_since END,
+    state = CASE WHEN state = 'provisioning' THEN 'idle' ELSE state END
+WHERE id = ?4 AND state <> 'terminated'
+`
+
+type TemplateAppliedParams struct {
+	Version int64          `json:"version"`
+	Log     string         `json:"log"`
+	Now     sql.NullString `json:"now"`
+	ID      int64          `json:"id"`
+}
+
+// Successful apply: record the version; a provisioning runner becomes idle with a
+// fresh idle clock.
+func (q *Queries) TemplateApplied(ctx context.Context, arg TemplateAppliedParams) error {
+	_, err := q.db.ExecContext(ctx, templateApplied,
+		arg.Version,
+		arg.Log,
+		arg.Now,
+		arg.ID,
+	)
+	return err
+}
+
+const templateDemand = `-- name: TemplateDemand :many
+SELECT t.id, t.name, t.version, t.failed_version, t.max_runners,
+       CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
+             JOIN project p ON p.id = k.project_id
+             WHERE r.state = 'queued' AND COALESCE(k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
+       CAST((SELECT COUNT(*) FROM runner n
+             WHERE n.template_id = t.id AND n.cordoned = 0
+               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle')) AS INTEGER) AS supply,
+       CAST((SELECT COUNT(*) FROM runner n
+             WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
+FROM runner_template t
+ORDER BY t.name
+`
+
+type TemplateDemandRow struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Version       int64  `json:"version"`
+	FailedVersion int64  `json:"failed_version"`
+	MaxRunners    int64  `json:"max_runners"`
+	Demand        int64  `json:"demand"`
+	Supply        int64  `json:"supply"`
+	Live          int64  `json:"live"`
+}
+
+// Per template: queued runs (demand), uncordoned runners that are or will be idle
+// (supply), and live runners (counted against max_runners).
+func (q *Queries) TemplateDemand(ctx context.Context) ([]TemplateDemandRow, error) {
+	rows, err := q.db.QueryContext(ctx, templateDemand)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TemplateDemandRow{}
+	for rows.Next() {
+		var i TemplateDemandRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Version,
+			&i.FailedVersion,
+			&i.MaxRunners,
+			&i.Demand,
+			&i.Supply,
+			&i.Live,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const templateFailed = `-- name: TemplateFailed :exec
+UPDATE runner
+SET last_error = ?1, template_log = ?2, cordoned = 1,
+    provisioning_since = NULL,
+    idle_since = CASE WHEN state = 'provisioning' THEN ?3 ELSE idle_since END,
+    state = CASE WHEN state = 'provisioning' THEN 'idle' ELSE state END
+WHERE id = ?4 AND state <> 'terminated'
+`
+
+type TemplateFailedParams struct {
+	Error string         `json:"error"`
+	Log   string         `json:"log"`
+	Now   sql.NullString `json:"now"`
+	ID    int64          `json:"id"`
+}
+
+// Failed apply: keep the box for debugging but cordon it; it is reaped after the idle
+// timeout like any idle runner.
+func (q *Queries) TemplateFailed(ctx context.Context, arg TemplateFailedParams) error {
+	_, err := q.db.ExecContext(ctx, templateFailed,
+		arg.Error,
+		arg.Log,
+		arg.Now,
+		arg.ID,
+	)
+	return err
 }
 
 const updateRunnerState = `-- name: UpdateRunnerState :exec

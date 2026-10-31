@@ -14,7 +14,7 @@ INSERT INTO runner_template (name, description, mise_toml, setup_script, agent_j
                              min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami,
                              max_runners, idle_timeout_s)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at
+RETURNING id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version
 `
 
 type CreateTemplateParams struct {
@@ -68,6 +68,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FailedVersion,
 	)
 	return i, err
 }
@@ -85,7 +86,7 @@ func (q *Queries) DeleteTemplate(ctx context.Context, name string) (int64, error
 }
 
 const getTemplateByName = `-- name: GetTemplateByName :one
-SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at FROM runner_template WHERE name = ?
+SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version FROM runner_template WHERE name = ?
 `
 
 func (q *Queries) GetTemplateByName(ctx context.Context, name string) (RunnerTemplate, error) {
@@ -109,12 +110,13 @@ func (q *Queries) GetTemplateByName(ctx context.Context, name string) (RunnerTem
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FailedVersion,
 	)
 	return i, err
 }
 
 const listTemplates = `-- name: ListTemplates :many
-SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at FROM runner_template ORDER BY name
+SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version FROM runner_template ORDER BY name
 `
 
 func (q *Queries) ListTemplates(ctx context.Context) ([]RunnerTemplate, error) {
@@ -144,6 +146,7 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]RunnerTemplate, error) {
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FailedVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -156,4 +159,90 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]RunnerTemplate, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markTemplateFailed = `-- name: MarkTemplateFailed :exec
+UPDATE runner_template SET failed_version = ?1
+WHERE id = ?2 AND version = ?1
+`
+
+type MarkTemplateFailedParams struct {
+	Version int64 `json:"version"`
+	ID      int64 `json:"id"`
+}
+
+func (q *Queries) MarkTemplateFailed(ctx context.Context, arg MarkTemplateFailedParams) error {
+	_, err := q.db.ExecContext(ctx, markTemplateFailed, arg.Version, arg.ID)
+	return err
+}
+
+const updateTemplate = `-- name: UpdateTemplate :one
+UPDATE runner_template
+SET description = ?1, mise_toml = ?2,
+    setup_script = ?3, agent_json = ?4,
+    min_vcpu = ?5, min_ram_mib = ?6,
+    min_disk_gib = ?7, arch = ?8,
+    instance_types = ?9, ami = ?10,
+    max_runners = ?11, idle_timeout_s = ?12,
+    version = version + 1, failed_version = 0,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE name = ?13
+RETURNING id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version
+`
+
+type UpdateTemplateParams struct {
+	Description   string `json:"description"`
+	MiseToml      string `json:"mise_toml"`
+	SetupScript   string `json:"setup_script"`
+	AgentJson     string `json:"agent_json"`
+	MinVcpu       int64  `json:"min_vcpu"`
+	MinRamMib     int64  `json:"min_ram_mib"`
+	MinDiskGib    int64  `json:"min_disk_gib"`
+	Arch          string `json:"arch"`
+	InstanceTypes string `json:"instance_types"`
+	Ami           string `json:"ami"`
+	MaxRunners    int64  `json:"max_runners"`
+	IdleTimeoutS  int64  `json:"idle_timeout_s"`
+	Name          string `json:"name"`
+}
+
+// Replace a template's definition, bump its version and clear any recorded failure.
+func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) (RunnerTemplate, error) {
+	row := q.db.QueryRowContext(ctx, updateTemplate,
+		arg.Description,
+		arg.MiseToml,
+		arg.SetupScript,
+		arg.AgentJson,
+		arg.MinVcpu,
+		arg.MinRamMib,
+		arg.MinDiskGib,
+		arg.Arch,
+		arg.InstanceTypes,
+		arg.Ami,
+		arg.MaxRunners,
+		arg.IdleTimeoutS,
+		arg.Name,
+	)
+	var i RunnerTemplate
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.MiseToml,
+		&i.SetupScript,
+		&i.AgentJson,
+		&i.MinVcpu,
+		&i.MinRamMib,
+		&i.MinDiskGib,
+		&i.Arch,
+		&i.InstanceTypes,
+		&i.Ami,
+		&i.MaxRunners,
+		&i.IdleTimeoutS,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FailedVersion,
+	)
+	return i, err
 }

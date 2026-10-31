@@ -11,8 +11,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultConfigPath is where bootstrap writes the runner config.
-const DefaultConfigPath = "/etc/wrangl/runner.yaml"
+// Defaults written by bootstrap.
+const (
+	DefaultConfigPath = "/etc/wrangl/runner.yaml"
+	DefaultStateDir   = "/var/lib/wrangl"
+	DefaultAgentUser  = "agent"
+	DefaultMiseBin    = "/usr/local/bin/mise"
+)
 
 // Config is /etc/wrangl/runner.yaml, written by bootstrap.
 type Config struct {
@@ -24,6 +29,14 @@ type Config struct {
 	CredsFile  string   `yaml:"creds_file"`
 	// PoweroffCommand runs when the controller has been unreachable for OrphanPoweroff.
 	PoweroffCommand []string `yaml:"poweroff_command"`
+	// StateDir holds the applied template version and setup-script hash (root only).
+	StateDir string `yaml:"state_dir"`
+	// AgentUser runs the agent and owns its toolchain. Empty = the daemon's own user
+	// (tests and non-root development only).
+	AgentUser string `yaml:"agent_user"`
+	// AgentHome overrides the agent's home directory (default: from the passwd entry).
+	AgentHome string `yaml:"agent_home,omitempty"`
+	MiseBin   string `yaml:"mise_bin"`
 }
 
 // LoadConfig reads a runner config.
@@ -32,7 +45,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read runner config (has this box been bootstrapped?): %w", err)
 	}
-	var c Config
+	c := Config{StateDir: DefaultStateDir, MiseBin: DefaultMiseBin}
 	d := yaml.NewDecoder(bytes.NewReader(b))
 	d.KnownFields(true)
 	if err := d.Decode(&c); err != nil && !errors.Is(err, io.EOF) {

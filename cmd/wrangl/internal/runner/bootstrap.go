@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,7 +24,8 @@ import (
 )
 
 // BootstrapOptions configure a one-time enrolment. Root, IMDSURL, NoSystemd and NoUser
-// exist so tests (and non-systemd boxes) can run it unprivileged.
+// exist so tests (and non-systemd boxes) can run it unprivileged. With NoUser the agent
+// runs as the daemon's own user.
 type BootstrapOptions struct {
 	Controller string // http://<controller-ip>:4223
 	Token      string
@@ -38,26 +38,22 @@ type BootstrapOptions struct {
 	Log        io.Writer
 }
 
-const serviceUser = "wrangl"
-
+// The daemon runs as root (it holds the NATS credentials, installs mise, runs the
+// template's setup script and powers off when orphaned). The agent runs as the
+// unprivileged agent user, which cannot read /etc/wrangl/runner.creds (spec D26).
 const unitTmpl = `[Unit]
 Description=wrangl runner
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=wrangl
-ExecStart=%s runner run --config /etc/wrangl/runner.yaml
+ExecStart=%s --config /etc/wrangl/runner.yaml runner run
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 `
-
-// The daemon runs as the unprivileged wrangl user but must be able to power the box off
-// when orphaned; this is the only privileged command it may run.
-const sudoersRule = "wrangl ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff\n"
 
 // Bootstrap enrols this machine and installs the daemon. It returns the config written.
 func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
@@ -78,11 +74,14 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 		}
 	}
 	etc := filepath.Join(o.Root, "etc", "wrangl")
-	if err := os.MkdirAll(etc, 0o750); err != nil {
-		return nil, err
+	state := filepath.Join(o.Root, "var", "lib", "wrangl")
+	for _, d := range []string{etc, state} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return nil, err
+		}
 	}
 	if !o.NoUser {
-		if err := ensureUser(); err != nil {
+		if err := ensureAgentUser(); err != nil {
 			return nil, err
 		}
 	}
@@ -111,10 +110,17 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	cfg := &Config{
 		RunnerID: resp.RunnerID, Name: resp.Name, Controller: o.Controller, NATSURLs: resp.NATSURLs,
 		CAFile: "/etc/wrangl/ca.pem", CredsFile: "/etc/wrangl/runner.creds",
-		PoweroffCommand: []string{"sudo", "-n", "/usr/bin/systemctl", "poweroff"},
+		PoweroffCommand: []string{"/usr/bin/systemctl", "poweroff"},
+		StateDir:        DefaultStateDir, AgentUser: DefaultAgentUser, MiseBin: DefaultMiseBin,
+	}
+	if o.NoUser {
+		cfg.AgentUser = ""
 	}
 	if o.Root != "" { // tests: keep paths inside the prefix
 		cfg.CAFile, cfg.CredsFile = filepath.Join(etc, "ca.pem"), filepath.Join(etc, "runner.creds")
+		cfg.StateDir = state
+		cfg.AgentHome = filepath.Join(o.Root, "home", "agent")
+		cfg.MiseBin = filepath.Join(o.Root, "usr", "local", "bin", "mise")
 	}
 	cfgYAML, _ := yaml.Marshal(cfg)
 	files := []struct {
@@ -127,16 +133,13 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 		{filepath.Join(etc, "runner.yaml"), cfgYAML, 0o640},
 	}
 	for _, f := range files {
-		if err := writeFile(f.path, f.data, f.mode, !o.NoUser); err != nil {
+		if err := writeFile(f.path, f.data, f.mode); err != nil {
 			return nil, err
 		}
 	}
 	logf("enrolled as %s (runner %d)", resp.Name, resp.RunnerID)
 
 	if !o.NoSystemd {
-		if err := os.WriteFile(filepath.Join(o.Root, "etc/sudoers.d/wrangl-poweroff"), []byte(sudoersRule), 0o440); err != nil {
-			return nil, err
-		}
 		unit := filepath.Join(o.Root, "etc/systemd/system/wrangl-runner.service")
 		if err := os.WriteFile(unit, []byte(fmt.Sprintf(unitTmpl, o.Binary)), 0o644); err != nil {
 			return nil, err
@@ -209,35 +212,27 @@ func verifySelf(want string) error {
 	return nil
 }
 
-func ensureUser() error {
-	if _, err := user.Lookup(serviceUser); err == nil {
+// ensureAgentUser creates the unprivileged user the agent and its toolchain run as.
+// It gets a home directory and a login shell but no sudo.
+func ensureAgentUser() error {
+	if _, err := user.Lookup(DefaultAgentUser); err == nil {
 		return nil
 	}
-	if out, err := exec.Command("useradd", "--system", "--create-home", "--shell", "/bin/bash", serviceUser).CombinedOutput(); err != nil {
-		return fmt.Errorf("useradd %s: %v: %s", serviceUser, err, out)
+	if out, err := exec.Command("useradd", "--create-home", "--shell", "/bin/bash", DefaultAgentUser).CombinedOutput(); err != nil {
+		return fmt.Errorf("useradd %s: %v: %s", DefaultAgentUser, err, out)
 	}
 	return nil
 }
 
-// writeFile writes atomically and, when chown is set, hands the file to the wrangl user.
-func writeFile(path string, data []byte, mode os.FileMode, chown bool) error {
+// writeFile writes atomically with the given mode. Files are owned by the daemon's
+// user (root in production), never by the agent.
+func writeFile(path string, data []byte, mode os.FileMode) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, mode); err != nil {
 		return err
 	}
 	if err := os.Chmod(tmp, mode); err != nil {
 		return err
-	}
-	if chown {
-		u, err := user.Lookup(serviceUser)
-		if err != nil {
-			return err
-		}
-		uid, _ := strconv.Atoi(u.Uid)
-		gid, _ := strconv.Atoi(u.Gid)
-		if err := os.Chown(tmp, uid, gid); err != nil {
-			return err
-		}
 	}
 	return os.Rename(tmp, path)
 }

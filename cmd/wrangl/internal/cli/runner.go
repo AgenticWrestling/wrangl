@@ -65,7 +65,7 @@ func runnerCmd(g *Global) *cobra.Command {
 				return err
 			}
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil)).With("runner", cfg.Name)
-			return runner.Run(cmd.Context(), cfg, runner.DaemonOptions{Log: log})
+			return runner.Run(cmd.Context(), cfg, runner.DaemonOptions{Log: log, InstallMise: runner.DefaultMiseInstaller})
 		},
 	}
 	status := &cobra.Command{

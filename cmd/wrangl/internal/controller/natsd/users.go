@@ -13,6 +13,12 @@ func RunnerCmdSubject(r int64, cmd string) string { return fmt.Sprintf("wr.r.%d.
 func RunnerHeartbeatSubject(r int64) string       { return fmt.Sprintf("wr.r.%d.hb", r) }
 func RunnerInboxPrefix(r int64) string            { return fmt.Sprintf("_INBOX_%d", r) }
 
+// RunnerTemplateEventSubject carries template apply results (JetStream WR_EVT).
+func RunnerTemplateEventSubject(r int64) string { return fmt.Sprintf("wr.evt.%d.template", r) }
+
+// TemplateEventWildcard matches every runner's template results.
+const TemplateEventWildcard = "wr.evt.*.template"
+
 // HeartbeatWildcard matches every runner's heartbeat.
 const HeartbeatWildcard = "wr.r.*.hb"
 

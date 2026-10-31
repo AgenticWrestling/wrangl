@@ -27,6 +27,12 @@ type RunnerView struct {
 	EnrolledAt      string          `json:"enrolled_at,omitempty"`
 	TerminatedAt    string          `json:"terminated_at,omitempty"`
 	Metrics         json.RawMessage `json:"metrics,omitempty"`
+	Cordoned        bool            `json:"cordoned"`
+	Draining        bool            `json:"draining"`
+	TemplateVersion int64           `json:"template_version"` // applied on the runner
+	WantVersion     int64           `json:"want_version,omitempty"`
+	LastError       string          `json:"last_error,omitempty"`
+	TemplateLog     string          `json:"template_log,omitempty"`
 }
 
 // TemplateView is a runner template as the API returns it.
@@ -42,6 +48,7 @@ type TemplateView struct {
 	MaxRunners    int64           `json:"max_runners"`
 	IdleTimeoutS  int64           `json:"idle_timeout_s"`
 	Version       int64           `json:"version"`
+	FailedVersion int64           `json:"failed_version,omitempty"`
 	MiseTOML      string          `json:"mise_toml"`
 	SetupScript   string          `json:"setup_script,omitempty"`
 	Agent         json.RawMessage `json:"agent"`

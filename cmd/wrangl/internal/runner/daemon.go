@@ -10,9 +10,11 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
@@ -28,6 +30,7 @@ type DaemonOptions struct {
 	Now               func() time.Time
 	Poweroff          func() error // default: run Config.PoweroffCommand
 	Log               *slog.Logger
+	InstallMise       MiseInstaller // nil = never install mise (only `runner run` passes DefaultMiseInstaller)
 }
 
 // Connect opens the runner's NATS connection: TLS pinned to the controller CA, the
@@ -109,11 +112,49 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		return err
 	}
 
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return err
+	}
+	var applying atomic.Bool
+	applier := &Applier{Cfg: cfg, InstallMise: o.InstallMise}
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "template"), func(m *nats.Msg) {
+		var req proto.TemplateApply
+		reply := func(a proto.TemplateAck) { b, _ := json.Marshal(a); m.Respond(b) }
+		if err := json.Unmarshal(m.Data, &req); err != nil || req.Version <= 0 {
+			reply(proto.TemplateAck{Reason: "bad request"})
+			return
+		}
+		if !applying.CompareAndSwap(false, true) {
+			reply(proto.TemplateAck{Reason: "an apply is already running"})
+			return
+		}
+		reply(proto.TemplateAck{Accepted: true})
+		go func() {
+			defer applying.Store(false)
+			o.Log.Info("applying template", "version", req.Version)
+			logText, err := applier.Apply(ctx, req)
+			res := proto.TemplateResult{Version: req.Version, OK: err == nil, Log: logText}
+			if err != nil {
+				res.Error = err.Error()
+				o.Log.Error("template apply failed", "version", req.Version, "err", err)
+			} else {
+				o.Log.Info("template applied", "version", req.Version)
+			}
+			publishDurable(ctx, js, natsd.RunnerTemplateEventSubject(cfg.RunnerID), res, o.Log)
+		}()
+	}); err != nil {
+		return err
+	}
+
 	beat := func() {
 		if !nc.IsConnected() {
 			return
 		}
-		b, _ := json.Marshal(SampleHeartbeat(ctx, Version))
+		hb := SampleHeartbeat(ctx, Version)
+		hb.TemplateVersion = AppliedVersion(cfg)
+		hb.Applying = applying.Load()
+		b, _ := json.Marshal(hb)
 		if err := nc.Publish(natsd.RunnerHeartbeatSubject(cfg.RunnerID), b); err != nil {
 			o.Log.Warn("heartbeat", "err", err)
 		}
@@ -139,6 +180,26 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 				continue // keep trying every tick
 			}
 			return nil
+		}
+	}
+}
+
+// publishDurable publishes v to JetStream, retrying until the server acks or ctx ends,
+// so an apply result survives a controller restart.
+func publishDurable(ctx context.Context, js jetstream.JetStream, subject string, v any, log *slog.Logger) {
+	b, _ := json.Marshal(v)
+	for attempt := 0; ; attempt++ {
+		pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := js.Publish(pctx, subject, b)
+		cancel()
+		if err == nil {
+			return
+		}
+		log.Warn("publish failed; retrying", "subject", subject, "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(min(attempt+1, 10)) * time.Second):
 		}
 	}
 }

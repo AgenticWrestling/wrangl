@@ -152,3 +152,14 @@ func (c *Client) CreateTemplate(ctx context.Context, yamlBody []byte) (proto.Tem
 func (c *Client) DeleteTemplate(ctx context.Context, name string) error {
 	return c.json(ctx, http.MethodDelete, "/api/v1/templates/"+url.PathEscape(name), nil, nil)
 }
+
+// UpdateTemplate replaces a template (bumping its version).
+func (c *Client) UpdateTemplate(ctx context.Context, name string, yamlBody []byte) (proto.TemplateView, error) {
+	var out proto.TemplateView
+	return out, c.do(ctx, http.MethodPut, "/api/v1/templates/"+url.PathEscape(name), bytes.NewReader(yamlBody), "application/yaml", &out)
+}
+
+// RunnerAction posts cordon, uncordon or drain for a runner.
+func (c *Client) RunnerAction(ctx context.Context, name, action string) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/runners/"+url.PathEscape(name)+"/"+action, nil, nil)
+}

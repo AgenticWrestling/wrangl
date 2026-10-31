@@ -77,8 +77,30 @@ func Register(mux *http.ServeMux, f *fleet.Service) {
 			writeErr(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, runnerView(row, t.Name, t.IdleTimeoutS))
+		v := runnerView(row, t.Name, t.IdleTimeoutS)
+		v.WantVersion = t.Version
+		v.TemplateLog = row.TemplateLog
+		writeJSON(w, http.StatusOK, v)
 	})
+	for _, action := range []string{"cordon", "uncordon", "drain"} {
+		mux.HandleFunc("POST /api/v1/runners/{name}/"+action, func(w http.ResponseWriter, r *http.Request) {
+			name := r.PathValue("name")
+			var err error
+			switch action {
+			case "cordon":
+				err = f.Cordon(r.Context(), name, true)
+			case "uncordon":
+				err = f.Cordon(r.Context(), name, false)
+			case "drain":
+				err = f.Drain(r.Context(), name)
+			}
+			if err != nil {
+				writeErr(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
 	mux.HandleFunc("POST /api/v1/runners", func(w http.ResponseWriter, r *http.Request) {
 		var req proto.LaunchRequest
 		if err := decode(r, &req); err != nil {
@@ -166,6 +188,19 @@ func Register(mux *http.ServeMux, f *fleet.Service) {
 		}
 		writeJSON(w, http.StatusCreated, templateView(t))
 	})
+	mux.HandleFunc("PUT /api/v1/templates/{name}", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		t, err := f.UpdateTemplate(r.Context(), r.PathValue("name"), body)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, templateView(t))
+	})
 	mux.HandleFunc("DELETE /api/v1/templates/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if err := f.DeleteTemplate(r.Context(), r.PathValue("name")); err != nil {
 			writeErr(w, err)
@@ -189,6 +224,8 @@ func runnerView(r dbgen.Runner, template string, idleTimeout int64) proto.Runner
 		Arch: r.Arch, VCPU: r.Vcpu, RAMMiB: r.RamMib, DiskGiB: r.DiskGib,
 		LastHeartbeatAt: r.LastHeartbeatAt.String, IdleSince: r.IdleSince.String, IdleTimeoutS: idleTimeout,
 		LaunchedAt: r.LaunchedAt.String, EnrolledAt: r.EnrolledAt.String, TerminatedAt: r.TerminatedAt.String,
+		Cordoned: r.Cordoned == 1, Draining: r.DrainRequested == 1, TemplateVersion: r.TemplateVersion,
+		LastError: r.LastError,
 	}
 	if r.LastMetricsJson != "" && r.LastMetricsJson != "{}" {
 		v.Metrics = json.RawMessage(r.LastMetricsJson)
@@ -200,7 +237,7 @@ func templateView(t dbgen.RunnerTemplate) proto.TemplateView {
 	v := proto.TemplateView{
 		Name: t.Name, Description: t.Description, Arch: t.Arch, MinVCPU: t.MinVcpu, MinRAMMiB: t.MinRamMib,
 		MinDiskGiB: t.MinDiskGib, AMI: t.Ami, MaxRunners: t.MaxRunners, IdleTimeoutS: t.IdleTimeoutS,
-		Version: t.Version, MiseTOML: t.MiseToml, SetupScript: t.SetupScript, Agent: json.RawMessage(t.AgentJson),
+		Version: t.Version, FailedVersion: t.FailedVersion, MiseTOML: t.MiseToml, SetupScript: t.SetupScript, Agent: json.RawMessage(t.AgentJson),
 	}
 	json.Unmarshal([]byte(t.InstanceTypes), &v.InstanceTypes)
 	if v.InstanceTypes == nil {

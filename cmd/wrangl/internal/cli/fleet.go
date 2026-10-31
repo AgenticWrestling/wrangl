@@ -71,7 +71,7 @@ func fleetCmd(g *Global) *cobra.Command {
 					if r.State == "idle" {
 						idle = ago(r.IdleSince, now)
 					}
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, r.State, r.Template,
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, stateLabel(r), r.Template,
 						dash(r.InstanceID), dash(r.InstanceType), dash(r.PrivateIP), cpu, mem, disk, ago(r.LastHeartbeatAt, now), idle)
 				}
 			})
@@ -97,8 +97,9 @@ func fleetCmd(g *Global) *cobra.Command {
 				if !r.Launched {
 					origin = "adopted via enroll-token (never reaped)"
 				}
+				tmpl := fmt.Sprintf("%s (applied v%d of v%d)", r.Template, r.TemplateVersion, r.WantVersion)
 				rows := [][2]string{
-					{"name", r.Name}, {"state", r.State}, {"template", r.Template}, {"origin", origin},
+					{"name", r.Name}, {"state", stateLabel(r)}, {"template", tmpl}, {"origin", origin},
 					{"instance", dash(r.InstanceID) + "  " + r.InstanceType + "  " + r.AZ}, {"private ip", dash(r.PrivateIP)},
 					{"machine", fmt.Sprintf("%s, %d vCPU, %d MiB, %d GiB", dash(r.Arch), r.VCPU, r.RAMMiB, r.DiskGiB)},
 					{"cpu / mem / disk", cpu + " / " + mem + " / " + disk},
@@ -107,8 +108,14 @@ func fleetCmd(g *Global) *cobra.Command {
 				if r.State == "idle" && r.Launched {
 					rows = append(rows, [2]string{"idle", fmt.Sprintf("%s of %s", ago(r.IdleSince, now), time.Duration(r.IdleTimeoutS)*time.Second)})
 				}
+				if r.LastError != "" {
+					rows = append(rows, [2]string{"last error", r.LastError})
+				}
 				for _, kv := range rows {
 					fmt.Fprintf(w, "%s\t%s\n", kv[0], kv[1])
+				}
+				if r.TemplateLog != "" {
+					fmt.Fprintf(w, "template log\t\n%s\n", lastLines(r.TemplateLog, 15))
 				}
 			})
 		},
@@ -241,9 +248,9 @@ touched, and ownership is re-checked on each instance before it is terminated.`,
 
 	return group("fleet", "Manage runners",
 		list, show, launch,
-		leaf("cordon <runner>", "Stop assigning new work", "M3", cobra.ExactArgs(1)),
-		leaf("uncordon <runner>", "Resume assigning work", "M3", cobra.ExactArgs(1)),
-		leaf("drain <runner>", "Finish current work, then terminate", "M3", cobra.ExactArgs(1)),
+		runnerAction(g, "cordon", "Stop assigning new work (the idle reaper still applies)"),
+		runnerAction(g, "uncordon", "Resume assigning work"),
+		runnerAction(g, "drain", "Stop new work; terminate once idle (controller-launched runners)"),
 		terminate, token, teardown,
 	)
 }
@@ -261,4 +268,39 @@ func localControllerID(ctx context.Context, g *Global) (string, error) {
 	}
 	defer d.Close()
 	return d.RQ.GetMeta(ctx, controller.MetaControllerID)
+}
+
+func runnerAction(g *Global, action, short string) *cobra.Command {
+	return &cobra.Command{
+		Use: action + " <runner>", Short: short, Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			if err := c.RunnerAction(cmd.Context(), args[0], action); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", args[0], action)
+			return nil
+		},
+	}
+}
+
+func stateLabel(r proto.RunnerView) string {
+	switch {
+	case r.Draining:
+		return r.State + " (draining)"
+	case r.Cordoned:
+		return r.State + " (cordoned)"
+	}
+	return r.State
+}
+
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
