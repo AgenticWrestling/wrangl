@@ -779,7 +779,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | **M2 ✅** | NATS operator/JWT + TLS, enrolment, `runner bootstrap/run/status`, heartbeat, offline sweep, `fleet list/show/enroll-token`; **pulled forward from M3:** templates create/list/show/delete, EC2 provisioner with tagging, `fleet launch/terminate/teardown`, 30-min idle reaper, orphan poweroff | M1 |
 | **M3 ✅** | `agent` user + root daemon (D26), template apply on runners (mise) + `template edit` (versioning, failure handling), scheduler scale-up with backoff, `fleet cordon/uncordon/drain` | M2 |
 | **M4 ✅** | Projects/repos/issues, **work-stack CRUD via `stack` + CLI** (`task tree/create/move/needs/split/queue/…`), GitHub App client (author tokens; tested against a fake), assignment, headless work loop in a PTY as `agent`, checkpoint commits + push, ingest/logs/FTS, cancel/attach/diff/files/cat, install guide (`docs/wrangl/INSTALL.md`) | M3 |
-| M5 | Hooks, MCP server with stack tools + scope/approval rules, Questions | M4 |
+| **M5 ✅** | Agent socket (peer-uid auth), `runner hook/mcp/tool`, dependency-free MCP core, stack tools with subtree scope + approvals, Questions (agent/system/approval), `task_complete`-driven completion with one nudge then an owner question | M4 |
 | M6 | PR open, gates, review runs, reviewer App approve/merge, webhooks via CF bypass, revise + blocked-continuation runs | M5 |
 | M7 | HTTP API + SSE + TUI (incl. tree editing) | M4 (parallel with M5/M6) |
 | M8 | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split, split with agent + `plan` runs)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
@@ -815,6 +815,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D23 | Controller-launched runners idle (or offline) for 30 min are terminated; template `idle_timeout` overrides |
 | D24 | Controller uses the instance role (default credential chain); no AWS keys in config |
 | D25 | Enrolment proof for launched runners = token bound to instance id + source IP equals its private IP (replaces identity-document signature check) |
+| D27 | M5: the stuck-task question offers Retry / Mark complete / Fail run ("skip" would hand the same leaf back). Approvals apply inside the assignment; outside it the agent can only read. Approval questions outlive the run; agent/system questions are cancelled with it |
 | D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 
 ## 17. Open items

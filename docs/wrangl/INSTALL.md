@@ -385,6 +385,16 @@ agent:
   resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
   turn_timeout: 2h
+  files:                                    # written into the worktree before the first turn
+    - path: .mcp.json                       # the work-stack tools (task_complete, ask_question, ...)
+      content: '{"mcpServers":{"wrangl":{"command":"wrangl","args":["runner","mcp"]}}}'
+    - path: .claude/settings.local.json     # hooks report back to the controller
+      content: |
+        {"hooks": {
+          "PostToolUse":  [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse"}]}],
+          "Notification": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
+          "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop"}]}]},
+         "enableAllProjectMcpServers": true}
 ```
 
 Notes:
@@ -393,9 +403,15 @@ Notes:
 - **What the agent runs as.** `bypassPermissions` runs as the unprivileged `agent` user on a
   disposable box that can't read the runner's NATS credentials or the GitHub token. That box
   is the security boundary, not Claude's permission prompts.
-- **How a subtask completes (M4).** A turn that exits 0 completes its subtask; the runner then
-  checkpoint-commits whatever the agent left uncommitted. M5 switches this to the agent
-  calling a `task_complete` tool.
+- **How a subtask completes.** The agent calls the `task_complete` MCP tool. If it ends a turn
+  without doing so, the runner nudges it once, then asks you (`wrangl question list`): retry,
+  mark complete, or fail the run. Agents without MCP can set `completion: exit`, so that a turn
+  exiting 0 completes the subtask. Either way the runner checkpoint-commits whatever the agent
+  left uncommitted.
+- **What the agent can do with the stack.** It can read the whole project, and create,
+  reorder, complete or add precursors only inside its assignment. Cancelling or deleting a
+  task it didn't create becomes an approval question for you. `ask_question` blocks until you
+  answer with `wrangl question answer <id> <option>` (or from the web app in M8).
 
 Create the template and launch a runner:
 

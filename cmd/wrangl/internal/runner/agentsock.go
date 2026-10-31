@@ -1,0 +1,245 @@
+package runner
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/nreid/devhost/cmd/wrangl/internal/stacktools"
+)
+
+type peerKey struct{}
+
+// waiters holds questions the agent is blocked on.
+type waiters struct {
+	mu sync.Mutex
+	m  map[int64]chan proto.Answer
+}
+
+func (w *waiters) add(id int64) chan proto.Answer {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.m == nil {
+		w.m = map[int64]chan proto.Answer{}
+	}
+	ch := make(chan proto.Answer, 1)
+	w.m[id] = ch
+	return ch
+}
+
+func (w *waiters) deliver(a proto.Answer) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	ch, ok := w.m[a.QuestionID]
+	if ok {
+		ch <- a
+		delete(w.m, a.QuestionID)
+	}
+	return ok
+}
+
+func (w *waiters) cancelAll() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for id, ch := range w.m {
+		ch <- proto.Answer{QuestionID: id, Cancelled: true}
+		delete(w.m, id)
+	}
+}
+
+// Tool relays a work-stack tool call for the run in progress. ask_question (and the
+// runner's own system question) block until the owner answers.
+func (w *Worker) Tool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
+	runID := w.Busy()
+	if runID == 0 {
+		return nil, errors.New("no run in progress")
+	}
+	if len(args) == 0 {
+		args = json.RawMessage("{}")
+	}
+	b, _ := json.Marshal(proto.ToolRequest{RunID: runID, Tool: name, Args: args})
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	msg, err := w.NC.RequestWithContext(rctx, natsd.StackSubject(w.Cfg.RunnerID, "tool"), b)
+	if err != nil {
+		return nil, fmt.Errorf("controller unreachable: %w", err)
+	}
+	var r proto.ToolReply
+	if err := json.Unmarshal(msg.Data, &r); err != nil {
+		return nil, err
+	}
+	if !r.OK {
+		return nil, errors.New(r.Error)
+	}
+	if name != "ask_question" && name != "_system_question" {
+		return r.Result, nil
+	}
+	var q struct {
+		QuestionID int64 `json:"question_id"`
+	}
+	json.Unmarshal(r.Result, &q)
+	ch := w.answers.add(q.QuestionID)
+	select {
+	case a := <-ch:
+		if a.Cancelled {
+			return nil, errors.New("the question was cancelled (the run ended)")
+		}
+		return json.Marshal(map[string]any{"question_id": a.QuestionID, "answer": a.Value, "text": a.Text})
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// Hook publishes an agent hook event for the run in progress (fire and forget).
+func (w *Worker) Hook(event string, payload json.RawMessage) error {
+	runID := w.Busy()
+	if runID == 0 {
+		return nil // hooks outside a run (e.g. a manual session) are ignored
+	}
+	w.mu.Lock()
+	w.hookSeq++
+	seq := w.hookSeq
+	w.mu.Unlock()
+	if !json.Valid(payload) {
+		payload, _ = json.Marshal(string(payload))
+	}
+	b, _ := json.Marshal(map[string]any{"seq": seq, "ts": time.Now().UTC(), "event": event, "payload": payload})
+	_, err := w.JS.PublishAsync(natsd.RunHookSubject(w.Cfg.RunnerID, runID), b)
+	return err
+}
+
+// ServeAgentSocket serves the agent's local socket until ctx ends. Only the agent user
+// (and the daemon's own user) may connect: checked with SO_PEERCRED.
+func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	os.Remove(path)
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		return err
+	}
+	id, err := (&Applier{Cfg: w.Cfg}).agent()
+	if err != nil {
+		l.Close()
+		return err
+	}
+	allowed := map[uint32]bool{uint32(os.Getuid()): true}
+	if id.drop {
+		allowed[uint32(id.uid)] = true
+		os.Chown(path, id.uid, id.gid)
+	}
+	os.Chmod(path, 0o660)
+
+	mux := http.NewServeMux()
+	reply := func(rw http.ResponseWriter, code int, v any) {
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(code)
+		json.NewEncoder(rw).Encode(v)
+	}
+	mux.HandleFunc("POST /hook", func(rw http.ResponseWriter, r *http.Request) {
+		var h struct {
+			Event   string          `json:"event"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&h); err != nil || h.Event == "" {
+			reply(rw, 400, map[string]string{"error": "want {event, payload}"})
+			return
+		}
+		if err := w.Hook(h.Event, h.Payload); err != nil {
+			reply(rw, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		if strings.EqualFold(h.Event, "Stop") && r.URL.Query().Get("continue") != "" {
+			reply(rw, 200, w.continuation(r.Context()))
+			return
+		}
+		reply(rw, 200, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /tools", func(rw http.ResponseWriter, r *http.Request) {
+		reply(rw, 200, stacktools.For(w.Kind()))
+	})
+	known := map[string]bool{}
+	for _, t := range stacktools.All {
+		known[t.Name] = true
+	}
+	mux.HandleFunc("POST /tool/{name}", func(rw http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if !known[name] { // the daemon-only system question is not reachable from here
+			reply(rw, 404, map[string]string{"error": "unknown tool " + name})
+			return
+		}
+		args, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		out, err := w.Tool(r.Context(), name, args)
+		if err != nil {
+			reply(rw, 422, map[string]string{"error": err.Error()})
+			return
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		rw.Write(out)
+	})
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			uid, ok := r.Context().Value(peerKey{}).(uint32)
+			if !ok || !allowed[uid] {
+				reply(rw, 403, map[string]string{"error": "only the agent user may use this socket"})
+				return
+			}
+			mux.ServeHTTP(rw, r)
+		}),
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if uc, ok := c.(*net.UnixConn); ok {
+				if raw, err := uc.SyscallConn(); err == nil {
+					var cred *syscall.Ucred
+					raw.Control(func(fd uintptr) {
+						cred, _ = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+					})
+					if cred != nil {
+						return context.WithValue(ctx, peerKey{}, cred.Uid)
+					}
+				}
+			}
+			return ctx
+		},
+	}
+	go func() { <-ctx.Done(); srv.Close() }()
+	if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+// continuation answers a Stop hook in interactive drive (M9): the agent-specific
+// "keep going" response with the next task's prompt, or permission to stop.
+func (w *Worker) continuation(ctx context.Context) map[string]any {
+	w.mu.Lock()
+	next := w.continueFn
+	w.mu.Unlock()
+	if next == nil {
+		return map[string]any{"continue": false}
+	}
+	prompt, ok := next(ctx)
+	if !ok {
+		return map[string]any{"continue": false}
+	}
+	return map[string]any{"continue": true, "prompt": prompt}
+}
+
+// SocketClient talks to the daemon's agent socket (used by `wrangl runner hook|tool|mcp`).
+func SocketClient(path string) *http.Client {
+	return &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", path)
+	}}}
+}

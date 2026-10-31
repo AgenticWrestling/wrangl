@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -86,11 +87,40 @@ func runnerCmd(g *Global) *cobra.Command {
 			return nil
 		},
 	}
-	hook := leaf("hook <event>", "Agent hook entrypoint: forwards stdin JSON to the daemon", "M5", cobra.ExactArgs(1))
-	hook.Hidden = true
-	hook.Flags().String("continue-format", "", "print an agent-specific continue response (interactive drive)")
-	mcp := leaf("mcp", "stdio MCP server for the agent", "M5", cobra.NoArgs)
-	mcp.Hidden = true
+	var contFmt string
+	hook := &cobra.Command{
+		Use: "hook <event>", Short: "Agent hook entrypoint: forwards stdin JSON to the daemon", Args: cobra.ExactArgs(1), Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload, _ := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 1<<20))
+			if err := runner.SendHook(cmd.Context(), args[0], payload, contFmt, cmd.OutOrStdout()); err != nil {
+				// Never block or fail the agent because of a hook.
+				fmt.Fprintln(cmd.ErrOrStderr(), "wrangl hook:", err)
+			}
+			return nil
+		},
+	}
+	hook.Flags().StringVar(&contFmt, "continue-format", "", "print an agent-specific continue response (interactive drive): claude")
+	mcpCmd := &cobra.Command{
+		Use: "mcp", Short: "stdio MCP server for the agent (work-stack tools)", Args: cobra.NoArgs, Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runner.ServeMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), runner.Version)
+		},
+	}
+	tool := &cobra.Command{
+		Use: "tool <name> [json]", Short: "Call a work-stack tool from a script inside a run", Args: cobra.RangeArgs(1, 2), Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var body []byte
+			if len(args) == 2 {
+				body = []byte(args[1])
+			}
+			out, err := runner.CallTool(cmd.Context(), args[0], body)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), string(out))
+			return nil
+		},
+	}
 
-	return group("runner", "Runner mode (runs on a runner instance)", bootstrap, run, hook, mcp, status)
+	return group("runner", "Runner mode (runs on a runner instance)", bootstrap, run, hook, mcpCmd, tool, status)
 }

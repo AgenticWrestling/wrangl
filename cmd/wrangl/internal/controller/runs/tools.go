@@ -1,0 +1,390 @@
+package runs
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
+	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/nreid/devhost/cmd/wrangl/internal/stacktools"
+)
+
+// SystemQuestionTool is the daemon-only tool the runner uses to ask the owner what to do
+// when an agent stops without completing its task. It is not in the MCP catalogue, and
+// the daemon refuses it from the agent's socket.
+const SystemQuestionTool = "_system_question"
+
+// Scope is who is calling and what they may touch.
+type Scope struct {
+	RunID     int64 // 0 = the owner (remote MCP)
+	Kind      string
+	RootID    int64 // assignment root; 0 = no subtree restriction
+	ProjectID int64 // 0 = any project
+	Actor     stack.Actor
+}
+
+func stackActor(runID int64) stack.Actor {
+	if runID == 0 {
+		return stack.User
+	}
+	return stack.AgentActor(runID)
+}
+
+// ScopeForRun derives the scope of a run's agent.
+func (s *Service) ScopeForRun(ctx context.Context, runID int64) (Scope, error) {
+	run, err := s.DB.RQ.GetRun(ctx, runID)
+	if err != nil {
+		return Scope{}, err
+	}
+	root, err := s.DB.RQ.GetTask(ctx, run.TaskID)
+	if err != nil {
+		return Scope{}, err
+	}
+	return Scope{RunID: runID, Kind: run.Kind, RootID: root.ID, ProjectID: root.ProjectID, Actor: stack.AgentActor(runID)}, nil
+}
+
+// UserScope is the owner acting through the remote MCP endpoint.
+func UserScope() Scope { return Scope{Kind: "user", Actor: stack.User} }
+
+func (s *Service) task(ctx context.Context, sc Scope, sqid string) (dbgen.Task, error) {
+	t, err := s.Stack.Task(ctx, s.DB.RQ, sqid)
+	if err != nil {
+		return t, err
+	}
+	if sc.ProjectID != 0 && t.ProjectID != sc.ProjectID {
+		return t, fmt.Errorf("%w: task %q", errs.NotFound, sqid) // other projects are invisible
+	}
+	return t, nil
+}
+
+// writable returns the task if it is inside the caller's subtree.
+func (s *Service) writable(ctx context.Context, sc Scope, sqid string) (dbgen.Task, error) {
+	t, err := s.task(ctx, sc, sqid)
+	if err != nil || sc.RootID == 0 {
+		return t, err
+	}
+	in, err := s.DB.RQ.IsAncestorOrSelf(ctx, dbgen.IsAncestorOrSelfParams{NodeID: t.ID, AncestorID: sc.RootID})
+	if err != nil {
+		return t, err
+	}
+	if in != 1 {
+		return t, fmt.Errorf("%w: %s is outside your assignment; you may read it but not change it", errs.Forbidden, sqid)
+	}
+	return t, nil
+}
+
+type posArg struct {
+	First  bool   `json:"first"`
+	After  string `json:"after"`
+	Before string `json:"before"`
+}
+
+func (p *posArg) pos() stack.Position {
+	if p == nil {
+		return stack.Position{}
+	}
+	return stack.Position{First: p.First, After: p.After, Before: p.Before}
+}
+
+func taskJSON(t dbgen.Task) map[string]any {
+	return map[string]any{"sqid": t.Sqid.String, "title": t.Title, "state": t.State}
+}
+
+// ExecTool runs one work-stack tool for a caller.
+func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.RawMessage) (any, error) {
+	if tool != SystemQuestionTool && !stacktools.Allowed(sc.Kind)[tool] {
+		return nil, fmt.Errorf("%w: %s is not available to %s runs", errs.Forbidden, tool, sc.Kind)
+	}
+	var a struct {
+		Sqid, Parent, Title, Prompt, Precursor, Summary, Reason, State, Text, Project string
+		Needs                                                                         []string
+		Position                                                                      *posArg
+		Percent                                                                       *int
+		// ask_question
+		DetailMD      string                 `json:"detail_md"`
+		AllowFreeText bool                   `json:"allow_free_text"`
+		Options       []proto.QuestionOption `json:"options"`
+		// submit_review / propose_split are decoded by their handlers
+	}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return nil, fmt.Errorf("%w: arguments: %v", errs.Invalid, err)
+		}
+	}
+	need := func(v, name string) error {
+		if strings.TrimSpace(v) == "" {
+			return fmt.Errorf("%w: %s is required", errs.Invalid, name)
+		}
+		return nil
+	}
+	switch tool {
+	case "task_get":
+		if err := need(a.Sqid, "sqid"); err != nil {
+			return nil, err
+		}
+		t, err := s.task(ctx, sc, a.Sqid)
+		if err != nil {
+			return nil, err
+		}
+		out := taskJSON(t)
+		out["prompt"], out["created_by"], out["summary"] = t.Prompt, t.CreatedBy, t.CompletionSummary
+		if t.ParentID.Valid {
+			if p, err := s.DB.RQ.GetTask(ctx, t.ParentID.Int64); err == nil {
+				out["parent"] = p.Sqid.String
+			}
+		}
+		kids, _ := s.DB.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
+		var ks []map[string]any
+		for _, k := range kids {
+			ks = append(ks, taskJSON(k))
+		}
+		out["subtasks"] = ks
+		pres, _ := s.DB.RQ.ListPrecursors(ctx, t.ID)
+		var ps []map[string]any
+		for _, p := range pres {
+			full, _ := s.Stack.Task(ctx, s.DB.RQ, p.Sqid)
+			sat := p.State == "done" || (p.State == "in_review" && sc.RunID != 0 && full.CompletedRunID.Int64 == sc.RunID)
+			ps = append(ps, map[string]any{"sqid": p.Sqid, "title": p.Title, "state": p.State, "satisfied": sat})
+		}
+		out["precursors"] = ps
+		return out, nil
+
+	case "task_tree":
+		root := sc.RootID
+		if a.Sqid != "" {
+			t, err := s.task(ctx, sc, a.Sqid)
+			if err != nil {
+				return nil, err
+			}
+			root = t.ID
+		}
+		if root == 0 {
+			return nil, fmt.Errorf("%w: sqid is required", errs.Invalid)
+		}
+		rows, err := s.DB.RQ.SubtreeOrdered(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+		var out []map[string]any
+		for _, r := range rows {
+			out = append(out, map[string]any{"sqid": r.Sqid.String, "title": r.Title, "state": r.State, "depth": r.Depth})
+		}
+		return out, nil
+
+	case "task_list":
+		slug := a.Project
+		if sc.ProjectID != 0 {
+			p, err := s.DB.RQ.GetProject(ctx, sc.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			slug = p.Slug
+		}
+		rows, err := s.DB.RQ.ListTasks(ctx, dbgen.ListTasksParams{Project: slug, State: a.State})
+		if err != nil {
+			return nil, err
+		}
+		var out []map[string]any
+		for _, r := range rows {
+			if a.Text == "" || strings.Contains(strings.ToLower(r.Task.Title), strings.ToLower(a.Text)) {
+				m := taskJSON(r.Task)
+				m["project"] = r.ProjectSlug
+				out = append(out, m)
+			}
+		}
+		return out, nil
+
+	case "task_next":
+		leaf, err := s.DB.RQ.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: sc.RootID, RunID: sql.NullInt64{Int64: sc.RunID, Valid: true}})
+		if errors.Is(err, sql.ErrNoRows) {
+			open, _ := s.DB.RQ.CountOpenLeaves(ctx, sc.RootID)
+			return map[string]any{"done": open == 0, "blocked": open > 0}, nil
+		} else if err != nil {
+			return nil, err
+		}
+		return map[string]any{"sqid": leaf.Sqid.String, "title": leaf.Title}, nil
+
+	case "task_create":
+		if err := need(a.Title, "title"); err != nil {
+			return nil, err
+		}
+		project := a.Project
+		if a.Parent != "" {
+			p, err := s.writable(ctx, sc, a.Parent)
+			if err != nil {
+				return nil, err
+			}
+			pr, err := s.DB.RQ.GetProject(ctx, p.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			project = pr.Slug
+		} else if sc.RootID != 0 {
+			return nil, fmt.Errorf("%w: parent is required (a task in your assignment)", errs.Invalid)
+		} else if project == "" {
+			return nil, fmt.Errorf("%w: give parent, or project for a top-level task", errs.Invalid)
+		}
+		t, err := s.Stack.Create(ctx, stack.CreateParams{Project: project, Parent: a.Parent, Title: a.Title, Prompt: a.Prompt,
+			Pos: a.Position.pos(), Needs: a.Needs, Actor: sc.Actor})
+		if err != nil {
+			return nil, err
+		}
+		return taskJSON(t), nil
+
+	case "task_update":
+		if _, err := s.writable(ctx, sc, a.Sqid); err != nil {
+			return nil, err
+		}
+		var title, prompt *string
+		if a.Title != "" {
+			title = &a.Title
+		}
+		if raw != nil && strings.Contains(string(raw), `"prompt"`) {
+			prompt = &a.Prompt
+		}
+		t, err := s.Stack.Edit(ctx, a.Sqid, title, prompt, sc.Actor)
+		if err != nil {
+			return nil, err
+		}
+		return taskJSON(t), nil
+
+	case "task_move":
+		if _, err := s.writable(ctx, sc, a.Sqid); err != nil {
+			return nil, err
+		}
+		var parent *string
+		if a.Parent != "" {
+			if _, err := s.writable(ctx, sc, a.Parent); err != nil {
+				return nil, err
+			}
+			parent = &a.Parent
+		}
+		t, err := s.Stack.Move(ctx, a.Sqid, parent, a.Position.pos(), sc.Actor)
+		if err != nil {
+			return nil, err
+		}
+		return taskJSON(t), nil
+
+	case "task_needs_add", "task_needs_remove":
+		if _, err := s.writable(ctx, sc, a.Sqid); err != nil {
+			return nil, err
+		}
+		if _, err := s.task(ctx, sc, a.Precursor); err != nil {
+			return nil, err
+		}
+		var err error
+		if tool == "task_needs_add" {
+			err = s.Stack.NeedsAdd(ctx, a.Sqid, a.Precursor, sc.Actor)
+		} else {
+			err = s.Stack.NeedsRm(ctx, a.Sqid, a.Precursor, sc.Actor)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+
+	case "task_complete":
+		if _, err := s.writable(ctx, sc, a.Sqid); err != nil {
+			return nil, err
+		}
+		if sc.RunID == 0 {
+			return map[string]any{"ok": true}, s.Stack.Complete(ctx, a.Sqid, a.Summary, sc.Actor)
+		}
+		if err := s.Stack.AgentComplete(ctx, sc.RunID, a.Sqid, a.Summary); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "state": "in_review"}, nil
+
+	case "task_reopen":
+		if _, err := s.writable(ctx, sc, a.Sqid); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, s.Stack.Reopen(ctx, a.Sqid, sc.Actor)
+
+	case "task_cancel", "task_delete":
+		t, err := s.writable(ctx, sc, a.Sqid)
+		if err != nil {
+			return nil, err
+		}
+		if sc.RunID != 0 && t.CreatedBy != string(sc.Actor) {
+			payload, _ := json.Marshal(approvalPayload{Op: tool, Sqid: a.Sqid, Reason: a.Reason, RunID: sc.RunID})
+			verb := strings.TrimPrefix(tool, "task_")
+			q, err := s.NewQuestion(ctx, dbgen.CreateQuestionParams{
+				TaskID: t.ID, RunID: sql.NullInt64{Int64: sc.RunID, Valid: true}, Kind: "approval",
+				Prompt:   fmt.Sprintf("The agent on run %d wants to %s %s %q.", sc.RunID, verb, a.Sqid, t.Title),
+				DetailMd: a.Reason, PayloadJson: string(payload),
+			}, []proto.QuestionOption{{Label: "Approve", Value: "approve"}, {Label: "Deny", Value: "deny"}})
+			if err != nil {
+				return nil, err
+			}
+			// The run keeps going while the owner decides.
+			s.DB.Q.SetRunState(ctx, dbgen.SetRunStateParams{State: "running", ID: sc.RunID, FromState: "needs_input"})
+			return map[string]any{"pending_approval": true, "question_id": q.ID,
+				"note": "The owner must approve this; carry on with other work."}, nil
+		}
+		if tool == "task_cancel" {
+			return map[string]any{"ok": true}, s.Stack.Cancel(ctx, a.Sqid, a.Reason, sc.Actor)
+		}
+		return map[string]any{"ok": true}, s.Stack.Delete(ctx, a.Sqid, sc.Actor)
+
+	case "ask_question", SystemQuestionTool:
+		if err := need(a.Prompt, "prompt"); err != nil {
+			return nil, err
+		}
+		if sc.RunID == 0 {
+			return nil, fmt.Errorf("%w: ask_question needs a run", errs.Invalid)
+		}
+		run, err := s.DB.RQ.GetRun(ctx, sc.RunID)
+		if err != nil {
+			return nil, err
+		}
+		taskID := run.TaskID
+		if run.CurrentTaskID.Valid {
+			taskID = run.CurrentTaskID.Int64
+		}
+		kind := "agent"
+		if tool == SystemQuestionTool {
+			kind = "system"
+		}
+		if len(a.Options) == 0 && !a.AllowFreeText {
+			a.AllowFreeText = true
+		}
+		ft := int64(0)
+		if a.AllowFreeText {
+			ft = 1
+		}
+		q, err := s.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: taskID, RunID: sql.NullInt64{Int64: sc.RunID, Valid: true},
+			Kind: kind, Prompt: a.Prompt, DetailMd: a.DetailMD, AllowFreeText: ft}, a.Options)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"question_id": q.ID}, nil
+
+	case "report_status":
+		status := a.Summary
+		if a.Percent != nil {
+			status = fmt.Sprintf("%s (%d%%)", status, *a.Percent)
+		}
+		if len(status) > 300 {
+			status = status[:300]
+		}
+		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
+
+	case "submit_review", "propose_split":
+		h := s.ToolHandlers[tool]
+		if h == nil {
+			return nil, fmt.Errorf("%s is not available on this controller", tool)
+		}
+		return h(ctx, sc, raw)
+	}
+	return nil, fmt.Errorf("%w: unknown tool %s", errs.Invalid, tool)
+}
+
+// ToolHandler implements a tool owned by another service (submit_review, propose_split).
+type ToolHandler func(ctx context.Context, sc Scope, args json.RawMessage) (any, error)

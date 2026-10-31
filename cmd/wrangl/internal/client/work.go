@@ -249,3 +249,26 @@ func (c *Client) SearchLogs(ctx context.Context, query, project, runner, since s
 	q := url.Values{"q": {query}, "project": {project}, "runner": {runner}, "since": {since}, "limit": {strconv.Itoa(limit)}}
 	return out, c.json(ctx, http.MethodGet, "/api/v1/logs/search?"+q.Encode(), nil, &out)
 }
+
+// Questions lists questions (open only unless all).
+func (c *Client) Questions(ctx context.Context, all bool) ([]proto.QuestionView, error) {
+	var out []proto.QuestionView
+	return out, c.json(ctx, http.MethodGet, "/api/v1/questions"+allQ(all), nil, &out)
+}
+
+// Question returns one question.
+func (c *Client) Question(ctx context.Context, id int64) (proto.QuestionView, error) {
+	var out proto.QuestionView
+	return out, c.json(ctx, http.MethodGet, fmt.Sprintf("/api/v1/questions/%d", id), nil, &out)
+}
+
+// Answer answers a question with an option value and/or free text.
+func (c *Client) Answer(ctx context.Context, id int64, value, text string) error {
+	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/questions/%d/answer", id), proto.AnswerRequest{Value: value, Text: text}, nil)
+}
+
+// RunHooks lists a run's agent hook events.
+func (c *Client) RunHooks(ctx context.Context, id int64) ([]map[string]any, error) {
+	var out []map[string]any
+	return out, c.json(ctx, http.MethodGet, fmt.Sprintf("/api/v1/runs/%d/hooks", id), nil, &out)
+}

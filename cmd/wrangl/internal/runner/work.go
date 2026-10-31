@@ -40,11 +40,21 @@ type Worker struct {
 	JS  jetstream.JetStream
 	Log *slog.Logger
 
-	mu     sync.Mutex
-	runID  int64
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu         sync.Mutex
+	runID      int64
+	kind       string
+	cancel     context.CancelFunc
+	done       chan struct{}
+	hookSeq    int64
+	answers    waiters
+	continueFn func(ctx context.Context) (string, bool) // interactive drive (M9)
 }
+
+// Kind is the kind of the run in progress.
+func (w *Worker) Kind() string { w.mu.Lock(); defer w.mu.Unlock(); return w.kind }
+
+// DeliverAnswer hands an owner's answer to the agent waiting on it.
+func (w *Worker) DeliverAnswer(a proto.Answer) bool { return w.answers.deliver(a) }
 
 // Busy reports the run in progress (0 = idle).
 func (w *Worker) Busy() int64 { w.mu.Lock(); defer w.mu.Unlock(); return w.runID }
@@ -57,14 +67,15 @@ func (w *Worker) Start(parent context.Context, a proto.Assignment) error {
 		return fmt.Errorf("busy with run %d", w.runID)
 	}
 	ctx, cancel := context.WithCancel(parent)
-	w.runID, w.cancel, w.done = a.RunID, cancel, make(chan struct{})
+	w.runID, w.kind, w.cancel, w.done, w.hookSeq = a.RunID, a.Kind, cancel, make(chan struct{}), 0
 	done := w.done
 	go func() {
 		defer close(done)
 		defer cancel()
 		w.run(ctx, a)
+		w.answers.cancelAll()
 		w.mu.Lock()
-		w.runID, w.cancel = 0, nil
+		w.runID, w.kind, w.cancel, w.continueFn = 0, "", nil, nil
 		w.mu.Unlock()
 	}()
 	return nil
@@ -255,10 +266,13 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment) {
 			fail(err)
 			return
 		}
-		// M4: a turn that exits 0 completes its leaf. M5 replaces this with the agent
-		// calling task_complete over MCP.
-		if _, err := w.stack(ctx, "complete", proto.StackRequest{RunID: a.RunID, Sqid: n.Sqid, Summary: s.summary()}); err != nil {
-			fail(fmt.Errorf("record completion of %s: %w", n.Sqid, err))
+		if err := w.ensureComplete(ctx, s, n, &turns, turnTimeout); err != nil {
+			if errors.Is(err, errFailRun) {
+				s.flush()
+				s.state(pubCtx, proto.RunState{State: "failed", Error: "the owner chose to fail the run: " + n.Sqid + " was not completed"})
+				return
+			}
+			fail(err)
 			return
 		}
 	}
@@ -387,6 +401,7 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 		"HOME=" + home, "USER=" + s.id.username, "LOGNAME=" + s.id.username, "TERM=xterm-256color",
 		"PATH=" + strings.Join([]string{home + "/.local/share/mise/shims", home + "/.local/bin", filepath.Dir(w.Cfg.MiseBin), "/usr/local/bin", "/usr/bin", "/bin"}, ":"),
 		"WRANGL_RUN_ID=" + strconv.FormatInt(s.a.RunID, 10), "WRANGL_TASK=" + n.Sqid,
+		"WRANGL_SOCK=" + w.Cfg.Socket(),
 	}
 	if v := os.Getenv("HTTPS_PROXY"); v != "" {
 		cmd.Env = append(cmd.Env, "HTTPS_PROXY="+v, "https_proxy="+v)
@@ -562,4 +577,107 @@ func (w *Worker) Inspect(ctx context.Context, kind string, ref proto.RunRef) pro
 		return clip(b.String())
 	}
 	return proto.InspectReply{Error: "unknown inspect kind " + kind}
+}
+
+var errFailRun = errors.New("owner chose to fail the run")
+
+// nudgePrompt is sent once when the agent ends a turn without completing its task.
+func nudgePrompt(n *proto.StackNext) string {
+	return fmt.Sprintf("You ended your turn without calling the task_complete tool for task %s (%q). "+
+		"If the task is finished, call task_complete with sqid %q and a short summary now. "+
+		"Otherwise, continue working on it until it is done.", n.Sqid, n.Title, n.Sqid)
+}
+
+// leafState asks the controller for a task's state.
+func (w *Worker) leafState(ctx context.Context, sqid string) (string, error) {
+	args, _ := json.Marshal(map[string]string{"sqid": sqid})
+	out, err := w.Tool(ctx, "task_get", args)
+	if err != nil {
+		return "", err
+	}
+	var t struct {
+		State string `json:"state"`
+	}
+	json.Unmarshal(out, &t)
+	return t.State, nil
+}
+
+// ensureComplete makes sure the leaf was completed. With completion "exit" the runner
+// completes it; with "tool" (default) the agent must have called task_complete: nudge
+// once, then ask the owner (retry / mark complete / fail).
+func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackNext, turns *int, timeout time.Duration) error {
+	if s.a.Agent.Completion == "exit" {
+		_, err := w.stack(ctx, "complete", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Summary: s.summary()})
+		return err
+	}
+	resume := s.a.Agent.Resume
+	if len(resume) == 0 {
+		resume = s.a.Agent.Start
+	}
+	nudged := false
+	for {
+		st, err := w.leafState(ctx, n.Sqid)
+		if err != nil {
+			return err
+		}
+		if st == "in_review" || st == "done" || st == "cancelled" {
+			return nil
+		}
+		if !nudged {
+			nudged = true
+			s.logf("runner", "agent did not call task_complete for %s; nudging once", n.Sqid)
+			nn := *n
+			nn.Prompt = nudgePrompt(n)
+			code, err := w.turn(ctx, s, resume, &nn, timeout)
+			*turns++
+			if err != nil {
+				return err
+			}
+			if code != 0 {
+				return fmt.Errorf("agent exited %d on the nudge for %s", code, n.Sqid)
+			}
+			if err := w.checkpoint(ctx, s, n); err != nil {
+				return err
+			}
+			continue
+		}
+		s.logf("runner", "agent still has not completed %s; asking the owner", n.Sqid)
+		args, _ := json.Marshal(map[string]any{
+			"prompt":    fmt.Sprintf("The agent stopped twice without completing %s %q. What now?", n.Sqid, n.Title),
+			"detail_md": "Last output:\n\n```\n" + s.summary() + "\n```",
+			"options": []map[string]string{
+				{"label": "Retry the task", "value": "retry"},
+				{"label": "Mark it complete", "value": "complete"},
+				{"label": "Fail the run", "value": "fail"},
+			},
+		})
+		out, err := w.Tool(ctx, "_system_question", args)
+		if err != nil {
+			return err
+		}
+		var ans struct {
+			Answer string `json:"answer"`
+		}
+		json.Unmarshal(out, &ans)
+		switch ans.Answer {
+		case "complete":
+			_, err := w.stack(ctx, "complete", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Summary: "marked complete by the owner"})
+			return err
+		case "fail":
+			return errFailRun
+		default: // retry: a fresh turn on the same task, then the nudge rule again
+			code, err := w.turn(ctx, s, resume, n, timeout)
+			*turns++
+			if err != nil {
+				return err
+			}
+			if code != 0 {
+				return fmt.Errorf("agent exited %d retrying %s", code, n.Sqid)
+			}
+			if err := w.checkpoint(ctx, s, n); err != nil {
+				return err
+			}
+			nudged = false
+		}
+	}
 }

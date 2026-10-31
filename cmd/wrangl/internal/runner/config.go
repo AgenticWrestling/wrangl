@@ -17,6 +17,7 @@ const (
 	DefaultStateDir   = "/var/lib/wrangl"
 	DefaultAgentUser  = "agent"
 	DefaultMiseBin    = "/usr/local/bin/mise"
+	DefaultSocketPath = "/run/wrangl/runner.sock"
 )
 
 // Config is /etc/wrangl/runner.yaml, written by bootstrap.
@@ -37,6 +38,16 @@ type Config struct {
 	// AgentHome overrides the agent's home directory (default: from the passwd entry).
 	AgentHome string `yaml:"agent_home,omitempty"`
 	MiseBin   string `yaml:"mise_bin"`
+	// SocketPath is the daemon's local socket for the agent's hooks and MCP shim.
+	SocketPath string `yaml:"socket_path,omitempty"`
+}
+
+// Socket returns the agent socket path.
+func (c *Config) Socket() string {
+	if c.SocketPath != "" {
+		return c.SocketPath
+	}
+	return DefaultSocketPath
 }
 
 // LoadConfig reads a runner config.

@@ -511,6 +511,70 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// --- questions ---
+	mux.HandleFunc("GET /api/v1/questions", func(w http.ResponseWriter, r *http.Request) {
+		qs, err := d.Runs.Questions(r.Context(), r.URL.Query().Get("all") == "1")
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, qs)
+	})
+	qid := func(r *http.Request) (int64, error) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return 0, fmt.Errorf("%w: question id %q", errs.Invalid, r.PathValue("id"))
+		}
+		return id, nil
+	}
+	mux.HandleFunc("GET /api/v1/questions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := qid(r)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		q, err := d.Runs.Question(r.Context(), id)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, q)
+	})
+	mux.HandleFunc("POST /api/v1/questions/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
+		id, err := qid(r)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		var req proto.AnswerRequest
+		if err := decode(r, &req); err != nil {
+			writeErr(w, err)
+			return
+		}
+		if err := d.Runs.Answer(r.Context(), id, req.Value, req.Text); err != nil {
+			writeErr(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /api/v1/runs/{id}/hooks", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			writeErr(w, fmt.Errorf("%w: run id", errs.Invalid))
+			return
+		}
+		evs, err := db.RQ.RunHookEvents(r.Context(), id)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		out := []map[string]any{}
+		for _, e := range evs {
+			out = append(out, map[string]any{"seq": e.Seq, "ts": e.Ts, "event": e.Name, "payload": json.RawMessage(e.PayloadJson)})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+
 	// --- runs ---
 	runView := func(x dbgen.ListRunsRow) proto.RunView {
 		return proto.RunView{ID: x.Run.ID, Task: x.TaskSqid, TaskTitle: x.TaskTitle, Project: x.ProjectSlug, Kind: x.Run.Kind,

@@ -29,6 +29,7 @@ func StackSubject(r int64, op string) string { return fmt.Sprintf("wr.stack.%d.%
 const (
 	RunStateWildcard = "wr.evt.*.*.state"
 	RunLogWildcard   = "wr.evt.*.*.log"
+	RunHookWildcard  = "wr.evt.*.*.hook"
 	StackWildcard    = "wr.stack.*.*"
 )
 
@@ -79,3 +80,6 @@ func (k *Keys) controllerUser() (userJWT string, kp nkeys.KeyPair, err error) {
 	userJWT, err = uc.Encode(k.AccountSigning)
 	return userJWT, kp, err
 }
+
+// RunHookSubject carries agent hook events for run x on runner r (JetStream WR_EVT).
+func RunHookSubject(r, x int64) string { return fmt.Sprintf("wr.evt.%d.%d.hook", r, x) }

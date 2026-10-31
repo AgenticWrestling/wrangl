@@ -218,6 +218,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}{
 		{"controller-run-state", natsd.RunStateWildcard, s.Runs.HandleState},
 		{"controller-run-logs", natsd.RunLogWildcard, s.Runs.HandleLog},
+		{"controller-run-hooks", natsd.RunHookWildcard, s.Runs.HandleHook},
 	} {
 		cc, err := s.consume(ctx, c.name, c.filter, c.handle)
 		if err != nil {

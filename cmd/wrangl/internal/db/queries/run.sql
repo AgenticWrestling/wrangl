@@ -115,3 +115,17 @@ SELECT r.id, r.state, r.kind, r.attempt, r.branch, r.pushed, r.head_sha, r.queue
        CAST(COALESCE(n.name, '') AS TEXT) AS runner_name
 FROM run r LEFT JOIN runner n ON n.id = r.runner_id
 WHERE r.task_id = ? ORDER BY r.id DESC;
+
+-- name: SetRunState :exec
+-- running <-> needs_input while an agent waits for an answer.
+UPDATE run SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
+-- name: SetRunStatus :exec
+UPDATE run SET status_text = ? WHERE id = ?;
+
+-- name: InsertHookEvent :exec
+INSERT INTO hook_event (run_id, seq, ts, name, payload_json) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (run_id, seq) DO NOTHING;
+
+-- name: RunHookEvents :many
+SELECT * FROM hook_event WHERE run_id = ? ORDER BY seq;

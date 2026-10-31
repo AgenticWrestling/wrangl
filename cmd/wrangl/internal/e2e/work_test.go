@@ -30,8 +30,21 @@ const fakeAgent = `#!/bin/sh
 first=$(printf '%s' "$1" | head -1)
 echo "fake agent starting: $first"
 printf '%s\n' "$first" >> NOTES.md
+tool() { curl -s --unix-socket "$WRANGL_SOCK" -d "$2" "http://x/tool/$1"; }
 case "$1" in *SLOW*) echo "going slow"; sleep 60;; esac
 case "$1" in *EXPLODE*) echo "boom"; exit 3;; esac
+case "$1" in *ASKME*)
+  ans=$(tool ask_question '{"prompt":"Which colour?","options":[{"label":"Red","value":"red"},{"label":"Blue","value":"blue"}]}')
+  echo "owner said: $ans";;
+esac
+case "$1" in *CANCELOTHER*)
+  for target in $(printf '%s' "$1" | sed -n 's/.*CANCELOTHER \([A-Za-z0-9]*\).*/\1/p'); do
+    echo "cancel attempt: $(tool task_cancel "{\"sqid\":\"$target\",\"reason\":\"redundant\"}")"
+  done;;
+esac
+case "$1" in *FORGET*) echo "forgot to complete"; exit 0;; esac
+curl -s --unix-socket "$WRANGL_SOCK" -d '{"event":"PostToolUse","payload":{"tool_name":"Edit"}}' http://x/hook >/dev/null
+tool task_complete "{\"sqid\":\"$WRANGL_TASK\",\"summary\":\"did $WRANGL_TASK\"}" >/dev/null
 echo "fake agent finished needle-$WRANGL_TASK"
 `
 
@@ -309,6 +322,115 @@ agent:
 	}
 	if got := e.task(slow).State; got != "open" {
 		t.Fatalf("cancelled leaf: %s", got)
+	}
+
+	// M5: the agent asks a question; the run waits (needs_input) until it is answered.
+	askT := e.mk(proto.TaskCreateRequest{Title: "needs input", Prompt: "ASKME"})
+	run6, _, _ := api.QueueTask(ctx, askT)
+	var qv proto.QuestionView
+	waitFor(t, "agent question", 20*time.Second, func() (bool, string) {
+		qs, _ := api.Questions(ctx, false)
+		for _, q := range qs {
+			if q.RunID == run6 {
+				qv = q
+				return true, ""
+			}
+		}
+		return false, e.run(run6).State
+	})
+	if qv.Kind != "agent" || len(qv.Options) != 2 || e.run(run6).State != "needs_input" {
+		t.Fatalf("question %+v, run %s", qv, e.run(run6).State)
+	}
+	if err := api.Answer(ctx, qv.ID, "purple", ""); err == nil {
+		t.Fatal("accepted an answer that is not an option")
+	}
+	if err := api.Answer(ctx, qv.ID, "blue", ""); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.waitRun(run6, "succeeded", "failed"); v.State != "succeeded" {
+		t.Fatalf("ask run: %+v", v)
+	}
+	var said []string
+	api.Logs(ctx, run6, false, "owner said", "", "", func(l proto.LogView) { said = append(said, l.Message) })
+	if len(said) != 1 || !strings.Contains(said[0], `"answer":"blue"`) {
+		t.Fatalf("agent did not get the answer: %q", said)
+	}
+	if hooks, _ := api.RunHooks(ctx, run6); len(hooks) == 0 || hooks[0]["event"] != "PostToolUse" {
+		t.Fatalf("hooks: %v", hooks)
+	}
+
+	// M5: an agent that forgets task_complete is nudged once; the nudge turn completes it.
+	forgetful := e.mk(proto.TaskCreateRequest{Title: "forgetful", Prompt: "FORGET once"})
+	run7, _, _ := api.QueueTask(ctx, forgetful)
+	if v := e.waitRun(run7, "succeeded", "failed"); v.State != "succeeded" {
+		t.Fatalf("nudged run: %+v", v)
+	}
+	if got := e.task(forgetful).State; got != "in_review" {
+		t.Fatalf("forgetful after nudge: %s", got)
+	}
+	// ... and one that keeps forgetting (FORGET in the title reaches the nudge prompt) is
+	// put to the owner, who marks it complete.
+	stubborn := e.mk(proto.TaskCreateRequest{Title: "FORGET always", Prompt: "FORGET"})
+	run8, _, _ := api.QueueTask(ctx, stubborn)
+	waitFor(t, "system question", 20*time.Second, func() (bool, string) {
+		qs, _ := api.Questions(ctx, false)
+		for _, q := range qs {
+			if q.RunID == run8 && q.Kind == "system" {
+				qv = q
+				return true, ""
+			}
+		}
+		return false, e.run(run8).State
+	})
+	if err := api.Answer(ctx, qv.ID, "complete", ""); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.waitRun(run8, "succeeded", "failed"); v.State != "succeeded" || e.task(stubborn).State != "in_review" {
+		t.Fatalf("owner-completed run: %+v task %s", v, e.task(stubborn).State)
+	}
+
+	// M5: cancelling a task the agent did not create needs approval; approving executes it.
+	// Outside its assignment the agent may not touch a task at all.
+	outsider := e.mk(proto.TaskCreateRequest{Title: "not in the assignment"})
+	tidy := e.mk(proto.TaskCreateRequest{Title: "tidy up"})
+	gate := e.mk(proto.TaskCreateRequest{Title: "gate (outside, open)"})
+	victim := e.mk(proto.TaskCreateRequest{Parent: tidy, Title: "someone else's task", Needs: []string{gate}})
+	e.mk(proto.TaskCreateRequest{Parent: tidy, Title: "worker", Prompt: "CANCELOTHER " + victim + "\nCANCELOTHER " + outsider, First: true})
+	run9, _, _ := api.QueueTask(ctx, tidy)
+	if v := e.waitRun(run9, "blocked", "succeeded", "failed"); v.State != "blocked" {
+		t.Fatalf("canceller run: %+v", v)
+	}
+	if got := e.task(victim).State; got != "open" {
+		t.Fatalf("victim cancelled without approval: %s", got)
+	}
+	var approval proto.QuestionView
+	qs, _ := api.Questions(ctx, false)
+	for _, q := range qs {
+		if q.Kind == "approval" && q.Task == victim {
+			approval = q
+		}
+	}
+	if approval.ID == 0 {
+		var lines []string
+		api.Logs(ctx, run9, false, "cancel attempt", "", "", func(l proto.LogView) { lines = append(lines, l.Message) })
+		t.Fatalf("no approval question: %+v\nagent: %q", qs, lines)
+	}
+	if err := api.Answer(ctx, approval.ID, "approve", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.task(victim).State; got != "cancelled" {
+		t.Fatalf("victim after approval: %s", got)
+	}
+	var attempts []string
+	api.Logs(ctx, run9, false, "cancel attempt", "", "", func(l proto.LogView) { attempts = append(attempts, l.Message) })
+	if len(attempts) != 2 || !strings.Contains(attempts[0], "pending_approval") || !strings.Contains(attempts[1], "outside your assignment") {
+		t.Fatalf("cancel attempts: %q", attempts)
+	}
+	if got := e.task(outsider).State; got != "open" {
+		t.Fatalf("outsider changed: %s", got)
+	}
+	if evs := e.task(victim).Events; evs[len(evs)-1].Actor != fmt.Sprintf("agent:%d", run9) {
+		t.Fatalf("approved cancel actor: %+v", evs[len(evs)-1])
 	}
 
 	// A failing agent fails the run with its exit code.

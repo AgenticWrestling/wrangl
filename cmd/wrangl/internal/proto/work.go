@@ -13,6 +13,9 @@ type AgentSpec struct {
 	Env         map[string]string `json:"env,omitempty"`
 	Secrets     map[string]string `json:"secrets,omitempty"` // ENV -> controller secret name; resolved by the controller
 	TurnTimeout string            `json:"turn_timeout,omitempty"`
+	// Completion: "tool" (default) = the agent calls task_complete; "exit" = a turn that
+	// exits 0 completes its task (agents without MCP).
+	Completion string `json:"completion,omitempty"`
 	Files       []AgentFile       `json:"files,omitempty"`
 }
 
@@ -117,3 +120,56 @@ type InspectReply struct {
 
 // InspectLimit caps diff/tree/file replies.
 const InspectLimit = 4 << 20
+
+// ToolRequest is a work-stack tool call relayed by a runner daemon (wr.stack.<r>.tool).
+type ToolRequest struct {
+	RunID int64           `json:"run_id"`
+	Tool  string          `json:"tool"`
+	Args  json.RawMessage `json:"args"`
+}
+
+// ToolReply answers a ToolRequest.
+type ToolReply struct {
+	OK     bool            `json:"ok"`
+	Error  string          `json:"error,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+}
+
+// Answer is sent to a runner (cmd.answer) when a question it asked is answered.
+type Answer struct {
+	QuestionID int64  `json:"question_id"`
+	Value      string `json:"value,omitempty"`
+	Text       string `json:"text,omitempty"`
+	Cancelled  bool   `json:"cancelled,omitempty"`
+}
+
+// QuestionOption is one choice offered with a question.
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
+}
+
+// QuestionView is a question as the API returns it.
+type QuestionView struct {
+	ID            int64            `json:"id"`
+	Kind          string           `json:"kind"`
+	State         string           `json:"state"`
+	Task          string           `json:"task"`
+	TaskTitle     string           `json:"task_title"`
+	Project       string           `json:"project"`
+	RunID         int64            `json:"run_id,omitempty"`
+	Prompt        string           `json:"prompt"`
+	DetailMD      string           `json:"detail_md,omitempty"`
+	AllowFreeText bool             `json:"allow_free_text"`
+	Options       []QuestionOption `json:"options"`
+	Payload       json.RawMessage  `json:"payload,omitempty"`
+	Answer        string           `json:"answer,omitempty"`
+	CreatedAt     string           `json:"created_at"`
+}
+
+// AnswerRequest is POST /api/v1/questions/{id}/answer.
+type AnswerRequest struct {
+	Value string `json:"value,omitempty"`
+	Text  string `json:"text,omitempty"`
+}

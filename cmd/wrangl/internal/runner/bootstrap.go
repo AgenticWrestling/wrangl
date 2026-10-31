@@ -121,6 +121,7 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 		cfg.StateDir = state
 		cfg.AgentHome = filepath.Join(o.Root, "home", "agent")
 		cfg.MiseBin = filepath.Join(o.Root, "usr", "local", "bin", "mise")
+		cfg.SocketPath = filepath.Join(o.Root, "run", "wrangl", "runner.sock")
 	}
 	cfgYAML, _ := yaml.Marshal(cfg)
 	files := []struct {

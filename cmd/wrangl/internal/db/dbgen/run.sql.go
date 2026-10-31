@@ -224,6 +224,30 @@ func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
 	return i, err
 }
 
+const insertHookEvent = `-- name: InsertHookEvent :exec
+INSERT INTO hook_event (run_id, seq, ts, name, payload_json) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (run_id, seq) DO NOTHING
+`
+
+type InsertHookEventParams struct {
+	RunID       int64  `json:"run_id"`
+	Seq         int64  `json:"seq"`
+	Ts          string `json:"ts"`
+	Name        string `json:"name"`
+	PayloadJson string `json:"payload_json"`
+}
+
+func (q *Queries) InsertHookEvent(ctx context.Context, arg InsertHookEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertHookEvent,
+		arg.RunID,
+		arg.Seq,
+		arg.Ts,
+		arg.Name,
+		arg.PayloadJson,
+	)
+	return err
+}
+
 const listActiveRuns = `-- name: ListActiveRuns :many
 SELECT r.id, r.state, r.kind, r.status_text, r.queued_at, r.started_at,
        t.title AS task_title, p.slug AS project_slug, rn.name AS runner_name
@@ -503,6 +527,40 @@ func (q *Queries) ReleaseRunner(ctx context.Context, arg ReleaseRunnerParams) er
 	return err
 }
 
+const runHookEvents = `-- name: RunHookEvents :many
+SELECT id, run_id, seq, ts, name, payload_json FROM hook_event WHERE run_id = ? ORDER BY seq
+`
+
+func (q *Queries) RunHookEvents(ctx context.Context, runID int64) ([]HookEvent, error) {
+	rows, err := q.db.QueryContext(ctx, runHookEvents, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []HookEvent{}
+	for rows.Next() {
+		var i HookEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.Seq,
+			&i.Ts,
+			&i.Name,
+			&i.PayloadJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const runsForTask = `-- name: RunsForTask :many
 SELECT r.id, r.state, r.kind, r.attempt, r.branch, r.pushed, r.head_sha, r.queued_at, r.finished_at,
        CAST(COALESCE(n.name, '') AS TEXT) AS runner_name
@@ -604,6 +662,36 @@ type SetRunCurrentTaskParams struct {
 
 func (q *Queries) SetRunCurrentTask(ctx context.Context, arg SetRunCurrentTaskParams) error {
 	_, err := q.db.ExecContext(ctx, setRunCurrentTask, arg.TaskID, arg.ID)
+	return err
+}
+
+const setRunState = `-- name: SetRunState :exec
+UPDATE run SET state = ?1 WHERE id = ?2 AND state = ?3
+`
+
+type SetRunStateParams struct {
+	State     string `json:"state"`
+	ID        int64  `json:"id"`
+	FromState string `json:"from_state"`
+}
+
+// running <-> needs_input while an agent waits for an answer.
+func (q *Queries) SetRunState(ctx context.Context, arg SetRunStateParams) error {
+	_, err := q.db.ExecContext(ctx, setRunState, arg.State, arg.ID, arg.FromState)
+	return err
+}
+
+const setRunStatus = `-- name: SetRunStatus :exec
+UPDATE run SET status_text = ? WHERE id = ?
+`
+
+type SetRunStatusParams struct {
+	StatusText string `json:"status_text"`
+	ID         int64  `json:"id"`
+}
+
+func (q *Queries) SetRunStatus(ctx context.Context, arg SetRunStatusParams) error {
+	_, err := q.db.ExecContext(ctx, setRunStatus, arg.StatusText, arg.ID)
 	return err
 }
 

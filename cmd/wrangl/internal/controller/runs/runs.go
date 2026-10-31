@@ -33,6 +33,15 @@ type Service struct {
 	NC    *nats.Conn
 	Now   func() time.Time
 	Log   *slog.Logger
+
+	// OnQuestion is called after a question is created (web push in M8).
+	OnQuestion func(q dbgen.Question)
+	// AnswerHandlers handle answers for kinds other than agent/system/approval.
+	AnswerHandlers map[string]AnswerHandler
+	// ToolHandlers implement submit_review (M6) and propose_split (M8).
+	ToolHandlers map[string]ToolHandler
+	// OnRunFinished is called after a run reaches a terminal state (PRs in M6).
+	OnRunFinished func(ctx context.Context, runID int64)
 }
 
 func (s *Service) ts() string { return s.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
@@ -116,7 +125,11 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 	if run.CurrentTaskID.Valid {
 		s.recomputeTask(ctx, run.CurrentTaskID.Int64)
 	}
+	s.DB.Q.CancelRunQuestions(ctx, sql.NullInt64{Int64: runID, Valid: true})
 	s.Log.Info("run finished", "run", runID, "state", st.State, "pushed", st.Pushed, "error", st.Error)
+	if s.OnRunFinished != nil {
+		s.OnRunFinished(ctx, runID)
+	}
 	return nil
 }
 
@@ -126,6 +139,35 @@ func (s *Service) recomputeTask(ctx context.Context, taskID int64) {
 	if err == nil && t.Sqid.Valid {
 		_ = s.Stack.Recompute(ctx, t.Sqid.String)
 	}
+}
+
+// HandleHook stores one agent hook event.
+func (s *Service) HandleHook(ctx context.Context, subject string, data []byte) error {
+	runnerID, runID, ok := parseEvt(subject, "hook")
+	if !ok {
+		return fmt.Errorf("%w: subject %q", errs.Invalid, subject)
+	}
+	var h struct {
+		Seq     int64           `json:"seq"`
+		TS      time.Time       `json:"ts"`
+		Event   string          `json:"event"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &h); err != nil || h.Event == "" {
+		return fmt.Errorf("%w: hook event", errs.Invalid)
+	}
+	if _, err := s.owned(ctx, runnerID, runID); err != nil {
+		return err
+	}
+	payload := string(h.Payload)
+	if payload == "" || !json.Valid(h.Payload) {
+		payload = "{}"
+	}
+	if len(payload) > 64<<10 {
+		payload = `{"truncated":true}`
+	}
+	return s.DB.Q.InsertHookEvent(ctx, dbgen.InsertHookEventParams{RunID: runID, Seq: h.Seq,
+		Ts: h.TS.UTC().Format("2006-01-02T15:04:05.000Z"), Name: h.Event, PayloadJson: payload})
 }
 
 // HandleLog stores one log line.
@@ -189,6 +231,23 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 			return
 		}
 		reply(proto.StackReply{OK: true})
+	case "tool":
+		var tr proto.ToolRequest
+		json.Unmarshal(m.Data, &tr)
+		sc, err := s.ScopeForRun(ctx, req.RunID)
+		if err != nil {
+			fail(err)
+			return
+		}
+		out, err := s.ExecTool(ctx, sc, tr.Tool, tr.Args)
+		if err != nil {
+			b, _ := json.Marshal(proto.ToolReply{Error: err.Error()})
+			m.Respond(b)
+			return
+		}
+		res, _ := json.Marshal(out)
+		b, _ := json.Marshal(proto.ToolReply{OK: true, Result: res})
+		m.Respond(b)
 	default:
 		fail(fmt.Errorf("unknown stack op %q", p[3]))
 	}

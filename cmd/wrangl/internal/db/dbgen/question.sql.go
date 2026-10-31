@@ -10,6 +10,42 @@ import (
 	"database/sql"
 )
 
+const answerQuestion = `-- name: AnswerQuestion :execrows
+UPDATE question SET state = 'answered', answer_option_id = ?1, answer_text = ?2,
+       answered_at = ?3
+WHERE id = ?4 AND state = 'open'
+`
+
+type AnswerQuestionParams struct {
+	OptionID sql.NullInt64  `json:"option_id"`
+	Text     string         `json:"text"`
+	Now      sql.NullString `json:"now"`
+	ID       int64          `json:"id"`
+}
+
+func (q *Queries) AnswerQuestion(ctx context.Context, arg AnswerQuestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, answerQuestion,
+		arg.OptionID,
+		arg.Text,
+		arg.Now,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const cancelRunQuestions = `-- name: CancelRunQuestions :exec
+UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system')
+`
+
+// Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
+func (q *Queries) CancelRunQuestions(ctx context.Context, runID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, cancelRunQuestions, runID)
+	return err
+}
+
 const createQuestion = `-- name: CreateQuestion :one
 INSERT INTO question (task_id, run_id, kind, prompt, detail_md, allow_free_text, payload_json)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -88,6 +124,31 @@ func (q *Queries) CreateQuestionOption(ctx context.Context, arg CreateQuestionOp
 	return i, err
 }
 
+const getQuestion = `-- name: GetQuestion :one
+SELECT id, task_id, run_id, kind, prompt, detail_md, allow_free_text, payload_json, state, answer_option_id, answer_text, created_at, answered_at FROM question WHERE id = ?
+`
+
+func (q *Queries) GetQuestion(ctx context.Context, id int64) (Question, error) {
+	row := q.db.QueryRowContext(ctx, getQuestion, id)
+	var i Question
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.RunID,
+		&i.Kind,
+		&i.Prompt,
+		&i.DetailMd,
+		&i.AllowFreeText,
+		&i.PayloadJson,
+		&i.State,
+		&i.AnswerOptionID,
+		&i.AnswerText,
+		&i.CreatedAt,
+		&i.AnsweredAt,
+	)
+	return i, err
+}
+
 const listOpenQuestions = `-- name: ListOpenQuestions :many
 SELECT id, task_id, run_id, kind, prompt, detail_md, allow_free_text, payload_json, state, answer_option_id, answer_text, created_at, answered_at FROM question WHERE state = 'open' ORDER BY created_at
 `
@@ -115,6 +176,95 @@ func (q *Queries) ListOpenQuestions(ctx context.Context) ([]Question, error) {
 			&i.AnswerText,
 			&i.CreatedAt,
 			&i.AnsweredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listQuestionOptions = `-- name: ListQuestionOptions :many
+SELECT id, question_id, position, label, value, description FROM question_option WHERE question_id = ? ORDER BY position
+`
+
+func (q *Queries) ListQuestionOptions(ctx context.Context, questionID int64) ([]QuestionOption, error) {
+	rows, err := q.db.QueryContext(ctx, listQuestionOptions, questionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []QuestionOption{}
+	for rows.Next() {
+		var i QuestionOption
+		if err := rows.Scan(
+			&i.ID,
+			&i.QuestionID,
+			&i.Position,
+			&i.Label,
+			&i.Value,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listQuestions = `-- name: ListQuestions :many
+SELECT q.id, q.task_id, q.run_id, q.kind, q.prompt, q.detail_md, q.allow_free_text, q.payload_json, q.state, q.answer_option_id, q.answer_text, q.created_at, q.answered_at, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
+       CAST(p.slug AS TEXT) AS project_slug
+FROM question q JOIN task t ON t.id = q.task_id JOIN project p ON p.id = t.project_id
+WHERE CAST(?1 AS INTEGER) = 0 OR q.state = 'open'
+ORDER BY q.id DESC LIMIT 200
+`
+
+type ListQuestionsRow struct {
+	Question    Question `json:"question"`
+	TaskSqid    string   `json:"task_sqid"`
+	TaskTitle   string   `json:"task_title"`
+	ProjectSlug string   `json:"project_slug"`
+}
+
+func (q *Queries) ListQuestions(ctx context.Context, openOnly int64) ([]ListQuestionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listQuestions, openOnly)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListQuestionsRow{}
+	for rows.Next() {
+		var i ListQuestionsRow
+		if err := rows.Scan(
+			&i.Question.ID,
+			&i.Question.TaskID,
+			&i.Question.RunID,
+			&i.Question.Kind,
+			&i.Question.Prompt,
+			&i.Question.DetailMd,
+			&i.Question.AllowFreeText,
+			&i.Question.PayloadJson,
+			&i.Question.State,
+			&i.Question.AnswerOptionID,
+			&i.Question.AnswerText,
+			&i.Question.CreatedAt,
+			&i.Question.AnsweredAt,
+			&i.TaskSqid,
+			&i.TaskTitle,
+			&i.ProjectSlug,
 		); err != nil {
 			return nil, err
 		}

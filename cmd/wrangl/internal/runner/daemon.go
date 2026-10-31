@@ -185,6 +185,19 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 	}); err != nil {
 		return err
 	}
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "answer"), func(m *nats.Msg) {
+		var a proto.Answer
+		if json.Unmarshal(m.Data, &a) == nil && !worker.DeliverAnswer(a) {
+			o.Log.Warn("answer for a question nobody is waiting on", "question", a.QuestionID)
+		}
+	}); err != nil {
+		return err
+	}
+	go func() {
+		if err := worker.ServeAgentSocket(ctx, cfg.Socket()); err != nil {
+			o.Log.Error("agent socket", "path", cfg.Socket(), "err", err)
+		}
+	}()
 	for _, kind := range []string{"diff", "tree", "file"} {
 		if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, kind), func(m *nats.Msg) {
 			var ref proto.RunRef
