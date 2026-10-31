@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#1f6f5c">
+<meta name="theme-color" content="#0f1115">
+<meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>{{.Title}} · wrangl</title>
 <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
@@ -19,6 +20,16 @@
 <script type="module" src="/static/vendor/datastar-1.0.0-beta.11.js"></script>
 </head>
 <body data-view="{{.View}}">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="ti-code" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></symbol>
+    <symbol id="ti-ux" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="15" rx="2"/><path d="M3 9h18M9 9v10"/></symbol>
+    <symbol id="ti-architecture" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 12.5l9 5 9-5"/><path d="M3 17l9 5 9-5"/></symbol>
+    <symbol id="ti-spec" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.5h6V4M8.5 10l1.5 1.5 3-3M8.5 16h7"/></symbol>
+    <symbol id="ti-docs" viewBox="0 0 24 24"><path d="M3 5h6a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H3z"/><path d="M21 5h-6a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h7z"/></symbol>
+    <symbol id="ti-review" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/></symbol>
+  </defs>
+</svg>
 <header class="top">
   {{if ne .View "backlog"}}<button class="back" onclick="history.length > 1 ? history.back() : location.assign('/backlog')" aria-label="Back">‹</button>{{end}}
   <h1>{{.Title}}</h1>

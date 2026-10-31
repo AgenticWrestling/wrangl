@@ -15,18 +15,21 @@
   <div class="row">
     <span class="handle" aria-label="Drag to reorder">⠿</span>
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
+    {{ticon .Type}}
     <a class="title" href="/task/{{.Sqid}}">{{.Title}}</a>
+    {{if .Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
+    {{if or (eq .State "in_progress") .LockedBy}}<span class="tag prog" title="{{if .LockedBy}}running on {{.LockedBy}}{{else}}in progress{{end}}">▶ {{if .LockedBy}}{{.LockedBy}}{{else}}in progress{{end}}</span>{{end}}
+    {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
     <code class="sqid">{{.Sqid}}</code>
-    {{if .Unmet}}<span class="pill warn" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
-    {{if .LockedBy}}<span class="pill lock" title="locked by a run">🔒 {{.LockedBy}}</span>{{end}}
   </div>
   <ul class="tasks sortable" data-parent="{{.Sqid}}">{{template "tasklist" .Kids}}</ul>
 </li>{{end}}{{end}}
 
 {{define "post-backlog"}}{{if .Project}}
-<dialog id="sheet-new" class="sheet">
+<dialog id="sheet-new" class="sheet" data-signals-ttype="'code'">
   <h2>New task in {{.Project}}</h2>
   <label>Title<input data-bind="title" placeholder="What needs doing?" autocomplete="off"></label>
+  {{template "typepick" .Types}}
   <label>Prompt<textarea data-bind="prompt" rows="6" placeholder="Instructions for the agent (markdown)"></textarea></label>
   <label class="check"><input type="checkbox" data-bind="queue"> Queue it now</label>
   <div class="actions">
@@ -34,3 +37,12 @@
     <button class="btn primary" data-on-click="@post('/ui/act/task-new?project={{.Project}}')" data-close>Create</button>
   </div>
 </dialog>{{end}}{{end}}
+
+
+{{define "typepick"}}<fieldset class="types"><legend>Type</legend>
+  {{range .}}<label class="typeopt"><input type="radio" name="ttype" value="{{.}}" data-bind="ttype"{{if eq (print .) "code"}} checked{{end}}>{{ticon .}}<span>{{.Label}}</span></label>{{end}}
+</fieldset>{{end}}
+
+{{define "typepick-edit"}}<fieldset class="types"><legend>Type</legend>
+  {{$cur := .Cur}}{{range .Types}}<label class="typeopt"><input type="radio" name="etype" value="{{.}}" data-bind="etype"{{if eq (print .) $cur}} checked{{end}}>{{ticon .}}<span>{{.Label}}</span></label>{{end}}
+</fieldset>{{end}}

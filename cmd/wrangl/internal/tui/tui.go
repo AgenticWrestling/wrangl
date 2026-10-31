@@ -551,7 +551,11 @@ func (m Model) View() string {
 			if n.LockedBy != "" {
 				extra += "  🔒 " + n.LockedBy
 			}
-			lines = append(lines, fmt.Sprintf("%s%s %s %s%s", strings.Repeat("  ", int(n.Depth)), n.Sqid, glyph[n.State], n.Title, extra))
+			title := n.Title
+			if m := typeMark[n.Type]; m != "" {
+				title = m + " " + title
+			}
+			lines = append(lines, fmt.Sprintf("%s%s %s %s%s", strings.Repeat("  ", int(n.Depth)), n.Sqid, glyph[n.State], title, extra))
 		}
 	case tabQuestions:
 		for _, q := range m.d.questions {
@@ -610,3 +614,6 @@ func dash(s string) string {
 	}
 	return s
 }
+
+// typeMark marks non-code task types in the work-stack pane.
+var typeMark = map[string]string{"ux": "[ux]", "architecture": "[arch]", "spec": "[spec]", "docs": "[docs]", "review": "[review]"}

@@ -5,11 +5,14 @@ package stacktools
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/mcp"
 )
 
 var position = `"position": {"type": "object", "description": "where among siblings (default last)", "properties": {"first": {"type": "boolean"}, "after": {"type": "string", "description": "sibling sqid"}, "before": {"type": "string", "description": "sibling sqid"}}}`
+
+var taskType = `"type":{"type":"string","enum":["code","ux","architecture","spec","docs","review"],"description":"task type (default: the parent's, else code)"},`
 
 func raw(s string) json.RawMessage { return json.RawMessage(s) }
 
@@ -24,9 +27,9 @@ var All = []mcp.Tool{
 	{Name: "task_next", Description: "Peek at the next ready task in your assignment (does not change anything).",
 		InputSchema: mcp.Schema(nil)},
 	{Name: "task_create", Description: "Create a subtask under a task in your assignment. Use this when you discover more work.",
-		InputSchema: raw(`{"type":"object","required":["parent","title"],"properties":{"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + position + `}}`)},
-	{Name: "task_update", Description: "Change a task's title and/or prompt.",
-		InputSchema: mcp.Schema(map[string]string{"sqid": "string", "title": "string", "prompt": "string"}, "sqid")},
+		InputSchema: raw(`{"type":"object","required":["parent","title"],"properties":{"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","ux","architecture","spec","docs","review"],"description":"task type (default: the parent's, else code)"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + position + `}}`)},
+	{Name: "task_update", Description: "Change a task's title, prompt and/or type (code, ux, architecture, spec, docs, review).",
+		InputSchema: raw(`{"type":"object","required":["sqid"],"properties":{"sqid":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},` + strings.TrimSuffix(taskType, ",") + `}}`)},
 	{Name: "task_move", Description: "Move a task to a new parent within your assignment and/or rerank it among its siblings.",
 		InputSchema: raw(`{"type":"object","required":["sqid"],"properties":{"sqid":{"type":"string"},"parent":{"type":"string","description":"new parent sqid (omit to keep)"},` + position + `}}`)},
 	{Name: "task_needs_add", Description: "Make a task depend on a precursor (any task in the project). Cycles are refused.",
@@ -48,7 +51,7 @@ var All = []mcp.Tool{
 	{Name: "submit_review", Description: "Review runs only: submit your review of the pull request. risk is low, medium or high.",
 		InputSchema: raw(`{"type":"object","required":["risk","summary_md"],"properties":{"risk":{"type":"string","enum":["low","medium","high"]},"summary_md":{"type":"string"},"concerns":{"type":"array","items":{"type":"string"}}}}`)},
 	{Name: "propose_split", Description: "Plan runs only: propose subtasks for the task. Nested children allowed. This ends the plan run.",
-		InputSchema: raw(`{"type":"object","required":["children"],"properties":{"chain":{"type":"boolean","description":"each top-level subtask needs the previous"},"rationale_md":{"type":"string"},"children":{"type":"array","items":{"type":"object","required":["title"],"properties":{"title":{"type":"string"},"prompt":{"type":"string"},"children":{"type":"array"}}}}}}`)},
+		InputSchema: raw(`{"type":"object","required":["children"],"properties":{"chain":{"type":"boolean","description":"each top-level subtask needs the previous"},"rationale_md":{"type":"string"},"children":{"type":"array","items":{"type":"object","required":["title"],"properties":{"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","ux","architecture","spec","docs","review"],"description":"task type (default: the parent's, else code)"},"children":{"type":"array"}}}}}}`)},
 }
 
 // UserTools are only for the owner's own agents (the controller's /mcp endpoint).
@@ -63,7 +66,7 @@ var UserTools = []mcp.Tool{
 
 // userTaskCreate replaces task_create for the owner: a top-level task needs a project.
 var userTaskCreate = mcp.Tool{Name: "task_create", Description: "Create a task: top-level in a project (give project), or a subtask (give parent).",
-	InputSchema: raw(`{"type":"object","required":["title"],"properties":{"project":{"type":"string","description":"project slug, for a top-level task"},"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + position + `}}`)}
+	InputSchema: raw(`{"type":"object","required":["title"],"properties":{"project":{"type":"string","description":"project slug, for a top-level task"},"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","ux","architecture","spec","docs","review"],"description":"task type (default: the parent's, else code)"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + position + `}}`)}
 
 var readTools = []string{"task_get", "task_tree", "task_list", "task_next", "ask_question", "report_status"}
 

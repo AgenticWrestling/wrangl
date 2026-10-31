@@ -9,6 +9,7 @@ import (
 	"github.com/sqids/sqids-go"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 )
 
 func TestTaskTree(t *testing.T) {
@@ -22,7 +23,7 @@ func TestTaskTree(t *testing.T) {
 	ex(`INSERT INTO repo (project_id, owner, name) VALUES (1,'o','r')`)
 	sq, _ := sqids.New(sqids.Options{MinLength: 6})
 	mk := func(parent sql.NullInt64, rank, title string) int64 {
-		id, err := q.CreateTask(ctx, dbgen.CreateTaskParams{ProjectID: 1, ParentID: parent, Rank: rank, Title: title, CreatedBy: "user"})
+		id, err := q.CreateTask(ctx, dbgen.CreateTaskParams{ProjectID: 1, ParentID: parent, Rank: rank, Title: title, CreatedBy: "user", TaskType: dbtypes.TaskCode})
 		if err != nil {
 			t.Fatal(title, err)
 		}

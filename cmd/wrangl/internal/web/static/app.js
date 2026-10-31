@@ -95,7 +95,14 @@ function initTerminal() {
   el.dataset.ready = '1';
   const term = new Terminal({
     convertEol: false, disableStdin: true, cursorBlink: false, fontSize: 12, scrollback: 5000,
-    theme: matchMedia('(prefers-color-scheme: dark)').matches ? {} : { background: '#fbfaf7', foreground: '#222', cursor: '#222' },
+    // The PWA's 16-colour palette: ANSI slots get the Okabe–Ito accents.
+    theme: {
+      background: '#0f1115', foreground: '#eef0f3', cursor: '#56b4e9', selectionBackground: '#2c313c',
+      black: '#1f232b', red: '#d55e00', green: '#009e73', yellow: '#f0e442',
+      blue: '#0072b2', magenta: '#cc79a7', cyan: '#56b4e9', white: '#c5cad3',
+      brightBlack: '#4b5261', brightRed: '#e69f00', brightGreen: '#3fc39b', brightYellow: '#f5ec7a',
+      brightBlue: '#a6d8f5', brightMagenta: '#e3a6c8', brightCyan: '#a6d8f5', brightWhite: '#eef0f3',
+    },
   });
   const fit = window.FitAddon ? new FitAddon.FitAddon() : null;
   if (fit) term.loadAddon(fit);

@@ -3,8 +3,8 @@
 -- Other sqlc workarounds in this file are documented in the M1 plan ("Verified up front").
 
 -- name: CreateTask :one
-INSERT INTO task (project_id, parent_id, rank, repo_id, template_id, title, prompt, created_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO task (project_id, parent_id, rank, repo_id, template_id, title, prompt, created_by, task_type)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id;
 
 -- name: SetTaskSqid :exec
@@ -119,6 +119,10 @@ UPDATE task SET title = sqlc.arg(title), prompt = sqlc.arg(prompt),
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE id = sqlc.arg(id) RETURNING *;
 
+-- name: SetTaskType :exec
+UPDATE task SET task_type = sqlc.arg(task_type), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = sqlc.arg(id);
+
 -- name: MoveTask :exec
 UPDATE task SET parent_id = sqlc.narg(parent_id), rank = sqlc.arg(rank),
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -167,7 +171,7 @@ WITH RECURSIVE sub (id, depth, path) AS (
     SELECT c.id, sub.depth + 1, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
 )
 SELECT task.id, CAST(COALESCE(task.sqid, '') AS TEXT) AS sqid, task.parent_id, task.title, task.state, task.rank,
-       task.repo_id, task.template_id, task.created_by,
+       task.repo_id, task.template_id, task.created_by, task.task_type,
        CAST(sub.depth AS INTEGER) AS depth,
        CAST((SELECT COUNT(*) FROM task_dependency d JOIN task p ON p.id = d.depends_on_id
              WHERE d.task_id = task.id AND p.state <> 'done') AS INTEGER) AS unmet,

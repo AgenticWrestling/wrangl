@@ -27,7 +27,11 @@ func printTree(w io.Writer, nodes []proto.TaskNode) {
 		if n.LockedBy != "" {
 			extra += "  🔒 " + n.LockedBy
 		}
-		fmt.Fprintf(w, "%s%s %s %s%s\n", strings.Repeat("  ", int(n.Depth-base)), n.Sqid, stateGlyph[n.State], n.Title, extra)
+		title := n.Title
+		if m := typeMark[n.Type]; m != "" {
+			title = m + " " + title
+		}
+		fmt.Fprintf(w, "%s%s %s %s%s\n", strings.Repeat("  ", int(n.Depth-base)), n.Sqid, stateGlyph[n.State], title, extra)
 	}
 }
 
@@ -58,6 +62,11 @@ func positionArgs(c *cobra.Command) (first bool, after, before string) {
 	return
 }
 
+const typeHelp = "task type: code, ux, architecture, spec, docs, review (default: the parent's, else code)"
+
+// typeMark is the CLI/TUI marker for a task type ("" for code).
+var typeMark = map[string]string{"ux": "[ux]", "architecture": "[arch]", "spec": "[spec]", "docs": "[docs]", "review": "[review]"}
+
 func taskCmd(g *Global) *cobra.Command {
 	client := func() (*clientT, error) { return apiClient(g) }
 
@@ -76,6 +85,7 @@ func taskCmd(g *Global) *cobra.Command {
 			req.Template, _ = f.GetString("template")
 			req.Issue, _ = f.GetString("issue")
 			req.Needs, _ = f.GetStringSlice("needs")
+			req.Type, _ = f.GetString("type")
 			req.First, req.After, req.Before = positionArgs(cmd)
 			if p, err := promptArg(cmd); err != nil {
 				return err
@@ -98,6 +108,7 @@ func taskCmd(g *Global) *cobra.Command {
 	cf.String("template", "", "runner template (default: inherited)")
 	cf.String("issue", "", "linked GitHub issue (owner/name#number)")
 	cf.StringSlice("needs", nil, "precursor task sqids")
+	cf.String("type", "", typeHelp)
 	positionFlags(create)
 	create.MarkFlagsMutuallyExclusive("prompt", "file")
 	create.MarkFlagRequired("title")
@@ -201,7 +212,7 @@ func taskCmd(g *Global) *cobra.Command {
 	}
 
 	edit := &cobra.Command{
-		Use: "edit <sqid>", Short: "Edit a task's title or prompt", Args: cobra.ExactArgs(1),
+		Use: "edit <sqid>", Short: "Edit a task's title, prompt or type", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := client()
 			if err != nil {
@@ -215,12 +226,17 @@ func taskCmd(g *Global) *cobra.Command {
 			if req.Prompt, err = promptArg(cmd); err != nil {
 				return err
 			}
+			if cmd.Flags().Changed("type") {
+				t, _ := cmd.Flags().GetString("type")
+				req.Type = &t
+			}
 			_, err = c.EditTask(cmd.Context(), args[0], req)
 			return err
 		},
 	}
 	edit.Flags().String("title", "", "new title")
 	edit.Flags().String("prompt", "", "new prompt")
+	edit.Flags().String("type", "", typeHelp)
 	edit.Flags().StringP("file", "f", "", "read the new prompt from a file")
 	edit.MarkFlagsMutuallyExclusive("prompt", "file")
 

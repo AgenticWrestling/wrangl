@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"image"
 	"image/color"
@@ -21,6 +22,7 @@ import (
 	gmhtml "github.com/yuin/goldmark/renderer/html"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 )
 
 var (
@@ -63,18 +65,17 @@ func highlight(path, content string) template.HTML {
 		return template.HTML("<pre class=\"chroma\">" + template.HTMLEscapeString(content) + "</pre>")
 	}
 	var b bytes.Buffer
-	if err := formatter.Format(&b, styles.Get("github"), it); err != nil {
+	if err := formatter.Format(&b, styles.Get("github-dark"), it); err != nil {
 		return template.HTML("<pre class=\"chroma\">" + template.HTMLEscapeString(content) + "</pre>")
 	}
 	return template.HTML(b.String())
 }
 
-// chromaCSS is the light style plus a dark one under prefers-color-scheme.
+// chromaCSS is the dark highlight style (the PWA is dark-only).
 func chromaCSS() string {
-	var light, dark bytes.Buffer
-	formatter.WriteCSS(&light, styles.Get("github"))
+	var dark bytes.Buffer
 	formatter.WriteCSS(&dark, styles.Get("github-dark"))
-	return light.String() + "\n@media (prefers-color-scheme: dark) {\n" + dark.String() + "\n}\n"
+	return dark.String()
 }
 
 var (
@@ -104,8 +105,8 @@ func (h *Handler) icon(w http.ResponseWriter, r *http.Request) {
 // drawIcon draws a lasso-ish ring with a dot on the brand colour.
 func drawIcon(n int) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, n, n))
-	bg := color.RGBA{0x1f, 0x6f, 0x5c, 0xff}
-	fg := color.RGBA{0xf4, 0xf1, 0xe8, 0xff}
+	bg := color.RGBA{0x0f, 0x11, 0x15, 0xff}
+	fg := color.RGBA{0x56, 0xb4, 0xe9, 0xff}
 	c := float64(n) / 2
 	for y := 0; y < n; y++ {
 		for x := 0; x < n; x++ {
@@ -134,4 +135,15 @@ func projectsParams(template string) projects.ProjectParams {
 		p.Template = &template
 	}
 	return p
+}
+
+// typeIcon renders a task type's icon from the sprite in the layout. Types are told apart
+// by shape (colour is kept for status tags), and carry a text label for screen readers.
+func typeIcon(t any) template.HTML {
+	name := fmt.Sprint(t)
+	if !dbtypes.TaskType(name).Valid() {
+		name = string(dbtypes.TaskCode)
+	}
+	label := dbtypes.TaskType(name).Label()
+	return template.HTML(fmt.Sprintf(`<svg class="ticon ti-%s" role="img" aria-label="%s"><title>%s</title><use href="#ti-%s"/></svg>`, name, label, label, name))
 }

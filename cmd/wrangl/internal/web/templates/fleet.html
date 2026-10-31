@@ -49,7 +49,7 @@
 {{end}}
 
 {{define "runrows"}}{{range .}}<a class="row link" href="/run/{{.Run.ID}}">
-  <span class="pill run-{{.Run.State}}">{{.Run.State}}</span>
+  {{template "runtag" .Run.State}}
   <span class="title">#{{.Run.ID}} {{.TaskTitle}}</span>
   <span class="dim small">{{.ProjectSlug}}/{{.TaskSqid}}{{if ne .Run.Kind "work"}} · {{.Run.Kind}}{{end}}{{if .RunnerName}} · {{.RunnerName}}{{end}} · {{ago .Run.QueuedAt}}</span>
 </a>{{end}}{{end}}
@@ -58,3 +58,6 @@
 {{range $name := .Order}}{{with index $g $name}}<section class="card"><h3>{{$name}}</h3>{{template "runrows" .}}</section>{{end}}{{end}}
 {{if not .Groups}}<p class="empty">No runs yet. Queue a task from the backlog.</p>{{end}}
 {{end}}
+
+
+{{define "runtag"}}{{if or (eq . "needs_input") (eq . "blocked") (eq . "failed")}}<span class="tag attn">! {{.}}</span>{{else if or (eq . "running") (eq . "preparing") (eq . "assigned") (eq . "pushing") (eq . "cancelling")}}<span class="tag prog">▶ {{.}}</span>{{else if eq . "succeeded"}}<span class="tag ok">✓ {{.}}</span>{{else}}<span class="pill">{{.}}</span>{{end}}{{end}}

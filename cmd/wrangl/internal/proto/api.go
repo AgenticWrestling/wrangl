@@ -133,6 +133,7 @@ type TaskNode struct {
 	Parent   string `json:"parent,omitempty"`
 	Title    string `json:"title"`
 	State    string `json:"state"`
+	Type     string `json:"type"`
 	Depth    int64  `json:"depth"`
 	Unmet    int64  `json:"unmet_precursors,omitempty"`
 	Children int64  `json:"children,omitempty"`
@@ -173,6 +174,7 @@ type TaskDetail struct {
 	Title      string          `json:"title"`
 	Prompt     string          `json:"prompt"`
 	State      string          `json:"state"`
+	Type       string          `json:"type"`
 	CreatedBy  string          `json:"created_by"`
 	Summary    string          `json:"summary,omitempty"`
 	Children   []TaskRef       `json:"children"`
@@ -195,12 +197,14 @@ type TaskCreateRequest struct {
 	Template string   `json:"template,omitempty"`
 	Issue    string   `json:"issue,omitempty"`
 	Needs    []string `json:"needs,omitempty"`
+	Type     string   `json:"type,omitempty"` // code | ux | architecture | spec | docs | review
 }
 
-// TaskPatchRequest edits title/prompt.
+// TaskPatchRequest edits title/prompt/type.
 type TaskPatchRequest struct {
 	Title  *string `json:"title,omitempty"`
 	Prompt *string `json:"prompt,omitempty"`
+	Type   *string `json:"type,omitempty"`
 }
 
 // TaskMoveRequest moves/reranks a task. Parent nil + Root false = keep parent.
@@ -216,6 +220,7 @@ type TaskMoveRequest struct {
 type SplitNode struct {
 	Title    string      `json:"title"`
 	Prompt   string      `json:"prompt,omitempty"`
+	Type     string      `json:"type,omitempty"`
 	Children []SplitNode `json:"children,omitempty"`
 }
 

@@ -6,6 +6,8 @@ package dbgen
 
 import (
 	"database/sql"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 )
 
 type EnrollmentToken struct {
@@ -230,23 +232,24 @@ type RunnerTemplate struct {
 }
 
 type Task struct {
-	ID                int64          `json:"id"`
-	Sqid              sql.NullString `json:"sqid"`
-	ProjectID         int64          `json:"project_id"`
-	ParentID          sql.NullInt64  `json:"parent_id"`
-	Rank              string         `json:"rank"`
-	RepoID            sql.NullInt64  `json:"repo_id"`
-	IssueID           sql.NullInt64  `json:"issue_id"`
-	TemplateID        sql.NullInt64  `json:"template_id"`
-	Title             string         `json:"title"`
-	Prompt            string         `json:"prompt"`
-	State             string         `json:"state"`
-	CreatedBy         string         `json:"created_by"`
-	CompletionSummary string         `json:"completion_summary"`
-	CompletedRunID    sql.NullInt64  `json:"completed_run_id"`
-	CreatedAt         string         `json:"created_at"`
-	UpdatedAt         string         `json:"updated_at"`
-	CompletedAt       sql.NullString `json:"completed_at"`
+	ID                int64            `json:"id"`
+	Sqid              sql.NullString   `json:"sqid"`
+	ProjectID         int64            `json:"project_id"`
+	ParentID          sql.NullInt64    `json:"parent_id"`
+	Rank              string           `json:"rank"`
+	RepoID            sql.NullInt64    `json:"repo_id"`
+	IssueID           sql.NullInt64    `json:"issue_id"`
+	TemplateID        sql.NullInt64    `json:"template_id"`
+	Title             string           `json:"title"`
+	Prompt            string           `json:"prompt"`
+	State             string           `json:"state"`
+	CreatedBy         string           `json:"created_by"`
+	CompletionSummary string           `json:"completion_summary"`
+	CompletedRunID    sql.NullInt64    `json:"completed_run_id"`
+	CreatedAt         string           `json:"created_at"`
+	UpdatedAt         string           `json:"updated_at"`
+	CompletedAt       sql.NullString   `json:"completed_at"`
+	TaskType          dbtypes.TaskType `json:"task_type"`
 }
 
 type TaskDependency struct {

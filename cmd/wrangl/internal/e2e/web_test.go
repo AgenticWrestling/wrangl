@@ -55,7 +55,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/inbox", "plan_review", "another big job", `pre class="outline"`)
 	get("/more", "enablePush", "tiny", "sheet-project")
 	get("/static/app.js", "moveTask")
-	get("/static/chroma.css", ".chroma", "prefers-color-scheme")
+	get("/static/chroma.css", ".chroma")
 	get("/sw.js", "notificationclick")
 	get("/manifest.webmanifest", `"standalone"`)
 	if png := get("/icons/192.png"); !strings.HasPrefix(png, "\x89PNG") {
@@ -85,7 +85,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	}
 
 	// Actions: create (signals as JSON), split, and a failing action's error toast.
-	if out := post("/ui/act/task-new?project=web", `{"title":"from the phone","prompt":"tap tap"}`); !strings.Contains(out, "created ") || !strings.Contains(out, "datastar-merge-signals") {
+	if out := post("/ui/act/task-new?project=web", `{"title":"from the phone","prompt":"tap tap","ttype":"docs"}`); !strings.Contains(out, "created ") || !strings.Contains(out, "datastar-merge-signals") {
 		t.Fatalf("task-new: %s", out)
 	}
 	var sqid string
@@ -98,6 +98,16 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	if sqid == "" {
 		t.Fatalf("created task not in backlog: %+v", bl)
 	}
+	if d := e.task(sqid); d.Type != "docs" {
+		t.Fatalf("task-new type: %q", d.Type)
+	}
+	if out := post("/ui/act/task-edit?sqid="+sqid, `{"etitle":"from the phone","eprompt":"tap tap","etype":"review"}`); !strings.Contains(out, "saved") {
+		t.Fatalf("task-edit: %s", out)
+	}
+	if d := e.task(sqid); d.Type != "review" {
+		t.Fatalf("task-edit type: %q", d.Type)
+	}
+	get("/backlog?project=web", `id="ti-review"`, `class="ticon ti-review"`)
 	if out := post("/ui/act/task-split?sqid="+sqid, `{"outline":"- one\n- two\n  - two.a","chain":true}`); !strings.Contains(out, "split into 2") {
 		t.Fatalf("split: %s", out)
 	}

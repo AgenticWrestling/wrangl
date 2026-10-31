@@ -93,7 +93,7 @@ func (p *posArg) pos() stack.Position {
 }
 
 func taskJSON(t dbgen.Task) map[string]any {
-	return map[string]any{"sqid": t.Sqid.String, "title": t.Title, "state": t.State}
+	return map[string]any{"sqid": t.Sqid.String, "title": t.Title, "state": t.State, "type": string(t.TaskType)}
 }
 
 // ExecTool runs one work-stack tool for a caller.
@@ -107,6 +107,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		Position                                                                      *posArg
 		Percent                                                                       *int
 		Limit                                                                         *int
+		Type                                                                          string
 		// ask_question
 		DetailMD      string                 `json:"detail_md"`
 		AllowFreeText bool                   `json:"allow_free_text"`
@@ -279,7 +280,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 			return nil, fmt.Errorf("%w: give parent, or project for a top-level task", errs.Invalid)
 		}
 		t, err := s.Stack.Create(ctx, stack.CreateParams{Project: project, Parent: a.Parent, Title: a.Title, Prompt: a.Prompt,
-			Pos: a.Position.pos(), Needs: a.Needs, Actor: sc.Actor})
+			Pos: a.Position.pos(), Needs: a.Needs, Type: a.Type, Actor: sc.Actor})
 		if err != nil {
 			return nil, err
 		}
@@ -296,9 +297,17 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		if raw != nil && strings.Contains(string(raw), `"prompt"`) {
 			prompt = &a.Prompt
 		}
-		t, err := s.Stack.Edit(ctx, a.Sqid, title, prompt, sc.Actor)
-		if err != nil {
-			return nil, err
+		var t dbgen.Task
+		var err error
+		if a.Type != "" {
+			if t, err = s.Stack.SetType(ctx, a.Sqid, a.Type, sc.Actor); err != nil {
+				return nil, err
+			}
+		}
+		if title != nil || prompt != nil || a.Type == "" {
+			if t, err = s.Stack.Edit(ctx, a.Sqid, title, prompt, sc.Actor); err != nil {
+				return nil, err
+			}
 		}
 		return taskJSON(t), nil
 

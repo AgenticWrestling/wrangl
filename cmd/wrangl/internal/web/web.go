@@ -24,6 +24,7 @@ import (
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/api"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
@@ -56,6 +57,11 @@ func New(d api.Deps) (*Handler, error) {
 		"hasSuffix": strings.HasSuffix,
 		"lower":     strings.ToLower,
 		"outline":   outlineFromPayload,
+		"ticon":     typeIcon,
+		"typeEdit": func(types []dbtypes.TaskType, cur dbtypes.TaskType) map[string]any {
+			return map[string]any{"Types": types, "Cur": string(cur)}
+		},
+		"tlabel": func(t string) string { return dbtypes.TaskType(t).Label() },
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, err
@@ -252,7 +258,8 @@ func toast(w http.ResponseWriter, msg string, isErr bool) {
 
 type node struct {
 	proto.TaskNode
-	Kids []*node
+	Attention bool // an open question, or its latest run failed / is blocked
+	Kids      []*node
 }
 
 func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[string]any, error) {
@@ -270,6 +277,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			slug = projects[0].Slug
 		}
 		d["Project"], d["Title"] = slug, "Backlog"
+		d["Types"] = dbtypes.TaskTypes
 		d["All"] = r.URL.Query().Get("all") == "1"
 		if slug != "" {
 			roots, err := h.tree(ctx, slug, d["All"].(bool))
@@ -286,6 +294,8 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		p, _ := db.RQ.GetProject(ctx, t.ProjectID)
 		d["Task"], d["Project"], d["Title"] = t, p.Slug, t.Title
+		d["Attention"] = h.attention(ctx, p.Slug)[sqid] && t.State != "done" && t.State != "cancelled"
+		d["Types"] = dbtypes.TaskTypes
 		if t.ParentID.Valid {
 			if pt, err := db.RQ.GetTask(ctx, t.ParentID.Int64); err == nil {
 				d["Parent"] = pt
@@ -491,11 +501,13 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, err
 	for _, r := range active {
 		locks[r.Run.TaskID] = map[bool]string{true: r.RunnerName, false: "queued"}[r.RunnerName != ""]
 	}
+	attn := h.attention(ctx, slug)
 	byID := map[int64]*node{}
 	var roots []*node
 	lockOf := map[int64]string{}
 	for _, t := range rows {
-		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children}}
+		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
+			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled"}
 		lock := locks[t.ID]
 		if lock == "" && t.ParentID.Valid {
 			lock = lockOf[t.ParentID.Int64]
@@ -513,6 +525,32 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, err
 		}
 	}
 	return roots, nil
+}
+
+// attention is the set of task sqids that need the owner: an open question on the task,
+// or the task's most recent run failed, is blocked or waits for input.
+func (h *Handler) attention(ctx context.Context, project string) map[string]bool {
+	out := map[string]bool{}
+	if qs, err := h.D.Runs.Questions(ctx, false); err == nil {
+		for _, q := range qs {
+			if q.Project == project {
+				out[q.Task] = true
+			}
+		}
+	}
+	runs, _ := h.D.Fleet.DB.RQ.ListRuns(ctx, dbgen.ListRunsParams{Project: project, Lim: 500})
+	seen := map[string]bool{}
+	for _, r := range runs { // newest first: only the latest run per task counts
+		if seen[r.TaskSqid] {
+			continue
+		}
+		seen[r.TaskSqid] = true
+		switch r.Run.State {
+		case "failed", "blocked", "needs_input":
+			out[r.TaskSqid] = true
+		}
+	}
+	return out
 }
 
 // outlineFromPayload turns a plan proposal into the split sheet's outline text.
@@ -553,10 +591,13 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	case "task-new":
 		var t dbgen.Task
 		pos := stack.Position{First: q.Get("first") == "1", After: q.Get("after")}
-		t, err = h.D.Stack.Create(ctx, stack.CreateParams{Project: q.Get("project"), Parent: q.Get("parent"), Title: str("title"), Prompt: str("prompt"), Pos: pos, Actor: stack.User})
+		t, err = h.D.Stack.Create(ctx, stack.CreateParams{Project: q.Get("project"), Parent: q.Get("parent"), Title: str("title"), Prompt: str("prompt"), Type: str("ttype"), Pos: pos, Actor: stack.User})
 		if err == nil {
 			msg = "created " + t.Sqid.String
 			reset = map[string]any{"title": "", "prompt": "", "queue": false}
+			if q.Get("parent") == "" { // the backlog sheet's type picker (subtasks inherit instead)
+				reset["ttype"] = "code"
+			}
 			if flag("queue") {
 				if _, qerr := h.D.Stack.Queue(ctx, t.Sqid.String); qerr != nil {
 					msg += " (not queued: " + qerr.Error() + ")"
@@ -567,7 +608,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		}
 	case "task-edit":
 		title, prompt := str("etitle"), str("eprompt")
-		_, err = h.D.Stack.Edit(ctx, sqid, &title, &prompt, stack.User)
+		if _, err = h.D.Stack.Edit(ctx, sqid, &title, &prompt, stack.User); err == nil && str("etype") != "" {
+			_, err = h.D.Stack.SetType(ctx, sqid, str("etype"), stack.User)
+		}
 		msg = "saved"
 	case "task-split":
 		var nodes []stack.SplitNode

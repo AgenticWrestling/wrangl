@@ -1,6 +1,6 @@
 {{define "runhead"}}{{$run := .Run}}
 <div class="meta">
-  <span class="pill run-{{$run.State}}">{{$run.State}}</span>
+  {{template "runtag" $run.State}}
   <span>{{$run.Kind}}{{if gt $run.Attempt 1}} · attempt {{$run.Attempt}}{{end}}</span>
   {{with .Task}}<a href="/task/{{.Sqid.String}}">{{.Title}}</a> <code>{{.Sqid.String}}</code>{{end}}
   {{with .Runner}}<a href="/runner/{{.}}">{{.}}</a>{{end}}

@@ -2,6 +2,9 @@
 <section class="card">
   <div class="meta">
     <span class="pill st-{{$t.State}}">{{glyph $t.State}} {{$t.State}}</span>
+    <span class="typechip">{{ticon $t.TaskType}} {{tlabel (print $t.TaskType)}}</span>
+    {{if .Attention}}<span class="tag attn">! needs attention</span>{{end}}
+    {{if eq $t.State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}
     <code>{{$t.Sqid.String}}</code>
     <a href="/backlog?project={{.Project}}">{{.Project}}</a>
     {{with .Parent}}› <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{end}}
@@ -24,7 +27,7 @@
 
 {{if .Kids}}<section class="card"><h3>Subtasks</h3>
 <ul class="tasks sortable" data-parent="{{$t.Sqid.String}}">{{range .Kids}}<li class="task st-{{.State}}" data-sqid="{{.Sqid.String}}"><div class="row">
-  <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span><a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a><code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
+  <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
 </section>{{end}}
 
 {{if or .Pre .Dep}}<section class="card"><h3>Dependencies</h3>
@@ -33,7 +36,7 @@
 </section>{{end}}
 
 {{if .Runs}}<section class="card"><h3>Runs</h3>
-  {{range .Runs}}<a class="row link" href="/run/{{.ID}}"><span class="pill run-{{.State}}">{{.State}}</span> #{{.ID}} {{.Kind}}{{if gt .Attempt 1}} (attempt {{.Attempt}}){{end}} <span class="dim">{{.RunnerName}} · {{ago .QueuedAt}}</span></a>{{end}}
+  {{range .Runs}}<a class="row link" href="/run/{{.ID}}">{{template "runtag" .State}} #{{.ID}} {{.Kind}}{{if gt .Attempt 1}} (attempt {{.Attempt}}){{end}} <span class="dim">{{.RunnerName}} · {{ago .QueuedAt}}</span></a>{{end}}
 </section>{{end}}
 
 {{if .Events}}<details class="card"><summary>History ({{len .Events}})</summary>
@@ -42,9 +45,10 @@
 {{end}}
 
 {{define "post-task"}}{{$t := .Task}}{{$s := $t.Sqid.String}}
-<dialog id="sheet-edit" class="sheet" data-signals-etitle="{{json $t.Title}}" data-signals-eprompt="{{json $t.Prompt}}">
+<dialog id="sheet-edit" class="sheet" data-signals-etitle="{{json $t.Title}}" data-signals-eprompt="{{json $t.Prompt}}" data-signals-etype="{{json $t.TaskType}}">
   <h2>Edit {{$s}}</h2>
   <label>Title<input data-bind="etitle"></label>
+  {{template "typepick-edit" (typeEdit .Types $t.TaskType)}}
   <label>Prompt<textarea data-bind="eprompt" rows="10"></textarea></label>
   <div class="actions">
     <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
@@ -54,7 +58,7 @@
 
 <dialog id="sheet-split" class="sheet" data-signals-outline="{{json .SplitOutline}}">
   <h2>Split {{$s}}</h2>
-  <p class="hint">One subtask per line; indent two spaces to nest. Text after <code>: </code> becomes the prompt.</p>
+  <p class="hint">One subtask per line; indent two spaces to nest. Start a line with <code>[docs]</code>, <code>[spec]</code>, <code>[ux]</code>, <code>[architecture]</code>, <code>[review]</code> or <code>[code]</code> to set its type (default: this task's type).</p>
   <textarea data-bind="outline" rows="10" placeholder="- Write the migration&#10;- Add the endpoint&#10;  - tests"></textarea>
   <label class="check"><input type="checkbox" data-bind="chain"> Chain: each subtask needs the one before</label>
   <label class="check"><input type="checkbox" data-bind="copy"> Copy the parent prompt into each subtask</label>
@@ -74,6 +78,7 @@
 <dialog id="sheet-sub" class="sheet">
   <h2>New subtask of {{$s}}</h2>
   <label>Title<input data-bind="title" autocomplete="off"></label>
+  <p class="hint">Type defaults to this task's ({{tlabel (print $t.TaskType)}}).</p>
   <label>Prompt<textarea data-bind="prompt" rows="6"></textarea></label>
   <div class="actions">
     <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>

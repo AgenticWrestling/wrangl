@@ -8,6 +8,8 @@ package dbgen
 import (
 	"context"
 	"database/sql"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 )
 
 const addPrecursor = `-- name: AddPrecursor :exec
@@ -31,7 +33,7 @@ WITH RECURSIVE up (id, parent_id, lvl) AS (
     UNION ALL
     SELECT t.id, t.parent_id, up.lvl + 1 FROM task t JOIN up ON t.id = up.parent_id
 )
-SELECT task.id, task.sqid, task.project_id, task.parent_id, task.rank, task.repo_id, task.issue_id, task.template_id, task.title, task.prompt, task.state, task.created_by, task.completion_summary, task.completed_run_id, task.created_at, task.updated_at, task.completed_at FROM up JOIN task ON task.id = up.id ORDER BY up.lvl
+SELECT task.id, task.sqid, task.project_id, task.parent_id, task.rank, task.repo_id, task.issue_id, task.template_id, task.title, task.prompt, task.state, task.created_by, task.completion_summary, task.completed_run_id, task.created_at, task.updated_at, task.completed_at, task.task_type FROM up JOIN task ON task.id = up.id ORDER BY up.lvl
 `
 
 // node first, then its parent, up to the root.
@@ -62,6 +64,7 @@ func (q *Queries) AncestorChain(ctx context.Context, nodeID int64) ([]Task, erro
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CompletedAt,
+			&i.TaskType,
 		); err != nil {
 			return nil, err
 		}
@@ -181,20 +184,21 @@ func (q *Queries) CountOpenLeaves(ctx context.Context, rootID int64) (int64, err
 
 const createTask = `-- name: CreateTask :one
 
-INSERT INTO task (project_id, parent_id, rank, repo_id, template_id, title, prompt, created_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO task (project_id, parent_id, rank, repo_id, template_id, title, prompt, created_by, task_type)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id
 `
 
 type CreateTaskParams struct {
-	ProjectID  int64         `json:"project_id"`
-	ParentID   sql.NullInt64 `json:"parent_id"`
-	Rank       string        `json:"rank"`
-	RepoID     sql.NullInt64 `json:"repo_id"`
-	TemplateID sql.NullInt64 `json:"template_id"`
-	Title      string        `json:"title"`
-	Prompt     string        `json:"prompt"`
-	CreatedBy  string        `json:"created_by"`
+	ProjectID  int64            `json:"project_id"`
+	ParentID   sql.NullInt64    `json:"parent_id"`
+	Rank       string           `json:"rank"`
+	RepoID     sql.NullInt64    `json:"repo_id"`
+	TemplateID sql.NullInt64    `json:"template_id"`
+	Title      string           `json:"title"`
+	Prompt     string           `json:"prompt"`
+	CreatedBy  string           `json:"created_by"`
+	TaskType   dbtypes.TaskType `json:"task_type"`
 }
 
 // NOTE: always qualify the rank column (task.rank, t.rank). sqlc's sqlite grammar treats a
@@ -210,6 +214,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (int64, 
 		arg.Title,
 		arg.Prompt,
 		arg.CreatedBy,
+		arg.TaskType,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -226,7 +231,7 @@ func (q *Queries) DeleteTask(ctx context.Context, id int64) error {
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at FROM task WHERE id = ?
+SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at, task_type FROM task WHERE id = ?
 `
 
 func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
@@ -250,12 +255,13 @@ func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.TaskType,
 	)
 	return i, err
 }
 
 const getTaskBySqid = `-- name: GetTaskBySqid :one
-SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at FROM task WHERE sqid = ?
+SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at, task_type FROM task WHERE sqid = ?
 `
 
 func (q *Queries) GetTaskBySqid(ctx context.Context, sqid sql.NullString) (Task, error) {
@@ -279,6 +285,7 @@ func (q *Queries) GetTaskBySqid(ctx context.Context, sqid sql.NullString) (Task,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.TaskType,
 	)
 	return i, err
 }
@@ -351,7 +358,7 @@ func (q *Queries) LastRootRank(ctx context.Context, projectID int64) (string, er
 }
 
 const listChildren = `-- name: ListChildren :many
-SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at FROM task WHERE task.parent_id = ? ORDER BY task.rank
+SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at, task_type FROM task WHERE task.parent_id = ? ORDER BY task.rank
 `
 
 func (q *Queries) ListChildren(ctx context.Context, parentID sql.NullInt64) ([]Task, error) {
@@ -381,6 +388,7 @@ func (q *Queries) ListChildren(ctx context.Context, parentID sql.NullInt64) ([]T
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CompletedAt,
+			&i.TaskType,
 		); err != nil {
 			return nil, err
 		}
@@ -480,7 +488,7 @@ func (q *Queries) ListProjectRepoCount(ctx context.Context, projectID int64) (Li
 }
 
 const listRootTasks = `-- name: ListRootTasks :many
-SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at FROM task WHERE task.project_id = ? AND task.parent_id IS NULL ORDER BY task.rank
+SELECT id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at, task_type FROM task WHERE task.project_id = ? AND task.parent_id IS NULL ORDER BY task.rank
 `
 
 func (q *Queries) ListRootTasks(ctx context.Context, projectID int64) ([]Task, error) {
@@ -510,6 +518,7 @@ func (q *Queries) ListRootTasks(ctx context.Context, projectID int64) ([]Task, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CompletedAt,
+			&i.TaskType,
 		); err != nil {
 			return nil, err
 		}
@@ -525,7 +534,7 @@ func (q *Queries) ListRootTasks(ctx context.Context, projectID int64) ([]Task, e
 }
 
 const listTasks = `-- name: ListTasks :many
-SELECT t.id, t.sqid, t.project_id, t.parent_id, t.rank, t.repo_id, t.issue_id, t.template_id, t.title, t.prompt, t.state, t.created_by, t.completion_summary, t.completed_run_id, t.created_at, t.updated_at, t.completed_at, CAST(p.slug AS TEXT) AS project_slug FROM task t JOIN project p ON p.id = t.project_id
+SELECT t.id, t.sqid, t.project_id, t.parent_id, t.rank, t.repo_id, t.issue_id, t.template_id, t.title, t.prompt, t.state, t.created_by, t.completion_summary, t.completed_run_id, t.created_at, t.updated_at, t.completed_at, t.task_type, CAST(p.slug AS TEXT) AS project_slug FROM task t JOIN project p ON p.id = t.project_id
 WHERE (CAST(?1 AS TEXT) = '' OR p.slug = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR t.state = CAST(?2 AS TEXT))
   AND (CAST(?3 AS INTEGER) = 0 OR t.parent_id = CAST(?3 AS INTEGER))
@@ -571,6 +580,7 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTas
 			&i.Task.CreatedAt,
 			&i.Task.UpdatedAt,
 			&i.Task.CompletedAt,
+			&i.Task.TaskType,
 			&i.ProjectSlug,
 		); err != nil {
 			return nil, err
@@ -689,7 +699,7 @@ WITH RECURSIVE sub (id, depth, path) AS (
     SELECT c.id, sub.depth + 1, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
 )
 SELECT task.id, CAST(COALESCE(task.sqid, '') AS TEXT) AS sqid, task.parent_id, task.title, task.state, task.rank,
-       task.repo_id, task.template_id, task.created_by,
+       task.repo_id, task.template_id, task.created_by, task.task_type,
        CAST(sub.depth AS INTEGER) AS depth,
        CAST((SELECT COUNT(*) FROM task_dependency d JOIN task p ON p.id = d.depends_on_id
              WHERE d.task_id = task.id AND p.state <> 'done') AS INTEGER) AS unmet,
@@ -699,18 +709,19 @@ ORDER BY sub.path
 `
 
 type ProjectTreeRow struct {
-	ID         int64         `json:"id"`
-	Sqid       string        `json:"sqid"`
-	ParentID   sql.NullInt64 `json:"parent_id"`
-	Title      string        `json:"title"`
-	State      string        `json:"state"`
-	Rank       string        `json:"rank"`
-	RepoID     sql.NullInt64 `json:"repo_id"`
-	TemplateID sql.NullInt64 `json:"template_id"`
-	CreatedBy  string        `json:"created_by"`
-	Depth      int64         `json:"depth"`
-	Unmet      int64         `json:"unmet"`
-	Children   int64         `json:"children"`
+	ID         int64            `json:"id"`
+	Sqid       string           `json:"sqid"`
+	ParentID   sql.NullInt64    `json:"parent_id"`
+	Title      string           `json:"title"`
+	State      string           `json:"state"`
+	Rank       string           `json:"rank"`
+	RepoID     sql.NullInt64    `json:"repo_id"`
+	TemplateID sql.NullInt64    `json:"template_id"`
+	CreatedBy  string           `json:"created_by"`
+	TaskType   dbtypes.TaskType `json:"task_type"`
+	Depth      int64            `json:"depth"`
+	Unmet      int64            `json:"unmet"`
+	Children   int64            `json:"children"`
 }
 
 // The whole project, depth-first in rank order, with unmet-precursor and child counts.
@@ -733,6 +744,7 @@ func (q *Queries) ProjectTree(ctx context.Context, projectID int64) ([]ProjectTr
 			&i.RepoID,
 			&i.TemplateID,
 			&i.CreatedBy,
+			&i.TaskType,
 			&i.Depth,
 			&i.Unmet,
 			&i.Children,
@@ -846,6 +858,21 @@ func (q *Queries) SetTaskState(ctx context.Context, arg SetTaskStateParams) erro
 		arg.CompletedAt,
 		arg.ID,
 	)
+	return err
+}
+
+const setTaskType = `-- name: SetTaskType :exec
+UPDATE task SET task_type = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?2
+`
+
+type SetTaskTypeParams struct {
+	TaskType dbtypes.TaskType `json:"task_type"`
+	ID       int64            `json:"id"`
+}
+
+func (q *Queries) SetTaskType(ctx context.Context, arg SetTaskTypeParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskType, arg.TaskType, arg.ID)
 	return err
 }
 
@@ -1003,7 +1030,7 @@ func (q *Queries) TaskEvents(ctx context.Context, taskSqid string) ([]TaskEvent,
 const updateTaskText = `-- name: UpdateTaskText :one
 UPDATE task SET title = ?1, prompt = ?2,
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE id = ?3 RETURNING id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at
+WHERE id = ?3 RETURNING id, sqid, project_id, parent_id, rank, repo_id, issue_id, template_id, title, prompt, state, created_by, completion_summary, completed_run_id, created_at, updated_at, completed_at, task_type
 `
 
 type UpdateTaskTextParams struct {
@@ -1033,6 +1060,7 @@ func (q *Queries) UpdateTaskText(ctx context.Context, arg UpdateTaskTextParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.TaskType,
 	)
 	return i, err
 }

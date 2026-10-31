@@ -253,7 +253,7 @@ func (s *Service) Answer(ctx context.Context, q dbgen.Question, value, text stri
 func toStack(in []proto.SplitNode) []stack.SplitNode {
 	out := make([]stack.SplitNode, len(in))
 	for i, n := range in {
-		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Children: toStack(n.Children)}
+		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Type: n.Type, Children: toStack(n.Children)}
 	}
 	return out
 }

@@ -9,3 +9,8 @@ sql:
         out: dbgen
         emit_json_tags: true
         emit_empty_slices: true
+        overrides:
+          - column: "task.task_type"
+            go_type:
+              import: "github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
+              type: "TaskType"

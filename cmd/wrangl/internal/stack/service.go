@@ -14,6 +14,7 @@ import (
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/db"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/events"
 )
@@ -152,6 +153,9 @@ func (s *Service) rankFor(ctx context.Context, q *dbgen.Queries, projectID, pare
 // newTask inserts a task, assigns its sqid and records the create event.
 func (s *Service) newTask(ctx context.Context, q *dbgen.Queries, p dbgen.CreateTaskParams, actor Actor) (dbgen.Task, error) {
 	p.CreatedBy = string(actor)
+	if p.TaskType == "" {
+		p.TaskType = dbtypes.TaskCode
+	}
 	id, err := q.CreateTask(ctx, p)
 	if err != nil {
 		return dbgen.Task{}, err
@@ -217,6 +221,7 @@ type CreateParams struct {
 	Template string // template name; "" = inherit
 	Issue    string // owner/name#number; optional
 	Needs    []string
+	Type     string // dbtypes.TaskType name; "" = inherit the parent's, else code
 	Actor    Actor
 }
 
@@ -252,7 +257,16 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 		if err != nil {
 			return err
 		}
-		params := dbgen.CreateTaskParams{ProjectID: p.ID, ParentID: nint(parentID), Rank: rank, Title: c.Title, Prompt: c.Prompt}
+		tt, err := dbtypes.ParseTaskType(c.Type)
+		if err != nil {
+			return invalid("%v", err)
+		}
+		if c.Type == "" && parentID != 0 {
+			if pt, err := q.GetTask(ctx, parentID); err == nil {
+				tt = pt.TaskType // subtasks inherit the parent's type unless told otherwise
+			}
+		}
+		params := dbgen.CreateTaskParams{ProjectID: p.ID, ParentID: nint(parentID), Rank: rank, Title: c.Title, Prompt: c.Prompt, TaskType: tt}
 		if c.Repo != "" {
 			r, err := projectRepo(ctx, q, p.ID, c.Repo)
 			if err != nil {
@@ -355,6 +369,33 @@ func (s *Service) Edit(ctx context.Context, sqid string, title, prompt *string, 
 			return err
 		}
 		return s.event(ctx, q, sqid, actor, "update", diff)
+	})
+	return out, err
+}
+
+// SetType changes a task's type.
+func (s *Service) SetType(ctx context.Context, sqid, typ string, actor Actor) (dbgen.Task, error) {
+	tt, err := dbtypes.ParseTaskType(typ)
+	if err != nil {
+		return dbgen.Task{}, invalid("%v", err)
+	}
+	var out dbgen.Task
+	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+		t, err := s.Task(ctx, q, sqid)
+		if err != nil {
+			return err
+		}
+		if t.TaskType == tt {
+			out = t
+			return nil
+		}
+		if err := q.SetTaskType(ctx, dbgen.SetTaskTypeParams{TaskType: tt, ID: t.ID}); err != nil {
+			return err
+		}
+		if out, err = q.GetTask(ctx, t.ID); err != nil {
+			return err
+		}
+		return s.event(ctx, q, sqid, actor, "update", map[string]any{"type": string(tt)})
 	})
 	return out, err
 }
@@ -584,6 +625,7 @@ func (s *Service) Delete(ctx context.Context, sqid string, actor Actor) error {
 type SplitNode struct {
 	Title    string      `json:"title"`
 	Prompt   string      `json:"prompt,omitempty"`
+	Type     string      `json:"type,omitempty"` // "" = the split task's type
 	Children []SplitNode `json:"children,omitempty"`
 }
 
@@ -610,11 +652,19 @@ func ParseOutline(text string) ([]SplitNode, error) {
 			}
 		}
 		title := strings.TrimSpace(trimmed)
+		typ := ""
+		if strings.HasPrefix(title, "[") { // "[docs] Update the README" sets the type
+			if i := strings.Index(title, "]"); i > 1 {
+				if tt, err := dbtypes.ParseTaskType(strings.ToLower(title[1:i])); err == nil {
+					typ, title = string(tt), strings.TrimSpace(title[i+1:])
+				}
+			}
+		}
 		for len(stack) > 1 && stack[len(stack)-1].indent >= indent {
 			stack = stack[:len(stack)-1]
 		}
 		parent := stack[len(stack)-1]
-		*parent.nodes = append(*parent.nodes, SplitNode{Title: title})
+		*parent.nodes = append(*parent.nodes, SplitNode{Title: title, Type: typ})
 		added := &(*parent.nodes)[len(*parent.nodes)-1]
 		stack = append(stack, frame{indent, &added.Children})
 	}
@@ -654,7 +704,13 @@ func (s *Service) Split(ctx context.Context, sqid string, nodes []SplitNode, cha
 				if prompt == "" && copyPrompt {
 					prompt = parent.Prompt
 				}
-				t, err := s.newTask(ctx, q, dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: nint(parentID), Rank: rank, Title: n.Title, Prompt: prompt}, actor)
+				tt := parent.TaskType
+				if n.Type != "" {
+					if tt, err = dbtypes.ParseTaskType(n.Type); err != nil {
+						return invalid("%v", err)
+					}
+				}
+				t, err := s.newTask(ctx, q, dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: nint(parentID), Rank: rank, Title: n.Title, Prompt: prompt, TaskType: tt}, actor)
 				if err != nil {
 					return err
 				}
@@ -841,6 +897,9 @@ func (s *Service) NextForRun(ctx context.Context, runID int64) (Next, error) {
 func composePrompt(ctx context.Context, q *dbgen.Queries, t dbgen.Task, runID int64) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are working on task %s: %s\n", t.Sqid.String, t.Title)
+	if g := t.TaskType.Guidance(); g != "" {
+		fmt.Fprintf(&b, "\n%s\n", g)
+	}
 	if strings.TrimSpace(t.Prompt) != "" {
 		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(t.Prompt))
 	}
