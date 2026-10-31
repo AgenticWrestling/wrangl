@@ -118,6 +118,7 @@ wrangl
 │             edit <sqid> [--title --prompt -f]
 │             move <sqid> [--parent <sqid> | --root] [--after | --before | --first | --last]
 │             needs add|rm <sqid> <precursor-sqid>
+│             split <sqid> [-f outline.md | --title … --title …] [--chain] [--copy-prompt]
 │             queue <sqid>                            # create a work run for this subtree
 │             complete | reopen | cancel <sqid> [-m reason] | delete <sqid>
 ├── run       list [--state --runner --project] | show | cancel <run>
@@ -477,7 +478,8 @@ Using two Apps avoids GitHub's rule that a PR's author can't approve it.
 ## 10. API, SSE, TUI
 
 - **API:** JSON under `/api/v1/…`, mirroring the CLI nouns. Work-stack writes go through
-  `stack` with `actor=user`.
+  `stack` with `actor=user`. Besides plain CRUD, the stack exposes `move` (neighbours by sqid)
+  and an atomic `split`, used by the PWA, the TUI and `wrangl task split` alike.
 - **SSE:** `/api/v1/events` (global), `/api/v1/runs/{id}/pty` (replay via `Last-Event-ID`,
   then follow) and `/api/v1/runs/{id}/logs?grep=`. Every stream sends a keepalive comment every
   15 s, which keeps it alive through Cloudflare.
@@ -487,22 +489,114 @@ Using two Apps avoids GitHub's rule that a PR's author can't approve it.
     **PRs**.
   - Keys: `a` attach · `l` logs (`/` filter) · `d` diff · `c` cancel · `n` new task (child or
     sibling) · `J/K` rerank · `>`/`<` indent/outdent · `N` add precursor · `Q` queue subtree ·
-    `x` complete · `p` projects · `r` link repo · `q` answer.
+    `x` complete · `s` split · `p` projects · `r` link repo · `q` answer.
 
 ## 11. Web PWA (Datastar)
 
-- `templ` plus the Datastar Go SDK, server-rendered, with SSE patches. Mobile-first and
-  installable.
-- **Views:**
-  - dashboard
-  - project → repos, the **work-stack tree** (tap to expand, drag or long-press to rerank and
-    reparent, add child or sibling, add a precursor), issues
-  - task detail (with the `task_event` history)
-  - run → live terminal (xterm.js, read-only), logs with search, hook timeline
-  - **diff** (chroma, unified or split)
-  - **file browser** with **markdown preview** (goldmark + GFM + bluemonday)
-  - question sheet
-  - PR review
+`templ` plus the Datastar Go SDK, server-rendered, with SSE patches. Mobile-first (designed at
+360–430 px, works on desktop) and installable.
+
+There are two JS dependencies beyond Datastar, both pinned and loaded from a CDN:
+- **SortableJS** for touch drag-and-drop. Datastar has no drag-and-drop.
+- **xterm.js** for the terminal.
+
+### Navigation
+
+A bottom tab bar:
+
+**Backlog** · **Runs** · **Runners** · **Inbox** (questions + PR reviews, with a badge count) · **More**
+
+More holds projects, repos, templates and settings, including push subscription. Every push
+notification deep-links into Inbox or into the item itself.
+
+### Backlog (work-stack editor)
+
+- **Scope:** a project picker at the top (remembered per device), plus "All projects", which
+  orders by project priority with no cross-project dragging.
+- **Rows** in rank order, indented by depth, with a collapse chevron on containers. Each row
+  shows:
+  - a drag handle and the sqid
+  - the title
+  - a state chip (`open`, `in progress`, `in review`, `done`)
+  - badges: 🔗 *n* unmet precursors · 🔒 `<runner>` when its subtree is locked by a run ·
+    children done/total on containers
+- **Filters:** open-only by default; a toggle shows done and cancelled tasks.
+- **Drag and drop:**
+  - SortableJS nested lists. A long press (about 200 ms, touch only) starts a drag, so normal
+    scrolling still works. Only the handle drags.
+  - Dropping *between* rows reorders, possibly under a new parent. Dropping *onto* the middle
+    of a row makes the task its last child.
+  - On drop the client sends `POST /api/v1/tasks/{sqid}/move {parent, after|before: <neighbour
+    sqid>}`. Neighbours are identified by **sqid, never by index**, so the move still makes
+    sense if an agent reordered things meanwhile.
+  - The server computes the new rank and the SSE stream patches the tree for every viewer. If a
+    named neighbour has moved away, the task goes last under the target parent and a toast says so.
+  - Rejected moves snap back with the reason: a cycle, moving out of a locked subtree, or
+    moving an `in_progress`/`in_review` leaf. Allowed edits inside a locked subtree are picked up
+    by the agent on its next turn.
+  - **Accessible fallback:** a row's ⋯ menu has *Move up/down*, *Indent/Outdent* and *Move to…*
+    (a searchable parent picker).
+- **New task:**
+  - A floating **+** button opens a bottom sheet with: title; prompt (markdown editor with an
+    Edit/Preview toggle); parent (defaults to the current context, can be top level); position
+    (top or bottom, default bottom); repo and template (inherited value shown greyed, can
+    override); precursors (search by sqid or title).
+  - Two buttons: **Create** and **Create & queue**.
+  - **Quick add:** an inline "+ Add task" row at the end of each expanded container takes just
+    a title (Enter adds another).
+- **Split into subtasks** (⋯ → *Split*, on an `open` task):
+  - The sheet has a multi-line editor with one subtask per line; indentation with two spaces or
+    a markdown list nests them. A live preview tree sits beside it.
+  - Options: *Chain sequentially* (each subtask needs the previous one) and *Copy parent prompt
+    into each* (otherwise the prompt stays on the parent as shared context, since the parent
+    becomes a container).
+  - The split is **atomic**: `POST /api/v1/tasks/{sqid}/split {children:[{title, prompt,
+    children}], chain}` runs as one transaction and writes one `task_event` per create.
+  - Refused for `in_progress`/`in_review` tasks. Splitting a container appends the new
+    children after its existing ones.
+  - **Split with agent** (proposed, not yet decided, §17): queue a `plan` run that may only use
+    the stack tools to decompose the task. It makes no repo changes, and its result shows up in
+    Inbox for you to accept.
+- **Task detail** (tap a row): the prompt rendered as markdown; children; precursors and the
+  tasks that depend on it (both editable); effective repo and template; linked issue;
+  runs and the PR; the `task_event` history (who changed what: you or `agent:<run>`).
+  Actions: queue, complete, reopen, cancel, delete, split.
+
+### Runners
+
+- **Header:** a demand strip, e.g. `go-claude: 2 busy · 1 idle · 1 launching · 3 queued runs
+  waiting`, plus **Launch runner**. Launch opens a template picker that shows the minimum spec
+  and the instance type it would choose.
+- **Runner cards** show:
+  - name and state chip
+  - template and version, with a "template update pending" marker
+  - instance type, AZ, uptime, or idle time against the idle-timeout countdown
+  - **CPU, memory and disk** gauges with a 1-hour sparkline. History comes from an in-memory
+    ring buffer of heartbeats on the controller (360 × 10 s per runner, not persisted).
+  - the current assignment: root sqid and title, the subtask in progress, `status_text`,
+    elapsed time, and `session_name`
+- **Runner detail:**
+  - The current run's **live terminal** (read-only xterm, tap for full screen, rotates to landscape).
+  - The **assignment progress** list: the subtree with ✓ (`in_review`/`done`), ▶ (current),
+    ⏸ (blocked, with its precursor) and ○ (pending). It updates as the agent edits the stack.
+  - Recent runs on this runner, and a link to the template.
+  - Actions:
+    - *Cancel run*
+    - *Cordon* / *Uncordon*
+    - *Drain*
+    - *Terminate*, whose confirmation names the run and any uncommitted work that would be lost
+  - Offline runners show the last heartbeat time and the last metrics.
+
+### Other views
+
+- **Runs:** a list grouped by running, needs input, blocked, queued (with "waiting on
+  <sqids>"), and recent. Run detail has the terminal, logs (search and stream filter), the hook
+  timeline, the **diff** (chroma, unified or split, per-file collapsible) and the **file
+  browser** with **markdown preview** (goldmark + GFM + bluemonday).
+- **Inbox:** open questions (agent, approval, system) as cards with option buttons and an
+  optional free-text box, and PR reviews (summary, gates, risk, link to the diff, actions).
+  Answered items drop out of the list.
+
 - **Web push (v1):**
   - VAPID keys from `init`, sent with `webpush-go`.
   - Notifies on: a question (agent, approval, PR review), a run failed or blocked, a runner offline.
@@ -572,7 +666,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | M5 | Hooks, MCP server with stack tools + scope/approval rules, Questions | M4 |
 | M6 | PR open, gates, review runs, reviewer App approve/merge, webhooks via CF bypass, revise + blocked-continuation runs | M5 |
 | M7 | HTTP API + SSE + TUI (incl. tree editing) | M4 (parallel with M5/M6) |
-| M8 | PWA: Datastar views, tree editing, diff/file/markdown, xterm, web push, CF Access verify | M7 |
+| M8 | PWA: nav + Inbox, **Backlog editor (drag/drop, new task, split)**, **Runners view** (cards, gauges, detail), runs/diff/file/markdown, xterm, web push, CF Access verify | M7 |
 | M9 | Experimental: interactive drive + Remote Control prototype; Codex/Antigravity templates | M5 |
 | M10 | v2: controller-hosted remote MCP endpoint exposing the stack tools to the owner's own agents (auth design behind CF Access) | M5, M8 |
 
@@ -599,3 +693,8 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D17 | One branch + one PR per assignment, checkpoint commit per subtask; one agent session per assignment |
 | D18 | Assignment ends when no open leaves remain; agents read project-wide, write within their subtree; deletes/cancels of others' tasks need approval |
 | D19 | Stack tools also exposed to the owner's agents (v2, M10) |
+
+## 17. Open items
+
+1. **Split with agent:** a `plan` run kind (stack tools only, no repo changes, result accepted
+   from Inbox). Worth adding to M8, or later?

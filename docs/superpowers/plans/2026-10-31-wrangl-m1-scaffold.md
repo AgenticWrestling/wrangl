@@ -91,7 +91,7 @@ var wantPaths = []string{
 	"repo link", "repo unlink", "repo list",
 	"issue sync", "issue list", "issue show", "issue to-task",
 	"task create", "task tree", "task list", "task show", "task edit", "task move",
-	"task needs add", "task needs rm", "task queue",
+	"task needs add", "task needs rm", "task split", "task queue",
 	"task complete", "task reopen", "task cancel", "task delete",
 	"run list", "run show", "run cancel", "run attach", "run diff", "run files", "run cat",
 	"logs search",
