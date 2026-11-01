@@ -85,6 +85,22 @@ controller, which serves them to runners as they boot.
 
 ## 3. AWS network
 
+> **Shortcut for sections 3–5:** `deploy/wrangl/controller.sh up` does all of it in one go.
+> It creates the security group, both IAM roles (the policy is read from
+> [`aws-iam.md`](aws-iam.md)), a private artifact bucket and the controller instance, whose
+> first boot installs, configures and starts wrangl. Run `task build-wrangl` first, then:
+> ```sh
+> AWS_REGION=us-west-2 VPC_ID=vpc-... SUBNET_ID=subnet-... deploy/wrangl/controller.sh up
+> ```
+> It's idempotent: run it again and it finds what exists. Other modes:
+> - `controller.sh upgrade` ships new binaries and restarts the controller over SSM. Runners
+>   then upgrade themselves.
+> - `controller.sh status` shows what exists.
+> - `controller.sh down` terminates everything and deletes what `up` made, after you confirm.
+>
+> It doesn't create the VPC or NAT gateway, and it stops if the subnet has no default
+> route. Then continue at section 6. The manual steps below are the same thing by hand.
+
 Runners and the controller share one VPC subnet and one security group. Runners need outbound
 internet access for mise, GitHub and the Claude API, so use a **private subnet with a NAT
 gateway**. Nothing needs inbound access from the internet.
