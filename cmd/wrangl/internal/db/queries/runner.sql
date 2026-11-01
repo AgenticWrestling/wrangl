@@ -136,3 +136,19 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners,
              WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
 FROM runner_template t
 ORDER BY t.name;
+
+-- name: SetRunnerBinary :exec
+UPDATE runner SET binary_sha = sqlc.arg(binary_sha) WHERE id = sqlc.arg(id) AND binary_sha <> sqlc.arg(binary_sha);
+
+-- name: RequestUpgrade :exec
+-- Marks the runner for an upgrade: ClaimIdleRunner skips it until the upgrade lands.
+UPDATE runner SET upgrade_sha = sqlc.arg(upgrade_sha), upgrade_sent_at = NULL WHERE id = sqlc.arg(id);
+
+-- name: MarkUpgradeSent :execrows
+-- Claims the right to send cmd.upgrade: once, then again only after resend_before.
+UPDATE runner SET upgrade_sent_at = sqlc.arg(now)
+WHERE id = sqlc.arg(id) AND state = 'idle' AND upgrade_sha <> ''
+  AND (upgrade_sent_at IS NULL OR upgrade_sent_at < sqlc.arg(resend_before));
+
+-- name: ClearUpgrade :exec
+UPDATE runner SET upgrade_sha = '', upgrade_sent_at = NULL WHERE id = sqlc.arg(id);

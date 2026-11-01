@@ -108,6 +108,13 @@ func fleetCmd(g *Global) *cobra.Command {
 				if r.State == "idle" && r.Launched {
 					rows = append(rows, [2]string{"idle", fmt.Sprintf("%s of %s", ago(r.IdleSince, now), time.Duration(r.IdleTimeoutS)*time.Second)})
 				}
+				if r.BinarySHA != "" {
+					bin := "sha256 " + shortSHA(r.BinarySHA)
+					if r.UpgradeSHA != "" {
+						bin += " → upgrading to " + shortSHA(r.UpgradeSHA)
+					}
+					rows = append(rows, [2]string{"wrangl binary", bin})
+				}
 				if r.LastError != "" {
 					rows = append(rows, [2]string{"last error", r.LastError})
 				}
@@ -287,12 +294,21 @@ func runnerAction(g *Global, action, short string) *cobra.Command {
 	}
 }
 
+func shortSHA(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
+}
+
 func stateLabel(r proto.RunnerView) string {
 	switch {
 	case r.Draining:
 		return r.State + " (draining)"
 	case r.Cordoned:
 		return r.State + " (cordoned)"
+	case r.UpgradeSHA != "":
+		return r.State + " (upgrading)"
 	}
 	return r.State
 }

@@ -54,7 +54,7 @@ UPDATE runner SET state = 'busy', idle_since = NULL
 WHERE id = (
     SELECT n.id FROM runner n JOIN runner_template t ON t.id = n.template_id
     WHERE n.template_id = sqlc.arg(template_id) AND n.state = 'idle' AND n.cordoned = 0
-      AND n.template_version = t.version
+      AND n.template_version = t.version AND n.upgrade_sha = ''
     ORDER BY n.idle_since
     LIMIT 1)
 RETURNING id, name;

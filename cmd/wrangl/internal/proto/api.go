@@ -33,6 +33,8 @@ type RunnerView struct {
 	WantVersion     int64           `json:"want_version,omitempty"`
 	LastError       string          `json:"last_error,omitempty"`
 	TemplateLog     string          `json:"template_log,omitempty"`
+	BinarySHA       string          `json:"binary_sha,omitempty"`  // running wrangl binary
+	UpgradeSHA      string          `json:"upgrade_sha,omitempty"` // pending self-upgrade target
 }
 
 // TemplateView is a runner template as the API returns it.

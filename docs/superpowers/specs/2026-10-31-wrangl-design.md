@@ -295,6 +295,24 @@ terminated as soon as they're idle.
 - A runner that can't reach its controller for **2 h** powers itself off, which terminates the
   instance.
 
+### Runner self-upgrade
+
+A runner reports the sha256 of its own binary in each heartbeat (`binary_sha`). The hash is
+the version, because dev builds all say `dev`. When it differs from the binary the
+controller serves for the runner's arch:
+- The controller sets `runner.upgrade_sha`. `ClaimIdleRunner` skips runners with an
+  upgrade pending, so no new run lands on the old binary.
+- Once the runner is idle, the controller sends `cmd.upgrade {sha256}`. It resends after
+  2 minutes without progress.
+- The runner downloads `<enrol URL>/dl/wrangl-linux-<arch>` itself. The URL comes from its
+  own config, never from the message. It verifies the hash, renames the file over its
+  executable, and `exec`s it.
+- Assignment and upgrade decide under one lock, so a run can't start mid-upgrade.
+- A failed restart keeps reporting the old hash, so the controller keeps retrying instead
+  of believing it.
+- Self-upgrade is on only for `wrangl runner run` (`DaemonOptions.Upgrade`). Runners that
+  don't report a hash are left alone.
+
 ## 7. Enrolment and NATS security
 
 Built and tested in M2.
@@ -869,6 +887,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D31 | M10: the remote MCP endpoint reuses the API's exposure and auth (unix socket; TCP behind Cloudflare Access, verified in-process when configured) rather than a separate token scheme; `wrangl mcp` bridges stdio so agents need no Access headers of their own. The owner scope may cancel/delete without approval (the owner *is* the approver) |
 | D32 | Agent plug-ins: hook formats `--continue-format claude|codex|agy|gemini|text`; agents that can't take a preset session id are resumed by `{{.AgentSessionID}}`, read from their JSON output (preferred) or hook payloads; `files: merge: json` pre-accepts agents' own prompts (Claude trust/bypass) instead of PTY regexes. Auth policy per agent in `docs/wrangl/agents.md`: env tokens over login files, never one login file on concurrent runners |
 | D33 | Task type is an enum (`code`, `ux`, `architecture`, `spec`, `docs`, `review`): TEXT + CHECK in SQLite, mapped by a sqlc column override onto `dbtypes.TaskType`; inherited by subtasks; adds type guidance to agent prompts; shown as a shape icon (status keeps colour) |
+| D34 | Runners self-upgrade in place over NATS (`cmd.upgrade` carries only the expected sha256; the runner fetches from its enrolment URL, verifies, renames and re-execs), gated by an upgrade mark that blocks new claims; not SSM, not relaunch |
 | D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 
 ## 17. Open items

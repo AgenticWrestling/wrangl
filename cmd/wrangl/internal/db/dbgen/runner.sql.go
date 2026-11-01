@@ -10,9 +10,18 @@ import (
 	"database/sql"
 )
 
+const clearUpgrade = `-- name: ClearUpgrade :exec
+UPDATE runner SET upgrade_sha = '', upgrade_sent_at = NULL WHERE id = ?1
+`
+
+func (q *Queries) ClearUpgrade(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, clearUpgrade, id)
+	return err
+}
+
 const createAdoptedRunner = `-- name: CreateAdoptedRunner :one
 INSERT INTO runner (name, template_id, state, launched) VALUES (?, ?, 'enrolling', 0)
-RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at
 `
 
 type CreateAdoptedRunnerParams struct {
@@ -53,6 +62,9 @@ func (q *Queries) CreateAdoptedRunner(ctx context.Context, arg CreateAdoptedRunn
 		&i.LastError,
 		&i.TemplateLog,
 		&i.ProvisioningSince,
+		&i.BinarySha,
+		&i.UpgradeSha,
+		&i.UpgradeSentAt,
 	)
 	return i, err
 }
@@ -62,7 +74,7 @@ const createLaunchedRunner = `-- name: CreateLaunchedRunner :one
 INSERT INTO runner (name, template_id, instance_id, instance_type, az, arch, private_ip,
                     state, launched, launched_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'launching', 1, ?)
-RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at
 `
 
 type CreateLaunchedRunnerParams struct {
@@ -121,6 +133,9 @@ func (q *Queries) CreateLaunchedRunner(ctx context.Context, arg CreateLaunchedRu
 		&i.LastError,
 		&i.TemplateLog,
 		&i.ProvisioningSince,
+		&i.BinarySha,
+		&i.UpgradeSha,
+		&i.UpgradeSentAt,
 	)
 	return i, err
 }
@@ -200,7 +215,7 @@ func (q *Queries) EnrollRunner(ctx context.Context, arg EnrollRunnerParams) erro
 }
 
 const getRunner = `-- name: GetRunner :one
-SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since FROM runner WHERE id = ?
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at FROM runner WHERE id = ?
 `
 
 func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
@@ -236,12 +251,15 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 		&i.LastError,
 		&i.TemplateLog,
 		&i.ProvisioningSince,
+		&i.BinarySha,
+		&i.UpgradeSha,
+		&i.UpgradeSentAt,
 	)
 	return i, err
 }
 
 const getRunnerByName = `-- name: GetRunnerByName :one
-SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since FROM runner WHERE name = ?
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at FROM runner WHERE name = ?
 `
 
 func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, error) {
@@ -277,12 +295,15 @@ func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, err
 		&i.LastError,
 		&i.TemplateLog,
 		&i.ProvisioningSince,
+		&i.BinarySha,
+		&i.UpgradeSha,
+		&i.UpgradeSentAt,
 	)
 	return i, err
 }
 
 const listRunners = `-- name: ListRunners :many
-SELECT r.id, r.name, r.template_id, r.template_version, r.instance_id, r.instance_type, r.az, r.private_ip, r.arch, r.vcpu, r.ram_mib, r.disk_gib, r.nkey_public, r.state, r.max_concurrent, r.last_heartbeat_at, r.last_metrics_json, r.created_at, r.terminated_at, r.launched, r.launched_at, r.enrolled_at, r.idle_since, r.offline_since, r.cordoned, r.drain_requested, r.last_error, r.template_log, r.provisioning_since, CAST(t.name AS TEXT) AS template_name
+SELECT r.id, r.name, r.template_id, r.template_version, r.instance_id, r.instance_type, r.az, r.private_ip, r.arch, r.vcpu, r.ram_mib, r.disk_gib, r.nkey_public, r.state, r.max_concurrent, r.last_heartbeat_at, r.last_metrics_json, r.created_at, r.terminated_at, r.launched, r.launched_at, r.enrolled_at, r.idle_since, r.offline_since, r.cordoned, r.drain_requested, r.last_error, r.template_log, r.provisioning_since, r.binary_sha, r.upgrade_sha, r.upgrade_sent_at, CAST(t.name AS TEXT) AS template_name
 FROM runner r JOIN runner_template t ON t.id = r.template_id
 WHERE r.state <> 'terminated' OR ?1 = 1
 ORDER BY r.name
@@ -332,6 +353,9 @@ func (q *Queries) ListRunners(ctx context.Context, includeTerminated interface{}
 			&i.Runner.LastError,
 			&i.Runner.TemplateLog,
 			&i.Runner.ProvisioningSince,
+			&i.Runner.BinarySha,
+			&i.Runner.UpgradeSha,
+			&i.Runner.UpgradeSentAt,
 			&i.TemplateName,
 		); err != nil {
 			return nil, err
@@ -401,6 +425,27 @@ type MarkTerminatedParams struct {
 func (q *Queries) MarkTerminated(ctx context.Context, arg MarkTerminatedParams) error {
 	_, err := q.db.ExecContext(ctx, markTerminated, arg.TerminatedAt, arg.ID)
 	return err
+}
+
+const markUpgradeSent = `-- name: MarkUpgradeSent :execrows
+UPDATE runner SET upgrade_sent_at = ?1
+WHERE id = ?2 AND state = 'idle' AND upgrade_sha <> ''
+  AND (upgrade_sent_at IS NULL OR upgrade_sent_at < ?3)
+`
+
+type MarkUpgradeSentParams struct {
+	Now          sql.NullString `json:"now"`
+	ID           int64          `json:"id"`
+	ResendBefore sql.NullString `json:"resend_before"`
+}
+
+// Claims the right to send cmd.upgrade: once, then again only after resend_before.
+func (q *Queries) MarkUpgradeSent(ctx context.Context, arg MarkUpgradeSentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markUpgradeSent, arg.Now, arg.ID, arg.ResendBefore)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const reapCandidates = `-- name: ReapCandidates :many
@@ -501,6 +546,21 @@ func (q *Queries) RequestDrain(ctx context.Context, name string) (int64, error) 
 	return result.RowsAffected()
 }
 
+const requestUpgrade = `-- name: RequestUpgrade :exec
+UPDATE runner SET upgrade_sha = ?1, upgrade_sent_at = NULL WHERE id = ?2
+`
+
+type RequestUpgradeParams struct {
+	UpgradeSha string `json:"upgrade_sha"`
+	ID         int64  `json:"id"`
+}
+
+// Marks the runner for an upgrade: ClaimIdleRunner skips it until the upgrade lands.
+func (q *Queries) RequestUpgrade(ctx context.Context, arg RequestUpgradeParams) error {
+	_, err := q.db.ExecContext(ctx, requestUpgrade, arg.UpgradeSha, arg.ID)
+	return err
+}
+
 const setCordon = `-- name: SetCordon :execrows
 UPDATE runner SET cordoned = ?1,
        drain_requested = CASE WHEN ?1 = 0 THEN 0 ELSE drain_requested END
@@ -518,6 +578,20 @@ func (q *Queries) SetCordon(ctx context.Context, arg SetCordonParams) (int64, er
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setRunnerBinary = `-- name: SetRunnerBinary :exec
+UPDATE runner SET binary_sha = ?1 WHERE id = ?2 AND binary_sha <> ?1
+`
+
+type SetRunnerBinaryParams struct {
+	BinarySha string `json:"binary_sha"`
+	ID        int64  `json:"id"`
+}
+
+func (q *Queries) SetRunnerBinary(ctx context.Context, arg SetRunnerBinaryParams) error {
+	_, err := q.db.ExecContext(ctx, setRunnerBinary, arg.BinarySha, arg.ID)
+	return err
 }
 
 const startProvisioning = `-- name: StartProvisioning :one

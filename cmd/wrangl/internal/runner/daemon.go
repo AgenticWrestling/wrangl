@@ -31,6 +31,7 @@ type DaemonOptions struct {
 	Poweroff          func() error // default: run Config.PoweroffCommand
 	Log               *slog.Logger
 	InstallMise       MiseInstaller // nil = never install mise (only `runner run` passes DefaultMiseInstaller)
+	Upgrade           *SelfUpgrade  // nil = decline cmd.upgrade (only `runner run` enables it)
 }
 
 // Connect opens the runner's NATS connection: TLS pinned to the controller CA, the
@@ -116,7 +117,17 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 	if err != nil {
 		return err
 	}
-	var applying atomic.Bool
+	var applying, upgrading atomic.Bool
+	var gate sync.Mutex // assign and upgrade decide under it: never a run starting mid-upgrade
+	var binSHA atomic.Value
+	binSHA.Store("")
+	if o.Upgrade != nil {
+		if sum, err := o.Upgrade.Sum(); err == nil {
+			binSHA.Store(sum)
+		} else {
+			o.Log.Warn("self-upgrade off: cannot hash own binary", "err", err)
+		}
+	}
 	worker := &Worker{Cfg: cfg, NC: nc, JS: js, Log: o.Log}
 	defer worker.Wait() // let a cancelled run publish its final state before we disconnect
 	applier := &Applier{Cfg: cfg, InstallMise: o.InstallMise}
@@ -125,6 +136,10 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		reply := func(a proto.TemplateAck) { b, _ := json.Marshal(a); m.Respond(b) }
 		if err := json.Unmarshal(m.Data, &req); err != nil || req.Version <= 0 {
 			reply(proto.TemplateAck{Reason: "bad request"})
+			return
+		}
+		if upgrading.Load() {
+			reply(proto.TemplateAck{Reason: "a self-upgrade is in progress"})
 			return
 		}
 		if !applying.CompareAndSwap(false, true) {
@@ -155,6 +170,54 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 	}
 
 	respond := func(m *nats.Msg, v any) { b, _ := json.Marshal(v); m.Respond(b) }
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "upgrade"), func(m *nats.Msg) {
+		var req proto.Upgrade
+		if json.Unmarshal(m.Data, &req) != nil || !shaRe.MatchString(req.SHA256) {
+			respond(m, proto.Ack{Reason: "bad request"})
+			return
+		}
+		if o.Upgrade == nil || binSHA.Load().(string) == "" {
+			respond(m, proto.Ack{Reason: "self-upgrade is off on this runner"})
+			return
+		}
+		if req.SHA256 == binSHA.Load().(string) {
+			respond(m, proto.Ack{Accepted: true, Reason: "already on that binary"})
+			return
+		}
+		gate.Lock()
+		if !upgrading.CompareAndSwap(false, true) {
+			gate.Unlock()
+			respond(m, proto.Ack{Reason: "already upgrading"})
+			return
+		}
+		if worker.Busy() != 0 || applying.Load() {
+			upgrading.Store(false)
+			gate.Unlock()
+			respond(m, proto.Ack{Reason: "busy"})
+			return
+		}
+		gate.Unlock()
+		respond(m, proto.Ack{Accepted: true})
+		go func() {
+			defer upgrading.Store(false)
+			o.Log.Info("self-upgrade: downloading", "sha256", req.SHA256[:12])
+			if err := o.Upgrade.Fetch(ctx, cfg.Controller, unameArch(), req.SHA256); err != nil {
+				o.Log.Error("self-upgrade failed; staying on the current binary", "err", err)
+				return
+			}
+			o.Log.Info("self-upgrade: binary replaced; restarting", "path", o.Upgrade.BinaryPath)
+			if err := o.Upgrade.restart(); err != nil {
+				// Still running the old code: keep reporting the old hash, so the
+				// controller retries (and the run claim stays blocked) rather than
+				// believing an upgrade that has not happened.
+				o.Log.Error("self-upgrade: restart failed; the new binary runs at the next restart", "err", err)
+				return
+			}
+			binSHA.Store(req.SHA256) // only reached when Restart is replaced (tests); exec never returns
+		}()
+	}); err != nil {
+		return err
+	}
 	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "assign"), func(m *nats.Msg) {
 		var a proto.Assignment
 		if err := json.Unmarshal(m.Data, &a); err != nil || a.RunID <= 0 {
@@ -165,7 +228,15 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 			respond(m, proto.Ack{Reason: "applying a template"})
 			return
 		}
-		if err := worker.Start(ctx, a); err != nil {
+		gate.Lock()
+		if upgrading.Load() {
+			gate.Unlock()
+			respond(m, proto.Ack{Reason: "upgrading the runner binary"})
+			return
+		}
+		err := worker.Start(ctx, a)
+		gate.Unlock()
+		if err != nil {
 			respond(m, proto.Ack{Reason: err.Error()})
 			return
 		}
@@ -216,6 +287,8 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		hb.TemplateVersion = AppliedVersion(cfg)
 		hb.Applying = applying.Load()
 		hb.RunID = worker.Busy()
+		hb.BinarySHA = binSHA.Load().(string)
+		hb.Upgrading = upgrading.Load()
 		b, _ := json.Marshal(hb)
 		if err := nc.Publish(natsd.RunnerHeartbeatSubject(cfg.RunnerID), b); err != nil {
 			o.Log.Warn("heartbeat", "err", err)

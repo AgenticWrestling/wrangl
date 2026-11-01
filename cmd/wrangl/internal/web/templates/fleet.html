@@ -9,7 +9,7 @@
 </section>{{end}}
 {{if not .Cards}}<p class="empty">No runners. Launch one from a template above, or <code>wrangl fleet launch</code>.</p>{{end}}
 {{range .Cards}}<a class="card runner st-{{.R.State}}" href="/runner/{{.R.Name}}">
-  <div class="row"><b>{{.R.Name}}</b> <span class="pill">{{.R.State}}</span>{{if .R.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if .R.DrainRequested}}<span class="pill warn">draining</span>{{end}}<span class="grow"></span><span class="dim">{{.T.Name}}</span></div>
+  <div class="row"><b>{{.R.Name}}</b> <span class="pill">{{.R.State}}</span>{{if .R.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if .R.DrainRequested}}<span class="pill warn">draining</span>{{end}}{{if .R.UpgradeSha}}<span class="tag prog">⟳ upgrading</span>{{end}}<span class="grow"></span><span class="dim">{{.T.Name}}</span></div>
   <div class="row small dim">{{.R.InstanceType}} · {{.R.Vcpu}} vCPU · {{.R.RamMib}} MiB · {{.R.Az}}</div>
   <div class="row small">
     <span>CPU {{pct .M.CPUPercent}}</span><span>Mem {{pct .M.MemPercent}}</span><span>Disk {{pct .M.DiskPercent}}</span>
@@ -27,6 +27,7 @@
     <dt>Instance</dt><dd>{{$r.InstanceID.String}} {{$r.InstanceType}} ({{$r.Arch}}) {{$r.Az}}</dd>
     <dt>Size</dt><dd>{{$r.Vcpu}} vCPU · {{$r.RamMib}} MiB · {{$r.DiskGib}} GiB</dd>
     <dt>IP</dt><dd>{{$r.PrivateIp}}</dd>
+    {{if $r.BinarySha}}<dt>wrangl</dt><dd><code>{{printf "%.12s" $r.BinarySha}}</code>{{if $r.UpgradeSha}} → <code>{{printf "%.12s" $r.UpgradeSha}}</code> <span class="tag prog">⟳ upgrading</span>{{end}}</dd>{{end}}
     <dt>Heartbeat</dt><dd>{{if $r.LastHeartbeatAt.Valid}}{{ago $r.LastHeartbeatAt.String}}{{else}}never{{end}}</dd>
     <dt>Load</dt><dd>CPU {{pct .M.CPUPercent}} · Mem {{pct .M.MemPercent}} · Disk {{pct .M.DiskPercent}} · load1 {{printf "%.2f" .M.Load1}}</dd>
     {{if $r.IdleSince.Valid}}<dt>Idle</dt><dd>since {{ago $r.IdleSince.String}}</dd>{{end}}

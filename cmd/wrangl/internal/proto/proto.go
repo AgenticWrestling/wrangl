@@ -49,6 +49,17 @@ type Heartbeat struct {
 	Applying bool `json:"applying"`
 	// RunID is the run in progress (0 = none).
 	RunID int64 `json:"run_id,omitempty"`
+	// BinarySHA is the sha256 of the wrangl binary the daemon runs ("" = self-upgrade off).
+	BinarySHA string `json:"binary_sha,omitempty"`
+	// Upgrading is true while a self-upgrade is downloading or restarting.
+	Upgrading bool `json:"upgrading,omitempty"`
+}
+
+// Upgrade is the cmd.upgrade request: replace the wrangl binary with the one the
+// controller serves at <enrol URL>/dl/wrangl-linux-<arch>, which must hash to SHA256.
+// The URL is the runner's own enrolment URL, never taken from the message.
+type Upgrade struct {
+	SHA256 string `json:"sha256"`
 }
 
 // TemplateApply is the cmd.template request: everything needed to (re)apply a template.

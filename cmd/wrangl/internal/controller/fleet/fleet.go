@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -65,6 +66,7 @@ type Service struct {
 	SubnetID                         string
 	SecurityGroupID, InstanceProfile string
 	BinDir                           string // <data-dir>/bin
+	sumCache                         sync.Map
 	Now                              func() time.Time
 	Log                              *slog.Logger
 	Bus                              *events.Bus         // change notices
@@ -157,12 +159,22 @@ func (s *Service) MintToken(ctx context.Context, template string, ttl time.Durat
 
 // --- launch / terminate ------------------------------------------------------------
 
-// binarySums returns uname-m -> sha256 for each runner binary available to serve.
+// binarySums returns uname-m -> sha256 for each runner binary available to serve. Hashes
+// are cached by path, size and mtime (heartbeats ask on every beat).
 func (s *Service) binarySums() (map[string]string, error) {
 	sums := map[string]string{}
 	for _, arch := range []string{"aarch64", "x86_64"} {
 		path, ok := s.BinaryPath(arch)
 		if !ok {
+			continue
+		}
+		fi, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		key := fmt.Sprintf("%s|%d|%d", path, fi.Size(), fi.ModTime().UnixNano())
+		if v, ok := s.sumCache.Load(key); ok {
+			sums[arch] = v.(string)
 			continue
 		}
 		f, err := os.Open(path)
@@ -176,6 +188,7 @@ func (s *Service) binarySums() (map[string]string, error) {
 			return nil, err
 		}
 		sums[arch] = hex.EncodeToString(h.Sum(nil))
+		s.sumCache.Store(key, sums[arch])
 	}
 	return sums, nil
 }
@@ -432,6 +445,9 @@ func (s *Service) Heartbeat(ctx context.Context, subject string, data []byte) er
 	}
 	s.hist.add(id, hb, s.now())
 	s.Bus.Publish("runner", strconv.FormatInt(id, 10))
+	if err := s.reconcileBinary(ctx, id, hb); err != nil {
+		s.Log.Warn("runner upgrade", "runner", id, "err", err)
+	}
 	return s.reconcileTemplate(ctx, id, hb)
 }
 

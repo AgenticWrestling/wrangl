@@ -66,7 +66,12 @@ func runnerCmd(g *Global) *cobra.Command {
 				return err
 			}
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil)).With("runner", cfg.Name)
-			return runner.Run(cmd.Context(), cfg, runner.DaemonOptions{Log: log, InstallMise: runner.DefaultMiseInstaller})
+			up, err := runner.DefaultSelfUpgrade()
+			if err != nil {
+				log.Warn("self-upgrade off", "err", err)
+				up = nil
+			}
+			return runner.Run(cmd.Context(), cfg, runner.DaemonOptions{Log: log, InstallMise: runner.DefaultMiseInstaller, Upgrade: up})
 		},
 	}
 	status := &cobra.Command{

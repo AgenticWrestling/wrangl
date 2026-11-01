@@ -59,7 +59,14 @@ type agentHarness struct {
 
 // newAgentHarness writes script as the agent and creates template tmpl, formatted with
 // (arch, agent path).
-func newAgentHarness(t *testing.T, script, tmplFmt string, secrets map[string]string) *agentHarness {
+// harnessOpt adjusts a harness: beforeRunner runs with the controller's data dir before
+// the runner starts; daemon edits the runner's options.
+type harnessOpt struct {
+	beforeRunner func(dataDir string)
+	daemon       func(*runner.DaemonOptions)
+}
+
+func newAgentHarness(t *testing.T, script, tmplFmt string, secrets map[string]string, opts ...harnessOpt) *agentHarness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	dir := t.TempDir()
@@ -98,11 +105,20 @@ func newAgentHarness(t *testing.T, script, tmplFmt string, secrets map[string]st
 		t.Fatal(err)
 	}
 	rcfg, _ := runner.LoadConfig(filepath.Join(root, "etc/wrangl/runner.yaml"))
+	dopts := runner.DaemonOptions{HeartbeatInterval: 50 * time.Millisecond,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), InstallMise: runnertest.MiseInstaller(nil)}
+	for _, o := range opts {
+		if o.beforeRunner != nil {
+			o.beforeRunner(data)
+		}
+		if o.daemon != nil {
+			o.daemon(&dopts)
+		}
+	}
 	dctx, stopDaemon := context.WithCancel(ctx)
 	ddone := make(chan struct{})
 	go func() {
-		runner.Run(dctx, rcfg, runner.DaemonOptions{HeartbeatInterval: 50 * time.Millisecond,
-			Log: slog.New(slog.NewTextHandler(io.Discard, nil)), InstallMise: runnertest.MiseInstaller(nil)})
+		runner.Run(dctx, rcfg, dopts)
 		close(ddone)
 	}()
 	if _, err := api.CreateProject(ctx, proto.ProjectRequest{Slug: "web", Template: ptr(tv.Name)}); err != nil {

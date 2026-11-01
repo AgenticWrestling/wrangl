@@ -208,6 +208,9 @@ type Runner struct {
 	LastError         string         `json:"last_error"`
 	TemplateLog       string         `json:"template_log"`
 	ProvisioningSince sql.NullString `json:"provisioning_since"`
+	BinarySha         string         `json:"binary_sha"`
+	UpgradeSha        string         `json:"upgrade_sha"`
+	UpgradeSentAt     sql.NullString `json:"upgrade_sent_at"`
 }
 
 type RunnerTemplate struct {

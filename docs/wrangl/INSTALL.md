@@ -667,7 +667,22 @@ keys, every enrolled runner's credentials stop working.
 3. `sudo systemctl restart wrangl-controller`.
 
 Migrations run on start. Runners keep running through the restart and reconnect. Newly
-launched runners download the new binary; existing ones keep theirs until they're replaced.
+launched runners download the new binary.
+
+**Existing runners upgrade themselves.** Each heartbeat carries the sha256 of the runner's
+own binary. When it doesn't match the binary the controller serves for that arch:
+1. The controller marks the runner. A marked runner takes no new runs, and `fleet list`
+   shows it as `(upgrading)`.
+2. Once the runner is idle (a run in progress finishes first), the controller sends it the
+   expected hash.
+3. The runner downloads `/dl/wrangl-linux-<arch>` from the same controller URL it enrolled
+   with, checks the hash, and atomically replaces `/usr/local/bin/wrangl`. It then re-execs
+   itself under systemd, with the same pid.
+4. Its next heartbeat clears the mark.
+
+A failed download or checksum leaves the old binary in place. The controller retries every
+2 minutes. **Check:** `wrangl fleet show <runner>` shows `wrangl binary sha256 …`, and the
+controller log says `runner upgraded`.
 
 ### Teardown
 

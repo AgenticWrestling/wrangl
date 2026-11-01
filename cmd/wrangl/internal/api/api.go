@@ -283,7 +283,7 @@ func runnerView(r dbgen.Runner, template string, idleTimeout int64) proto.Runner
 		LastHeartbeatAt: r.LastHeartbeatAt.String, IdleSince: r.IdleSince.String, IdleTimeoutS: idleTimeout,
 		LaunchedAt: r.LaunchedAt.String, EnrolledAt: r.EnrolledAt.String, TerminatedAt: r.TerminatedAt.String,
 		Cordoned: r.Cordoned == 1, Draining: r.DrainRequested == 1, TemplateVersion: r.TemplateVersion,
-		LastError: r.LastError,
+		LastError: r.LastError, BinarySHA: r.BinarySha, UpgradeSHA: r.UpgradeSha,
 	}
 	if r.LastMetricsJson != "" && r.LastMetricsJson != "{}" {
 		v.Metrics = json.RawMessage(r.LastMetricsJson)
