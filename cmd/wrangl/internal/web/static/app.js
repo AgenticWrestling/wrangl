@@ -293,9 +293,9 @@ document.addEventListener('keydown', (e) => {
 
 // Setup page: put the chosen App name into the manifest before it goes to GitHub.
 function ghManifest(form) {
-  const name = form.querySelector('#gh-name').value.trim();
+  const name = form.querySelector('.gh-name').value.trim();
   if (!name) return false;
-  const field = form.querySelector('#gh-manifest');
+  const field = form.querySelector('.gh-manifest');
   const m = JSON.parse(field.value);
   m.name = name;
   field.value = JSON.stringify(m);

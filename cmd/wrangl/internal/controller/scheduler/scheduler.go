@@ -31,10 +31,14 @@ type Scheduler struct {
 	Log    *slog.Logger
 	GH     gh.API                            // nil: no tokens (file:// repos in tests)
 	Secret func(name string) ([]byte, error) // controller secret store
+	// OnNeedApp is called (at most hourly per owner) when queued work cannot start because the
+	// repository owner has no GitHub App, or it is not installed on the repository.
+	OnNeedApp func(owner, repo string, cause error)
 
-	mu      sync.Mutex
-	backoff map[int64]*backoff
-	warned  map[int64]int64 // template id -> failed version already logged
+	mu       sync.Mutex
+	backoff  map[int64]*backoff
+	warned   map[int64]int64 // template id -> failed version already logged
+	askedApp map[string]time.Time
 }
 
 // Tick runs one scale-up pass and returns how many runners it launched per template.

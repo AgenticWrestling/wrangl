@@ -1,32 +1,39 @@
 {{define "main-setup"}}
-{{if .Created}}<section class="card"><h3>App created</h3>
-  <p>The key is saved on the controller. Next, install the App on the repos wrangl may work on, then restart the controller so it picks the App up.</p></section>{{end}}
+{{if .Created}}<section class="card"><h3>App created for {{.Created}}</h3>
+  <p>The key is saved on the controller. Now install the App on the repositories wrangl may work on (choose <b>Only select repositories</b>).{{if .Back}} Then <a href="{{.Back}}">carry on where you were</a>.{{end}}</p></section>{{end}}
 {{if .Error}}<section class="card"><p class="err">{{.Error}}</p></section>{{end}}
+{{if .Suggest}}<section class="card attn"><h3>{{.Suggest}} is not set up yet</h3>
+  <p>{{if .Repo}}To work on <code>{{.Repo}}</code>, wrangl needs a GitHub App created in the account that owns it.{{else}}wrangl needs a GitHub App created in the account that owns the repositories.{{end}} Add <b>{{.Suggest}}</b> below, as a personal account or an organisation.</p></section>{{end}}
 
-<section class="card" id="github">
-  <div class="row"><h3>GitHub author App</h3><span class="grow"></span>
-    {{if .Active}}<span class="tag ok">✓ active</span>
-    {{else if .HaveApp}}<span class="tag wait">⧗ restart needed</span>
-    {{else}}<span class="tag attn">! not set up</span>{{end}}</div>
-  <p class="hint">wrangl uses this private App to clone repos, push branches and open pull requests. It needs Contents and Pull requests (read and write), and Issues and Metadata (read-only). Webhooks stay off.</p>
+<section class="card">
+  <h3>GitHub accounts</h3>
+  <p class="hint">A GitHub App has to be created in the account that owns the repositories, so each account you work in (your own, and any organisation) has its own wrangl App. Repositories you can link come from these accounts. For an organisation you must be an owner of it to create the App.</p>
+  <form class="addacct" data-signals-acctlogin="{{json .Suggest}}" data-signals-acctkind="'user'" onsubmit="return false">
+    <label>Account name<input data-bind="acctlogin" placeholder="njreid or my-org" autocapitalize="off" autocomplete="off"></label>
+    <label>Kind<select data-bind="acctkind"><option value="user">Personal account</option><option value="org">Organisation</option></select></label>
+    <button class="btn primary" type="button" data-on-click="@post('/ui/act/account-add?back={{q .Back}}')">Add account</button>
+  </form>
+</section>
 
-  {{if .HaveApp}}
+{{range .Accounts}}<section class="card gh-account{{if .Focus}} focus{{end}}" id="acct-{{.Login}}">
+  <div class="row"><h3>{{.Login}}</h3><span class="pill">{{if eq .Kind "org"}}organisation{{else}}personal{{end}}</span><span class="grow"></span>
+    {{if .App}}<span class="tag ok">✓ App ready</span>{{else}}<span class="tag attn">! no App yet</span>{{end}}
+    <button class="btn small danger" data-on-click="confirm('Unlink {{.Login}}? Its repositories stop working until you add it again.') && @post('/ui/act/account-remove?login={{.Login}}')">Remove</button></div>
+  {{if .App}}
   <dl class="kv"><dt>App</dt><dd><a href="{{.App.HTMLURL}}" target="_blank" rel="noopener">{{.App.Slug}}</a> <code class="sqid">{{.App.ID}}</code></dd></dl>
-  <div class="actions wrap"><a class="btn primary" href="{{.App.InstallURL}}" target="_blank" rel="noopener">1. Install on your repos</a></div>
-  <p class="hint">Choose <b>Only select repositories</b>. {{if not .Active}}Then restart the controller (<code>wrangl controller serve</code>) so it loads the App.{{end}}</p>
-  {{else if .Active}}
-  <p class="hint">An App is set in <code>controller.yaml</code>.</p>
+  <div class="actions wrap"><a class="btn primary" href="{{.App.InstallURL}}" target="_blank" rel="noopener">Install on repositories</a><a class="btn" href="{{.InstallationsURL}}" target="_blank" rel="noopener">Manage access</a></div>
+  <p class="hint">Choose <b>Only select repositories</b>. Repositories the App can see are offered when you link one to a project.</p>
   {{else if .ManifestErr}}<p class="err">{{.ManifestErr}}</p>
   {{else}}
-  <form method="post" action="https://github.com/settings/apps/new?state={{.State}}" onsubmit="return ghManifest(this)">
+  <form method="post" action="{{.NewAppURL .State}}" onsubmit="return ghManifest(this)">
     <label>App name <span class="dim">(GitHub App names are unique across GitHub)</span>
-      <input id="gh-name" value="{{.AppName}}" autocomplete="off" autocapitalize="off"></label>
-    <input type="hidden" id="gh-manifest" name="manifest" value="{{.Manifest}}">
-    <div class="actions"><button class="btn primary" type="submit">Create on GitHub</button></div>
+      <input class="gh-name" value="{{.AppName}}" autocomplete="off" autocapitalize="off"></label>
+    <input type="hidden" class="gh-manifest" name="manifest" value="{{.Manifest}}">
+    <div class="actions"><button class="btn primary" type="submit">Create the App in {{if eq .Kind "org"}}{{.Login}}{{else}}your account{{end}} on GitHub</button></div>
   </form>
-  <p class="hint">GitHub asks you to confirm, then returns you here.</p>
+  <p class="hint">GitHub asks you to confirm{{if eq .Kind "org"}} (you need to be an owner of {{.Login}}){{end}}, then returns you here. It needs Contents and Pull requests (read and write), and Issues and Metadata (read-only). Webhooks stay off.</p>
   {{end}}
-</section>
+</section>{{else}}<p class="empty">No accounts yet. Add yours above.</p>{{end}}
 
 <section class="card tools">
   <div class="row"><h3>Reviewer App</h3><span class="grow"></span><span class="pill">later</span></div>

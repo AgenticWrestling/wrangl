@@ -63,6 +63,7 @@ func TestPRFlowEndToEnd(t *testing.T) {
 	secret := "whsec-test"
 	controller.SecretSet(data, "gh-webhook", strings.NewReader(secret))
 	cfg := config.DefaultController()
+	cfg.Web.PublicURL = "https://ctrl.example.com"
 	cfg.DataDir = data
 	cfg.Listen = config.Listen{HTTP: "127.0.0.1:0", Unix: filepath.Join(dir, "api.sock"), NATS: "127.0.0.1:-1", Enroll: "127.0.0.1:0"}
 	cfg.GitHub.ReviewerApp.WebhookSecret = "secrets/gh-webhook"

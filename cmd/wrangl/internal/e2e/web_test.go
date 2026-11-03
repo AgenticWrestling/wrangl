@@ -113,7 +113,21 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/static/app.css", "Red Hat Display", "min-width: 900px")
 	get("/static/vendor/fonts/ibm-plex-mono-latin.woff2")
 	get("/static/app.css", "IBM Plex Mono", "--sqid")
-	get("/setup", "GitHub author App", "Reviewer App")
+	get("/setup", "GitHub accounts", "Reviewer App", "Add account")
+	// Accounts: a GitHub App lives in the account that owns the repositories, personal or org.
+	post("/ui/act/account-add", `{"acctlogin":"plank-pattern","acctkind":"org"}`)
+	post("/ui/act/account-add", `{"acctlogin":"@njreid","acctkind":"user"}`)
+	setup := get("/setup", "plank-pattern", "organisation", "njreid", "personal", "no App yet")
+	if !strings.Contains(setup, "https://github.com/organizations/plank-pattern/settings/apps/new?state=") ||
+		!strings.Contains(setup, "https://github.com/settings/apps/new?state=") {
+		t.Fatalf("the org and personal App forms must post to different GitHub URLs: %.1500s", setup)
+	}
+	get("/setup?account=somebody-else&repo=somebody-else/x&back=/project/web", "somebody-else is not set up yet", "somebody-else/x")
+	get("/settings", "GitHub accounts", "plank-pattern", "set up the App")
+	if out := post("/ui/act/repo-link?slug=web", `{"repoadd":"somebody-else/missing"}`); !strings.Contains(out, "/setup?account=") {
+		t.Fatalf("linking a repo the App cannot see must point at the fix: %s", out)
+	}
+	post("/ui/act/account-remove?login=plank-pattern", `{}`)
 	get("/setup/github/callback?code=x&state=bad", "expired or was already used")
 	get("/settings", `href="/setup"`)
 	get("/static/app.js", "moveTask")

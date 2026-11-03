@@ -39,6 +39,17 @@ type GhDelivery struct {
 	ReceivedAt string `json:"received_at"`
 }
 
+type GithubAccount struct {
+	ID        int64         `json:"id"`
+	Login     string        `json:"login"`
+	Kind      string        `json:"kind"`
+	AppID     sql.NullInt64 `json:"app_id"`
+	Slug      string        `json:"slug"`
+	HtmlUrl   string        `json:"html_url"`
+	KeyFile   string        `json:"key_file"`
+	CreatedAt string        `json:"created_at"`
+}
+
 type HookEvent struct {
 	ID          int64  `json:"id"`
 	RunID       int64  `json:"run_id"`

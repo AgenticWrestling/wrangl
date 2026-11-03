@@ -29,6 +29,25 @@ type Issue struct {
 // ErrNotInstalled means the App is not installed on the repository.
 var ErrNotInstalled = errors.New("the GitHub App is not installed on this repository")
 
+// NoAppError means no GitHub App has been created yet for the account that owns a repository.
+// An App has to be created in the personal or organisation account that owns the repositories,
+// so the fix is the Setup flow for that account.
+type NoAppError struct{ Owner string }
+
+func (e *NoAppError) Error() string {
+	return "there is no GitHub App for " + e.Owner + " yet; create one in Settings"
+}
+
+// NotInstalledError is ErrNotInstalled with the repository it is about.
+type NotInstalledError struct{ Owner, Name string }
+
+func (e *NotInstalledError) Error() string {
+	return "the GitHub App for " + e.Owner + " is not installed on " + e.Owner + "/" + e.Name
+}
+
+// Is makes errors.Is(err, ErrNotInstalled) hold.
+func (e *NotInstalledError) Is(target error) bool { return target == ErrNotInstalled }
+
 // API is what the controller needs from GitHub in M4. M6 adds pull requests, checks,
 // reviews and merges.
 type API interface {
@@ -39,6 +58,8 @@ type API interface {
 	RepoToken(ctx context.Context, r Repo) (token string, expires time.Time, err error)
 	// Issues lists issues (state: open | closed | all).
 	Issues(ctx context.Context, r Repo, state string) ([]Issue, error)
+	// ListRepos lists the repositories an owner's App is installed on (what can be linked).
+	ListRepos(ctx context.Context, owner string) ([]Repo, error)
 	PRAPI
 }
 

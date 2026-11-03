@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
 	"html/template"
 	"io"
 	"io/fs"
@@ -403,6 +405,13 @@ func executeScript(w io.Writer, js string) {
 	fmt.Fprintf(w, "data: script %s\n\n", strings.ReplaceAll(js, "\n", " "))
 }
 
+// toastLink is an error toast with a link to the next step.
+func toastLink(w http.ResponseWriter, msg, href, label string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	mergeFragments(w, fmt.Sprintf(`<div id="toast" class="toast err show">%s <a href="%s">%s</a></div>`,
+		template.HTMLEscapeString(msg), template.HTMLEscapeString(href), template.HTMLEscapeString(label)))
+}
+
 func toast(w http.ResponseWriter, msg string, isErr bool) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	cls := "toast show"
@@ -672,6 +681,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["P"], d["Repos"], d["Title"] = p, repos, p.Name
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["GitHub"] = h.D.Projects.GH != nil
+		d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
 		d["Template"] = ""
 		if p.DefaultTemplateID.Valid {
 			if t, err := db.RQ.GetTemplate(ctx, p.DefaultTemplateID.Int64); err == nil {
@@ -679,16 +689,30 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			}
 		}
 	case "setup":
-		d["Title"] = "Setup"
-		app, have := h.D.Setup.Current()
-		d["App"], d["HaveApp"] = app, have
-		d["Active"] = h.D.Projects.GH != nil
-		d["State"] = h.D.Setup.NewState()
-		d["AppName"] = h.D.Setup.AppName
-		m, err := h.D.Setup.Manifest(h.D.Setup.AppName)
-		d["Manifest"], d["ManifestErr"] = string(m), errString(err)
-		d["Created"], d["Error"] = r.URL.Query().Get("created") == "1", r.URL.Query().Get("error")
+		d["Title"] = "GitHub accounts"
+		qv := r.URL.Query()
+		back := ghsetup.SafeBack(qv.Get("back"))
+		accts, _ := h.D.Setup.Accounts(ctx)
+		var views []acctView
+		seen := false
+		for _, ac := range accts {
+			v := acctView{Account: ac, AppName: ghsetup.AppName(ac.Login)}
+			if ac.App == nil {
+				v.State = h.D.Setup.NewState(ac.Login, back)
+				m, err := h.D.Setup.Manifest(v.AppName)
+				v.Manifest, v.ManifestErr = string(m), errString(err)
+			}
+			v.Focus = strings.EqualFold(qv.Get("account"), ac.Login)
+			seen = seen || v.Focus
+			views = append(views, v)
+		}
+		d["Accounts"], d["Created"], d["Error"] = views, qv.Get("created"), qv.Get("error")
+		d["Repo"], d["Back"] = qv.Get("repo"), back
+		if f := qv.Get("account"); f != "" && !seen {
+			d["Suggest"] = f // the owner of a repo being linked, not set up yet
+		}
 	case "settings":
+		d["GHAccounts"], _ = h.D.Setup.Accounts(ctx)
 		d["Projects"], _ = db.RQ.ListProjects(ctx)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
@@ -962,8 +986,23 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq})
 		msg = "saved " + slug
 	case "repo-link":
-		_, err = h.D.Projects.LinkRepo(ctx, q.Get("slug"), str("repoadd"), "")
-		msg, reset = "repo linked", map[string]any{"repoadd": ""}
+		ref := str("repoadd")
+		if ref == "" {
+			ref = str("repoother")
+		}
+		_, err = h.D.Projects.LinkRepo(ctx, q.Get("slug"), ref, "")
+		msg, reset = "repo linked", map[string]any{"repoadd": "", "repoother": ""}
+		if err != nil && h.githubToast(ctx, w, err, "/project/"+q.Get("slug")) {
+			return
+		}
+	case "account-add":
+		_, err = h.D.Setup.AddAccount(ctx, str("acctlogin"), str("acctkind"))
+		msg, reset = "account added", map[string]any{"acctlogin": ""}
+		nav = "/setup?account=" + url.QueryEscape(strings.TrimPrefix(str("acctlogin"), "@")) + "&back=" + url.QueryEscape(ghsetup.SafeBack(q.Get("back")))
+	case "account-remove":
+		err = h.D.Setup.RemoveAccount(ctx, q.Get("login"))
+		msg = "account removed"
+		nav = "/setup"
 	case "repo-unlink":
 		err = h.D.Projects.UnlinkRepo(ctx, q.Get("slug"), q.Get("repo"))
 		msg = "repo unlinked"
@@ -1074,11 +1113,98 @@ func recentProjects(all []dbgen.Project, n int) (recent, rest []dbgen.Project) {
 // githubCallback is where GitHub sends the owner's browser after they confirm the App.
 func (h *Handler) githubCallback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if _, err := h.D.Setup.Exchange(r.Context(), q.Get("code"), q.Get("state")); err != nil {
+	res, err := h.D.Setup.Exchange(r.Context(), q.Get("code"), q.Get("state"))
+	if err != nil {
 		http.Redirect(w, r, "/setup?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/setup?created=1", http.StatusSeeOther)
+	to := "/setup?created=" + url.QueryEscape(res.Login)
+	if res.Back != "" {
+		to += "&back=" + url.QueryEscape(res.Back)
+	}
+	http.Redirect(w, r, to, http.StatusSeeOther)
+}
+
+// acctView is a linked GitHub account on the Setup page.
+type acctView struct {
+	ghsetup.Account
+	AppName     string
+	State       string
+	Manifest    string
+	ManifestErr string
+	Focus       bool
+}
+
+// repoGroup is one account's repositories for the link-a-repo picker.
+type repoGroup struct {
+	Login, Kind string
+	Repos       []gh.Repo
+	NoApp       bool   // no App yet: offer to set it up
+	Problem     string // the App exists but its repositories could not be listed
+	InstallURL  string // where to add repositories to the App's installation
+	SetupURL    string
+}
+
+// repoChoices lists, for each linked GitHub account, the repositories its App can see and that
+// are not already linked to the project: what can be linked.
+func (h *Handler) repoChoices(ctx context.Context, slug string, linked []dbgen.ListReposRow) []repoGroup {
+	if h.D.Projects.GH == nil || h.D.Setup == nil {
+		return nil
+	}
+	have := map[string]bool{}
+	for _, l := range linked {
+		have[strings.ToLower(l.Repo.Owner+"/"+l.Repo.Name)] = true
+	}
+	accts, _ := h.D.Setup.Accounts(ctx)
+	var out []repoGroup
+	for _, ac := range accts {
+		g := repoGroup{Login: ac.Login, Kind: ac.Kind, SetupURL: "/setup?account=" + url.QueryEscape(ac.Login) + "&back=" + url.QueryEscape("/project/"+slug)}
+		if ac.App == nil {
+			g.NoApp = true
+			out = append(out, g)
+			continue
+		}
+		g.InstallURL = ac.App.InstallURL()
+		repos, err := h.D.Projects.GH.ListRepos(ctx, ac.Login)
+		var ni *gh.NotInstalledError
+		switch {
+		case errors.As(err, &ni):
+			g.Problem = "the App is not installed on this account yet"
+		case err != nil:
+			g.Problem = err.Error()
+		}
+		for _, r := range repos {
+			if !have[strings.ToLower(r.Owner+"/"+r.Name)] {
+				g.Repos = append(g.Repos, r)
+			}
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// githubToast turns a GitHub App problem into a message with the next step as a link: create the
+// App for that account, or install it on the repository. It reports whether err was one.
+func (h *Handler) githubToast(ctx context.Context, w http.ResponseWriter, err error, back string) bool {
+	var na *gh.NoAppError
+	var ni *gh.NotInstalledError
+	switch {
+	case errors.As(err, &na):
+		to := "/setup?account=" + url.QueryEscape(na.Owner)
+		if b := ghsetup.SafeBack(back); b != "" {
+			to += "&back=" + url.QueryEscape(b)
+		}
+		toastLink(w, err.Error(), to, "Set up the GitHub App for "+na.Owner)
+		return true
+	case errors.As(err, &ni):
+		label, to := "Open GitHub accounts", "/setup?account="+url.QueryEscape(ni.Owner)
+		if ac, ok := h.D.Setup.Account(ctx, ni.Owner); ok && ac.App != nil {
+			label, to = "Install the App on "+ni.Owner+"/"+ni.Name, ac.App.InstallURL()
+		}
+		toastLink(w, err.Error(), to, label)
+		return true
+	}
+	return false
 }
 
 // termUsable reports whether a runner in this state can host a terminal: it is up and

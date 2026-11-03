@@ -3,6 +3,8 @@ package gh
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -42,7 +44,7 @@ func (f *Fake) Repo(_ context.Context, owner, name string) (Repo, error) {
 	defer f.mu.Unlock()
 	r, ok := f.repos[owner+"/"+name]
 	if !ok {
-		return Repo{}, fmt.Errorf("%s/%s: %w", owner, name, ErrNotInstalled)
+		return Repo{}, &NotInstalledError{Owner: owner, Name: name}
 	}
 	return r, nil
 }
@@ -65,5 +67,19 @@ func (f *Fake) Issues(_ context.Context, r Repo, state string) ([]Issue, error) 
 			out = append(out, i)
 		}
 	}
+	return out, nil
+}
+
+// ListRepos implements API.
+func (f *Fake) ListRepos(_ context.Context, owner string) ([]Repo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Repo
+	for _, r := range f.repos {
+		if strings.EqualFold(r.Owner, owner) {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,9 +74,11 @@ type Server struct {
 
 	// Test hooks; production leaves them zero.
 	Provisioner         *provision.Provisioner // overrides the AWS-backed one
-	GH                  gh.API                 // overrides the GitHub App client built from config
-	Reviewer            gh.API                 // overrides the reviewer App client built from config
-	ReconcileInterval   time.Duration          // PR reconcile poll (default 15m)
+	GH                  gh.API                 // overrides the GitHub App client built from the accounts
+	Setup               *ghsetup.Service
+	multi               *gh.Multi
+	Reviewer            gh.API        // overrides the reviewer App client built from config
+	ReconcileInterval   time.Duration // PR reconcile poll (default 15m)
 	Now                 func() time.Time
 	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
 	SchedulerInterval   time.Duration // scale-up cadence (default 10s)
@@ -239,7 +242,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		BinDir: filepath.Join(s.cfg.DataDir, "bin"), Now: now, Log: s.log, AllowLoopbackEnroll: s.AllowLoopbackEnroll,
 	}
 
-	ghAPI, err := s.github()
+	ghAPI, err := s.github(ctx)
 	if err != nil {
 		return err
 	}
@@ -382,7 +385,11 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if schedInterval == 0 {
 		schedInterval = 10 * time.Second
 	}
-	sched := &scheduler.Scheduler{Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
+	needApp := func(owner, repo string, cause error) {
+		s.Push.Notify(webpush.Notification{Title: "GitHub App needed for " + owner, Body: "Work on " + owner + "/" + repo + " is waiting: " + cause.Error(),
+			URL: "/setup?account=" + url.QueryEscape(owner) + "&repo=" + url.QueryEscape(owner+"/"+repo), Tag: "ghapp-" + strings.ToLower(owner)})
+	}
+	sched := &scheduler.Scheduler{OnNeedApp: needApp, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
 	reconcile := s.ReconcileInterval
 	if reconcile == 0 {
@@ -515,8 +522,7 @@ func (s *Server) routes() http.Handler {
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
 	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs,
-		Setup: &ghsetup.Service{DataDir: s.cfg.DataDir, PublicURL: strings.TrimSuffix(s.cfg.Web.PublicURL, "/"),
-			AppName: appName(s.cfg.Cloudflare.OwnerEmail)}}
+		Setup: s.setupService()}
 	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	ui, err := web.New(deps)
@@ -552,25 +558,33 @@ func (s *Server) reviewer() (gh.API, error) {
 }
 
 // github builds the author App client from config (nil when not configured).
-func (s *Server) github() (gh.API, error) {
+func (s *Server) github(ctx context.Context) (gh.API, error) {
+	s.Setup = s.setupService()
 	if s.GH != nil {
 		return s.GH, nil
 	}
+	s.multi = &gh.Multi{Lookup: s.Setup.Lookup}
+	s.Setup.Changed = s.multi.Forget
+	// The single App of earlier versions (this Setup page's, or github.author_app in
+	// controller.yaml) becomes the account that owns it.
 	app := s.cfg.GitHub.AuthorApp
-	if app.ID == 0 { // not in controller.yaml: use the App the web Setup page created
-		if a, ok := ghsetup.Load(s.cfg.DataDir); ok {
-			app = config.GitHubApp{ID: a.ID, PrivateKey: ghsetup.KeyRel}
-		}
+	mctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if err := s.Setup.MigrateLegacy(mctx, app.ID, s.cfg.Path(app.PrivateKey)); err != nil {
+		s.log.Warn("could not adopt the existing GitHub App into an account; add the account in Settings", "err", err)
 	}
-	if app.ID == 0 {
-		s.log.Warn("github.author_app not set: repo linking, issue sync and pushes to GitHub are disabled")
-		return nil, nil
+	if accts, _ := s.Setup.Accounts(ctx); len(accts) == 0 {
+		s.log.Warn("no GitHub account is set up: add yours in Settings to link repositories and push")
 	}
-	key, err := gh.LoadKey(s.cfg.Path(app.PrivateKey))
-	if err != nil {
-		return nil, fmt.Errorf("github author app key: %w", err)
+	return s.multi, nil
+}
+
+// setupService is the GitHub account/App setup service (also used by the web Settings pages).
+func (s *Server) setupService() *ghsetup.Service {
+	if s.Setup != nil {
+		return s.Setup
 	}
-	return &gh.Client{AppID: app.ID, Key: key}, nil
+	return &ghsetup.Service{DB: s.db, DataDir: s.cfg.DataDir, PublicURL: strings.TrimSuffix(s.cfg.Web.PublicURL, "/")}
 }
 
 // consume runs handle for every message on a durable WR_EVT consumer: malformed or
@@ -616,21 +630,6 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(st)
-}
-
-// appName suggests a GitHub App name from the owner's email (App names are global).
-func appName(email string) string {
-	local, _, _ := strings.Cut(email, "@")
-	var b strings.Builder
-	for _, r := range strings.ToLower(local) {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		}
-	}
-	if b.Len() == 0 {
-		return "wrangl-author"
-	}
-	return "wrangl-author-" + b.String()
 }
 
 // review is what the deliverable-review flow needs.

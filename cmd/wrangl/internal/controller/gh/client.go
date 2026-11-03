@@ -151,7 +151,7 @@ func (c *Client) Repo(ctx context.Context, owner, name string) (Repo, error) {
 	if _, err := c.do(ctx, http.MethodGet, path+"/installation", auth, nil, &inst); err != nil {
 		var he *HTTPError
 		if errors.As(err, &he) && he.Status == http.StatusNotFound {
-			return Repo{}, fmt.Errorf("%s/%s: %w", owner, name, ErrNotInstalled)
+			return Repo{}, &NotInstalledError{Owner: owner, Name: name}
 		}
 		return Repo{}, err
 	}
@@ -220,6 +220,83 @@ func (c *Client) Issues(ctx context.Context, r Repo, state string) ([]Issue, err
 				continue
 			}
 			out = append(out, Issue{Number: it.Number, Title: it.Title, Body: it.Body, State: it.State, URL: it.HTMLURL})
+		}
+		next = ""
+		if m := nextLink.FindStringSubmatch(h.Get("Link")); m != nil {
+			next = m[1]
+		}
+	}
+	return out, nil
+}
+
+// AppOwner returns the login and kind ("user" or "org") of the account that owns this App.
+func (c *Client) AppOwner(ctx context.Context) (login, kind string, err error) {
+	auth, err := c.appAuth()
+	if err != nil {
+		return "", "", err
+	}
+	var app struct {
+		Slug  string `json:"slug"`
+		Owner struct {
+			Login string `json:"login"`
+			Type  string `json:"type"`
+		} `json:"owner"`
+	}
+	if _, err := c.do(ctx, http.MethodGet, "/app", auth, nil, &app); err != nil {
+		return "", "", err
+	}
+	kind = "user"
+	if app.Owner.Type == "Organization" {
+		kind = "org"
+	}
+	return app.Owner.Login, kind, nil
+}
+
+// ListRepos implements API: the repositories the App can see in owner's installation.
+func (c *Client) ListRepos(ctx context.Context, owner string) ([]Repo, error) {
+	auth, err := c.appAuth()
+	if err != nil {
+		return nil, err
+	}
+	var inst struct {
+		ID int64 `json:"id"`
+	}
+	_, err = c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(owner)+"/installation", auth, nil, &inst)
+	var he *HTTPError
+	if errors.As(err, &he) && he.Status == http.StatusNotFound {
+		_, err = c.do(ctx, http.MethodGet, "/orgs/"+url.PathEscape(owner)+"/installation", auth, nil, &inst)
+	}
+	if errors.As(err, &he) && he.Status == http.StatusNotFound {
+		return nil, &NotInstalledError{Owner: owner, Name: "*"}
+	} else if err != nil {
+		return nil, err
+	}
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if _, err := c.do(ctx, http.MethodPost, fmt.Sprintf("/app/installations/%d/access_tokens", inst.ID), auth, nil, &tok); err != nil {
+		return nil, err
+	}
+	var out []Repo
+	next := "/installation/repositories?per_page=100"
+	for page := 0; next != "" && page < 30; page++ {
+		var body struct {
+			Repositories []struct {
+				Name          string `json:"name"`
+				DefaultBranch string `json:"default_branch"`
+				CloneURL      string `json:"clone_url"`
+				Private       bool   `json:"private"`
+				Owner         struct {
+					Login string `json:"login"`
+				} `json:"owner"`
+			} `json:"repositories"`
+		}
+		h, err := c.do(ctx, http.MethodGet, next, "token "+tok.Token, nil, &body)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range body.Repositories {
+			out = append(out, Repo{Owner: r.Owner.Login, Name: r.Name, DefaultBranch: r.DefaultBranch, CloneURL: r.CloneURL, InstallationID: inst.ID, Private: r.Private})
 		}
 		next = ""
 		if m := nextLink.FindStringSubmatch(h.Get("Link")); m != nil {

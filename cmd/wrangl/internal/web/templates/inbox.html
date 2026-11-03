@@ -50,8 +50,9 @@
   {{range .Projects}}<a class="row link" href="/project/{{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}<p class="empty">No projects.</p>{{end}}
 </section>
 <section class="card">
-  <div class="row"><h3>Setup</h3><span class="grow"></span><a class="btn small" href="/setup">Open</a></div>
-  <p class="hint">Connect GitHub so wrangl can clone, push and open pull requests.</p>
+  <div class="row"><h3>GitHub accounts</h3><span class="grow"></span><a class="btn small" href="/setup">Manage</a></div>
+  {{range .GHAccounts}}<div class="row"><b>{{.Login}}</b> <span class="dim">{{if eq .Kind "org"}}organisation{{else}}personal{{end}}</span><span class="grow"></span>{{if .App}}<span class="tag ok">✓ App ready</span>{{else}}<a class="tag attn" href="/setup?account={{.Login}}">! set up the App</a>{{end}}</div>
+  {{else}}<p class="hint">Connect GitHub so wrangl can clone, push and open pull requests. Add your account (and any organisation) to begin.</p>{{end}}
 </section>
 <section class="card">
   <h3>Runner templates</h3>
