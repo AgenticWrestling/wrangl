@@ -592,7 +592,7 @@ Access, with no inbound ports.
    the Backlog.
 2. **iOS (16.4+):** Share → **Add to Home Screen**, then open wrangl from the Home Screen icon.
    Web push only works from the installed app. **Android/Chrome:** menu → **Install app**.
-3. In the app: **More → Enable push on this device**, and allow notifications. The VAPID key
+3. In the app: **Settings → Enable push on this device**, and allow notifications. The VAPID key
    pair is generated once at `<data_dir>/secrets/vapid.json`. Back it up with the rest of
    `secrets/`, because a new key invalidates every subscription.
 4. **Check:** push arrives when a question is asked (for example, plan a task with
@@ -603,7 +603,7 @@ open a task to edit, split, add subtasks or precursors, queue, or **Plan with ag
 **Runners** (cards with CPU/mem/disk and a CPU sparkline; detail page with cordon, drain and
 terminate). **Runs** (log filter, read-only live terminal, diff, file browser with markdown
 preview). **Inbox** (agent questions, plan proposals with Accept / Edit / Reject, and PR
-reviews). **More** (projects, templates, launching a runner, push).
+reviews). **Settings** (text size, projects, templates, launching a runner, push).
 
 If a session expires, the installed app shows Cloudflare's login page. Sign in again; a long
 Access session duration (step 2) keeps this rare.
@@ -635,6 +635,38 @@ projects".
 
 Changes made this way are recorded as yours (`user` in task history). Cancels and deletes
 need no approval, because you are the approver.
+
+### 10.3 Task types, planning and deliverables
+
+A task has a type that decides how its work is prompted, delivered and reviewed:
+
+| Type | Deliverable | Review |
+|---|---|---|
+| `code` | pull request | gates, AI review, auto-merge if the project allows |
+| `bug` | pull request with a failing-then-passing test | as `code` |
+| `ux` | mockup images and a prototype link (`submit_deliverable`) | always the owner, visually |
+| `architecture` | an ADR in the repo | always the owner reads it |
+| `docs` | pull request limited to documentation | as `code` |
+| `research` | a markdown report with sources (notes repo, or a `report_md` deliverable) | as `code`; read the sources |
+| `review` | findings, no diff | the owner reads |
+| `release` > `milestone` > `feature` | none: containers with a target date, a progress bar and an at-risk / late flag | a release waits for "Ship it" |
+
+Runs queued on a planning task work through its subtree. Deliverables show on the task page and are kept for 90 days. When a run completes tasks but pushes nothing, the owner approves or requests changes from the inbox.
+
+Runner templates for these live in `docs/wrangl/templates/`: `design.yaml` (Playwright Chromium for screenshots) and `research.yaml` (pandoc, pdftotext). Both are verified on arm64 Amazon Linux runners.
+
+### 10.4 The runner terminal and the controller host
+
+Runners view -> Terminal opens `/runner/NAME/term`: one tab per agent session, plus "+ Shell" (fish if installed, else bash; the first shell installs bat, lsd, dust, duf, fd, ripgrep and tldr through mise). Run tabs are watch-only until you tap "Take control"; shell tabs open in control.
+
+To get a terminal on the controller machine itself, enrol it as a permanent runner (create a template with `arch` set to the host's, e.g. `docs/wrangl/templates/host.yaml`):
+
+```
+wrangl fleet enroll-token --template host
+wrangl runner bootstrap --host --controller http://<private-ip>:4223 --token wre_...
+```
+
+It runs as a systemd `--user` unit under your own account, is pinned first in the Runners view, is never launched, reaped or powered off by the fleet, and leaves your own mise config alone.
 
 ## 11. First-run checklist (the unverified parts)
 

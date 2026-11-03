@@ -8,8 +8,10 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/api"
@@ -41,6 +44,25 @@ type Handler struct {
 	D    api.Deps
 	tmpl *template.Template
 	css  string // chroma styles (light + dark)
+
+	sessions sync.Map // page session id -> *liveSession
+}
+
+// liveSession is one open page's live stream. The page says which backlog task it has
+// expanded, so every re-render of the list includes that task's card (a client-side patch
+// would be wiped by the next morph).
+type liveSession struct {
+	mu       sync.Mutex
+	expanded string // sqid
+	kick     chan struct{}
+}
+
+func (s *liveSession) get() string { s.mu.Lock(); defer s.mu.Unlock(); return s.expanded }
+
+func newSID() string {
+	var b [12]byte
+	rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 // New parses the templates.
@@ -113,7 +135,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	for path, view := range map[string]string{
 		"/backlog": "backlog", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
 		"/runs": "runs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
-		"/inbox": "inbox", "/more": "more", "/project/{slug}": "project", "/setup": "setup",
+		"/inbox": "inbox", "/settings": "settings", "/project/{slug}": "project", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
@@ -121,7 +143,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /runner/{name}/term", h.termPage)
 	mux.HandleFunc("GET /setup/github/callback", h.githubCallback)
 	mux.HandleFunc("GET /ui/live", h.live)
+	mux.HandleFunc("GET /more", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/settings", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("GET /ui/detail", h.detail)
+	mux.HandleFunc("POST /ui/expand", h.expand)
 	mux.HandleFunc("GET /deliverable/{id}", h.deliverable)
 	mux.HandleFunc("POST /ui/act/{action}", h.act)
 }
@@ -146,13 +172,15 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request, view string) {
 	for k, v := range r.URL.Query() {
 		q[k] = v
 	}
+	sid := newSID()
+	q.Set("sid", sid)
 	for _, k := range []string{"sqid", "name", "id", "slug"} {
 		if v := r.PathValue(k); v != "" {
 			q.Set(k, v)
 		}
 	}
 	open, _ := h.D.Runs.Questions(r.Context(), false)
-	page := map[string]any{"View": view, "Title": data["Title"], "Main": main, "LiveURL": "/ui/live?" + q.Encode(),
+	page := map[string]any{"View": view, "Title": data["Title"], "Main": main, "LiveURL": "/ui/live?" + q.Encode(), "SID": sid,
 		"Inbox": len(open), "Data": data}
 	for _, region := range []string{"Pre", "Post"} { // static regions outside #main (sheets, terminal)
 		name := strings.ToLower(region) + "-" + view
@@ -212,10 +240,40 @@ type deliverableView struct {
 	Report template.HTML // rendered markdown, for reports
 }
 
-// detail serves a task's full page content (card, controls and edit sheets) as an HTML
-// fragment, for the backlog to expand inline under the task's row.
+// taskPart renders one part of the task page ("main-task": the card; "post-task": its edit
+// sheets) for a task, as an HTML fragment.
+func (h *Handler) taskPart(ctx context.Context, sqid, tmpl string) (template.HTML, error) {
+	req := (&http.Request{URL: &url.URL{RawQuery: url.Values{"sqid": {sqid}}.Encode()}}).WithContext(ctx)
+	data, err := h.data(ctx, "task", req)
+	if err != nil {
+		return "", err
+	}
+	return h.render(tmpl, data)
+}
+
+// attachDetail puts card on the node with the given sqid.
+func attachDetail(nodes []*node, sqid string, card template.HTML) bool {
+	for _, n := range nodes {
+		if n.Sqid == sqid {
+			n.Detail = card
+			return true
+		}
+		if attachDetail(n.Kids, sqid, card) {
+			return true
+		}
+	}
+	return false
+}
+
+// detail serves a part of a task page as a fragment: part=card (default) or part=sheets. The
+// card is also included in the live re-render while a page has the task expanded (see
+// expand); the sheets (dialogs) live outside #main so a re-render cannot close one.
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
-	data, err := h.data(r.Context(), "task", r)
+	tmpl := "main-task"
+	if r.URL.Query().Get("part") == "sheets" {
+		tmpl = "post-task"
+	}
+	out, err := h.taskPart(r.Context(), r.URL.Query().Get("sqid"), tmpl)
 	if err != nil {
 		code := http.StatusInternalServerError
 		if errors.Is(err, errs.NotFound) {
@@ -224,20 +282,27 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), code)
 		return
 	}
-	main, err := h.render("main-task", data)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	post, err := h.render("post-task", data)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	io.WriteString(w, string(main))
-	io.WriteString(w, string(post))
+	io.WriteString(w, string(out))
+}
+
+// expand records which task a page has expanded (sqid "" = none) and refreshes its stream.
+func (h *Handler) expand(w http.ResponseWriter, r *http.Request) {
+	v, ok := h.sessions.Load(r.URL.Query().Get("sid"))
+	if !ok {
+		w.WriteHeader(http.StatusNoContent) // not live (or reconnecting): the client fills the card itself
+		return
+	}
+	s := v.(*liveSession)
+	s.mu.Lock()
+	s.expanded = r.URL.Query().Get("sqid")
+	s.mu.Unlock()
+	select {
+	case s.kick <- struct{}{}:
+	default:
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // fakeReq lets data() read path values from the live stream's query.
@@ -251,12 +316,17 @@ func reqValue(r *http.Request, k string) string {
 // live is the page's Datastar stream: it re-renders #main on every change notice.
 func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	view := r.URL.Query().Get("view")
-	if _, ok := map[string]bool{"backlog": true, "task": true, "runners": true, "runner": true, "runs": true, "run": true, "inbox": true, "more": true, "project": true}[view]; !ok {
+	if _, ok := map[string]bool{"backlog": true, "task": true, "runners": true, "runner": true, "runs": true, "run": true, "inbox": true, "settings": true, "project": true}[view]; !ok {
 		w.WriteHeader(http.StatusNoContent) // static pages (diff, files) are not live
 		return
 	}
 	ch, stop := h.D.Bus.Subscribe()
 	defer stop()
+	sess := &liveSession{kick: make(chan struct{}, 1)}
+	if sid := r.URL.Query().Get("sid"); sid != "" {
+		h.sessions.Store(sid, sess)
+		defer h.sessions.Delete(sid)
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -265,6 +335,13 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 		data, err := h.data(r.Context(), view, r)
 		if err != nil {
 			return
+		}
+		if sq := sess.get(); view == "backlog" && sq != "" {
+			if card, err := h.taskPart(r.Context(), sq, "main-task"); err == nil {
+				if roots, ok := data["Roots"].([]*node); ok {
+					attachDetail(roots, sq, card)
+				}
+			}
 		}
 		main, err := h.render("main-"+view, data)
 		if err != nil {
@@ -286,6 +363,8 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-sess.kick:
+			push()
 		case <-ch:
 			if debounce == nil {
 				debounce = time.After(250 * time.Millisecond)
@@ -335,7 +414,8 @@ func toast(w http.ResponseWriter, msg string, isErr bool) {
 
 type node struct {
 	proto.TaskNode
-	Attention bool // an open question, or its latest run failed / is blocked
+	Attention bool          // an open question, or its latest run failed / is blocked
+	Detail    template.HTML // the expanded task's card, when this page has it open
 	Kids      []*node
 }
 
@@ -586,11 +666,11 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		m, err := h.D.Setup.Manifest(h.D.Setup.AppName)
 		d["Manifest"], d["ManifestErr"] = string(m), errString(err)
 		d["Created"], d["Error"] = r.URL.Query().Get("created") == "1", r.URL.Query().Get("error")
-	case "more":
+	case "settings":
 		d["Projects"], _ = db.RQ.ListProjects(ctx)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "More"
+		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"
 	}
 	return d, nil
 }

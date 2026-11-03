@@ -40,7 +40,7 @@ func (s *Service) NewQuestion(ctx context.Context, q dbgen.CreateQuestionParams,
 			}
 		}
 		if q.RunID.Valid {
-			return tx.SetRunState(ctx, dbgen.SetRunStateParams{State: "needs_input", ID: q.RunID.Int64, FromState: "running"})
+			return tx.SetRunNeedsInput(ctx, q.RunID.Int64)
 		}
 		return nil
 	})

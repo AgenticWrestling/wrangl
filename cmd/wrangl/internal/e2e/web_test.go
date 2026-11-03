@@ -46,7 +46,46 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/backlog?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `\/ui\/live?`, "datastar-1.0.0-beta.11.js")
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
 	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals-outline=")
-	get("/ui/detail?sqid="+big, "design it", "sheet-edit", `data-bind="etarget"`, "Target date")
+	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)
+	get("/ui/detail?sqid="+big+"&part=sheets", "sheet-edit", `data-bind="etarget"`, "Target date")
+
+	// A page that expanded a task keeps it across live re-renders: the stream includes the card.
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=backlog&project=web&sid=testsid", nil)
+		resp, err := hc.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rd := bufio.NewReader(resp.Body)
+		readFrame := func() string { // one SSE event
+			var b strings.Builder
+			for {
+				line, err := rd.ReadString('\n')
+				if err != nil {
+					return b.String()
+				}
+				if line == "\n" && b.Len() > 0 {
+					return b.String()
+				}
+				b.WriteString(line)
+			}
+		}
+		if first := readFrame(); strings.Contains(first, `id="subtasks"`) {
+			t.Fatalf("nothing is expanded yet, but the card is in the stream: %.300s", first)
+		}
+		pr, _ := hc.Post("http://x/ui/expand?sid=testsid&sqid="+big, "text/plain", nil)
+		pr.Body.Close()
+		var got string
+		for i := 0; i < 4 && !strings.Contains(got, `id="subtasks"`); i++ {
+			got = readFrame()
+		}
+		if !strings.Contains(got, `id="subtasks"`) || !strings.Contains(got, `id="d-`+big+`"`) {
+			t.Fatalf("the live re-render does not include the expanded card: %.400s", got)
+		}
+		cancel()
+		resp.Body.Close()
+	}
 	post("/ui/act/task-edit?sqid="+big, `{"etitle":"design it","eprompt":"do the whole thing","etype":"milestone","etarget":"2026-12-31"}`)
 	get("/task/"+big, "2026-12-31", "Milestone")
 	get("/backlog?project=web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
@@ -63,7 +102,8 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/run/1/diff")
 	get("/run/1/files")
 	get("/inbox", "plan_review", "another big job", `pre class="outline"`)
-	get("/more", "enablePush", "tiny", "sheet-project")
+	get("/settings", "enablePush", "tiny", "sheet-project", "Appearance", `id="fs-seg"`, `data-fs="1.15"`)
+	get("/static/app.css", "calc(16px * var(--fs, 1))")
 	get("/backlog?project=web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/project/web")
 	post("/ui/act/project-new", `{"slug":"goalproj","pname":"Goal project","pgoals":"## Done when\n- it ships"}`)
 	get("/project/goalproj", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
@@ -75,7 +115,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/static/app.css", "IBM Plex Mono", "--sqid")
 	get("/setup", "GitHub author App", "Reviewer App")
 	get("/setup/github/callback?code=x&state=bad", "expired or was already used")
-	get("/more", `href="/setup"`)
+	get("/settings", `href="/setup"`)
 	get("/static/app.js", "moveTask")
 	get("/static/chroma.css", ".chroma")
 	get("/sw.js", "notificationclick")

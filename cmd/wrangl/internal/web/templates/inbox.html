@@ -26,7 +26,19 @@
 </section>{{end}}
 {{end}}
 
-{{define "main-more"}}
+{{define "main-settings"}}
+<section class="card">
+  <h3>Appearance</h3>
+  <p class="hint">Text size, on this device only.</p>
+  <div class="seg" role="radiogroup" aria-label="Text size" id="fs-seg">
+    <button type="button" role="radio" data-fs="0.85" aria-checked="false">Small</button>
+    <button type="button" role="radio" data-fs="1" aria-checked="false">Default</button>
+    <button type="button" role="radio" data-fs="1.15" aria-checked="false">Large</button>
+    <button type="button" role="radio" data-fs="1.3" aria-checked="false">Larger</button>
+    <button type="button" role="radio" data-fs="1.5" aria-checked="false">Largest</button>
+  </div>
+  <p class="fs-sample">The quick brown fox jumps over the lazy dog. <span class="dim">0123456789</span></p>
+</section>
 <section class="card">
   <h3>Notifications</h3>
   <p class="hint">Push for new questions, PRs awaiting review and failed runs. On iOS, add wrangl to the Home Screen first.</p>
@@ -50,4 +62,4 @@
 <p class="dim small center">wrangl · <a href="/api/v1/events">event stream</a></p>
 {{end}}
 
-{{define "post-more"}}{{template "sheet-project" .}}{{end}}
+{{define "post-settings"}}{{template "sheet-project" .}}{{end}}

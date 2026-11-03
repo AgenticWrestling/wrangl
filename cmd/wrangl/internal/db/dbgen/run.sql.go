@@ -540,6 +540,19 @@ func (q *Queries) QueuedRunsForAssignment(ctx context.Context) ([]QueuedRunsForA
 	return items, nil
 }
 
+const reassertNeedsInput = `-- name: ReassertNeedsInput :exec
+UPDATE run SET state = 'needs_input'
+WHERE run.id = ? AND run.state IN ('assigned', 'preparing', 'running')
+  AND EXISTS (SELECT 1 FROM question q WHERE q.run_id = run.id AND q.state = 'open')
+`
+
+// A progress event (JetStream) can arrive after the question that already parked the run
+// (core NATS) and would put it back to running: an open question means needs_input.
+func (q *Queries) ReassertNeedsInput(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, reassertNeedsInput, id)
+	return err
+}
+
 const releaseRunner = `-- name: ReleaseRunner :exec
 UPDATE runner SET state = 'idle', idle_since = ?1
 WHERE id = ?2 AND state IN ('busy', 'offline')
@@ -705,6 +718,17 @@ type SetRunGuidanceParams struct {
 
 func (q *Queries) SetRunGuidance(ctx context.Context, arg SetRunGuidanceParams) error {
 	_, err := q.db.ExecContext(ctx, setRunGuidance, arg.Guidance, arg.ID)
+	return err
+}
+
+const setRunNeedsInput = `-- name: SetRunNeedsInput :exec
+UPDATE run SET state = 'needs_input' WHERE id = ? AND state IN ('assigned', 'preparing', 'running')
+`
+
+// An agent asked a question. The run may still be preparing (the runner's state events travel
+// by a different route than the agent's question), so any live state moves to needs_input.
+func (q *Queries) SetRunNeedsInput(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, setRunNeedsInput, id)
 	return err
 }
 

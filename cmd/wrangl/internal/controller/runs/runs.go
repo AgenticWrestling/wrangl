@@ -97,8 +97,13 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 		if st.State == "preparing" || st.State == "running" {
 			started = nstr(s.ts())
 		}
-		return s.DB.Q.UpdateRunProgress(ctx, dbgen.UpdateRunProgressParams{
-			State: st.State, StartedAt: started, BaseSha: st.BaseSHA, HeadSha: st.HeadSHA, StatusText: st.Status, ID: runID,
+		return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+			if err := q.UpdateRunProgress(ctx, dbgen.UpdateRunProgressParams{
+				State: st.State, StartedAt: started, BaseSha: st.BaseSHA, HeadSha: st.HeadSHA, StatusText: st.Status, ID: runID,
+			}); err != nil {
+				return err
+			}
+			return q.ReassertNeedsInput(ctx, runID)
 		})
 	}
 	var code sql.NullInt64

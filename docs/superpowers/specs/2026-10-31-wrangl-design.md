@@ -371,7 +371,7 @@ mise_toml: |
   [tools]
   go = "1.26"
   node = "24"
-  "npm:@anthropic-ai/claude-code" = "latest"
+  "npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }  # with [settings] npm.package_manager = "npm": mise's default package manager skips the postinstall that fetches claude's native binary
 setup_script: |
   sudo dnf install -y git tmux
 agent:
@@ -886,7 +886,11 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D30 | M9: Remote Control is not a switch but an interactive-drive template: `drive: interactive` + `secret_files` (full login, 0600, deleted at run end) + `expect` rules for first-run prompts + the agent's own flag in `start`. Example templates for Claude (headless, interactive) and Codex ship in `docs/wrangl/templates/`, the interactive and Codex ones marked unverified |
 | D31 | M10: the remote MCP endpoint reuses the API's exposure and auth (unix socket; TCP behind Cloudflare Access, verified in-process when configured) rather than a separate token scheme; `wrangl mcp` bridges stdio so agents need no Access headers of their own. The owner scope may cancel/delete without approval (the owner *is* the approver) |
 | D32 | Agent plug-ins: hook formats `--continue-format claude|codex|agy|gemini|text`; agents that can't take a preset session id are resumed by `{{.AgentSessionID}}`, read from their JSON output (preferred) or hook payloads; `files: merge: json` pre-accepts agents' own prompts (Claude trust/bypass) instead of PTY regexes. Auth policy per agent in `docs/wrangl/agents.md`: env tokens over login files, never one login file on concurrent runners |
-| D33 | Task type is an enum (`code`, `ux`, `architecture`, `spec`, `docs`, `review`): TEXT + CHECK in SQLite, mapped by a sqlc column override onto `dbtypes.TaskType`; inherited by subtasks; adds type guidance to agent prompts; shown as a shape icon (status keeps colour) |
+| D33 | Task type is an enum (`code`, `bug`, `ux`, `architecture`, `docs`, `research`, `review`, and the planning containers `release`, `milestone`, `feature`; `spec` is a legacy alias of `docs`): TEXT + CHECK in SQLite (widened in place by migrations 00009, 00010, because rebuilding `task` would cascade-delete children), mapped by a sqlc column override onto `dbtypes.TaskType`; children inherit the type unless the parent is a planning type; adds type guidance to agent prompts; shown as a shape icon (status keeps colour). `ux` and `architecture` always wait for the owner (`OwnerGate`), whatever the project's auto-merge says |
+| D34 | A task has an optional `target_date` (YYYY-MM-DD). Planning types roll up progress over their leaves and flag `at_risk` (more than 15% behind a straight line from creation to the date) and `late`. A release whose children are all done waits in `in_review` until the owner ships it |
+| D35 | Deliverables (migration 00011): a run hands back images, a prototype or Claude Artifact link, a link or a markdown report with the `submit_deliverable` tool; files live under `<data dir>/deliverables`, are served inert (`/deliverable/{id}`: fixed type, nosniff, CSP `default-src 'none'; sandbox`) and expire after 90 days. A run that completes tasks, pushes nothing and has deliverables raises a `deliverable_review` question (migration 00012): approve marks done, request changes reopens the tasks with the feedback appended to the prompt and queues a new run |
+| D36 | The controller's own machine can be a permanent runner (`wrangl runner bootstrap --host`, a systemd `--user` unit): adopted (`launched = 0`), so never reaped; template changes are acknowledged but not applied; never powers the box off |
+| D37 | Runner web terminal: a browser terminal (wterm) over a controller WebSocket and NATS (`wr.pty.<runner>.<id>` out, core-NATS `term.in/size` in); view-only until a connection takes control; shells open in control; an idle reaper skips runners with an attached terminal |
 | D34 | Runners self-upgrade in place over NATS (`cmd.upgrade` carries only the expected sha256; the runner fetches from its enrolment URL, verifies, renames and re-execs), gated by an upgrade mark that blocks new claims; not SSM, not relaunch |
 | D26 | Runner daemon runs as root and holds the NATS creds; the agent (and its mise toolchain, hooks, MCP shim) runs as the unprivileged `agent` user with no access to them |
 

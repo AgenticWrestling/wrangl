@@ -340,7 +340,12 @@ agent:
 		}
 		return false, e.run(run6).State
 	})
-	if qv.Kind != "agent" || len(qv.Options) != 2 || e.run(run6).State != "needs_input" {
+	// The question is stored before the run flips to needs_input: wait for the state, don't sample it.
+	waitFor(t, "run needs_input", 10*time.Second, func() (bool, string) {
+		st := e.run(run6).State
+		return st == "needs_input", st
+	})
+	if qv.Kind != "agent" || len(qv.Options) != 2 {
 		t.Fatalf("question %+v, run %s", qv, e.run(run6).State)
 	}
 	if err := api.Answer(ctx, qv.ID, "purple", ""); err == nil {

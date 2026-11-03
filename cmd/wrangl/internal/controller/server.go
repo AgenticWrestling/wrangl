@@ -387,7 +387,12 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}()
 
 	routes := s.routes()
-	apiSrv := &http.Server{Handler: routes, ReadHeaderTimeout: 10 * time.Second} // unix socket: trusted by file permissions
+	// Long-lived streams (live UI, MCP, event feeds, terminals) end when connCtx is cancelled at
+	// shutdown; otherwise Shutdown waits for them until its timeout.
+	connCtx, stopConns := context.WithCancel(context.Background())
+	defer stopConns()
+	baseCtx := func(net.Listener) context.Context { return connCtx }
+	apiSrv := &http.Server{Handler: routes, ReadHeaderTimeout: 10 * time.Second, BaseContext: baseCtx} // unix socket: trusted by file permissions
 	tcpHandler := routes
 	if cf := s.cfg.Cloudflare; cf.Team != "" {
 		v := &cfaccess.Verifier{Team: cf.Team, AUD: cf.AUD, Owner: cf.OwnerEmail}
@@ -397,8 +402,8 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	} else {
 		s.log.Warn("cloudflare.team not set: the TCP API is not verified (keep listen.http on loopback)")
 	}
-	tcpSrv := &http.Server{Handler: tcpHandler, ReadHeaderTimeout: 10 * time.Second}
-	enrollSrv := &http.Server{Handler: api.EnrollHandler(s.Fleet), ReadHeaderTimeout: 10 * time.Second}
+	tcpSrv := &http.Server{Handler: tcpHandler, ReadHeaderTimeout: 10 * time.Second, BaseContext: baseCtx}
+	enrollSrv := &http.Server{Handler: api.EnrollHandler(s.Fleet), ReadHeaderTimeout: 10 * time.Second, BaseContext: baseCtx}
 	errc := make(chan error, len(listeners)+1)
 	serve := func(srv *http.Server, l net.Listener) {
 		if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -424,9 +429,19 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	stopLoop()
 	loops.Wait()
+	stopConns()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return errors.Join(err, tcpSrv.Shutdown(shutCtx), apiSrv.Shutdown(shutCtx), enrollSrv.Shutdown(shutCtx))
+	// Graceful first; whatever is still open after the grace period (a client's spare,
+	// never-used connection counts as active for 5 s) is closed.
+	stop := func(name string, srv *http.Server) error {
+		if err := srv.Shutdown(shutCtx); err != nil {
+			s.log.Warn("listener did not drain in time; closing it", "listener", name, "err", err)
+			return srv.Close()
+		}
+		return nil
+	}
+	return errors.Join(err, stop("tcp", tcpSrv), stop("unix", apiSrv), stop("enrol", enrollSrv))
 }
 
 func listenUnix(path string) (net.Listener, error) {

@@ -31,7 +31,7 @@
     {{if .Target}}<span class="tag target{{if .Slip}} slip-{{.Slip}}{{end}}" title="target date{{if .Slip}} ({{.Slip}}){{end}}">{{.Target}}{{if eq .Slip "late"}} · late{{else if .Slip}} · at risk{{end}}</span>{{end}}
     <code class="sqid">{{.Sqid}}</code>
   </div>
-  <div class="detail" id="d-{{.Sqid}}" data-ignore-morph></div>
+  <div class="detail" id="d-{{.Sqid}}">{{.Detail}}</div>
   <ul class="tasks sortable" data-parent="{{.Sqid}}">{{template "tasklist" .Kids}}</ul>
 </li>{{end}}{{end}}
 

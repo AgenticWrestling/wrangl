@@ -40,10 +40,10 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; font-size: calc(16px * var(--fs, 1)); } /* --fs: the text-size setting (Settings) */
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  font: 300 16px/1.45 var(--font);
+  font: 300 1rem/1.45 var(--font);
   padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 16px);
 }
 a { color: var(--link); text-decoration: none; }
@@ -249,3 +249,9 @@ label.check { font-size: 0.95rem; }
   .term-card { margin-left: 24px; margin-right: 24px; max-width: 900px; }
   .toast { bottom: 24px; left: calc(50% + var(--side-w) / 2); }
 }
+
+/* Settings: segmented control for the text size. */
+.seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.seg button { font: inherit; font-size: 0.9rem; border: 1px solid var(--line); background: var(--raised); color: var(--ink2); padding: 7px 14px; border-radius: 999px; cursor: pointer; }
+.seg button[aria-checked="true"] { border-color: var(--prog); color: var(--ink); font-weight: 600; }
+.fs-sample { margin: 8px 0 0; }

@@ -152,17 +152,27 @@ async function pushState() {
 }
 
 // --- inline task details -------------------------------------------------------------------
-// Clicking a task's title expands its full details and controls under the row (one at a
-// time). The detail box is data-ignore-morph, so the live re-render leaves it alone; it is
-// refreshed here instead, unless you are in the middle of editing it.
+// Clicking a task's title expands its full details and controls under the row (one at a time).
+// The page tells the server which task is open (/ui/expand), so every live re-render of the list
+// includes that task's card and cannot collapse it. The edit sheets (dialogs) live outside #main,
+// in #detail-sheets, so a re-render cannot close one while you type.
 
 let openDetail = null;
 
+function pageSid() { const m = document.querySelector('meta[name="wr-sid"]'); return m ? m.content : ''; }
 function detailBox(sqid) { return document.getElementById('d-' + sqid); }
+function sheetsBox() { return document.getElementById('detail-sheets'); }
+
+function postExpand(sqid) {
+  const sid = pageSid();
+  if (!sid) return;
+  fetch('/ui/expand?sid=' + encodeURIComponent(sid) + '&sqid=' + encodeURIComponent(sqid || ''), { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+}
 
 function closeDetails() {
+  const sh = sheetsBox();
+  if (sh) { sh.querySelectorAll('dialog[open]').forEach((x) => x.close()); sh.innerHTML = ''; }
   document.querySelectorAll('.detail').forEach((d) => {
-    d.querySelectorAll('dialog[open]').forEach((x) => x.close());
     d.innerHTML = '';
     const a = d.parentElement && d.parentElement.querySelector(':scope > .row .title');
     if (a) a.setAttribute('aria-expanded', 'false');
@@ -173,14 +183,21 @@ async function loadDetail(sqid) {
   const box = detailBox(sqid);
   if (!box) { openDetail = null; return; }
   try {
-    const r = await fetch('/ui/detail?sqid=' + encodeURIComponent(sqid), { credentials: 'same-origin' });
-    if (!r.ok) throw new Error(String(r.status));
-    box.innerHTML = await r.text();
+    const q = '/ui/detail?sqid=' + encodeURIComponent(sqid);
+    const [card, sheets] = await Promise.all([
+      fetch(q, { credentials: 'same-origin' }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.text(); }),
+      fetch(q + '&part=sheets', { credentials: 'same-origin' }).then((r) => (r.ok ? r.text() : '')),
+    ]);
+    if (openDetail !== sqid) return; // collapsed or switched meanwhile
+    if (!box.firstElementChild) box.innerHTML = card; // the live stream may already have filled it
+    const sh = sheetsBox();
+    if (sh) sh.innerHTML = sheets;
     const a = box.parentElement.querySelector(':scope > .row .title');
     if (a) a.setAttribute('aria-expanded', 'true');
   } catch (_) {
     box.innerHTML = '';
     openDetail = null;
+    postExpand('');
   }
 }
 
@@ -190,24 +207,50 @@ function toggleDetail(sqid, ev) {
   const same = openDetail === sqid;
   closeDetails();
   openDetail = same ? null : sqid;
+  postExpand(openDetail || '');
   if (!same) loadDetail(sqid);
   return false;
 }
 window.toggleDetail = toggleDetail;
 
-function refreshDetail() {
+// If the stream reconnected (a new server-side session) the open card is gone: tell the server again.
+function checkDetail() {
   if (!openDetail) return;
   const box = detailBox(openDetail);
-  if (!box) return;
-  if (box.querySelector('dialog[open]') || box.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
-  loadDetail(openDetail);
+  if (!box) { openDetail = null; return; }
+  if (!box.firstElementChild) { postExpand(openDetail); }
 }
+
+// --- text size (Settings) ---------------------------------------------------------------------
+// Stored per device in localStorage and applied as --fs on <html> (an inline script in the head
+// applies it before first paint). The settings page is re-rendered by the live stream, so the
+// selected state is re-applied after each morph.
+
+function currentFs() {
+  try { const f = parseFloat(localStorage.getItem('wr.fs')); if (f >= 0.7 && f <= 2) return f; } catch (_) { /* private mode */ }
+  return 1;
+}
+
+function markFs() {
+  const cur = currentFs();
+  document.querySelectorAll('#fs-seg button').forEach((b) => b.setAttribute('aria-checked', String(Math.abs(parseFloat(b.dataset.fs) - cur) < 0.001)));
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('#fs-seg button');
+  if (!b) return;
+  const f = parseFloat(b.dataset.fs);
+  document.documentElement.style.setProperty('--fs', f);
+  try { localStorage.setItem('wr.fs', String(f)); } catch (_) { /* private mode */ }
+  markFs();
+});
 
 // --- boot --------------------------------------------------------------------------------
 
 function boot() {
   initSortables();
   initTerminal();
+  markFs();
   pushState().catch(() => {});
   if (location.hash.length > 1) openSheet('sheet-' + location.hash.slice(1));
   const main = document.getElementById('main');
@@ -215,11 +258,8 @@ function boot() {
     let t;
     let rt;
     new MutationObserver((muts) => {
-      clearTimeout(t); t = setTimeout(initSortables, 50);
-      // a re-render of the list (not our own fill of a detail box) refreshes the open detail
-      if (openDetail && muts.some((m) => !m.target.closest || !m.target.closest('.detail'))) {
-        clearTimeout(rt); rt = setTimeout(refreshDetail, 400);
-      }
+      clearTimeout(t); t = setTimeout(() => { initSortables(); markFs(); }, 50);
+      if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
     }).observe(main, { childList: true, subtree: true });
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
