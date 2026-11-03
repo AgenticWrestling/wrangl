@@ -1,0 +1,32 @@
+# Research runs (research tasks): claude-headless plus document tooling for reading PDFs and
+# producing a shareable export (docx/pdf) of the markdown report. Reports are delivered as a
+# markdown file in the project's notes repo (or via submit_deliverable kind report_md).
+name: research
+arch: arm64
+min: { vcpu: 2, ram: 4GiB, disk: 20GiB }
+max_runners: 1
+setup_script: |
+  dnf install -y git poppler-utils
+mise_toml: |
+  [settings]
+  npm.package_manager = "npm"
+
+  [tools]
+  node = "24"
+  pandoc = "latest"
+  "npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }
+agent:
+  start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  turn_timeout: 2h
+  files:
+    - path: .mcp.json
+      content: '{"mcpServers":{"wrangl":{"command":"wrangl","args":["runner","mcp"]}}}'
+    - path: .claude/settings.local.json
+      content: |
+        {"hooks": {
+          "PostToolUse":  [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse"}]}],
+          "Notification": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
+          "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop"}]}]},
+         "enableAllProjectMcpServers": true}

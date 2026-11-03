@@ -24,6 +24,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/api"
 	"github.com/nreid/devhost/cmd/wrangl/internal/config"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/cfaccess"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/deliverables"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
@@ -81,17 +82,18 @@ type Server struct {
 	enrollAddr string
 	natsURL    string
 
-	db       *db.DB
-	nats     *natsd.Embedded
-	js       jetstream.JetStream
-	Fleet    *fleet.Service
-	Stack    *stack.Service
-	Projects *projects.Service
-	Runs     *runs.Service
-	PRs      *prs.Service
-	Plans    *plans.Service
-	Push     *webpush.Service
-	Bus      *events.Bus
+	db           *db.DB
+	nats         *natsd.Embedded
+	js           jetstream.JetStream
+	Fleet        *fleet.Service
+	Stack        *stack.Service
+	Projects     *projects.Service
+	Runs         *runs.Service
+	PRs          *prs.Service
+	Plans        *plans.Service
+	Deliverables *deliverables.Service
+	Push         *webpush.Service
+	Bus          *events.Bus
 }
 
 // New validates cfg and returns an unstarted server.
@@ -249,7 +251,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Push = &webpush.Service{DB: s.db, Keys: vapid, Subject: subject, Log: s.log}
 	s.Runs.OnQuestion = func(q dbgen.Question) {
 		title := map[string]string{"agent": "An agent has a question", "approval": "Approval needed", "pr_review": "PR waiting for review",
-			"plan_review": "Proposed split ready", "system": "A run needs you"}[q.Kind]
+			"plan_review": "Proposed split ready", "deliverable_review": "Deliverables ready for review", "system": "A run needs you"}[q.Kind]
 		s.Push.Notify(webpush.Notification{Title: title, Body: q.Prompt, URL: fmt.Sprintf("/inbox#q%d", q.ID), Tag: fmt.Sprintf("q%d", q.ID)})
 	}
 	s.Fleet.OnOffline = func(name string) {
@@ -260,8 +262,14 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			s.Push.Notify(webpush.Notification{Title: "Run " + r.State, Body: fmt.Sprintf("run %d: %s", runID, r.Error+r.StatusText), URL: fmt.Sprintf("/run/%d", runID), Tag: fmt.Sprintf("run%d", runID)})
 		}
 		go s.PRs.OnRunFinished(context.Background(), runID) // GitHub calls must not hold up event ingest
+		if s.Deliverables != nil {
+			go s.Deliverables.OnRunFinished(context.Background(), s.review(), runID)
+		}
 	}
 	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
+	s.Deliverables = &deliverables.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "deliverables"), Bus: s.Bus, Log: s.log}
+	s.Runs.ToolHandlers["submit_deliverable"] = s.Deliverables.Submit
+	s.Runs.AnswerHandlers["deliverable_review"] = s.Deliverables.Answer(s.review())
 	s.Plans = &plans.Service{DB: s.db, Stack: s.Stack, Runs: s.Runs, Log: s.log}
 	s.Runs.ToolHandlers["propose_split"] = s.Plans.ProposeSplit
 	s.Runs.AnswerHandlers["plan_review"] = s.Plans.Answer
@@ -344,7 +352,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
 	}
-	loops.Add(4)
+	loops.Add(5)
 	go func() {
 		defer loops.Done()
 		s.PRs.Reconcile(loopCtx)
@@ -360,6 +368,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		}
 	}()
 	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
+	go func() { defer loops.Done(); s.Deliverables.Loop(loopCtx) }()
 	go func() { defer loops.Done(); sched.Loop(loopCtx, schedInterval) }()
 	go func() {
 		defer loops.Done()
@@ -447,7 +456,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term,
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables,
 		Setup: &ghsetup.Service{DataDir: s.cfg.DataDir, PublicURL: strings.TrimSuffix(s.cfg.Web.PublicURL, "/"),
 			AppName: appName(s.cfg.Cloudflare.OwnerEmail)}}
 	api.Register(mux, deps)
@@ -564,4 +573,9 @@ func appName(email string) string {
 		return "wrangl-author"
 	}
 	return "wrangl-author-" + b.String()
+}
+
+// review is what the deliverable-review flow needs.
+func (s *Server) review() deliverables.Review {
+	return deliverables.Review{Runs: s.Runs, Stack: s.Stack}
 }

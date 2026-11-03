@@ -1,0 +1,37 @@
+# Design runs (ux tasks): claude-headless plus a headless Chromium (Playwright) so the agent
+# can screenshot its mockups and prototypes, and fonts so they render properly.
+# The browser download runs as a mise postinstall hook, as the agent user.
+name: design
+arch: arm64
+min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
+max_runners: 1
+setup_script: |
+  dnf install -y git make gcc \
+    nss atk at-spi2-atk cups-libs libxkbcommon libXcomposite libXdamage libXrandr libXfixes \
+    mesa-libgbm pango cairo alsa-lib libdrm fontconfig google-noto-sans-fonts dejavu-sans-fonts
+mise_toml: |
+  [settings]
+  npm.package_manager = "npm"
+
+  [tools]
+  node = "24"
+  "npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }
+  "npm:playwright" = { version = "latest", npm_args = "--ignore-scripts=false" }
+
+  [hooks]
+  postinstall = "npx --yes playwright install chromium"
+agent:
+  start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  turn_timeout: 2h
+  files:
+    - path: .mcp.json
+      content: '{"mcpServers":{"wrangl":{"command":"wrangl","args":["runner","mcp"]}}}'
+    - path: .claude/settings.local.json
+      content: |
+        {"hooks": {
+          "PostToolUse":  [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse"}]}],
+          "Notification": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
+          "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop"}]}]},
+         "enableAllProjectMcpServers": true}

@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,14 +47,20 @@ type Handler struct {
 func New(d api.Deps) (*Handler, error) {
 	h := &Handler{D: d, css: chromaCSS()}
 	t, err := template.New("").Funcs(template.FuncMap{
-		"glyph":     func(s string) string { return glyph[s] },
-		"ago":       ago,
-		"md":        markdown,
-		"pct":       func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
-		"spark":     sparkline,
-		"json":      func(v any) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
-		"q":         url.QueryEscape,
-		"add":       func(a, b int) int { return a + b },
+		"glyph": func(s string) string { return glyph[s] },
+		"ago":   ago,
+		"md":    markdown,
+		"pct":   func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
+		"spark": sparkline,
+		"json":  func(v any) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
+		"q":     url.QueryEscape,
+		"add":   func(a, b int) int { return a + b },
+		"pctof": func(a, b int64) int64 {
+			if b == 0 {
+				return 0
+			}
+			return a * 100 / b
+		},
 		"dur":       func(s int64) string { return (time.Duration(s) * time.Second).String() },
 		"list":      func(v ...string) []string { return v },
 		"hasSuffix": strings.HasSuffix,
@@ -115,6 +122,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /setup/github/callback", h.githubCallback)
 	mux.HandleFunc("GET /ui/live", h.live)
 	mux.HandleFunc("GET /ui/detail", h.detail)
+	mux.HandleFunc("GET /deliverable/{id}", h.deliverable)
 	mux.HandleFunc("POST /ui/act/{action}", h.act)
 }
 
@@ -170,6 +178,38 @@ func (h *Handler) render(name string, data any) (template.HTML, error) {
 		return "", err
 	}
 	return template.HTML(b.String()), nil
+}
+
+// deliverable serves a stored image or report. The content is agent output, so it is served
+// inert: fixed type, no sniffing, and a CSP that forbids everything.
+func (h *Handler) deliverable(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || h.D.Deliverables == nil {
+		http.NotFound(w, r)
+		return
+	}
+	d, path, err := h.D.Deliverables.Open(r.Context(), id)
+	if err != nil || path == "" {
+		http.NotFound(w, r)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", d.Mime)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	io.Copy(w, f)
+}
+
+// deliverableView is a deliverable ready for the task page.
+type deliverableView struct {
+	dbgen.Deliverable
+	Report template.HTML // rendered markdown, for reports
 }
 
 // detail serves a task's full page content (card, controls and edit sheets) as an HTML
@@ -335,6 +375,22 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["Task"], d["Project"], d["Title"] = t, p.Slug, t.Title
 		d["Attention"] = h.attention(ctx, p.Slug)[sqid] && t.State != "done" && t.State != "cancelled"
 		d["Types"] = dbtypes.TaskTypes
+		if h.D.Deliverables != nil {
+			rows, _ := db.RQ.ListDeliverablesForTask(ctx, t.ID)
+			var dv []deliverableView
+			for _, x := range rows {
+				v := deliverableView{Deliverable: x}
+				if x.Kind == "report_md" {
+					if _, path, err := h.D.Deliverables.Open(ctx, x.ID); err == nil && path != "" {
+						if b, err := os.ReadFile(path); err == nil {
+							v.Report = markdown(string(b))
+						}
+					}
+				}
+				dv = append(dv, v)
+			}
+			d["Deliverables"] = dv
+		}
 		if t.ParentID.Valid {
 			if pt, err := db.RQ.GetTask(ctx, t.ParentID.Int64); err == nil {
 				d["Parent"] = pt
@@ -580,6 +636,11 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, err
 	for _, t := range rows {
 		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
 			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled"}
+		if t.TaskType.Planning() {
+			if full, err := db.RQ.GetTask(ctx, t.ID); err == nil {
+				n.Done, n.Total, n.Slip, _ = h.D.Stack.Rollup(ctx, full)
+			}
+		}
 		lock := locks[t.ID]
 		if lock == "" && t.ParentID.Valid {
 			lock = lockOf[t.ParentID.Int64]

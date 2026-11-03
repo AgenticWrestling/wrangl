@@ -1051,6 +1051,31 @@ func (q *Queries) TaskEvents(ctx context.Context, taskSqid string) ([]TaskEvent,
 	return items, nil
 }
 
+const taskProgress = `-- name: TaskProgress :one
+WITH RECURSIVE sub (id) AS (
+    SELECT CAST(?1 AS INTEGER)
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT CAST(COALESCE(SUM(t.state <> 'cancelled'), 0) AS INTEGER) AS total,
+       CAST(COALESCE(SUM(t.state = 'done'), 0) AS INTEGER) AS done
+FROM task t JOIN sub ON t.id = sub.id
+WHERE NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = t.id)
+`
+
+type TaskProgressRow struct {
+	Total int64 `json:"total"`
+	Done  int64 `json:"done"`
+}
+
+// Leaves under (and including) root, not counting cancelled ones, and how many are done.
+func (q *Queries) TaskProgress(ctx context.Context, rootID int64) (TaskProgressRow, error) {
+	row := q.db.QueryRowContext(ctx, taskProgress, rootID)
+	var i TaskProgressRow
+	err := row.Scan(&i.Total, &i.Done)
+	return i, err
+}
+
 const updateTaskText = `-- name: UpdateTaskText :one
 UPDATE task SET title = ?1, prompt = ?2,
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

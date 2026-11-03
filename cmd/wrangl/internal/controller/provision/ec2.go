@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -129,6 +130,9 @@ func (p *Provisioner) Launch(ctx context.Context, s Spec) (*Instance, error) {
 	return fromEC2(out.Instances[0]), nil
 }
 
+// ssmTimeout bounds the SSM parameter lookup for a default AMI.
+var ssmTimeout = 15 * time.Second
+
 func (p *Provisioner) resolveAMI(ctx context.Context, ami string) (string, error) {
 	if strings.HasPrefix(ami, "ami-") {
 		return ami, nil
@@ -136,8 +140,14 @@ func (p *Provisioner) resolveAMI(ctx context.Context, ami string) (string, error
 	if !strings.HasPrefix(ami, "/") {
 		return "", fmt.Errorf("ami %q: want ami-… or an SSM parameter path", ami)
 	}
+	// An unreachable SSM endpoint would otherwise hang the launch for minutes.
+	ctx, cancel := context.WithTimeout(ctx, ssmTimeout)
+	defer cancel()
 	out, err := p.SSM.GetParameter(ctx, &ssm.GetParameterInput{Name: aws.String(ami)})
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("resolve AMI parameter %s: no answer from SSM within %s; pin an AMI id in the template (ami: ami-…) or check the SSM endpoint", ami, ssmTimeout)
+		}
 		return "", fmt.Errorf("resolve AMI parameter %s: %w", ami, err)
 	}
 	return aws.ToString(out.Parameter.Value), nil

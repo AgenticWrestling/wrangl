@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
@@ -60,4 +61,58 @@ func TestTaskTypes(t *testing.T) {
 	if g := dbtypes.TaskDocs.Guidance(); !strings.Contains(g, "Change documentation only") {
 		t.Fatal(g)
 	}
+}
+
+func TestReleaseWaitsForShipIt(t *testing.T) {
+	s, _ := setup(t)
+	ctx := context.Background()
+	rel, err := s.Create(ctx, stack.CreateParams{Project: "p", Title: "v1", Type: "release", Actor: stack.User})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := mkTyped(t, s, rel.Sqid.String, "m1", "milestone")
+	leaf := mkTyped(t, s, ms.Sqid.String, "work", "")
+	if leaf.TaskType != dbtypes.TaskCode {
+		t.Fatalf("children of a planning type are ordinary tasks, got %s", leaf.TaskType)
+	}
+	state := func(sqid string) string {
+		cur, err := s.Task(ctx, s.DB.RQ, sqid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cur.State
+	}
+	if err := s.Complete(ctx, leaf.Sqid.String, "done", stack.User); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(ms.Sqid.String); got != "done" {
+		t.Fatalf("a milestone completes by itself, got %s", got)
+	}
+	if got := state(rel.Sqid.String); got != "in_review" {
+		t.Fatalf("a release waits for ship-it, got %s", got)
+	}
+	if err := s.Complete(ctx, rel.Sqid.String, "shipped", stack.User); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(rel.Sqid.String); got != "done" {
+		t.Fatalf("after ship-it: %s", got)
+	}
+	// New work reopens it; finishing that asks again.
+	more := mkTyped(t, s, ms.Sqid.String, "more work", "")
+	if got := state(rel.Sqid.String); got != "open" {
+		t.Fatalf("new work should reopen the release, got %s", got)
+	}
+	s.Complete(ctx, more.Sqid.String, "", stack.User)
+	if got := state(rel.Sqid.String); got != "in_review" {
+		t.Fatalf("finished again: %s", got)
+	}
+}
+
+func mkTyped(t *testing.T, s *stack.Service, parent, title, typ string) dbgen.Task {
+	t.Helper()
+	tk, err := s.Create(context.Background(), stack.CreateParams{Project: "p", Parent: parent, Title: title, Type: typ, Actor: stack.User})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tk
 }

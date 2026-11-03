@@ -31,8 +31,14 @@ func printTree(w io.Writer, nodes []proto.TaskNode) {
 		if m := typeMark[n.Type]; m != "" {
 			title = m + " " + title
 		}
+		if n.Total > 0 {
+			extra += fmt.Sprintf("  [%d/%d]", n.Done, n.Total)
+		}
 		if n.Target != "" {
 			extra += "  🎯 " + n.Target
+			if n.Slip != "" {
+				extra += " (" + strings.ReplaceAll(n.Slip, "_", " ") + ")"
+			}
 		}
 		fmt.Fprintf(w, "%s%s %s %s%s\n", strings.Repeat("  ", int(n.Depth-base)), n.Sqid, stateGlyph[n.State], title, extra)
 	}

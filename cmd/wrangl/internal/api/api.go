@@ -13,6 +13,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/deliverables"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/plans"
@@ -73,7 +74,9 @@ type Deps struct {
 	JS       jetstream.JetStream
 	Bus      *events.Bus
 	Setup    *ghsetup.Service
-	Term     *TermHub
+	// Deliverables stores mockups, prototype links and reports handed back by runs.
+	Deliverables *deliverables.Service
+	Term         *TermHub
 }
 
 // Register mounts /api/v1 on mux.

@@ -180,6 +180,10 @@ func recompute(ctx context.Context, q *dbgen.Queries, parentID sql.NullInt64) er
 		if err != nil {
 			return err
 		}
+		p, err := q.GetTask(ctx, parentID.Int64)
+		if err != nil {
+			return err
+		}
 		state := ""
 		switch {
 		case c.Total == 0:
@@ -194,14 +198,13 @@ func recompute(ctx context.Context, q *dbgen.Queries, parentID sql.NullInt64) er
 		default:
 			state = "cancelled"
 		}
+		if state == "done" && p.TaskType == dbtypes.TaskRelease && p.State != "done" {
+			state = "in_review" // shipping is the owner's call: "ship it" (Complete) confirms
+		}
 		if state != "" {
 			if err := q.SetContainerState(ctx, dbgen.SetContainerStateParams{State: state, ID: parentID.Int64}); err != nil {
 				return err
 			}
-		}
-		p, err := q.GetTask(ctx, parentID.Int64)
-		if err != nil {
-			return err
 		}
 		parentID = p.ParentID
 	}
@@ -608,6 +611,15 @@ func (s *Service) setLeafState(ctx context.Context, sqid, state, summary string,
 
 // Complete marks a leaf done by hand (the owner says the work is finished and merged).
 func (s *Service) Complete(ctx context.Context, sqid, summary string, actor Actor) error {
+	// "Ship it": the owner confirms a release whose work is all done.
+	if t, err := s.Task(ctx, s.DB.RQ, sqid); err == nil && t.TaskType == dbtypes.TaskRelease && t.State == "in_review" {
+		return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+			if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: "done", Summary: summary, CompletedAt: completedAt("done"), ID: t.ID}); err != nil {
+				return err
+			}
+			return s.event(ctx, q, sqid, actor, "complete", map[string]any{"state": "done", "shipped": true})
+		})
+	}
 	return s.setLeafState(ctx, sqid, "done", summary, actor, "complete")
 }
 

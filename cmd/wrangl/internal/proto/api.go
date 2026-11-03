@@ -131,12 +131,16 @@ type IssueView struct {
 
 // TaskNode is one row of a ranked tree.
 type TaskNode struct {
-	Sqid     string `json:"sqid"`
-	Parent   string `json:"parent,omitempty"`
-	Title    string `json:"title"`
-	State    string `json:"state"`
-	Type     string `json:"type"`
-	Target   string `json:"target_date,omitempty"` // YYYY-MM-DD
+	Sqid   string `json:"sqid"`
+	Parent string `json:"parent,omitempty"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	Type   string `json:"type"`
+	Target string `json:"target_date,omitempty"` // YYYY-MM-DD
+	// Planning types only: leaves done / total beneath, and "at_risk" or "late" against the target date.
+	Done     int64  `json:"leaves_done,omitempty"`
+	Total    int64  `json:"leaves_total,omitempty"`
+	Slip     string `json:"slip,omitempty"`
 	Depth    int64  `json:"depth"`
 	Unmet    int64  `json:"unmet_precursors,omitempty"`
 	Children int64  `json:"children,omitempty"`

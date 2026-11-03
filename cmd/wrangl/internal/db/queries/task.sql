@@ -238,3 +238,15 @@ LIMIT 500;
 
 -- name: SetTaskIssue :exec
 UPDATE task SET issue_id = sqlc.narg(issue_id) WHERE id = sqlc.arg(id);
+
+-- name: TaskProgress :one
+-- Leaves under (and including) root, not counting cancelled ones, and how many are done.
+WITH RECURSIVE sub (id) AS (
+    SELECT CAST(sqlc.arg(root_id) AS INTEGER)
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT CAST(COALESCE(SUM(t.state <> 'cancelled'), 0) AS INTEGER) AS total,
+       CAST(COALESCE(SUM(t.state = 'done'), 0) AS INTEGER) AS done
+FROM task t JOIN sub ON t.id = sub.id
+WHERE NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = t.id);

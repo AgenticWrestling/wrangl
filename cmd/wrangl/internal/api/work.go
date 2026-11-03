@@ -260,8 +260,14 @@ func registerWork(mux *http.ServeMux, d Deps) {
 			if !all && (t.State == "done" || t.State == "cancelled") {
 				continue
 			}
-			out = append(out, proto.TaskNode{Sqid: t.Sqid, Parent: sqidByID[t.ParentID.Int64], Title: t.Title, State: t.State,
-				Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children, LockedBy: lock})
+			n := proto.TaskNode{Sqid: t.Sqid, Parent: sqidByID[t.ParentID.Int64], Title: t.Title, State: t.State,
+				Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children, LockedBy: lock}
+			if t.TaskType.Planning() {
+				if full, err := db.RQ.GetTask(ctx, t.ID); err == nil {
+					n.Done, n.Total, n.Slip, _ = d.Stack.Rollup(ctx, full)
+				}
+			}
+			out = append(out, n)
 		}
 		return out, nil
 	}

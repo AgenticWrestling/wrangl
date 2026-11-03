@@ -27,7 +27,8 @@
     {{if .Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
     {{if or (eq .State "in_progress") .LockedBy}}<span class="tag prog" title="{{if .LockedBy}}running on {{.LockedBy}}{{else}}in progress{{end}}">▶ {{if .LockedBy}}{{.LockedBy}}{{else}}in progress{{end}}</span>{{end}}
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
-    {{if .Target}}<span class="tag target" title="target date">{{.Target}}</span>{{end}}
+    {{if .Total}}<span class="prog-bar" title="{{.Done}} of {{.Total}} done"><i style="width:{{pctof .Done .Total}}%"></i></span><span class="dim small">{{.Done}}/{{.Total}}</span>{{end}}
+    {{if .Target}}<span class="tag target{{if .Slip}} slip-{{.Slip}}{{end}}" title="target date{{if .Slip}} ({{.Slip}}){{end}}">{{.Target}}{{if eq .Slip "late"}} · late{{else if .Slip}} · at risk{{end}}</span>{{end}}
     <code class="sqid">{{.Sqid}}</code>
   </div>
   <div class="detail" id="d-{{.Sqid}}" data-ignore-morph></div>

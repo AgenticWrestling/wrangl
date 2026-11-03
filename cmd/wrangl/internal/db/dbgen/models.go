@@ -10,6 +10,18 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 )
 
+type Deliverable struct {
+	ID        int64         `json:"id"`
+	TaskID    int64         `json:"task_id"`
+	RunID     sql.NullInt64 `json:"run_id"`
+	Kind      string        `json:"kind"`
+	Title     string        `json:"title"`
+	Url       string        `json:"url"`
+	File      string        `json:"file"`
+	Mime      string        `json:"mime"`
+	CreatedAt string        `json:"created_at"`
+}
+
 type EnrollmentToken struct {
 	ID         int64          `json:"id"`
 	TokenHash  []byte         `json:"token_hash"`

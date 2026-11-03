@@ -198,6 +198,13 @@ dialog hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .ticon.ti-release, .ticon.ti-milestone, .ticon.ti-feature { stroke: var(--ink); stroke-width: 2.2; }
 .ty-release > .row .title, .ty-milestone > .row .title, .ty-feature > .row .title { font-weight: 600; }
 .card.runner.pinned { background: color-mix(in srgb, var(--raised) 78%, var(--prog) 22%); border-color: color-mix(in srgb, var(--line) 55%, var(--prog) 45%); }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.gallery .shot { display: flex; flex-direction: column; gap: 4px; color: var(--ink2); font-size: 0.8rem; text-decoration: none; }
+.gallery .shot img { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); }
+.prog-bar { display: inline-block; width: 56px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; vertical-align: middle; }
+.prog-bar > i { display: block; height: 100%; background: var(--prog); }
+.tag.target.slip-at_risk { color: var(--attn); border-color: var(--attn); }
+.tag.target.slip-late { color: var(--err); border-color: var(--err); }
 .detail:empty { display: none; }
 .detail { margin: 4px 0 8px 22px; padding-left: 12px; border-left: 2px solid var(--line); }
 .detail > .card:first-child { margin-top: 4px; }

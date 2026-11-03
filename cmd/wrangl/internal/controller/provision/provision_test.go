@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 func spec() Spec {
@@ -158,5 +160,31 @@ func TestRenderUserData(t *testing.T) {
 		if _, err := RenderUserData(bad); err == nil {
 			t.Errorf("accepted %+v", bad)
 		}
+	}
+}
+
+type blockedSSM struct{}
+
+func (blockedSSM) GetParameter(ctx context.Context, _ *ssm.GetParameterInput, _ ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestResolveAMITimesOut(t *testing.T) {
+	old := ssmTimeout
+	ssmTimeout = 50 * time.Millisecond
+	defer func() { ssmTimeout = old }()
+	p := &Provisioner{SSM: blockedSSM{}}
+	start := time.Now()
+	_, err := p.resolveAMI(context.Background(), "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64")
+	if err == nil || !strings.Contains(err.Error(), "pin an AMI id") {
+		t.Fatalf("want a hint to pin the AMI, got %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("did not time out")
+	}
+	// A pinned id never touches SSM.
+	if got, err := p.resolveAMI(context.Background(), "ami-123"); err != nil || got != "ami-123" {
+		t.Fatalf("%q %v", got, err)
 	}
 }
