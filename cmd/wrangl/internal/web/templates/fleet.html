@@ -40,7 +40,7 @@
     <span class="dim small" title="launched {{.LaunchedAt.Format "2006-01-02 15:04"}} UTC">{{ago (.LaunchedAt.Format "2006-01-02T15:04:05.000Z")}}</span>
     <span class="cost">{{if eq .State "running"}}{{if .PriceKnown}}{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim small" title="indicative rate"> ~</span>{{end}}{{else}}<span class="dim small">no rate</span>{{end}}{{else}}<span class="dim small">no compute cost</span>{{end}}</span>
     {{if eq .State "running"}}<button type="button" class="btn small" onclick="openAdopt('{{.Region}}','{{.ID}}','{{.Arch}}','{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}')">Adopt…</button>{{end}}
-    {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on-click="el.dataset.armed ? @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}') : (el.dataset.armed = 1, el.textContent = 'Confirm terminate')">Terminate</button>{{end}}
+    {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on-click="window.armTerminate(evt.currentTarget) && @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}')">Terminate</button>{{end}}
   </div>{{else}}<p class="empty">No other instances.</p>{{end}}
 </section>
 <section class="card others" id="topcosts">

@@ -429,3 +429,12 @@ function ghManifest(form) {
   return true;
 }
 window.ghManifest = ghManifest;
+
+// Two-step confirm: the first click arms the button, the second one proceeds.
+window.armTerminate = (btn) => {
+  if (btn.dataset.armed) return true;
+  btn.dataset.armed = '1';
+  btn.textContent = 'Confirm terminate';
+  setTimeout(() => { delete btn.dataset.armed; btn.textContent = 'Terminate'; }, 5000);
+  return false;
+};
