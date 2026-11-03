@@ -1,0 +1,86 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wrangl keyboard shortcuts — prototype (uvGFdh)</title>
+<style>
+@font-face{font-family:"Red Hat Display";font-weight:300 900;src:url(fonts/red-hat-display-latin.woff2)}@font-face{font-family:"IBM Plex Mono";src:url(fonts/ibm-plex-mono-latin.woff2)}
+:root{--mono:"IBM Plex Mono",ui-monospace,monospace}
+:root{--bg:#0f1115;--card:#171a21;--raised:#1f232b;--line:#2c313c;--faint:#4b5261;--dim:#8a919e;--ink2:#c5cad3;--ink:#eef0f3;--brand:#0072b2;--prog:#56b4e9;--ok:#009e73;--attn:#e69f00;--review:#cc79a7;--link:#a6d8f5;}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:300 16px/1.45 "Red Hat Display",system-ui,sans-serif}
+.app{display:flex;min-height:100vh}
+nav{width:188px;border-right:1px solid var(--line);padding:16px 12px;flex:none}nav b{display:block;margin-bottom:14px}nav div{padding:6px 8px;color:var(--dim)}nav .on{color:var(--ink);background:var(--raised);border-radius:8px}
+main{flex:1;min-width:0;padding:16px 20px 70px;max-width:860px}
+header{display:flex;align-items:center;gap:10px;margin-bottom:12px}h1{font-size:1.1rem;margin:0;flex:1}
+.btn{font:inherit;color:var(--ink);background:var(--raised);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}.btn.p{background:var(--brand);border-color:var(--brand)}
+kbd{font:500 .74rem var(--mono);border:1px solid var(--faint);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--ink2);background:var(--bg);margin-left:6px}
+.tree{list-style:none;margin:0;padding:0}.tree ul{list-style:none;margin:0;padding:0 0 0 22px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;border:2px solid transparent;margin:2px 0;cursor:pointer;position:relative}
+.sq{font:.82rem var(--mono);color:#b4bac4}.st{font-size:.72rem;border:1px solid currentColor;border-radius:99px;padding:0 8px}
+.s-prog{color:var(--prog)}.s-ok{color:var(--ok)}.s-attn{color:var(--attn)}.s-rev{color:var(--review)}
+.t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.car{width:1em;font-family:var(--mono);color:var(--dim);font-size:.8rem}
+.detail{margin:0 0 6px 34px;padding:10px 14px;background:var(--card);border:1px solid var(--line);border-radius:10px;color:var(--ink2);font-size:.92rem}
+.detail .acts{margin-top:8px;display:flex;gap:8px}
+li[aria-selected=true]>.row{background:var(--raised)}
+/* Variant A: left bar + outline + ▸ marker (shape, not colour) */
+body.A li[aria-selected=true]>.row{border-color:var(--ink);border-left:6px solid var(--ink)}
+body.A li[aria-selected=true]>.row::before{content:">";position:absolute;left:-18px;color:var(--ink)}
+/* Variant B: underline + inline action chips on the selected row */
+body.B li[aria-selected=true]>.row{border-color:transparent;border-bottom:2px dashed var(--ink)}
+body.B .chips{display:none;gap:4px}body.B li[aria-selected=true]>.row .chips{display:flex}
+.chips{display:none}
+body.B li[aria-selected=true]>.row .st{display:none}
+/* Variant C: dim others + bold title, persistent bottom hint bar */
+body.C li[aria-selected=true]>.row{border-color:var(--ink);box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 20%,transparent)}
+body.C li[aria-selected=true]>.row .t{font-weight:700}
+.hint{display:none}body.C .hint{display:flex}
+.hint{position:fixed;left:188px;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:8px 20px;gap:16px;font-size:.82rem;color:var(--dim)}
+dialog{background:var(--card);color:var(--ink);border:1px solid var(--faint);border-radius:14px;padding:20px 24px;width:min(560px,92vw)}
+dialog::backdrop{background:#000a}
+dialog h2{margin:0 0 12px;font-size:1.1rem}.g{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px}.g h3{grid-column:1/-1;font-size:.8rem;color:var(--dim);margin:10px 0 2px;text-transform:uppercase;letter-spacing:.06em}.g div{display:flex;justify-content:space-between;font-size:.92rem}
+body.C dialog{margin:0 0 0 auto;height:100vh;max-height:100vh;border-radius:14px 0 0 14px;width:340px}body.C .g{grid-template-columns:1fr}
+.vs{position:fixed;top:8px;right:12px;display:flex;gap:6px;z-index:9}
+.tab{display:none}
+@media (max-width:700px){nav{display:none}main{padding:12px 12px 80px}.hint,.vs,kbd,.chips{display:none!important}
+ li[aria-selected=true]>.row{border-color:transparent!important;background:none!important}
+ .tab{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);justify-content:space-around;padding:14px;color:var(--dim)}}
+</style>
+<body class="A">
+<div class="vs"><button class="btn" data-v="A">A Bar</button><button class="btn" data-v="B">B Chips</button><button class="btn" data-v="C">C Drawer</button></div>
+<div class="app"><nav><b>wrangl</b><div class="on">Backlog</div><div>Projects</div><div>Runners</div><div>Settings</div></nav>
+<main><header><h1>Backlog · pnp</h1><button class="btn p" data-key="n">New task<kbd>n</kbd></button><button class="btn" id="hb">Help<kbd>?</kbd></button></header>
+<ul class="tree" role="tree" id="tree">
+<li role="treeitem" aria-expanded="true" data-id="Q38p6C"><div class="row"><span class="car">v</span><span class="sq">Q38p6C</span><span class="t">wrangl daily driver</span><span class="chips"><kbd>q</kbd><kbd>e</kbd><kbd>c</kbd></span><span class="st s-prog">in progress</span></div>
+ <ul role="group"><li role="treeitem" aria-expanded="false" data-id="q48QVU"><div class="row"><span class="car">></span><span class="sq">q48QVU</span><span class="t">Web app (PWA) v2</span><span class="chips"><kbd>q</kbd><kbd>e</kbd><kbd>c</kbd></span><span class="st s-prog">in progress</span></div></li>
+ <li role="treeitem" aria-expanded="true" data-id="FGvP87"><div class="row"><span class="car">v</span><span class="sq">FGvP87</span><span class="t">Inline task details and keyboard control</span><span class="chips"><kbd>q</kbd><kbd>e</kbd><kbd>c</kbd></span><span class="st s-prog">in progress</span></div>
+  <ul role="group"><li role="treeitem" data-id="uvGFdh"><div class="row"><span class="car"></span><span class="sq">uvGFdh</span><span class="t">Desktop keyboard shortcuts: MVP</span><span class="chips"><kbd>q</kbd><kbd>e</kbd><kbd>c</kbd></span><span class="st s-rev">review</span></div></li>
+  <li role="treeitem" data-id="x7Kd2a"><div class="row"><span class="car"></span><span class="sq">x7Kd2a</span><span class="t">Inline details: show deliverables</span><span class="chips"><kbd>q</kbd><kbd>e</kbd><kbd>c</kbd></span><span class="st s-attn">needs you</span></div></li>
+  <li role="treeitem" data-id="m3Pq9z"><div class="row"><span class="car"></span><span class="sq">m3Pq9z</span><span class="t">Picker ranking</span><span class="chips"><kbd>q</kbd><kbd>e</kbd><kbd>c</kbd></span><span class="st s-ok">done</span></div></li></ul></li></ul></li></ul></main></div>
+<div class="hint"><span><kbd>j</kbd><kbd>k</kbd> move</span><span><kbd>Enter</kbd> details</span><span><kbd>q</kbd> queue</span><span><kbd>e</kbd> edit</span><span><kbd>c</kbd> complete</span><span><kbd>n</kbd> new</span><span><kbd>?</kbd> all keys</span></div>
+<div class="tab"><span>Backlog</span><span>Projects</span><span>Runners</span><span>Settings</span></div>
+<dialog id="help"><h2>Keyboard shortcuts</h2><div class="g">
+<h3>Move</h3><div>Next / previous<span><kbd>j</kbd><kbd>k</kbd></span></div><div>Arrows<span><kbd>↑</kbd><kbd>↓</kbd></span></div><div>Collapse / to parent<span><kbd>h</kbd></div><div>Expand / to child<span><kbd>l</kbd></span></div>
+<h3>Selected task</h3><div>Toggle details<span><kbd>Enter</kbd><kbd>o</kbd></span></div><div>Collapse, then clear<span><kbd>Esc</kbd></span></div><div>Queue<span><kbd>q</kbd></span></div><div>Edit<span><kbd>e</kbd></span></div><div>Complete<span><kbd>c</kbd></span>
+</div><h3>Global</h3><div>New task<span><kbd>n</kbd></span></div><div>This help<span><kbd>?</kbd></span></div></div></dialog>
+<script>
+const $=s=>[...document.querySelectorAll(s)],H=document.getElementById('help');
+const setV=v=>{document.body.className=v;location.hash=v};
+$('[data-v]').forEach(b=>b.onclick=()=>setV(b.dataset.v));setV(/^#[ABC]$/.test(location.hash)?location.hash[1]:'A');
+document.getElementById('hb').onclick=()=>H.showModal();
+const items=()=>$('li[role=treeitem]').filter(li=>!li.parentElement.closest('li[aria-expanded=false]'));
+let sel=null;
+function pick(li){$('li[role=treeitem]').forEach(x=>{x.removeAttribute('aria-selected');x.tabIndex=-1});sel=li;if(li){li.setAttribute('aria-selected','true');li.tabIndex=0;li.scrollIntoView({block:'nearest'})}}
+function toggle(li,open){if(!li.hasAttribute('aria-expanded')){// leaf: inline detail
+ let d=li.querySelector(':scope>.detail');if(d&&open!==true){d.remove()}else if(!d){d=document.createElement('div');d.className='detail';d.innerHTML='Design task · review. Three variants for the keymap, mockups under docs/design.<div class="acts"><button class="btn" data-key="q">Queue <kbd>q</kbd></button><button class="btn" data-key="e">Edit <kbd>e</kbd></button><button class="btn" data-key="c">Complete <kbd>c</kbd></button></div>';li.appendChild(d)}return}
+ li.setAttribute('aria-expanded',open===undefined?li.getAttribute('aria-expanded')!=='true':open);li.querySelector('.car').textContent=li.getAttribute('aria-expanded')==='true'?'v':'>'}
+$('li[role=treeitem]>.row').forEach(r=>r.onclick=()=>pick(r.parentElement));
+addEventListener('keydown',e=>{
+ if(e.ctrlKey||e.metaKey||e.altKey||H.open||/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||!matchMedia('(hover:hover) and (pointer:fine)').matches)return;
+ const L=items(),i=L.indexOf(sel),k=e.key;
+ if(k=='j'||k=='ArrowDown')pick(L[Math.min(i+1,L.length-1)]);
+ else if(k=='k'||k=='ArrowUp')pick(L[Math.max(i<0?0:i-1,0)]);
+ else if(k=='Enter'||k=='o'){if(sel)toggle(sel)}
+ else if(k=='Escape'){if(sel){const d=sel.querySelector(':scope>.detail');if(d)d.remove();else if(sel.getAttribute('aria-expanded')=='true')toggle(sel,false);else pick(null)}}
+ else if(k=='l'){if(sel&&sel.getAttribute('aria-expanded')=='false')toggle(sel,true);else if(sel){const c=sel.querySelector(':scope>ul>li');c&&pick(c)}}
+ else if(k=='h'){if(sel&&sel.getAttribute('aria-expanded')=='true')toggle(sel,false);else if(sel){const p=sel.parentElement.closest('li');p&&pick(p)}}
+ else if(k=='?')H.showModal();else return;
+ e.preventDefault()});
+</script></html>
