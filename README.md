@@ -12,6 +12,35 @@ binary that runs as the **controller** (SQLite, embedded NATS + JetStream, HTTP 
 **runner**, plus the CLI/TUI client. Design:
 [`docs/superpowers/specs/2026-10-31-wrangl-design.md`](docs/superpowers/specs/2026-10-31-wrangl-design.md).
 
+## Why yet another metaharness??
+
+Because the agent harnesses are good and getting better, and what's missing is the layer above
+them: a backlog, a fleet, and a way to stay in the loop from your phone.
+
+- **Use any coding harness.** The agent is just a command in a runner template. Templates ship for
+  Claude Code, Codex, Gemini CLI and Antigravity, so you can mix them and switch as the field moves.
+  wrangl never wraps or reimplements the harness; it drives the real CLI in a PTY.
+- **One simple binary per host.** Controller, runner, CLI, TUI and MCP server are all the same
+  `wrangl` executable. The controller is SQLite plus an embedded NATS: no Postgres, Redis or
+  Kubernetes to run. Runners enrol with a token and upgrade themselves.
+- **Mobile-first.** An installable PWA with web push makes planning, reviewing and completing
+  projects easy from anywhere: triage the inbox, reorder the backlog, approve a merge, or open a
+  terminal on a runner, all from a phone.
+- **Plan at any granularity.** One ranked hierarchy from release down to task. Queue a whole
+  milestone or a single leaf, and agents can split and manage their own subtasks.
+- **Your repos, your PRs.** Work lands as ordinary branches and pull requests, with a checkpoint
+  commit per subtask and a separate review run. Nothing wrangl-specific ends up in your repo.
+- **You only get pulled in when it matters.** Questions, approvals and risky merges arrive in one
+  inbox; low-risk work auto-merges.
+- **Disposable and cost-aware.** Runners are EC2 instances launched from a template and reaped after
+  30 idle minutes. The Runners page shows month-to-date spend, forecast and hourly burn, and lists
+  anything else running in the account.
+- **Self-hosted, no inbound ports.** It runs in your AWS account and talks to your GitHub through
+  Apps you own. Remote access is behind Cloudflare Access, and runners need no inbound access from
+  the internet.
+- **Drivable by agents too.** Everything in the UI is in the CLI and an MCP endpoint, and "Ask?"
+  on a task gets you a controller agent that can propose changes for one-click approval.
+
 ## How it fits together
 
 <p align="center"><img src="docs/brand/architecture.svg" alt="wrangl architecture: phone, CLI and your own agents reach the controller (via Cloudflare Access); the controller launches Linux runners on EC2 (Android and macOS runners planned) that dial back over NATS, and works with GitHub and AWS" width="900"></p>
