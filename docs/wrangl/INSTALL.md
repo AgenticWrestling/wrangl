@@ -76,7 +76,7 @@ export AWS_REGION=us-west-2
 ## 2. Build the binaries
 
 ```sh
-git clone https://github.com/njreid/devhost && cd devhost
+git clone https://github.com/njreid/wrangl && cd wrangl
 task build-wrangl
 ls build/
 # wrangl  wrangl-linux-aarch64  wrangl-linux-x86_64
