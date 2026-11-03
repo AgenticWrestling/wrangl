@@ -302,6 +302,17 @@ func TestPRFlowEndToEnd(t *testing.T) {
 		t.Fatalf("rejected proposal was applied: %+v", d.Children)
 	}
 
+	// A feature with no subtasks queues a plan run (its work is its subtasks), not a work run.
+	feat := e.mk(proto.TaskCreateRequest{Title: "childless feature", Type: "feature"})
+	fr, _, err := api.QueueTask(ctx, feat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := api.Run(ctx, fr); err != nil || v.Kind != "plan" {
+		t.Fatalf("queueing a childless feature: %+v %v", v, err)
+	}
+	api.CancelRun(ctx, fr)
+
 	// M7: the event stream carried every kind of change.
 	kindsMu.Lock()
 	for _, k := range []string{"run", "task", "question", "pr", "runner"} {

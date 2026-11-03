@@ -75,9 +75,9 @@ func Start(dataDir, listen string) (*Embedded, error) {
 		return nil, fmt.Errorf("nats: %w", err)
 	}
 	go ns.Start()
-	if !ns.ReadyForConnections(10 * time.Second) {
+	if !ns.ReadyForConnections(60 * time.Second) {
 		ns.Shutdown()
-		return nil, errors.New("nats: not ready after 10s")
+		return nil, errors.New("nats: not ready after 60s")
 	}
 	userJWT, kp, err := keys.controllerUser()
 	if err != nil {

@@ -839,7 +839,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		_, err = h.D.Plans.Queue(ctx, sqid, str("guidance"))
 		msg = "planning… the proposal will arrive in Inbox"
 	case "task-queue":
-		_, err = h.D.Stack.Queue(ctx, sqid)
+		_, err = h.D.Plans.QueueWork(ctx, sqid)
 		msg = "queued"
 	case "task-complete", "task-reopen", "task-cancel":
 		op := strings.TrimPrefix(r.PathValue("action"), "task-")

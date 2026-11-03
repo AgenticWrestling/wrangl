@@ -21,7 +21,7 @@ else
   prompt="$2"
 fi
 grep -q '"x": 1' "$HOME/.fake/settings.json" && grep -q '"y": 2' "$HOME/.fake/settings.json" && grep -q '"keep": true' "$HOME/.fake/settings.json" && echo "merged ok"
-printf '%s' "$prompt" | grep -o 'This is a documentation task' || true
+printf '%s' "$prompt" | grep -o 'This is a documentation task\|call the task_complete tool' || true
 sqid=$(printf '%s' "$prompt" | head -1 | sed -n 's/^You are working on task \([A-Za-z0-9]*\):.*/\1/p')
 printf '%s\n' "$sqid" >> NOTES.md
 tool task_complete "{\"sqid\":\"$sqid\",\"summary\":\"done\"}" >/dev/null
@@ -62,6 +62,9 @@ agent:
 	}
 	if strings.Count(text, "merged ok") != 2 {
 		t.Fatalf("merged settings file not seen by both turns:\n%s", text)
+	}
+	if !strings.Contains(text, "call the task_complete tool") {
+		t.Fatalf("the prompt must tell the agent to call task_complete:\n%s", text)
 	}
 	if !strings.Contains(text, "This is a documentation task") {
 		t.Fatalf("task-type guidance missing from the prompt:\n%s", text)

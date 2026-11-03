@@ -285,6 +285,9 @@ curl --unix-socket /run/wrangl/api.sock http://x/healthz
 # {"db":"ok","jetstream":"ok","nats":"ok"}
 ```
 
+Without root (a dev box), use the `systemd --user` unit in `docs/wrangl/systemd/wrangl-controller.user.service`
+instead; it logs to `~/.local/share/wrangl/controller.log` and restarts on failure.
+
 From here on, `wrangl` commands run on the controller host go to the local socket. Step 10
 covers running them from your laptop.
 
@@ -386,7 +389,7 @@ script), how big the machine must be, and how to start the agent. Save this as
 name: go-claude
 arch: arm64
 min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
-instance_types: [m7g.large, m7g.xlarge]     # optional; omit to pick the smallest that fits
+instance_types: [m7g.large, m7g.xlarge]     # optional; omit to pick the smallest shape that fits (no local-NVMe types: im4gn costs ~3x m7g)
 max_runners: 2
 idle_timeout: 30m                           # terminated after this long idle (default 30m)
 setup_script: |                             # runs as root, only when it changes

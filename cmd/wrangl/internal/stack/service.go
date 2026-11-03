@@ -825,6 +825,13 @@ func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
 		if open == 0 {
 			return conflict("%s has no open work", sqid)
 		}
+		if t.TaskType.Planning() {
+			if kids, err := hasChildren(ctx, q, t.ID); err != nil {
+				return err
+			} else if !kids {
+				return conflict("%s is a %s with no subtasks, so there is no work to run; plan it first (task split --agent)", sqid, t.TaskType)
+			}
+		}
 		chain, err := q.AncestorChain(ctx, t.ID)
 		if err != nil {
 			return err
@@ -996,8 +1003,9 @@ func composePrompt(ctx context.Context, q *dbgen.Queries, t dbgen.Task, runID in
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\nWork only on this task. Commit your changes with a clear message. " +
-		"When the task is finished, end your turn.\n")
+	fmt.Fprintf(&b, "\nWork only on this task. Commit your changes with a clear message. "+
+		"When the task is finished, call the task_complete tool with sqid %q and a short summary of what you did "+
+		"(if you have that tool), then end your turn.\n", t.Sqid.String)
 	return b.String(), nil
 }
 

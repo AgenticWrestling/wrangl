@@ -188,3 +188,20 @@ func TestResolveAMITimesOut(t *testing.T) {
 		t.Fatalf("%q %v", got, err)
 	}
 }
+
+func TestSortCandidatesPrefersNoLocalStorage(t *testing.T) {
+	mk := func(name string, vcpu int32, mem int64, local bool) types.InstanceTypeInfo {
+		return types.InstanceTypeInfo{InstanceType: types.InstanceType(name), InstanceStorageSupported: aws.Bool(local),
+			VCpuInfo: &types.VCpuInfo{DefaultVCpus: aws.Int32(vcpu)}, MemoryInfo: &types.MemoryInfo{SizeInMiB: aws.Int64(mem)}}
+	}
+	c := []types.InstanceTypeInfo{mk("im4gn.large", 2, 8192, true), mk("m7g.large", 2, 8192, false), mk("m7g.xlarge", 4, 16384, false), mk("c7g.large", 2, 4096, false)}
+	sortCandidates(c)
+	var got []string
+	for _, x := range c {
+		got = append(got, string(x.InstanceType))
+	}
+	want := []string{"c7g.large", "m7g.large", "im4gn.large", "m7g.xlarge"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}

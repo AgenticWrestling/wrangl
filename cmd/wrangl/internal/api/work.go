@@ -505,7 +505,7 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		writeJSON(w, http.StatusCreated, out)
 	})
 	mux.HandleFunc("POST /api/v1/tasks/{sqid}/queue", func(w http.ResponseWriter, r *http.Request) {
-		run, err := d.Stack.Queue(r.Context(), r.PathValue("sqid"))
+		run, err := d.Plans.QueueWork(r.Context(), r.PathValue("sqid"))
 		if err != nil {
 			writeErr(w, err)
 			return

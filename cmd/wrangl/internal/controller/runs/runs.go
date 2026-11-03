@@ -44,6 +44,9 @@ type Service struct {
 	ToolHandlers map[string]ToolHandler
 	// OnRunFinished is called after a run reaches a terminal state (PRs in M6).
 	OnRunFinished func(ctx context.Context, runID int64)
+	// OnAgentNotice is called when an agent's Notification hook fires (Claude Code: it needs
+	// permission, or has been idle waiting): the owner should look. message is the agent's text.
+	OnAgentNotice func(run dbgen.Run, message string)
 }
 
 func (s *Service) ts() string { return s.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
@@ -164,7 +167,8 @@ func (s *Service) HandleHook(ctx context.Context, subject string, data []byte) e
 	if err := json.Unmarshal(data, &h); err != nil || h.Event == "" {
 		return fmt.Errorf("%w: hook event", errs.Invalid)
 	}
-	if _, err := s.owned(ctx, runnerID, runID); err != nil {
+	run, err := s.owned(ctx, runnerID, runID)
+	if err != nil {
 		return err
 	}
 	payload := string(h.Payload)
@@ -174,8 +178,23 @@ func (s *Service) HandleHook(ctx context.Context, subject string, data []byte) e
 	if len(payload) > 64<<10 {
 		payload = `{"truncated":true}`
 	}
-	return s.DB.Q.InsertHookEvent(ctx, dbgen.InsertHookEventParams{RunID: runID, Seq: h.Seq,
-		Ts: h.TS.UTC().Format("2006-01-02T15:04:05.000Z"), Name: h.Event, PayloadJson: payload})
+	if err := s.DB.Q.InsertHookEvent(ctx, dbgen.InsertHookEventParams{RunID: runID, Seq: h.Seq,
+		Ts: h.TS.UTC().Format("2006-01-02T15:04:05.000Z"), Name: h.Event, PayloadJson: payload}); err != nil {
+		return err
+	}
+	if h.Event == "Notification" {
+		var n struct {
+			Message string `json:"message"`
+		}
+		json.Unmarshal(h.Payload, &n)
+		if s.Bus != nil {
+			s.Bus.Publish("run", strconv.FormatInt(runID, 10))
+		}
+		if s.OnAgentNotice != nil {
+			s.OnAgentNotice(run, n.Message)
+		}
+	}
+	return nil
 }
 
 // HandleLog stores one log line.

@@ -220,6 +220,16 @@ func (p *Provisioner) ChooseInstanceType(ctx context.Context, s Spec) (string, e
 	if len(cands) == 0 {
 		return "", fmt.Errorf("no current-generation %s type has %d vCPU and %d MiB", s.Arch, s.MinVCPU, s.MinRAMMiB)
 	}
+	sortCandidates(cands)
+	return string(cands[0].InstanceType), nil
+}
+
+// sortCandidates orders instance types smallest first: fewest vCPUs, then least memory. On a
+// tie, types without local instance storage come first (storage-optimised families such as
+// im4gn cost about three times as much as general purpose ones for the same shape), then the
+// name, so the choice is deterministic.
+func sortCandidates(cands []types.InstanceTypeInfo) {
+	local := func(t types.InstanceTypeInfo) bool { return aws.ToBool(t.InstanceStorageSupported) }
 	sort.Slice(cands, func(i, j int) bool {
 		vi, vj := aws.ToInt32(cands[i].VCpuInfo.DefaultVCpus), aws.ToInt32(cands[j].VCpuInfo.DefaultVCpus)
 		if vi != vj {
@@ -229,9 +239,11 @@ func (p *Provisioner) ChooseInstanceType(ctx context.Context, s Spec) (string, e
 		if mi != mj {
 			return mi < mj
 		}
-		return cands[i].InstanceType < cands[j].InstanceType // deterministic
+		if li, lj := local(cands[i]), local(cands[j]); li != lj {
+			return !li
+		}
+		return cands[i].InstanceType < cands[j].InstanceType
 	})
-	return string(cands[0].InstanceType), nil
 }
 
 // Describe returns one instance (nil if it no longer exists).

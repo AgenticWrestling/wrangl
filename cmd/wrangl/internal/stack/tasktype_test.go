@@ -116,3 +116,19 @@ func mkTyped(t *testing.T, s *stack.Service, parent, title, typ string) dbgen.Ta
 	}
 	return tk
 }
+
+func TestQueueRefusesChildlessPlanningTask(t *testing.T) {
+	s, _ := setup(t)
+	ctx := context.Background()
+	f, err := s.Create(ctx, stack.CreateParams{Project: "p", Title: "a feature", Type: "feature", Repo: "o/a", Actor: stack.User})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Queue(ctx, f.Sqid.String); !errors.Is(err, errs.Conflict) || !strings.Contains(err.Error(), "plan it first") {
+		t.Fatalf("want a conflict telling the owner to plan it, got %v", err)
+	}
+	mkTyped(t, s, f.Sqid.String, "the work", "")
+	if _, err := s.Queue(ctx, f.Sqid.String); err != nil {
+		t.Fatalf("a feature with subtasks queues normally: %v", err)
+	}
+}

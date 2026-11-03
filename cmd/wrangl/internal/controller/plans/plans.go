@@ -50,6 +50,26 @@ func uuid4() string {
 	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 }
 
+// QueueWork queues a task the way the owner expects: a release, milestone or feature that has
+// no subtasks yet gets a plan run that proposes them (its work is its subtasks); anything else
+// gets an ordinary work run over its subtree.
+func (s *Service) QueueWork(ctx context.Context, sqid string) (dbgen.Run, error) {
+	t, err := s.Stack.Task(ctx, s.DB.RQ, sqid)
+	if err != nil {
+		return dbgen.Run{}, err
+	}
+	if t.TaskType.Planning() {
+		kids, err := s.DB.RQ.ListChildren(ctx, nint(t.ID))
+		if err != nil {
+			return dbgen.Run{}, err
+		}
+		if len(kids) == 0 {
+			return s.Queue(ctx, sqid, "")
+		}
+	}
+	return s.Stack.Queue(ctx, sqid)
+}
+
 // Queue starts a plan run for an open task.
 func (s *Service) Queue(ctx context.Context, sqid, guidance string) (dbgen.Run, error) {
 	t, err := s.Stack.Task(ctx, s.DB.RQ, sqid)

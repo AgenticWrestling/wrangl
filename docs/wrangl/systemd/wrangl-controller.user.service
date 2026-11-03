@@ -1,0 +1,26 @@
+# The controller as a systemd --user unit (no root needed; enable lingering once with
+# `loginctl enable-linger $USER` so it starts at boot and survives logout).
+#
+#   install -m 0644 wrangl-controller.user.service ~/.config/systemd/user/wrangl-controller.service
+#   systemctl --user daemon-reload && systemctl --user enable --now wrangl-controller
+#   journalctl --user -u wrangl-controller -f        # or the log file below
+#
+# Paths assume the binary is at ~/.local/bin/wrangl and the config at ~/.config/wrangl/controller.yaml.
+# To upgrade: copy the new binary over (write to a temp name, then mv), then
+# `systemctl --user restart wrangl-controller`. Runners reconnect and self-upgrade by themselves.
+[Unit]
+Description=wrangl controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/wrangl --config %h/.config/wrangl/controller.yaml controller serve
+Restart=always
+RestartSec=5
+# JetStream recovery and the 5 s listener drain happen on stop/start.
+TimeoutStopSec=30
+StandardOutput=append:%h/.local/share/wrangl/controller.log
+StandardError=append:%h/.local/share/wrangl/controller.log
+
+[Install]
+WantedBy=default.target
