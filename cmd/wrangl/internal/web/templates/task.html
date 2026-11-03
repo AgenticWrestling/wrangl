@@ -14,7 +14,7 @@
   <div class="prose">{{if $t.Prompt}}{{md $t.Prompt}}{{else}}<p class="empty">No prompt.</p>{{end}}</div>
   {{if $t.CompletionSummary}}<h3>Completion summary</h3><div class="prose">{{md $t.CompletionSummary}}</div>{{end}}
   <div class="actions wrap">
-    {{if eq $t.State "open"}}<button class="btn primary" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
+    {{if .CanQueue}}<button class="btn primary" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
     <button class="btn" onclick="openSheet('sheet-edit')">{{faicon "edit"}}Edit</button>
     <button class="btn" onclick="openSheet('sheet-needs')">{{faicon "needs"}}Needs…</button>
     {{if .Agents}}<button class="btn" onclick="openSheet('sheet-ask')">{{faicon "ask"}}Ask?</button>{{end}}

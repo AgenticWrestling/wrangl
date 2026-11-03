@@ -505,6 +505,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
 		d["Kids"] = kids
+		// Queue is offered wherever the subtree has open work, not only when the task itself is
+		// open: a feature whose other children are in review still has leaves to run.
+		open, _ := db.RQ.CountOpenLeaves(ctx, t.ID)
+		d["CanQueue"] = open > 0 || (t.State == "open" && len(kids) == 0 && t.TaskType.Planning())
 		if h.D.Agents != nil {
 			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
 		}
