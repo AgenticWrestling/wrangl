@@ -17,6 +17,7 @@
     {{if eq $t.State "open"}}<button class="btn primary" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
     <button class="btn" onclick="openSheet('sheet-edit')">{{faicon "edit"}}Edit</button>
     <button class="btn" onclick="openSheet('sheet-needs')">{{faicon "needs"}}Needs…</button>
+    {{if .Agents}}<button class="btn" onclick="openSheet('sheet-ask')">{{faicon "ask"}}Ask?</button>{{end}}
     {{if or (eq $t.State "done") (eq $t.State "cancelled")}}<button class="btn" data-on:click="@post('/ui/act/task-reopen?sqid={{$t.Sqid.String}}')">{{faicon "reopen"}}Reopen</button>
     {{else}}{{if not .Kids}}<button class="btn" data-on:click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Complete</button>
     {{else if and (eq (print $t.TaskType) "release") (eq $t.State "in_review")}}<button class="btn primary" data-on:click="confirm('All work in this release is done. Ship it?') && @post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Ship it</button>{{end}}
@@ -24,6 +25,13 @@
     <button class="btn danger" data-on:click="confirm('Delete this task and its subtasks?') && @post('/ui/act/task-delete?sqid={{$t.Sqid.String}}')">{{faicon "delete"}}Delete</button>
   </div>
 </section>
+
+{{if .Thread}}<section class="card thread" id="thread"><h3>Conversation</h3>
+  {{range .Thread}}<div class="msg {{.Role}}{{if eq .Status "error"}} err{{end}}">
+    <div class="who">{{if eq .Role "user"}}You{{else}}{{.Agent}}{{end}} <span class="dim">{{ago .At}}</span></div>
+    {{if eq .Status "running"}}<p class="dim">thinking…</p>{{else}}<div class="prose">{{.Body}}</div>{{end}}
+  </div>{{end}}
+</section>{{end}}
 
 <section class="card" id="subtasks">
   <div class="row"><h3>Subtasks</h3><span class="grow"></span>
@@ -96,6 +104,17 @@
     <button class="btn primary" data-on:click="@post('/ui/act/task-new?project={{.Project}}&amp;parent={{$s}}')" data-close>Create</button>
   </div>
 </dialog>
+
+{{if .Agents}}<dialog id="sheet-ask" class="sheet">
+  <h2>Ask about {{$s}}</h2>
+  <p class="hint">A controller agent reads this task and everything under it, and can look across the other tasks. It answers here; ask it to make small edits too.</p>
+  <textarea data-bind="askq" rows="5" placeholder="Any questions or concerns about this task? Is the split sensible? What's missing?"></textarea>
+  {{if gt (len .Agents) 1}}<label>Agent<select data-bind="askagent">{{range .Agents}}<option value="{{.Name}}"{{if eq .IsDefault 1}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>{{end}}
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/task-ask?sqid={{$s}}')" data-close>Ask</button>
+  </div>
+</dialog>{{end}}
 
 <dialog id="sheet-needs" class="sheet">
   <h2>{{$s}} needs…</h2>

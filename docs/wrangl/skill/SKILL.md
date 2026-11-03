@@ -25,6 +25,7 @@ for exact flags; this skill is the map.
 - `wrangl task move SQID [--parent SQID | --root] [--after|--before SQID | --first | --last]` - reparent or rerank.
 - `wrangl task split SQID --title A --title B [--chain] [--copy-prompt]` or `-f outline.md` (one subtask per line, indent to nest); `--agent [--guidance TEXT]` queues a plan run that proposes the split for you to accept.
 - `wrangl task needs add|rm SQID PRECURSOR` - ordering dependencies between tasks.
+- `wrangl task ask SQID "question" [--agent NAME] [--wait]` - ask a controller agent (a light Claude on the controller host, with this skill) about a task and its subtree; answers collect in a thread on the task (`wrangl task thread SQID`, or the "Ask?" button). Agents are registered in Settings > Controller agents.
 - `wrangl task queue SQID` - queue a work run for that subtree (nothing runs until queued, unless the project has auto-queue).
 - `wrangl task complete SQID [-m MSG]` (leaves only; parents complete when their subtasks do), `task reopen`, `task cancel` (with unfinished subtasks), `task delete` (whole subtree - confirm with the user first).
 

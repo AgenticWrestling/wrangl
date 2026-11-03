@@ -505,6 +505,9 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
 		d["Kids"] = kids
+		if h.D.Agents != nil {
+			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
+		}
 		d["Pre"], _ = db.RQ.ListPrecursors(ctx, t.ID)
 		d["Dep"], _ = db.RQ.ListDependents(ctx, t.ID)
 		d["Runs"], _ = db.RQ.RunsForTask(ctx, t.ID)
@@ -762,10 +765,42 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["GHAccounts"], _ = h.D.Setup.Accounts(ctx)
 		d["Projects"], _ = db.RQ.ListProjects(ctx)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		d["Templates"], _ = db.RQ.ListTemplates(ctx)
+		d["CAgents"], _ = db.RQ.ListControllerAgents(ctx)
 		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"
 	}
 	return d, nil
+}
+
+// threadMsg is one message of a task's conversation with a controller agent.
+type threadMsg struct {
+	Role, Status, Agent, At string
+	Body                    template.HTML
+}
+
+// threadView loads a task's thread and the agents that can be asked.
+func (h *Handler) threadView(ctx context.Context, taskID int64) ([]threadMsg, []dbgen.ControllerAgent) {
+	db := h.D.Agents.DB
+	ags, _ := db.RQ.ListControllerAgents(ctx)
+	names := map[int64]string{}
+	var usable []dbgen.ControllerAgent
+	for _, a := range ags {
+		names[a.ID] = a.Name
+		if a.Enabled == 1 {
+			usable = append(usable, a)
+		}
+	}
+	rows, _ := db.RQ.ListThread(ctx, taskID)
+	var out []threadMsg
+	for _, m := range rows {
+		tm := threadMsg{Role: m.Role, Status: m.Status, At: m.At, Agent: names[m.AgentID.Int64]}
+		if m.Role == "agent" {
+			tm.Body = markdown(m.Body)
+		} else {
+			tm.Body = template.HTML("<p>" + strings.ReplaceAll(template.HTMLEscapeString(m.Body), "\n", "<br>") + "</p>")
+		}
+		out = append(out, tm)
+	}
+	return out, usable
 }
 
 func errString(err error) string {
@@ -921,6 +956,26 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 			_, err = h.D.Stack.SetTargetDate(ctx, sqid, str("etarget"), stack.User)
 		}
 		msg = "saved"
+	case "task-ask":
+		if h.D.Agents == nil {
+			err = errs.Invalid
+			break
+		}
+		if _, err = h.D.Agents.Ask(ctx, sqid, str("askagent"), str("askq")); err == nil {
+			msg = "asked; the answer will appear on the task"
+			reset = map[string]any{"askq": ""}
+		}
+	case "agent-save":
+		ag := dbgen.ControllerAgent{Name: str("agname"), Command: str("agcmd"), Model: str("agmodel"), Auth: str("agauth"), AuthSecret: str("agsecret"), AuthEnv: str("agenv"), Enabled: 1}
+		ag.MaxTurns, _ = strconv.ParseInt(str("agturns"), 10, 64)
+		ag.TimeoutS, _ = strconv.ParseInt(str("agtimeout"), 10, 64)
+		if err = h.D.Agents.Save(ctx, ag, flag("agdefault")); err == nil {
+			msg = "saved " + ag.Name
+		}
+	case "agent-delete":
+		if err = h.D.Agents.Delete(ctx, q.Get("name")); err == nil {
+			msg = "removed " + q.Get("name")
+		}
 	case "task-split":
 		var nodes []stack.SplitNode
 		if nodes, err = stack.ParseOutline(str("outline")); err == nil {

@@ -10,6 +10,21 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 )
 
+type ControllerAgent struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Command    string `json:"command"`
+	Model      string `json:"model"`
+	Auth       string `json:"auth"`
+	AuthSecret string `json:"auth_secret"`
+	AuthEnv    string `json:"auth_env"`
+	MaxTurns   int64  `json:"max_turns"`
+	TimeoutS   int64  `json:"timeout_s"`
+	IsDefault  int64  `json:"is_default"`
+	Enabled    int64  `json:"enabled"`
+}
+
 type Deliverable struct {
 	ID        int64         `json:"id"`
 	TaskID    int64         `json:"task_id"`
@@ -309,4 +324,15 @@ type TaskEvent struct {
 	Op       string        `json:"op"`
 	DiffJson string        `json:"diff_json"`
 	Ts       string        `json:"ts"`
+}
+
+type TaskThread struct {
+	ID        int64         `json:"id"`
+	TaskID    int64         `json:"task_id"`
+	At        string        `json:"at"`
+	Role      string        `json:"role"`
+	Body      string        `json:"body"`
+	AgentID   sql.NullInt64 `json:"agent_id"`
+	Status    string        `json:"status"`
+	SessionID string        `json:"session_id"`
 }

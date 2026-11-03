@@ -334,3 +334,23 @@ func (c *Client) PushTest(ctx context.Context) (int, error) {
 	}
 	return out.Delivered, c.json(ctx, http.MethodPost, "/api/v1/push/test", nil, &out)
 }
+
+// ThreadMessage is one message of a task's conversation with a controller agent.
+type ThreadMessage struct {
+	ID     int64  `json:"id"`
+	At     string `json:"at"`
+	Role   string `json:"role"`
+	Body   string `json:"body"`
+	Status string `json:"status"`
+}
+
+// AskTask asks a controller agent (agent "" = the default) about a task and its subtree.
+func (c *Client) AskTask(ctx context.Context, sqid, agent, question string) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/ask", map[string]string{"agent": agent, "question": question}, nil)
+}
+
+// TaskThread lists a task's conversation with controller agents.
+func (c *Client) TaskThread(ctx context.Context, sqid string) ([]ThreadMessage, error) {
+	var out []ThreadMessage
+	return out, c.json(ctx, http.MethodGet, "/api/v1/tasks/"+esc(sqid)+"/thread", nil, &out)
+}

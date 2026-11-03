@@ -13,6 +13,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/agents"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/costs"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/deliverables"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
@@ -80,6 +81,8 @@ type Deps struct {
 	// Deliverables stores mockups, prototype links and reports handed back by runs.
 	Deliverables *deliverables.Service
 	Term         *TermHub
+	// Agents runs controller agents ("Ask?" on a task).
+	Agents *agents.Service
 }
 
 // Register mounts /api/v1 on mux.
@@ -88,6 +91,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	registerWork(mux, d)
 	registerTerm(mux, d)
 	registerCosts(mux, d)
+	registerAgents(mux, d)
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { streamEvents(w, r, d.Bus) })
 	mux.HandleFunc("GET /api/v1/push/key", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"public_key": d.Push.Keys.Public})

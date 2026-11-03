@@ -310,3 +310,12 @@ table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 #topcosts .row.other { flex-wrap: wrap; }
 #topcosts ul.parts { flex-basis: 100%; list-style: none; margin: 2px 0 6px 2.4em; padding: 0; font-size: 0.85rem; }
 #topcosts ul.parts li { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; border-top: 1px dotted var(--line); }
+
+/* controller-agent conversation on a task */
+.thread .msg{padding:.5rem 0;border-top:1px solid var(--line, rgba(128,128,128,.25))}
+.thread .msg:first-of-type{border-top:0}
+.thread .msg .who{font-size:.8rem;font-weight:600;margin-bottom:.15rem}
+.thread .msg.user .who{opacity:.75}
+.thread .msg.agent{border-left:3px solid var(--accent, #4a7)}
+.thread .msg.agent,.thread .msg.user{padding-left:.6rem}
+.thread .msg.err{border-left-color:var(--danger, #c44)}

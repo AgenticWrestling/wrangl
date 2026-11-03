@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/agents"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/costs"
 	"log/slog"
 	"net"
@@ -98,6 +99,7 @@ type Server struct {
 	Runs         *runs.Service
 	PRs          *prs.Service
 	Plans        *plans.Service
+	Agents       *agents.Service // controller agents ("Ask?" on a task)
 	Deliverables *deliverables.Service
 	Costs        *costs.Service // nil without AWS
 	Push         *webpush.Service
@@ -310,6 +312,8 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Runs.ToolHandlers["submit_deliverable"] = s.Deliverables.Submit
 	s.Runs.AnswerHandlers["deliverable_review"] = s.Deliverables.Answer(s.review())
 	s.Plans = &plans.Service{DB: s.db, Stack: s.Stack, Runs: s.Runs, Log: s.log}
+	s.Agents = &agents.Service{DB: s.db, Stack: s.Stack, Bus: s.Bus, Log: s.log, Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	s.Agents.Recover(context.Background())
 	s.Runs.ToolHandlers["propose_split"] = s.Plans.ProposeSplit
 	s.Runs.AnswerHandlers["plan_review"] = s.Plans.Answer
 	s.Runs.AnswerHandlers["pr_review"] = s.PRs.AnswerPR
@@ -521,7 +525,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs,
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
 		Setup: s.setupService()}
 	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)

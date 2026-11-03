@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -375,6 +376,62 @@ func taskCmd(g *Global) *cobra.Command {
 			return nil
 		},
 	}
+	ask := &cobra.Command{
+		Use: "ask <sqid> <question>", Short: "Ask a controller agent about a task and its subtree", Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			agent, _ := cmd.Flags().GetString("agent")
+			wait, _ := cmd.Flags().GetBool("wait")
+			if err := c.AskTask(cmd.Context(), args[0], agent, args[1]); err != nil {
+				return err
+			}
+			if !wait {
+				fmt.Fprintln(cmd.OutOrStdout(), "asked; read the answer with `wrangl task thread "+args[0]+"` or on the task page")
+				return nil
+			}
+			for {
+				select {
+				case <-cmd.Context().Done():
+					return cmd.Context().Err()
+				case <-time.After(2 * time.Second):
+				}
+				msgs, err := c.TaskThread(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				if n := len(msgs); n > 0 && msgs[n-1].Role == "agent" && msgs[n-1].Status != "running" {
+					fmt.Fprintln(cmd.OutOrStdout(), msgs[n-1].Body)
+					return nil
+				}
+			}
+		},
+	}
+	ask.Flags().String("agent", "", "controller agent name (default: the default agent)")
+	ask.Flags().Bool("wait", false, "wait for and print the answer")
+	thread := &cobra.Command{
+		Use: "thread <sqid>", Short: "Show a task's conversation with controller agents", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			msgs, err := c.TaskThread(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			for _, m := range msgs {
+				body := m.Body
+				if m.Status == "running" {
+					body = "(thinking…)"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s:\n%s\n\n", m.At, m.Role, body)
+			}
+			return nil
+		},
+	}
 	action := func(op, short string) *cobra.Command {
 		c := &cobra.Command{Use: op + " <sqid>", Short: short, Args: cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -401,7 +458,7 @@ func taskCmd(g *Global) *cobra.Command {
 		},
 	}
 	return group("task", "Manage the hierarchical work stack",
-		create, tree, list, show, edit, move, needs, split, queue,
+		create, tree, list, show, edit, move, needs, split, queue, ask, thread,
 		action("complete", "Mark a leaf done (finished and merged)"),
 		action("reopen", "Reopen a leaf"),
 		action("cancel", "Cancel a task and its unfinished subtasks"),
