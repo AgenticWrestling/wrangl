@@ -10,3 +10,7 @@
   - Nudge: steer a run, and approve or reject what a controller agent proposes.
   - Gate: reviews, approvals and auto-merge rules.
   - Land: the PR merges.
+
+- `make-architecture.py` generates `architecture.svg`, the README diagram, in the logo's style
+  (dark ground, glowing ringed nodes, parallel circuit traces into a central hub). Edit the
+  `NODES` and `LINKS` tables at the top and rerun; it has no dependencies.

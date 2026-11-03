@@ -14,6 +14,10 @@ binary that runs as the **controller** (SQLite, embedded NATS + JetStream, HTTP 
 
 ## How it fits together
 
+<p align="center"><img src="docs/brand/architecture.svg" alt="wrangl architecture: phone, CLI and your own agents reach the controller (via Cloudflare Access); the controller launches Linux runners on EC2 (Android and macOS runners planned) that dial back over NATS, and works with GitHub and AWS" width="900"></p>
+
+<details><summary>Text version (Mermaid)</summary>
+
 ```mermaid
 flowchart LR
   subgraph clients["You"]
@@ -57,9 +61,11 @@ flowchart LR
   linux -->|"git push"| gh
 ```
 
+</details>
+
 The phone talks only to the controller. The terminal you open on a runner, the live backlog and
 the inbox all come through it. Runners need no inbound access from the internet: each one enrols with a
-one-time token, then dials the controller's NATS (TLS) over the shared VPC. Dashed boxes and lines are planned:
+one-time token, then dials the controller's NATS (TLS) over the shared VPC. Dashed circles and lines are planned:
 only the Linux runner image is built and tested today.
 
 ## What it does
@@ -131,7 +137,8 @@ build/wrangl task ask SQID "Any concerns?" --wait  # ask a controller agent
 build/wrangl fleet teardown                        # terminate every tagged instance
 ```
 
-The logo and icons are built from `docs/brand/source.jpg` by `docs/brand/make-logo.py`; see
+The logo and icons are built from `docs/brand/source.jpg` by `docs/brand/make-logo.py`, and the
+architecture diagram by `docs/brand/make-architecture.py`; see
 [`docs/brand/`](docs/brand/README.md).
 
 ---
