@@ -9,7 +9,7 @@
   <h3>GitHub accounts</h3>
   <p class="hint">A GitHub App has to be created in the account that owns the repositories, so each account you work in (your own, and any organisation) has its own wrangl App. Repositories you can link come from these accounts. For an organisation you must be an owner of it to create the App.</p>
   <form class="addacct" data-signals:acctlogin="{{json .Suggest}}" data-signals:acctkind="'user'" onsubmit="return false">
-    <label>Account name<input data-bind="acctlogin" placeholder="njreid or my-org" autocapitalize="off" autocomplete="off"></label>
+    <label>Account name<input data-bind="acctlogin" placeholder="octocat or my-org" autocapitalize="off" autocomplete="off"></label>
     <label>Kind<select data-bind="acctkind"><option value="user">Personal account</option><option value="org">Organisation</option></select></label>
     <button class="btn primary" type="button" data-on:click="@post('/ui/act/account-add?back={{q .Back}}')">Add account</button>
   </form>
