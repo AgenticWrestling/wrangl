@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 const myIPRuleDescription = "ssm-managed"

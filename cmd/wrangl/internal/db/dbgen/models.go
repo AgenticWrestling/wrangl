@@ -7,7 +7,7 @@ package dbgen
 import (
 	"database/sql"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 )
 
 type ControllerAgent struct {

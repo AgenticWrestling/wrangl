@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/runner"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
 )
 
 func runnerCmd(g *Global) *cobra.Command {

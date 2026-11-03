@@ -1,4 +1,4 @@
-module github.com/nreid/devhost
+module github.com/agenticwrestling/wrangl
 
 go 1.26.4
 

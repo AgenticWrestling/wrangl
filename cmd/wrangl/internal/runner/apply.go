@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // ApplyTimeout bounds one template apply (mise downloads can be slow).

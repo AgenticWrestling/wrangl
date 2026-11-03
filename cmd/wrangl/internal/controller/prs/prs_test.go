@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 )
 
 func TestProtectedGlobs(t *testing.T) {

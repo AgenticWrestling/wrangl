@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // ResendApplyAfter: a runner still provisioning, not applying and behind is re-sent the

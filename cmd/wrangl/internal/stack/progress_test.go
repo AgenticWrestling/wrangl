@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 func TestSlippage(t *testing.T) {

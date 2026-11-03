@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 )
 
 // Slippage says whether a container with a target date is on track: "" (fine or no date),

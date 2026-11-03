@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/client"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // API is the slice of the controller client the TUI uses (faked in tests).

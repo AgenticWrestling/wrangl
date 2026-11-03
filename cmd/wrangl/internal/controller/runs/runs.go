@@ -15,13 +15,13 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 // LostAfter: an active run fails once its runner has been offline this long (spec §13).

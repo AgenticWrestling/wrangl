@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 )
 
 func TestSendAndPruneGoneSubscriptions(t *testing.T) {

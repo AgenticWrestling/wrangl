@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stacktools"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stacktools"
 )
 
 // SystemQuestionTool is the daemon-only tool the runner uses to ask the owner what to do

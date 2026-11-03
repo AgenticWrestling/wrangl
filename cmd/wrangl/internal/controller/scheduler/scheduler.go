@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 )
 
 // Backoff after a failed launch, per template: doubles from MinBackoff to MaxBackoff.

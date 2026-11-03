@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 )
 
 func newSvc(t *testing.T, api string) *Service {

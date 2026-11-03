@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
+	sshpkg "github.com/agenticwrestling/wrangl/cmd/ssm/internal/ssh"
 )
 
 func TestEnsureKeyPair_creates(t *testing.T) {

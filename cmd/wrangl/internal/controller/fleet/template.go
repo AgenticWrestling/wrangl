@@ -11,8 +11,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // DefaultIdleTimeout is how long a controller-launched runner may sit idle before the

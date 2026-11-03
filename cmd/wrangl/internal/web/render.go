@@ -21,8 +21,8 @@ import (
 	"github.com/yuin/goldmark/extension"
 	gmhtml "github.com/yuin/goldmark/renderer/html"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 )
 
 var (

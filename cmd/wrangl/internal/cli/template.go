@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 func templateCmd(g *Global) *cobra.Command {

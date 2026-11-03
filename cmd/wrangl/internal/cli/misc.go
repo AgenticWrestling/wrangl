@@ -15,9 +15,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/client"
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
-	"github.com/nreid/devhost/cmd/wrangl/internal/tui"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/tui"
 )
 
 func tuiCmd(g *Global) *cobra.Command {

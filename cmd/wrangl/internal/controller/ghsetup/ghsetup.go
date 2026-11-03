@@ -30,9 +30,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 )
 
 // KeyRel is where the legacy single author App's private key was stored (relative to the data

@@ -15,8 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/ghsetup"
 	"gopkg.in/yaml.v3"
 	"html/template"
 	"io"
@@ -30,14 +30,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/api"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/agents"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 //go:embed static templates

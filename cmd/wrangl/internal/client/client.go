@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // Client talks to one controller over http(s):// or unix:///path.

@@ -14,10 +14,10 @@ import (
 
 	"github.com/nats-io/nkeys"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 const tmplYAML = `

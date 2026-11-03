@@ -8,8 +8,8 @@ import (
 
 	"github.com/sqids/sqids-go"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 )
 
 func TestTaskTree(t *testing.T) {

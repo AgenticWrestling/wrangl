@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 // Service manages projects, repos and issues.

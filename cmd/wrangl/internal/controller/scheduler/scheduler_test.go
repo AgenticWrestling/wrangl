@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 )
 
 type clock struct {

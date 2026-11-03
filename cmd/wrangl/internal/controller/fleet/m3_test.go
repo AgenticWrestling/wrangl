@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 )
 
 func TestUpdateTemplateBumpsVersionAndClearsFailure(t *testing.T) {

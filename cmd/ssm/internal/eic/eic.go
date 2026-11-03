@@ -7,11 +7,11 @@ import (
 	"os"
 	"time"
 
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect"
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 func newEC2Client(ctx context.Context, profile, region string) (*ec2.Client, error) {

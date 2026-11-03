@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stacktools"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stacktools"
 )
 
 type peerKey struct{}

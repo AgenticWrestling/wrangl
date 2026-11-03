@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 )
 
 // Actor identifies who changed the work stack: "user" or "agent:<run id>".

@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Module path: `github.com/nreid/devhost`
+- Module path: `github.com/agenticwrestling/wrangl`
 - Binary output: `~/bin/ssm`
 - CGO_ENABLED=0
 - M1 must be complete before starting M3
@@ -42,7 +42,7 @@ package tunnel_test
 
 import (
 	"testing"
-	"github.com/nreid/devhost/cmd/ssm/internal/tunnel"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/tunnel"
 )
 
 func TestParsePortSpec(t *testing.T) {
@@ -199,7 +199,7 @@ Expected: compile error — `buildTunnelArgs` not defined.
 
 - [ ] **Step 3: Replace tunnelCmd stub in main.go**
 
-Add import `"github.com/nreid/devhost/cmd/ssm/internal/tunnel"`.
+Add import `"github.com/agenticwrestling/wrangl/cmd/ssm/internal/tunnel"`.
 
 Replace `tunnelCmd()`:
 

@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
 )
 
 // controllerConfig resolves the controller config path and loads it, letting

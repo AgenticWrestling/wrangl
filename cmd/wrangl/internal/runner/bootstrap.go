@@ -20,7 +20,7 @@ import (
 	"github.com/nats-io/nkeys"
 	"gopkg.in/yaml.v3"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // BootstrapOptions configure a one-time enrolment. Root, IMDSURL, NoSystemd and NoUser

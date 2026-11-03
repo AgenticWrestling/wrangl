@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 )
 
 func TestInitIsIdempotent(t *testing.T) {

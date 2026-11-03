@@ -11,14 +11,14 @@ import (
 	"syscall"
 	"time"
 
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
-	"github.com/nreid/devhost/cmd/ssm/internal/cwlogs"
-	"github.com/nreid/devhost/cmd/ssm/internal/eic"
-	"github.com/nreid/devhost/cmd/ssm/internal/provision"
-	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
-	"github.com/nreid/devhost/cmd/ssm/internal/tunnel"
-	"github.com/nreid/devhost/cmd/ssm/internal/ui"
-	"github.com/nreid/devhost/cmd/ssm/internal/vpc"
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/cwlogs"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/eic"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/provision"
+	sshpkg "github.com/agenticwrestling/wrangl/cmd/ssm/internal/ssh"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/tunnel"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/ui"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/vpc"
 	"github.com/spf13/cobra"
 )
 

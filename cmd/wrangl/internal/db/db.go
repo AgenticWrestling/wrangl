@@ -17,7 +17,7 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // pure-Go driver "sqlite"; keeps CGO_ENABLED=0
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 )
 
 //go:embed migrations/*.sql

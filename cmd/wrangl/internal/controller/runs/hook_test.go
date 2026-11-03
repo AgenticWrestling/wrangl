@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 )
 
 func TestNotificationHookIsStoredAndRaisesANotice(t *testing.T) {

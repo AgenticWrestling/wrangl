@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 func esc(s string) string { return url.PathEscape(s) }

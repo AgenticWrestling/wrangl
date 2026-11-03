@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Module path: `github.com/nreid/devhost`
+- Module path: `github.com/agenticwrestling/wrangl`
 - Binary output: `~/bin/ssm`
 - CGO_ENABLED=0
 - M1 must be complete before starting M2

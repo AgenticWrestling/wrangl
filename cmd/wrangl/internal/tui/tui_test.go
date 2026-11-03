@@ -9,8 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/client"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 type fakeAPI struct {

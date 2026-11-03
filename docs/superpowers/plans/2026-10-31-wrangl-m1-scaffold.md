@@ -21,7 +21,7 @@ yet (M2); NATS binds `127.0.0.1` only.
 
 ## Global Constraints
 
-- Module path `github.com/nreid/devhost`; binary `build/wrangl`; `CGO_ENABLED=0`.
+- Module path `github.com/agenticwrestling/wrangl`; binary `build/wrangl`; `CGO_ENABLED=0`.
 - `cmd/wrangl/internal/db/dbgen` is generated **and committed**; `task sqlc-check` fails if stale.
 - Stub commands return `cli.ErrNotImplemented` → `"<cmd path>: not implemented yet (milestone Mx)"`, exit 1.
 - `go vet ./...` and `go test ./...` green at the end of every task.

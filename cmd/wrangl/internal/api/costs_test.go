@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/api"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/costs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
 )
 
 func TestAdoptInfoReachability(t *testing.T) {

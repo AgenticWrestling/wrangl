@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/mcp"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/mcp"
 )
 
 // SocketPath is where the agent finds the daemon: $WRANGL_SOCK, else the default.

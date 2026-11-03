@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/client"
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/runner"
-	"github.com/nreid/devhost/cmd/wrangl/internal/runner/runnertest"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner/runnertest"
 )
 
 const prAgent = `#!/bin/sh

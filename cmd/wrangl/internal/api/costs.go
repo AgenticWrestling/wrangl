@@ -3,15 +3,15 @@ package api
 import (
 	"context"
 	"fmt"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/costs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // OtherInstances are the account's instances that are not wrangl runners (a runner is known by

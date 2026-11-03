@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 )
 
 func TestListProfiles(t *testing.T) {
