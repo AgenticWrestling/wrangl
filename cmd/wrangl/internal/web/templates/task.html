@@ -30,6 +30,13 @@
   {{range .Thread}}<div class="msg {{.Role}}{{if eq .Status "error"}} err{{end}}">
     <div class="who">{{if eq .Role "user"}}You{{else}}{{.Agent}}{{end}} <span class="dim">{{ago .At}}</span></div>
     {{if eq .Status "running"}}<p class="dim">thinking…</p>{{else}}<div class="prose">{{.Body}}</div>{{end}}
+    {{if .Props}}<div class="props">{{$mid := .ID}}{{range $i, $p := .Props}}
+      <button class="btn small prop {{$p.State}}" {{if eq $p.State "done"}}disabled{{end}} title="{{$p.Description}}{{if $p.Result}} · {{$p.Result}}{{end}}" data-on:click="@post('/ui/act/proposal-apply?id={{$mid}}&amp;n={{$i}}')">{{if eq $p.State "done"}}✓ {{else if eq $p.State "error"}}! {{end}}{{$p.Label}}</button>
+      {{if eq $p.State "error"}}<span class="err small">{{$p.Result}}</span>{{end}}{{end}}</div>{{end}}
+  </div>{{end}}
+  {{if .Agents}}<div class="reply" data-signals:replyq__ifmissing="''">
+    <textarea data-bind="replyq" rows="2" placeholder="Reply…" data-on:keydown="(evt.ctrlKey || evt.metaKey) && evt.key == 'Enter' && $replyq.trim() && @post('/ui/act/task-ask?sqid={{$t.Sqid.String}}&amp;reply=1')"></textarea>
+    <button class="btn small primary" data-on:click="$replyq.trim() && @post('/ui/act/task-ask?sqid={{$t.Sqid.String}}&amp;reply=1')">Send</button>
   </div>{{end}}
 </section>{{end}}
 

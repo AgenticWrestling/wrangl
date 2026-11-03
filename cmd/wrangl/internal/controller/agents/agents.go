@@ -57,6 +57,8 @@ type Service struct {
 	Exec func(ctx context.Context, sp Spec) (Result, error)
 	// Dir is the working directory agents start in (default: the user's home).
 	Dir string
+	// Queue queues work on a task (plans.QueueWork); needed for the task.queue proposal.
+	Queue func(ctx context.Context, sqid string) error
 
 	sem chan struct{}
 }
@@ -134,7 +136,7 @@ func (s *Service) answer(ctx context.Context, sqid string, msgID int64, ag dbgen
 		s.finish(ctx, msgID, "Too many agents are busy on the controller; try again shortly.", "error", "")
 		return
 	}
-	sp := Spec{Agent: ag, Prompt: prompt, System: systemPrompt, SessionID: session, Dir: s.dir()}
+	sp := Spec{Agent: ag, Prompt: prompt, System: systemPrompt + schemaHelp(), SessionID: session, Dir: s.dir()}
 	if ag.Auth == "secret" {
 		if s.Secret == nil || ag.AuthSecret == "" {
 			s.finish(ctx, msgID, "This agent is set to use a secret but none is configured.", "error", "")
@@ -170,11 +172,16 @@ func (s *Service) answer(ctx context.Context, sqid string, msgID int64, ag dbgen
 		s.finish(ctx, msgID, body, "error", res.SessionID)
 		return
 	}
-	s.finish(ctx, msgID, res.Text, "done", res.SessionID)
+	text, props := extractProposals(res.Text)
+	s.finish(ctx, msgID, text, "done", res.SessionID, props...)
 }
 
-func (s *Service) finish(ctx context.Context, id int64, body, status, session string) {
-	if err := s.DB.Q.FinishThreadMessage(ctx, dbgen.FinishThreadMessageParams{ID: id, Body: body, Status: status, SessionID: session}); err != nil {
+func (s *Service) finish(ctx context.Context, id int64, body, status, session string, props ...Proposal) {
+	pj, _ := json.Marshal(props)
+	if len(props) == 0 {
+		pj = []byte("[]")
+	}
+	if err := s.DB.Q.FinishThreadMessage(ctx, dbgen.FinishThreadMessageParams{ID: id, Body: body, Status: status, SessionID: session, Proposals: string(pj)}); err != nil {
 		s.Log.Error("finish thread message", "err", err)
 	}
 }

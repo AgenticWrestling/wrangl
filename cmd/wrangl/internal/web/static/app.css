@@ -319,3 +319,8 @@ table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 .thread .msg.agent{border-left:3px solid var(--accent, #4a7)}
 .thread .msg.agent,.thread .msg.user{padding-left:.6rem}
 .thread .msg.err{border-left-color:var(--danger, #c44)}
+.thread .props{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem;align-items:center}
+.thread .prop.done{opacity:.6}
+.thread .prop.error{border-color:var(--danger,#c44)}
+.thread .reply{display:flex;gap:.5rem;align-items:flex-end;margin-top:.6rem}
+.thread .reply textarea{flex:1;min-width:0}

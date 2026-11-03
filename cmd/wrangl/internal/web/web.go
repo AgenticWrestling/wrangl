@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/api"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/agents"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
@@ -505,10 +506,9 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
 		d["Kids"] = kids
-		// Queue is offered wherever the subtree has open work, not only when the task itself is
-		// open: a feature whose other children are in review still has leaves to run.
-		open, _ := db.RQ.CountOpenLeaves(ctx, t.ID)
-		d["CanQueue"] = open > 0 || (t.State == "open" && len(kids) == 0 && t.TaskType.Planning())
+		// Queue is offered on every live task; if nothing is runnable the refusal says why (e.g.
+		// subtasks still in review).
+		d["CanQueue"] = t.State != "done" && t.State != "cancelled"
 		if h.D.Agents != nil {
 			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
 		}
@@ -777,8 +777,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 
 // threadMsg is one message of a task's conversation with a controller agent.
 type threadMsg struct {
+	ID                      int64
 	Role, Status, Agent, At string
 	Body                    template.HTML
+	Props                   []agents.Proposal
 }
 
 // threadView loads a task's thread and the agents that can be asked.
@@ -796,7 +798,7 @@ func (h *Handler) threadView(ctx context.Context, taskID int64) ([]threadMsg, []
 	rows, _ := db.RQ.ListThread(ctx, taskID)
 	var out []threadMsg
 	for _, m := range rows {
-		tm := threadMsg{Role: m.Role, Status: m.Status, At: m.At, Agent: names[m.AgentID.Int64]}
+		tm := threadMsg{ID: m.ID, Props: agents.ParseProposals(m.Proposals), Role: m.Role, Status: m.Status, At: m.At, Agent: names[m.AgentID.Int64]}
 		if m.Role == "agent" {
 			tm.Body = markdown(m.Body)
 		} else {
@@ -965,9 +967,18 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 			err = errs.Invalid
 			break
 		}
-		if _, err = h.D.Agents.Ask(ctx, sqid, str("askagent"), str("askq")); err == nil {
+		question, field := str("askq"), "askq"
+		if q.Get("reply") == "1" {
+			question, field = str("replyq"), "replyq"
+		}
+		if _, err = h.D.Agents.Ask(ctx, sqid, str("askagent"), question); err == nil {
 			msg = "asked; the answer will appear on the task"
-			reset = map[string]any{"askq": ""}
+			reset = map[string]any{field: ""}
+		}
+	case "proposal-apply":
+		n, _ := strconv.Atoi(q.Get("n"))
+		if err = h.D.Agents.Apply(ctx, id, n); err == nil {
+			msg = "done"
 		}
 	case "agent-save":
 		ag := dbgen.ControllerAgent{Name: str("agname"), Command: str("agcmd"), Model: str("agmodel"), Auth: str("agauth"), AuthSecret: str("agsecret"), AuthEnv: str("agenv"), Enabled: 1}

@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
@@ -155,5 +156,63 @@ func TestParseOutput(t *testing.T) {
 	}
 	if r := parseOutput([]byte("plain text\n")); r.Text != "plain text" {
 		t.Fatalf("%+v", r)
+	}
+}
+
+func TestExtractProposals(t *testing.T) {
+	in := "Two ideas.\n\n```wrangl-proposals\n[{\"label\":\"Add\",\"action\":\"task.create\",\"args\":{\"title\":\"x\"}},{\"label\":\"Nuke\",\"action\":\"task.delete\",\"args\":{}},{\"label\":\"\",\"action\":\"task.edit\"},{\"label\":\"Q\",\"action\":\"task.queue\",\"args\":{\"sqid\":\"a\"}}]\n```\n"
+	text, ps := extractProposals(in)
+	if text != "Two ideas." || len(ps) != 2 || ps[0].Action != "task.create" || ps[1].Action != "task.queue" {
+		t.Fatalf("%q %+v", text, ps)
+	}
+	if text, ps := extractProposals("hi\n```wrangl-proposals\nnot json\n```"); text != "hi" || ps != nil {
+		t.Fatalf("%q %+v", text, ps)
+	}
+	var many []string
+	for i := 0; i < 8; i++ {
+		many = append(many, `{"label":"l","action":"task.reopen","args":{"sqid":"a"}}`)
+	}
+	if _, ps := extractProposals("```wrangl-proposals\n[" + strings.Join(many, ",") + "]\n```"); len(ps) != MaxProposals {
+		t.Fatalf("cap: %d", len(ps))
+	}
+}
+
+func TestProposalApply(t *testing.T) {
+	s, root, _ := setup(t)
+	ctx := context.Background()
+	var queued string
+	s.Queue = func(_ context.Context, sqid string) error { queued = sqid; return nil }
+	s.Exec = func(context.Context, Spec) (Result, error) {
+		return Result{Text: "Try these.\n```wrangl-proposals\n[{\"label\":\"New sibling\",\"action\":\"task.create\",\"args\":{\"title\":\"Child B\",\"parent\":\"" + root + "\"}},{\"label\":\"Queue it\",\"action\":\"task.queue\",\"args\":{\"sqid\":\"" + root + "\"}},{\"label\":\"Bad\",\"action\":\"task.move\",\"args\":{\"sqid\":\"zzzz\"}}]\n```"}, nil
+	}
+	s.Ask(ctx, root, "", "ideas?")
+	rows := waitDone(t, s, root)
+	msg := rows[1]
+	if len(ParseProposals(msg.Proposals)) != 3 || strings.Contains(msg.Body, "wrangl-proposals") {
+		t.Fatalf("%+v", msg)
+	}
+	if err := s.Apply(ctx, msg.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(ctx, msg.ID, 0); !errors.Is(err, errs.Conflict) {
+		t.Fatalf("single use: %v", err)
+	}
+	if err := s.Apply(ctx, msg.ID, 1); err != nil || queued != root {
+		t.Fatalf("queue: %v %q", err, queued)
+	}
+	if err := s.Apply(ctx, msg.ID, 2); err == nil {
+		t.Fatal("moving a missing task must fail")
+	}
+	got := ParseProposals(func() string { m, _ := s.DB.RQ.GetThreadMessage(ctx, msg.ID); return m.Proposals }())
+	if got[0].State != "done" || !strings.HasPrefix(got[0].Result, "created ") || got[2].State != "error" {
+		t.Fatalf("%+v", got)
+	}
+	tk, _ := s.Stack.Task(ctx, s.DB.RQ, root)
+	kids, _ := s.DB.RQ.ListChildren(ctx, sql.NullInt64{Int64: tk.ID, Valid: true})
+	if len(kids) != 2 {
+		t.Fatalf("children %d", len(kids))
+	}
+	if err := s.Apply(ctx, msg.ID, 9); !errors.Is(err, errs.NotFound) {
+		t.Fatalf("range: %v", err)
 	}
 }

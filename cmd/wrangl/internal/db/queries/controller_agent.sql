@@ -31,7 +31,13 @@ DELETE FROM controller_agent WHERE name = ?;
 INSERT INTO task_thread (task_id, role, body, agent_id, status, session_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: FinishThreadMessage :exec
-UPDATE task_thread SET body = ?, status = ?, session_id = ? WHERE id = ?;
+UPDATE task_thread SET body = ?, status = ?, session_id = ?, proposals = ? WHERE id = ?;
+
+-- name: GetThreadMessage :one
+SELECT * FROM task_thread WHERE id = ?;
+
+-- name: SetThreadProposals :exec
+UPDATE task_thread SET proposals = ? WHERE id = ?;
 
 -- name: ListThread :many
 SELECT * FROM task_thread WHERE task_id = ? ORDER BY id;

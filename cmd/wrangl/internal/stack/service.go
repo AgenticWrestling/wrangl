@@ -823,6 +823,9 @@ func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
 			return err
 		}
 		if open == 0 {
+			if n, _ := q.CountInReviewLeaves(ctx, t.ID); n > 0 {
+				return conflict("%s has no open work: %d subtask(s) are in review. Merge or request changes on their PRs (or reopen a subtask) to run more", sqid, n)
+			}
 			return conflict("%s has no open work", sqid)
 		}
 		if t.TaskType.Planning() {

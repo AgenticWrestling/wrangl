@@ -1,7 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
+
+	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 )
@@ -56,6 +60,19 @@ func registerAgents(mux *http.ServeMux, d Deps) {
 			return
 		}
 		writeJSON(w, http.StatusAccepted, m)
+	})
+	mux.HandleFunc("POST /api/v1/thread/{id}/apply/{n}", func(w http.ResponseWriter, r *http.Request) {
+		id, e1 := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		n, e2 := strconv.Atoi(r.PathValue("n"))
+		if e1 != nil || e2 != nil {
+			writeErr(w, fmt.Errorf("%w: bad id", errs.Invalid))
+			return
+		}
+		if err := d.Agents.Apply(r.Context(), id, n); err != nil {
+			writeErr(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/v1/tasks/{sqid}/thread", func(w http.ResponseWriter, r *http.Request) {
 		t, err := d.Stack.Task(r.Context(), d.Agents.DB.RQ, r.PathValue("sqid"))

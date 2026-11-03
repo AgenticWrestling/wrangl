@@ -335,4 +335,5 @@ type TaskThread struct {
 	AgentID   sql.NullInt64 `json:"agent_id"`
 	Status    string        `json:"status"`
 	SessionID string        `json:"session_id"`
+	Proposals string        `json:"proposals"`
 }

@@ -89,13 +89,14 @@ func (q *Queries) FailRunningThreadMessages(ctx context.Context) error {
 }
 
 const finishThreadMessage = `-- name: FinishThreadMessage :exec
-UPDATE task_thread SET body = ?, status = ?, session_id = ? WHERE id = ?
+UPDATE task_thread SET body = ?, status = ?, session_id = ?, proposals = ? WHERE id = ?
 `
 
 type FinishThreadMessageParams struct {
 	Body      string `json:"body"`
 	Status    string `json:"status"`
 	SessionID string `json:"session_id"`
+	Proposals string `json:"proposals"`
 	ID        int64  `json:"id"`
 }
 
@@ -104,6 +105,7 @@ func (q *Queries) FinishThreadMessage(ctx context.Context, arg FinishThreadMessa
 		arg.Body,
 		arg.Status,
 		arg.SessionID,
+		arg.Proposals,
 		arg.ID,
 	)
 	return err
@@ -157,6 +159,27 @@ func (q *Queries) GetControllerAgentByName(ctx context.Context, name string) (Co
 	return i, err
 }
 
+const getThreadMessage = `-- name: GetThreadMessage :one
+SELECT id, task_id, at, role, body, agent_id, status, session_id, proposals FROM task_thread WHERE id = ?
+`
+
+func (q *Queries) GetThreadMessage(ctx context.Context, id int64) (TaskThread, error) {
+	row := q.db.QueryRowContext(ctx, getThreadMessage, id)
+	var i TaskThread
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.At,
+		&i.Role,
+		&i.Body,
+		&i.AgentID,
+		&i.Status,
+		&i.SessionID,
+		&i.Proposals,
+	)
+	return i, err
+}
+
 const listControllerAgents = `-- name: ListControllerAgents :many
 SELECT id, name, kind, command, model, auth, auth_secret, auth_env, max_turns, timeout_s, is_default, enabled FROM controller_agent ORDER BY is_default DESC, name
 `
@@ -198,7 +221,7 @@ func (q *Queries) ListControllerAgents(ctx context.Context) ([]ControllerAgent, 
 }
 
 const listThread = `-- name: ListThread :many
-SELECT id, task_id, at, role, body, agent_id, status, session_id FROM task_thread WHERE task_id = ? ORDER BY id
+SELECT id, task_id, at, role, body, agent_id, status, session_id, proposals FROM task_thread WHERE task_id = ? ORDER BY id
 `
 
 func (q *Queries) ListThread(ctx context.Context, taskID int64) ([]TaskThread, error) {
@@ -219,6 +242,7 @@ func (q *Queries) ListThread(ctx context.Context, taskID int64) ([]TaskThread, e
 			&i.AgentID,
 			&i.Status,
 			&i.SessionID,
+			&i.Proposals,
 		); err != nil {
 			return nil, err
 		}
@@ -239,6 +263,20 @@ UPDATE controller_agent SET is_default = 1 WHERE name = ?
 
 func (q *Queries) SetDefaultControllerAgent(ctx context.Context, name string) error {
 	_, err := q.db.ExecContext(ctx, setDefaultControllerAgent, name)
+	return err
+}
+
+const setThreadProposals = `-- name: SetThreadProposals :exec
+UPDATE task_thread SET proposals = ? WHERE id = ?
+`
+
+type SetThreadProposalsParams struct {
+	Proposals string `json:"proposals"`
+	ID        int64  `json:"id"`
+}
+
+func (q *Queries) SetThreadProposals(ctx context.Context, arg SetThreadProposalsParams) error {
+	_, err := q.db.ExecContext(ctx, setThreadProposals, arg.Proposals, arg.ID)
 	return err
 }
 

@@ -213,6 +213,16 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM sub JOIN task ON task.id = sub.id
 WHERE task.state IN ('open', 'in_progress')
   AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled');
 
+-- name: CountInReviewLeaves :one
+WITH RECURSIVE sub (id) AS (
+    SELECT t.id FROM task t WHERE t.id = sqlc.arg(root_id)
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT CAST(COUNT(*) AS INTEGER) FROM sub JOIN task ON task.id = sub.id
+WHERE task.state = 'in_review'
+  AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled');
+
 -- name: RevertInProgress :exec
 -- A run ended without finishing its current leaf: put it back.
 UPDATE task SET state = 'open', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
