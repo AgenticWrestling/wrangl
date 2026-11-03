@@ -412,6 +412,12 @@ func executeScript(w io.Writer, js string) {
 	fmt.Fprintf(w, "data: script %s\n\n", strings.ReplaceAll(js, "\n", " "))
 }
 
+// goLater sends the browser to the page that fixes a GitHub App problem, after the toast has
+// been readable for a moment (the toast's link is there if the redirect is not wanted).
+func goLater(w http.ResponseWriter, to string) {
+	executeScript(w, fmt.Sprintf("setTimeout(() => window.location.assign(%q), 1800)", to))
+}
+
 // toastLink is an error toast with a link to the next step.
 func toastLink(w http.ResponseWriter, msg, href, label string) {
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -699,11 +705,18 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 				m, err := h.D.Setup.Manifest(v.AppName)
 				v.Manifest, v.ManifestErr = string(m), errString(err)
 			}
+			if ac.Reviewer == nil {
+				v.RName = ghsetup.ReviewerName(ac.Login)
+				v.RState = h.D.Setup.NewRoleState(ac.Login, back, "reviewer")
+				m, err := h.D.Setup.ManifestFor(v.RName, "reviewer")
+				v.RManifest, v.RManifestErr = string(m), errString(err)
+			}
 			v.Focus = strings.EqualFold(qv.Get("account"), ac.Login)
 			seen = seen || v.Focus
 			views = append(views, v)
 		}
 		d["Accounts"], d["Created"], d["Error"] = views, qv.Get("created"), qv.Get("error")
+		d["CreatedRole"] = qv.Get("role")
 		d["Repo"], d["Back"] = qv.Get("repo"), back
 		if f := qv.Get("account"); f != "" && !seen {
 			d["Suggest"] = f // the owner of a repo being linked, not set up yet
@@ -1058,6 +1071,17 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		err = fmt.Errorf("unknown action")
 	}
 	if err != nil {
+		// A missing or uninstalled GitHub App gets a link to the page that fixes it.
+		back := ""
+		switch r.PathValue("action") {
+		case "pr", "answer":
+			back = "/inbox"
+		case "task-queue", "task-plan":
+			back = "/backlog"
+		}
+		if h.githubToast(ctx, w, err, back) {
+			return
+		}
 		toast(w, err.Error(), true)
 		return
 	}
@@ -1220,6 +1244,9 @@ func (h *Handler) githubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	to := "/setup?created=" + url.QueryEscape(res.Login)
+	if res.Role != "" {
+		to += "&role=" + url.QueryEscape(res.Role)
+	}
 	if res.Back != "" {
 		to += "&back=" + url.QueryEscape(res.Back)
 	}
@@ -1234,6 +1261,8 @@ type acctView struct {
 	Manifest    string
 	ManifestErr string
 	Focus       bool
+	// The reviewer App's own form (only filled while it does not exist yet).
+	RName, RState, RManifest, RManifestErr string
 }
 
 // repoGroup is one account's repositories for the link-a-repo picker.
@@ -1295,14 +1324,25 @@ func (h *Handler) githubToast(ctx context.Context, w http.ResponseWriter, err er
 		if b := ghsetup.SafeBack(back); b != "" {
 			to += "&back=" + url.QueryEscape(b)
 		}
-		toastLink(w, err.Error(), to, "Set up the GitHub App for "+na.Owner)
+		label := "Set up the GitHub App for " + na.Owner
+		if na.Role == "reviewer" {
+			label = "Create the reviewer App for " + na.Owner
+			to += "#reviewer-" + url.QueryEscape(na.Owner)
+		}
+		toastLink(w, err.Error(), to, label)
+		goLater(w, to)
 		return true
 	case errors.As(err, &ni):
 		label, to := "Open GitHub accounts", "/setup?account="+url.QueryEscape(ni.Owner)
-		if ac, ok := h.D.Setup.Account(ctx, ni.Owner); ok && ac.App != nil {
-			label, to = "Install the App on "+ni.Owner+"/"+ni.Name, ac.App.InstallURL()
+		if ac, ok := h.D.Setup.Account(ctx, ni.Owner); ok {
+			if ni.Role == "reviewer" && ac.Reviewer != nil {
+				label, to = "Install the reviewer App on "+ni.Owner+"/"+ni.Name, ac.Reviewer.InstallURL()
+			} else if ni.Role != "reviewer" && ac.App != nil {
+				label, to = "Install the App on "+ni.Owner+"/"+ni.Name, ac.App.InstallURL()
+			}
 		}
 		toastLink(w, err.Error(), to, label)
+		goLater(w, to)
 		return true
 	}
 	return false

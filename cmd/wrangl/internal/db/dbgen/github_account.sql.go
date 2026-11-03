@@ -20,7 +20,7 @@ func (q *Queries) DeleteGithubAccount(ctx context.Context, login string) error {
 }
 
 const getGithubAccount = `-- name: GetGithubAccount :one
-SELECT id, login, kind, app_id, slug, html_url, key_file, created_at FROM github_account WHERE login = ?
+SELECT id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file FROM github_account WHERE login = ?
 `
 
 func (q *Queries) GetGithubAccount(ctx context.Context, login string) (GithubAccount, error) {
@@ -35,12 +35,17 @@ func (q *Queries) GetGithubAccount(ctx context.Context, login string) (GithubAcc
 		&i.HtmlUrl,
 		&i.KeyFile,
 		&i.CreatedAt,
+		&i.ReviewerAppID,
+		&i.ReviewerSlug,
+		&i.ReviewerHtmlUrl,
+		&i.ReviewerKeyFile,
+		&i.ReviewerHookFile,
 	)
 	return i, err
 }
 
 const listGithubAccounts = `-- name: ListGithubAccounts :many
-SELECT id, login, kind, app_id, slug, html_url, key_file, created_at FROM github_account ORDER BY CASE kind WHEN 'user' THEN 0 ELSE 1 END, login
+SELECT id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file FROM github_account ORDER BY CASE kind WHEN 'user' THEN 0 ELSE 1 END, login
 `
 
 func (q *Queries) ListGithubAccounts(ctx context.Context) ([]GithubAccount, error) {
@@ -61,6 +66,11 @@ func (q *Queries) ListGithubAccounts(ctx context.Context) ([]GithubAccount, erro
 			&i.HtmlUrl,
 			&i.KeyFile,
 			&i.CreatedAt,
+			&i.ReviewerAppID,
+			&i.ReviewerSlug,
+			&i.ReviewerHtmlUrl,
+			&i.ReviewerKeyFile,
+			&i.ReviewerHookFile,
 		); err != nil {
 			return nil, err
 		}
@@ -98,10 +108,35 @@ func (q *Queries) SetGithubAccountApp(ctx context.Context, arg SetGithubAccountA
 	return err
 }
 
+const setGithubAccountReviewer = `-- name: SetGithubAccountReviewer :exec
+UPDATE github_account SET reviewer_app_id = ?, reviewer_slug = ?, reviewer_html_url = ?, reviewer_key_file = ?, reviewer_hook_file = ? WHERE login = ?
+`
+
+type SetGithubAccountReviewerParams struct {
+	ReviewerAppID    sql.NullInt64 `json:"reviewer_app_id"`
+	ReviewerSlug     string        `json:"reviewer_slug"`
+	ReviewerHtmlUrl  string        `json:"reviewer_html_url"`
+	ReviewerKeyFile  string        `json:"reviewer_key_file"`
+	ReviewerHookFile string        `json:"reviewer_hook_file"`
+	Login            string        `json:"login"`
+}
+
+func (q *Queries) SetGithubAccountReviewer(ctx context.Context, arg SetGithubAccountReviewerParams) error {
+	_, err := q.db.ExecContext(ctx, setGithubAccountReviewer,
+		arg.ReviewerAppID,
+		arg.ReviewerSlug,
+		arg.ReviewerHtmlUrl,
+		arg.ReviewerKeyFile,
+		arg.ReviewerHookFile,
+		arg.Login,
+	)
+	return err
+}
+
 const upsertGithubAccount = `-- name: UpsertGithubAccount :one
 INSERT INTO github_account (login, kind) VALUES (?, ?)
 ON CONFLICT (login) DO UPDATE SET kind = excluded.kind
-RETURNING id, login, kind, app_id, slug, html_url, key_file, created_at
+RETURNING id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file
 `
 
 type UpsertGithubAccountParams struct {
@@ -121,6 +156,11 @@ func (q *Queries) UpsertGithubAccount(ctx context.Context, arg UpsertGithubAccou
 		&i.HtmlUrl,
 		&i.KeyFile,
 		&i.CreatedAt,
+		&i.ReviewerAppID,
+		&i.ReviewerSlug,
+		&i.ReviewerHtmlUrl,
+		&i.ReviewerKeyFile,
+		&i.ReviewerHookFile,
 	)
 	return i, err
 }

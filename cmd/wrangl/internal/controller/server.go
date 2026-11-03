@@ -260,7 +260,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
 		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, Bus: s.Bus}
-	reviewer, err := s.reviewer()
+	reviewer, hasReviewer, err := s.reviewer()
 	if err != nil {
 		return err
 	}
@@ -272,7 +272,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			s.log.Warn("github webhook secret unreadable; webhooks disabled", "err", err)
 		}
 	}
-	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
+	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
 	vapid, err := webpush.EnsureKeys(SecretsDir(s.cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("VAPID keys: %w", err)
@@ -540,21 +540,36 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
-// reviewer builds the reviewer App client from config (nil when not configured).
-func (s *Server) reviewer() (gh.API, error) {
+// reviewer builds the reviewer client. Reviewer Apps are per account (created from Settings);
+// an App set in controller.yaml (github.reviewer_app) serves owners with none of their own.
+// has reports whether an owner can be reviewed; it is nil when a test supplies its own client.
+func (s *Server) reviewer() (api gh.API, has func(owner string) bool, err error) {
 	if s.Reviewer != nil {
-		return s.Reviewer, nil
+		return s.Reviewer, nil, nil
 	}
 	app := s.cfg.GitHub.ReviewerApp
-	if app.ID == 0 {
-		s.log.Warn("github.reviewer_app not set: PRs are opened but not reviewed or merged by wrangl")
-		return nil, nil
+	legacy := func(string) (gh.AppRef, bool) { return gh.AppRef{}, false }
+	if app.ID != 0 {
+		keyPath := s.cfg.Path(app.PrivateKey)
+		if _, kerr := gh.LoadKey(keyPath); kerr != nil {
+			return nil, nil, fmt.Errorf("github reviewer app key: %w", kerr)
+		}
+		legacy = func(string) (gh.AppRef, bool) { return gh.AppRef{AppID: app.ID, KeyPath: keyPath}, true }
 	}
-	key, err := gh.LoadKey(s.cfg.Path(app.PrivateKey))
-	if err != nil {
-		return nil, fmt.Errorf("github reviewer app key: %w", err)
+	m := &gh.Multi{Role: "reviewer", Lookup: func(owner string) (gh.AppRef, bool) {
+		if ref, ok := s.Setup.LookupReviewer(owner); ok {
+			return ref, true
+		}
+		return legacy(owner)
+	}}
+	prev := s.Setup.Changed
+	s.Setup.Changed = func() {
+		if prev != nil {
+			prev()
+		}
+		m.Forget()
 	}
-	return &gh.Client{AppID: app.ID, Key: key}, nil
+	return m, m.Has, nil
 }
 
 // github builds the author App client from config (nil when not configured).

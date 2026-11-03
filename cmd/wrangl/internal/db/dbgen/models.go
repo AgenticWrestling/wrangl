@@ -40,14 +40,19 @@ type GhDelivery struct {
 }
 
 type GithubAccount struct {
-	ID        int64         `json:"id"`
-	Login     string        `json:"login"`
-	Kind      string        `json:"kind"`
-	AppID     sql.NullInt64 `json:"app_id"`
-	Slug      string        `json:"slug"`
-	HtmlUrl   string        `json:"html_url"`
-	KeyFile   string        `json:"key_file"`
-	CreatedAt string        `json:"created_at"`
+	ID               int64         `json:"id"`
+	Login            string        `json:"login"`
+	Kind             string        `json:"kind"`
+	AppID            sql.NullInt64 `json:"app_id"`
+	Slug             string        `json:"slug"`
+	HtmlUrl          string        `json:"html_url"`
+	KeyFile          string        `json:"key_file"`
+	CreatedAt        string        `json:"created_at"`
+	ReviewerAppID    sql.NullInt64 `json:"reviewer_app_id"`
+	ReviewerSlug     string        `json:"reviewer_slug"`
+	ReviewerHtmlUrl  string        `json:"reviewer_html_url"`
+	ReviewerKeyFile  string        `json:"reviewer_key_file"`
+	ReviewerHookFile string        `json:"reviewer_hook_file"`
 }
 
 type HookEvent struct {

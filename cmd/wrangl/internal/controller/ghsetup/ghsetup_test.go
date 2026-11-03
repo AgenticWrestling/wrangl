@@ -165,3 +165,39 @@ func TestSafeBack(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewerAppFlow(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"id":77,"slug":"wrangl-reviewer-njreid","html_url":"https://github.com/apps/wrangl-reviewer-njreid","owner":{"login":"njreid"},"webhook_secret":"s3cret","pem":%q}`, pemKey(t))
+	}))
+	defer gh.Close()
+	s := newSvc(t, gh.URL)
+	ctx := context.Background()
+	s.AddAccount(ctx, "njreid", "user")
+	if _, ok := s.LookupReviewer("njreid"); ok {
+		t.Fatal("reviewer before creation")
+	}
+	m, _ := s.ManifestFor(ReviewerName("njreid"), "reviewer")
+	for _, want := range []string{`"active":true`, `"checks":"read"`, "pull_request_review", "/gh/webhook"} {
+		if !strings.Contains(string(m), want) {
+			t.Errorf("manifest lacks %s: %s", want, m)
+		}
+	}
+	res, err := s.Exchange(ctx, "c", s.NewRoleState("njreid", "/inbox", "reviewer"))
+	if err != nil || res.Role != "reviewer" || res.Back != "/inbox" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	a, _ := s.Account(ctx, "njreid")
+	if a.Reviewer == nil || a.Reviewer.ID != 77 || a.App != nil {
+		t.Fatalf("reviewer must be recorded apart from the author App: %+v", a)
+	}
+	if ref, ok := s.LookupReviewer("njreid"); !ok || ref.AppID != 77 {
+		t.Fatalf("%+v %v", ref, ok)
+	}
+	if _, ok := s.Lookup("njreid"); ok {
+		t.Fatal("the reviewer App must not serve as the author App")
+	}
+	if sec := s.WebhookSecrets(); len(sec) != 1 || string(sec[0]) != "s3cret" {
+		t.Fatalf("%q", sec)
+	}
+}

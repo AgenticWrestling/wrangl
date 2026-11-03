@@ -20,3 +20,21 @@ func TestProtectedGlobs(t *testing.T) {
 		t.Fatalf("protected:\n got %s\nwant %s", got, want)
 	}
 }
+
+func TestCanReview(t *testing.T) {
+	s := &Service{}
+	if s.canReview("o") {
+		t.Fatal("no reviewer client")
+	}
+	s.Reviewer = &gh.Fake{}
+	if !s.canReview("o") {
+		t.Fatal("a plain reviewer client serves every owner")
+	}
+	s.HasReviewer = func(o string) bool { return o == "mine" }
+	if s.canReview("other") || !s.canReview("mine") {
+		t.Fatal("per-owner reviewer Apps")
+	}
+	if s.gh(gh.Repo{Owner: "other"}) != s.Author {
+		t.Fatal("owners without a reviewer App are read through the author App")
+	}
+}

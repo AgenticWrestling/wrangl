@@ -14,3 +14,6 @@ UPDATE github_account SET app_id = ?, slug = ?, html_url = ?, key_file = ? WHERE
 
 -- name: DeleteGithubAccount :exec
 DELETE FROM github_account WHERE login = ?;
+
+-- name: SetGithubAccountReviewer :exec
+UPDATE github_account SET reviewer_app_id = ?, reviewer_slug = ?, reviewer_html_url = ?, reviewer_key_file = ?, reviewer_hook_file = ? WHERE login = ?;

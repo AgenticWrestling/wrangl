@@ -32,16 +32,28 @@ var ErrNotInstalled = errors.New("the GitHub App is not installed on this reposi
 // NoAppError means no GitHub App has been created yet for the account that owns a repository.
 // An App has to be created in the personal or organisation account that owns the repositories,
 // so the fix is the Setup flow for that account.
-type NoAppError struct{ Owner string }
+type NoAppError struct {
+	Owner string
+	Role  string // "" (author) or "reviewer"
+}
 
 func (e *NoAppError) Error() string {
+	if e.Role == "reviewer" {
+		return "there is no reviewer App for " + e.Owner + " yet; it approves and merges pull requests. Create it in Settings"
+	}
 	return "there is no GitHub App for " + e.Owner + " yet; create one in Settings"
 }
 
 // NotInstalledError is ErrNotInstalled with the repository it is about.
-type NotInstalledError struct{ Owner, Name string }
+type NotInstalledError struct {
+	Owner, Name string
+	Role        string // "" (author) or "reviewer"
+}
 
 func (e *NotInstalledError) Error() string {
+	if e.Role == "reviewer" {
+		return "the reviewer App for " + e.Owner + " is not installed on " + e.Owner + "/" + e.Name
+	}
 	return "the GitHub App for " + e.Owner + " is not installed on " + e.Owner + "/" + e.Name
 }
 

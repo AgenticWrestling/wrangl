@@ -40,9 +40,13 @@ type Service struct {
 	Stack         *stack.Service
 	Runs          *runs.Service
 	WebhookSecret []byte
-	Now           func() time.Time
-	Log           *slog.Logger
-	Bus           *events.Bus
+	// WebhookSecrets, when set, adds the secrets of per-account reviewer Apps.
+	WebhookSecrets func() [][]byte
+	// HasReviewer reports whether owner has a reviewer App. Nil: a Reviewer, if set, serves every owner.
+	HasReviewer func(owner string) bool
+	Now         func() time.Time
+	Log         *slog.Logger
+	Bus         *events.Bus
 
 	mu       sync.Mutex
 	reviewed map[int64]string // pr id -> head sha a review run was queued for
@@ -60,8 +64,17 @@ type Gates struct {
 func nstr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
 func nint(v int64) sql.NullInt64   { return sql.NullInt64{Int64: v, Valid: v != 0} }
 
-func (s *Service) gh() gh.API {
-	if s.Reviewer != nil {
+// canReview reports whether the reviewer App can act on owner's repositories.
+func (s *Service) canReview(owner string) bool {
+	if s.Reviewer == nil {
+		return false
+	}
+	return s.HasReviewer == nil || s.HasReviewer(owner)
+}
+
+// gh is the client for reading a repository's PRs: the reviewer's when it has one there.
+func (s *Service) gh(r gh.Repo) gh.API {
+	if s.canReview(r.Owner) {
 		return s.Reviewer
 	}
 	return s.Author
@@ -222,7 +235,7 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	if err != nil {
 		return err
 	}
-	live, err := s.gh().GetPR(ctx, ghr, pr.GhNumber)
+	live, err := s.gh(ghr).GetPR(ctx, ghr, pr.GhNumber)
 	if err != nil {
 		return err
 	}
@@ -240,13 +253,13 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	if err != nil {
 		return err
 	}
-	checks, err := s.gh().Checks(ctx, ghr, pr.HeadSha)
+	checks, err := s.gh(ghr).Checks(ctx, ghr, pr.HeadSha)
 	if err != nil {
 		return err
 	}
 	g := Gates{Checks: checks, MaxLines: proj.MaxAutoMergeLines}
 	if checks != gh.ChecksPending {
-		files, err := s.gh().PRFiles(ctx, ghr, pr.GhNumber)
+		files, err := s.gh(ghr).PRFiles(ctx, ghr, pr.GhNumber)
 		if err != nil {
 			return err
 		}
@@ -291,10 +304,15 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	if t, err := s.DB.RQ.GetTask(ctx, pr.TaskID); err == nil {
 		ownerGate = t.TaskType.OwnerGate()
 	}
-	if proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && s.Reviewer != nil {
+	if proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && s.autoMergeable(ctx, pr) {
 		return s.merge(ctx, pr, "auto_merged", "Auto-merged by wrangl: gates passed and the review rated it low risk.")
 	}
 	return s.askOwner(ctx, pr, g)
+}
+
+func (s *Service) autoMergeable(ctx context.Context, pr dbgen.PullRequest) bool {
+	_, ghr, err := s.repo(ctx, pr.RepoID)
+	return err == nil && s.canReview(ghr.Owner)
 }
 
 func (s *Service) projectFor(ctx context.Context, pr dbgen.PullRequest) (dbgen.Project, error) {
@@ -330,7 +348,7 @@ func (s *Service) queueReview(ctx context.Context, pr dbgen.PullRequest, g Gates
 	if err != nil {
 		return err
 	}
-	diff, err := s.gh().PRDiff(ctx, ghr, pr.GhNumber)
+	diff, err := s.gh(ghr).PRDiff(ctx, ghr, pr.GhNumber)
 	if err != nil {
 		return err
 	}
@@ -432,12 +450,13 @@ func (s *Service) askOwner(ctx context.Context, pr dbgen.PullRequest, g Gates) e
 // --- decisions -----------------------------------------------------------------------
 
 func (s *Service) merge(ctx context.Context, pr dbgen.PullRequest, decision, note string) error {
-	if s.Reviewer == nil {
-		return fmt.Errorf("%w: no reviewer App configured (github.reviewer_app); merge the PR on GitHub", errs.Invalid)
-	}
 	_, ghr, err := s.repo(ctx, pr.RepoID)
 	if err != nil {
 		return err
+	}
+	if !s.canReview(ghr.Owner) {
+		// The web UI turns this into a link to create the reviewer App for that owner.
+		return &gh.NoAppError{Owner: ghr.Owner, Role: "reviewer"}
 	}
 	if err := s.Reviewer.Review(ctx, ghr, pr.GhNumber, "APPROVE", note); err != nil {
 		return fmt.Errorf("approve PR #%d: %w", pr.GhNumber, err)
@@ -527,8 +546,7 @@ func (s *Service) RequestChanges(ctx context.Context, prID int64, text string) e
 	if err != nil {
 		return err
 	}
-	if s.Reviewer != nil {
-		_, ghr, _ := s.repo(ctx, pr.RepoID)
+	if _, ghr, _ := s.repo(ctx, pr.RepoID); s.canReview(ghr.Owner) {
 		if err := s.Reviewer.Review(ctx, ghr, pr.GhNumber, "REQUEST_CHANGES", text); err != nil {
 			s.Log.Warn("posting change request on GitHub", "err", err)
 		}
@@ -558,7 +576,7 @@ func (s *Service) Close(ctx context.Context, prID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := s.gh().ClosePR(ctx, ghr, pr.GhNumber); err != nil {
+	if err := s.gh(ghr).ClosePR(ctx, ghr, pr.GhNumber); err != nil {
 		return err
 	}
 	return s.markClosed(ctx, pr)
@@ -630,9 +648,21 @@ func (s *Service) continueBlocked(ctx context.Context) error {
 
 // --- webhooks & reconcile ---------------------------------------------------------------
 
+func (s *Service) secrets() [][]byte {
+	var out [][]byte
+	if len(s.WebhookSecret) > 0 {
+		out = append(out, s.WebhookSecret)
+	}
+	if s.WebhookSecrets != nil {
+		out = append(out, s.WebhookSecrets()...)
+	}
+	return out
+}
+
 // Webhook handles POST /gh/webhook (reviewer App): HMAC-verified, deduplicated.
 func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
-	if len(s.WebhookSecret) == 0 {
+	secrets := s.secrets()
+	if len(secrets) == 0 {
 		http.Error(w, "webhooks are not configured (github.reviewer_app.webhook_secret)", http.StatusServiceUnavailable)
 		return
 	}
@@ -641,10 +671,14 @@ func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	mac := hmac.New(sha256.New, s.WebhookSecret)
-	mac.Write(body)
-	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(want), []byte(r.Header.Get("X-Hub-Signature-256"))) {
+	ok := false
+	for _, sec := range secrets {
+		mac := hmac.New(sha256.New, sec)
+		mac.Write(body)
+		want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+		ok = ok || hmac.Equal([]byte(want), []byte(r.Header.Get("X-Hub-Signature-256")))
+	}
+	if !ok {
 		http.Error(w, "bad signature", http.StatusUnauthorized)
 		return
 	}

@@ -21,6 +21,8 @@ type Multi struct {
 	Lookup func(owner string) (AppRef, bool)
 	// BaseURL is copied to each client (tests point it at a fake GitHub).
 	BaseURL string
+	// Role is "" for author Apps and "reviewer" for reviewer Apps; it only shapes errors.
+	Role string
 
 	mu      sync.Mutex
 	clients map[string]*Client
@@ -35,7 +37,7 @@ type listed struct {
 func (m *Multi) client(owner string) (*Client, error) {
 	ref, ok := m.Lookup(owner)
 	if !ok || ref.AppID == 0 {
-		return nil, &NoAppError{Owner: owner}
+		return nil, &NoAppError{Owner: owner, Role: m.Role}
 	}
 	key := strings.ToLower(owner)
 	m.mu.Lock()
@@ -47,7 +49,7 @@ func (m *Multi) client(owner string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{AppID: ref.AppID, Key: k, BaseURL: m.BaseURL}
+	c := &Client{AppID: ref.AppID, Key: k, BaseURL: m.BaseURL, Role: m.Role}
 	if m.clients == nil {
 		m.clients = map[string]*Client{}
 	}
@@ -179,4 +181,10 @@ func (m *Multi) ClosePR(ctx context.Context, r Repo, number int64) error {
 		return err
 	}
 	return c.ClosePR(ctx, r, number)
+}
+
+// Has reports whether owner has an App for this Multi's role.
+func (m *Multi) Has(owner string) bool {
+	ref, ok := m.Lookup(owner)
+	return ok && ref.AppID != 0
 }

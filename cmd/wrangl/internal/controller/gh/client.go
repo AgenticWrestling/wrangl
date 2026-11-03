@@ -29,6 +29,7 @@ type Client struct {
 	BaseURL string // default https://api.github.com
 	HTTP    *http.Client
 	Now     func() time.Time
+	Role    string // "" (author) or "reviewer": named in errors
 }
 
 // LoadKey reads a GitHub App private key (PKCS#1 or PKCS#8 PEM).
@@ -151,7 +152,7 @@ func (c *Client) Repo(ctx context.Context, owner, name string) (Repo, error) {
 	if _, err := c.do(ctx, http.MethodGet, path+"/installation", auth, nil, &inst); err != nil {
 		var he *HTTPError
 		if errors.As(err, &he) && he.Status == http.StatusNotFound {
-			return Repo{}, &NotInstalledError{Owner: owner, Name: name}
+			return Repo{}, &NotInstalledError{Owner: owner, Name: name, Role: c.Role}
 		}
 		return Repo{}, err
 	}
@@ -267,7 +268,7 @@ func (c *Client) ListRepos(ctx context.Context, owner string) ([]Repo, error) {
 		_, err = c.do(ctx, http.MethodGet, "/orgs/"+url.PathEscape(owner)+"/installation", auth, nil, &inst)
 	}
 	if errors.As(err, &he) && he.Status == http.StatusNotFound {
-		return nil, &NotInstalledError{Owner: owner, Name: "*"}
+		return nil, &NotInstalledError{Owner: owner, Name: "*", Role: c.Role}
 	} else if err != nil {
 		return nil, err
 	}

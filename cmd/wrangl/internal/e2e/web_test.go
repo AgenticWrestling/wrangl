@@ -115,7 +115,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/static/app.css", "Red Hat Display", "min-width: 900px")
 	get("/static/vendor/fonts/ibm-plex-mono-latin.woff2")
 	get("/static/app.css", "IBM Plex Mono", "--sqid")
-	get("/setup", "GitHub accounts", "Reviewer App", "Add account")
+	get("/setup", "GitHub accounts", "Add account")
 	// Accounts: a GitHub App lives in the account that owns the repositories, personal or org.
 	post("/ui/act/account-add", `{"acctlogin":"plank-pattern","acctkind":"org"}`)
 	post("/ui/act/account-add", `{"acctlogin":"@njreid","acctkind":"user"}`)

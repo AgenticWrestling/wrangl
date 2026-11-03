@@ -1,6 +1,6 @@
 {{define "main-setup"}}
-{{if .Created}}<section class="card"><h3>App created for {{.Created}}</h3>
-  <p>The key is saved on the controller. Now install the App on the repositories wrangl may work on (choose <b>Only select repositories</b>).{{if .Back}} Then <a href="{{.Back}}">carry on where you were</a>.{{end}}</p></section>{{end}}
+{{if .Created}}<section class="card"><h3>{{if eq .CreatedRole "reviewer"}}Reviewer App{{else}}App{{end}} created for {{.Created}}</h3>
+  <p>The key is saved on the controller. Now install {{if eq .CreatedRole "reviewer"}}the reviewer App{{else}}the App{{end}} on the repositories wrangl may work on (choose <b>Only select repositories</b>).{{if .Back}} Then <a href="{{.Back}}">carry on where you were</a>.{{end}}</p></section>{{end}}
 {{if .Error}}<section class="card"><p class="err">{{.Error}}</p></section>{{end}}
 {{if .Suggest}}<section class="card attn"><h3>{{.Suggest}} is not set up yet</h3>
   <p>{{if .Repo}}To work on <code>{{.Repo}}</code>, wrangl needs a GitHub App created in the account that owns it.{{else}}wrangl needs a GitHub App created in the account that owns the repositories.{{end}} Add <b>{{.Suggest}}</b> below, as a personal account or an organisation.</p></section>{{end}}
@@ -33,10 +33,22 @@
   </form>
   <p class="hint">GitHub asks you to confirm{{if eq .Kind "org"}} (you need to be an owner of {{.Login}}){{end}}, then returns you here. It needs Contents and Pull requests (read and write), and Issues and Metadata (read-only). Webhooks stay off.</p>
   {{end}}
+  <div class="reviewer" id="reviewer-{{.Login}}">
+  <div class="row"><h4>Reviewer App</h4><span class="grow"></span>{{if .Reviewer}}<span class="tag ok">✓ ready</span>{{else}}<span class="tag attn">! needed to approve &amp; merge</span>{{end}}</div>
+  <p class="hint">A second App that approves and merges pull requests (an App cannot approve its own) and receives GitHub's webhooks.</p>
+  {{if .Reviewer}}
+  <dl class="kv"><dt>App</dt><dd><a href="{{.Reviewer.HTMLURL}}" target="_blank" rel="noopener">{{.Reviewer.Slug}}</a> <code class="sqid">{{.Reviewer.ID}}</code></dd></dl>
+  <div class="actions wrap"><a class="btn primary" href="{{.Reviewer.InstallURL}}" target="_blank" rel="noopener">Install on repositories</a><a class="btn" href="{{.ReviewerInstallationsURL}}" target="_blank" rel="noopener">Manage access</a></div>
+  {{else if .RManifestErr}}<p class="err">{{.RManifestErr}}</p>
+  {{else}}
+  <form method="post" action="{{.NewAppURL .RState}}" onsubmit="return ghManifest(this)">
+    <label>App name <input class="gh-name" value="{{.RName}}" autocomplete="off" autocapitalize="off"></label>
+    <input type="hidden" class="gh-manifest" name="manifest" value="{{.RManifest}}">
+    <div class="actions"><button class="btn primary" type="submit">Create the reviewer App in {{if eq .Kind "org"}}{{.Login}}{{else}}your account{{end}} on GitHub</button></div>
+  </form>
+  <p class="hint">Needs Contents and Pull requests (read and write), Checks, Issues and Metadata (read-only). Webhooks go to this controller. If the repository requires approvals, add the reviewer App to the ruleset's bypass list.</p>
+  {{end}}
+  </div>
 </section>{{else}}<p class="empty">No accounts yet. Add yours above.</p>{{end}}
 
-<section class="card tools">
-  <div class="row"><h3>Reviewer App</h3><span class="grow"></span><span class="pill">later</span></div>
-  <p class="hint">A second App that reviews and merges pull requests. Not needed yet.</p>
-</section>
 {{end}}
