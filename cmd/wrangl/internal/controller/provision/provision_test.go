@@ -205,3 +205,41 @@ func TestSortCandidatesPrefersNoLocalStorage(t *testing.T) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 }
+
+func TestMarketplaceSearchAndLaunchCheck(t *testing.T) {
+	f := NewFake()
+	img := func(id, name string, a types.ArchitectureValues) types.Image {
+		return types.Image{ImageId: aws.String(id), Name: aws.String(name), Architecture: a}
+	}
+	f.Marketplace = []types.Image{
+		img("ami-a", "genymotion-ami-12.0-v14.2-arm64", types.ArchitectureValuesArm64),
+		img("ami-b", "genymotion-ami-15.0-v14.2-arm64", types.ArchitectureValuesArm64),
+		img("ami-c", "genymotion-ami-10.0-v14.1-x86_64", types.ArchitectureValuesX8664),
+		img("ami-d", "ubuntu-pro", types.ArchitectureValuesArm64),
+	}
+	f.Unsubscribed = map[string]string{"ami-b": "https://aws.amazon.com/marketplace/pp?sku=abc123"}
+	p := &Provisioner{EC2: f, SSM: f, ControllerID: "c"}
+	ctx := context.Background()
+
+	if _, err := p.SearchMarketplace(ctx, "ge", ""); err == nil {
+		t.Fatal("two letters must be refused")
+	}
+	arm, err := p.SearchMarketplace(ctx, "genymotion", "arm64")
+	if err != nil || len(arm) != 2 || arm[0].Name != "genymotion-ami-15.0-v14.2-arm64" {
+		t.Fatalf("arm64 search (newest names first): %+v %v", arm, err)
+	}
+	if all, _ := p.SearchMarketplace(ctx, "genymotion", ""); len(all) != 3 {
+		t.Fatalf("both architectures: %+v", all)
+	}
+
+	if c := p.CheckLaunch(ctx, "ami-a", "m7g.large", "subnet-1", "sg-1"); !c.OK {
+		t.Fatalf("a subscribed image would launch: %+v", c)
+	}
+	c := p.CheckLaunch(ctx, "ami-b", "m7g.large", "subnet-1", "sg-1")
+	if c.OK || !c.OptInRequired || c.SubscribeURL != "https://aws.amazon.com/marketplace/pp?sku=abc123" {
+		t.Fatalf("an unsubscribed image must say where to subscribe: %+v", c)
+	}
+	if len(f.Runs) != 0 {
+		t.Fatal("a check must never launch anything")
+	}
+}

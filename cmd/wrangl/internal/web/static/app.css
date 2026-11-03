@@ -264,3 +264,29 @@ label.check { font-size: 0.95rem; }
 .row.other .cost { font-family: var(--mono); font-size: 0.86rem; min-width: 84px; text-align: right; }
 .adopt-result pre { white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: var(--mono); font-size: 0.82rem; }
 .adopt-result .warn { color: var(--attn); }
+
+/* Runner template editor. */
+.tpl { display: flex; flex-direction: column; gap: 14px; }
+.tplhead { flex-wrap: wrap; align-items: center; gap: 10px; }
+.tpl .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 16px; }
+.tpl label { display: flex; flex-direction: column; gap: 5px; font-size: 0.9rem; color: var(--ink2); }
+.tpl h4 { margin: 14px 0 4px; font-size: 0.95rem; }
+.tpl textarea { width: 100%; }
+.tpl input[type=radio], .tpl input[type=checkbox] { width: auto; flex: none; }
+.tpl .mono, .tpl code { font-family: var(--mono); font-size: 0.86em; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table.types { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 0.9rem; }
+table.types th { text-align: left; color: var(--dim); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 9px 12px; }
+table.types td { padding: 8px 12px; border-top: 1px solid var(--line); }
+table.types .num { text-align: right; }
+table.types tr.nofit { opacity: 0.5; }
+table.types input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--brand); }
+.sr { position: absolute; left: -9999px; }
+.summary { padding: 11px 14px; background: var(--raised); border-radius: 10px; font-size: 0.92rem; }
+.imgopts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.imgopts .opt { flex-direction: row; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.imgcheck { min-height: 1.4em; font-size: 0.88rem; margin: 6px 0; }
+.imgcheck .ok { color: var(--ok); }
+.imgcheck .warn, .hint.warn { color: var(--attn); }
+.market { margin-top: 8px; }
+.mres .mrow { align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }

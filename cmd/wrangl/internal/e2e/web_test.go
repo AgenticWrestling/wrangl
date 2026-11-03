@@ -128,6 +128,29 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		t.Fatalf("linking a repo the App cannot see must point at the fix: %s", out)
 	}
 	post("/ui/act/account-remove?login=plank-pattern", `{}`)
+
+	// The template editor: fields from the stored template, saved as a new version with the
+	// agent block untouched.
+	arch := ec2Arch()
+	if _, err := e.api.CreateTemplate(e.ctx, []byte("name: edme\narch: "+arch+"\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmax_runners: 0\nmise_toml: \"\"\nagent:\n  start: [\"/bin/true\", \"{{.Prompt}}\"]\n")); err != nil {
+		t.Fatal(err)
+	}
+	get("/settings", `href="/settings/templates/edme"`)
+	get("/settings/templates/edme", "Basics", "Machine", "Image", "Tools (mise)", "Setup script", "Save as v2", `data-signals-tpmax="&#34;0&#34;"`, "tp-img", "Search the AWS Marketplace", "runs /bin/true")
+	if out := post("/ui/act/template-save?name=edme", `{"tpdesc":"edited in the web","tpmax":"2","tpidle":"15m","tparch":"`+arch+`","tpvcpu":"2","tpram":"4GiB","tpdisk":"20GiB","tptypes":"m7g.large,m7g.xlarge","tpimg":"ami","tpami":"ami-0123456789abcdef0","tpmise":"[tools]\nnode = \"24\"\n","tpsetup":"echo hi"}`); !strings.Contains(out, "edme is now v2") {
+		t.Fatalf("saving the template: %s", out)
+	}
+	tv, err := e.api.Template(e.ctx, "edme")
+	if err != nil || tv.Version != 2 || tv.Description != "edited in the web" || tv.MaxRunners != 2 || tv.IdleTimeoutS != 900 || tv.AMI != "ami-0123456789abcdef0" ||
+		tv.MinVCPU != 2 || tv.MinRAMMiB != 4096 || strings.Join(tv.InstanceTypes, ",") != "m7g.large,m7g.xlarge" || !strings.Contains(tv.MiseTOML, "node") || !strings.Contains(string(tv.Agent), "/bin/true") {
+		t.Fatalf("saved template: %+v %v", tv, err)
+	}
+	if out := post("/ui/act/template-save?name=edme", `{"tpvcpu":"x"}`); strings.Contains(out, "is now v") || !strings.Contains(out, "not a number") {
+		t.Fatalf("a bad form must be refused with a reason: %s", out)
+	}
+	if out := post("/ui/act/template-save?name=edme", `{"tpvcpu":"2","tpmax":"1","tpimg":"ami","tpami":"nope"}`); !strings.Contains(out, "should look like ami-") {
+		t.Fatalf("a malformed AMI id must be refused: %s", out)
+	}
 	get("/setup/github/callback?code=x&state=bad", "expired or was already used")
 	get("/settings", `href="/setup"`)
 	get("/static/app.js", "moveTask")

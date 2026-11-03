@@ -57,6 +57,7 @@
 <section class="card">
   <h3>Runner templates</h3>
   {{range .Templates}}<div class="row"><b>{{.Name}}</b> <span class="dim">v{{.Version}} · ≥{{.MinVcpu}} vCPU · ≥{{.MinRamMib}} MiB · ≥{{.MinDiskGib}} GiB</span><span class="grow"></span>
+    <a class="btn small" href="/settings/templates/{{.Name}}">Edit</a>
     <button class="btn small" data-on-click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
   {{else}}<p class="empty">No templates. Create one with <code>wrangl template create</code>.</p>{{end}}
 </section>

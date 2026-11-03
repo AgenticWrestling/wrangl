@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/smithy-go"
 )
 
 // Fake is an in-memory EC2 + SSM for tests. It records every RunInstances input and
@@ -24,6 +26,10 @@ type Fake struct {
 	Types      []types.InstanceTypeInfo
 	IPPrefix   string // private IPs are IPPrefix + n; default "10.0.1."
 	FixedIP    string // if set, every instance gets this private IP (e2e tests on loopback)
+	// Marketplace is what DescribeImages returns for owner aws-marketplace; Unsubscribed maps an
+	// image id to the terms URL RunInstances demands before it will launch it.
+	Marketplace  []types.Image
+	Unsubscribed map[string]string
 }
 
 // NewFake returns a fake with a small instance-type catalogue.
@@ -64,6 +70,12 @@ func (f *Fake) AddForeign(id string, tags map[string]string) {
 func (f *Fake) RunInstances(_ context.Context, in *ec2.RunInstancesInput, _ ...func(*ec2.Options)) (*ec2.RunInstancesOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if url, ok := f.Unsubscribed[aws.ToString(in.ImageId)]; ok {
+		return nil, &smithy.GenericAPIError{Code: "OptInRequired", Message: "In order to use this AWS Marketplace product you need to accept terms and subscribe. To do so please visit " + url}
+	}
+	if aws.ToBool(in.DryRun) {
+		return nil, &smithy.GenericAPIError{Code: "DryRunOperation", Message: "Request would have succeeded, but DryRun flag is set."}
+	}
 	f.next++
 	id := fmt.Sprintf("i-%017x", f.next)
 	var tags []types.Tag
@@ -179,6 +191,24 @@ func (f *Fake) DescribeInstanceTypes(_ context.Context, in *ec2.DescribeInstance
 }
 
 func (f *Fake) DescribeImages(_ context.Context, in *ec2.DescribeImagesInput, _ ...func(*ec2.Options)) (*ec2.DescribeImagesOutput, error) {
+	if len(in.Owners) == 1 && in.Owners[0] == "aws-marketplace" {
+		var name, arch string
+		for _, flt := range in.Filters {
+			switch aws.ToString(flt.Name) {
+			case "name":
+				name = strings.Trim(flt.Values[0], "*")
+			case "architecture":
+				arch = flt.Values[0]
+			}
+		}
+		var out []types.Image
+		for _, im := range f.Marketplace {
+			if strings.Contains(aws.ToString(im.Name), name) && (arch == "" || string(im.Architecture) == arch) {
+				out = append(out, im)
+			}
+		}
+		return &ec2.DescribeImagesOutput{Images: out}, nil
+	}
 	return &ec2.DescribeImagesOutput{Images: []types.Image{{ImageId: aws.String(in.ImageIds[0]), RootDeviceName: aws.String("/dev/xvda")}}}, nil
 }
 

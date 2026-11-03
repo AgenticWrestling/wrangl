@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
+	"gopkg.in/yaml.v3"
 	"html/template"
 	"io"
 	"io/fs"
@@ -71,16 +72,18 @@ func newSID() string {
 func New(d api.Deps) (*Handler, error) {
 	h := &Handler{D: d, css: chromaCSS()}
 	t, err := template.New("").Funcs(template.FuncMap{
-		"glyph": func(s string) string { return glyph[s] },
-		"ago":   ago,
-		"md":    markdown,
-		"pct":   func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
-		"spark": sparkline,
-		"json":  func(v any) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
-		"q":     url.QueryEscape,
-		"add":   func(a, b int) int { return a + b },
-		"usd":   func(v float64) string { return fmt.Sprintf("$%.2f", v) },
-		"usdh":  func(v float64) string { return fmt.Sprintf("$%.3f", v) },
+		"glyph":  func(s string) string { return glyph[s] },
+		"ago":    ago,
+		"md":     markdown,
+		"pct":    func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
+		"spark":  sparkline,
+		"json":   func(v any) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
+		"q":      url.QueryEscape,
+		"add":    func(a, b int) int { return a + b },
+		"int":    func(v int64) int { return int(v) },
+		"memgib": func(mib int64) string { return fmt.Sprintf("%g GiB", float64(mib)/1024) },
+		"usd":    func(v float64) string { return fmt.Sprintf("$%.2f", v) },
+		"usdh":   func(v float64) string { return fmt.Sprintf("$%.3f", v) },
 		"pctof": func(a, b int64) int64 {
 			if b == 0 {
 				return 0
@@ -139,7 +142,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	for path, view := range map[string]string{
 		"/backlog": "backlog", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
 		"/runs": "runs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
-		"/inbox": "inbox", "/settings": "settings", "/project/{slug}": "project", "/setup": "setup",
+		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/project/{slug}": "project", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
@@ -711,6 +714,40 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		if f := qv.Get("account"); f != "" && !seen {
 			d["Suggest"] = f // the owner of a repo being linked, not set up yet
 		}
+	case "template":
+		t, err := h.D.Fleet.Template(ctx, reqValue(r, "name"))
+		if err != nil {
+			return nil, err
+		}
+		d["T"], d["Title"] = t, "Template "+t.Name
+		var types []string
+		json.Unmarshal([]byte(t.InstanceTypes), &types)
+		ticked := map[string]bool{}
+		for _, x := range types {
+			ticked[x] = true
+		}
+		d["Ticked"], d["TypesList"], d["TypesCSV"] = ticked, types, strings.Join(types, ",")
+		d["MaxStr"], d["IdleStr"] = strconv.FormatInt(t.MaxRunners, 10), shortDuration(time.Duration(t.IdleTimeoutS)*time.Second)
+		d["VcpuStr"], d["RamStr"], d["DiskStr"] = strconv.FormatInt(t.MinVcpu, 10), fmt.Sprintf("%gGiB", float64(t.MinRamMib)/1024), fmt.Sprintf("%dGiB", t.MinDiskGib)
+		d["ImgMode"], d["AmiStr"] = "al", ""
+		if strings.HasPrefix(t.Ami, "ami-") {
+			d["ImgMode"], d["AmiStr"] = "ami", t.Ami
+		}
+		var agent struct {
+			Start []string `json:"start"`
+		}
+		json.Unmarshal([]byte(t.AgentJson), &agent)
+		d["AgentSummary"] = "no agent"
+		if len(agent.Start) > 0 {
+			d["AgentSummary"] = "runs " + agent.Start[0]
+		}
+		d["HasAWS"] = h.D.Fleet.Prov != nil
+		if h.D.Costs != nil {
+			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			cat, err := h.D.Costs.Catalogue(cctx)
+			cancel()
+			d["Catalogue"], d["CatalogueErr"], d["Region"] = cat, errString(err), h.D.Costs.Home
+		}
 	case "settings":
 		d["GHAccounts"], _ = h.D.Setup.Accounts(ctx)
 		d["Projects"], _ = db.RQ.ListProjects(ctx)
@@ -995,6 +1032,19 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		if err != nil && h.githubToast(ctx, w, err, "/project/"+q.Get("slug")) {
 			return
 		}
+	case "template-save":
+		var t dbgen.RunnerTemplate
+		t, err = h.D.Fleet.Template(ctx, q.Get("name"))
+		if err == nil {
+			var body []byte
+			if body, err = templateYAMLFromForm(t, str, flag); err == nil {
+				var nt dbgen.RunnerTemplate
+				if nt, err = h.D.Fleet.UpdateTemplate(ctx, t.Name, body); err == nil {
+					msg = fmt.Sprintf("%s is now v%d", nt.Name, nt.Version)
+					nav = "/settings"
+				}
+			}
+		}
 	case "account-add":
 		_, err = h.D.Setup.AddAccount(ctx, str("acctlogin"), str("acctkind"))
 		msg, reset = "account added", map[string]any{"acctlogin": ""}
@@ -1233,4 +1283,59 @@ func (h *Handler) termPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write(b.Bytes())
+}
+
+// templateYAMLFromForm builds the template file for an edit: the editor's fields replace the
+// stored ones, the agent block is kept as it is, and the usual validation (ParseTemplate, on
+// save) has the last word.
+func templateYAMLFromForm(t dbgen.RunnerTemplate, str func(string) string, _ func(string) bool) ([]byte, error) {
+	var agent any
+	if err := json.Unmarshal([]byte(t.AgentJson), &agent); err != nil {
+		return nil, fmt.Errorf("stored agent: %w", err)
+	}
+	vcpu, err := strconv.Atoi(str("tpvcpu"))
+	if err != nil {
+		return nil, fmt.Errorf("min vCPU %q is not a number", str("tpvcpu"))
+	}
+	maxR, err := strconv.Atoi(str("tpmax"))
+	if err != nil {
+		return nil, fmt.Errorf("max runners %q is not a number", str("tpmax"))
+	}
+	var types []string
+	for _, x := range strings.Split(str("tptypes"), ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			types = append(types, x)
+		}
+	}
+	if types == nil {
+		types = []string{}
+	}
+	doc := map[string]any{
+		"name": t.Name, "description": str("tpdesc"), "arch": str("tparch"),
+		"min":            map[string]any{"vcpu": vcpu, "ram": str("tpram"), "disk": str("tpdisk")},
+		"instance_types": types, "max_runners": maxR, "idle_timeout": str("tpidle"),
+		"mise_toml": str("tpmise"), "setup_script": str("tpsetup"),
+	}
+	if str("tpimg") == "ami" {
+		ami := str("tpami")
+		if !strings.HasPrefix(ami, "ami-") {
+			return nil, fmt.Errorf("AMI id %q should look like ami-0123abcd…", ami)
+		}
+		doc["ami"] = ami
+	}
+	if m, ok := agent.(map[string]any); ok && len(m) > 0 {
+		doc["agent"] = agent
+	}
+	return yaml.Marshal(doc)
+}
+
+// shortDuration prints 30m, 2h or 90s instead of Go's 30m0s.
+func shortDuration(d time.Duration) string {
+	switch {
+	case d >= time.Hour && d%time.Hour == 0:
+		return fmt.Sprintf("%dh", d/time.Hour)
+	case d >= time.Minute && d%time.Minute == 0:
+		return fmt.Sprintf("%dm", d/time.Minute)
+	}
+	return d.String()
 }

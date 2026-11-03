@@ -78,6 +78,30 @@ func registerCosts(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"types": cat})
 	})
+	mux.HandleFunc("GET /api/v1/images", func(w http.ResponseWriter, r *http.Request) {
+		if d.Fleet.Prov == nil {
+			writeErr(w, fmt.Errorf("%w: AWS is not configured on this controller", errs.Invalid))
+			return
+		}
+		imgs, err := d.Fleet.Prov.SearchMarketplace(r.Context(), r.URL.Query().Get("q"), r.URL.Query().Get("arch"))
+		if err != nil {
+			writeErr(w, fmt.Errorf("%w: %v", errs.Invalid, err))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"images": imgs})
+	})
+	mux.HandleFunc("GET /api/v1/images/check", func(w http.ResponseWriter, r *http.Request) {
+		if d.Fleet.Prov == nil {
+			writeErr(w, fmt.Errorf("%w: AWS is not configured on this controller", errs.Invalid))
+			return
+		}
+		q := r.URL.Query()
+		if !strings.HasPrefix(q.Get("ami"), "ami-") || q.Get("type") == "" {
+			writeErr(w, fmt.Errorf("%w: ami and type are required", errs.Invalid))
+			return
+		}
+		writeJSON(w, http.StatusOK, d.Fleet.Prov.CheckLaunch(r.Context(), q.Get("ami"), q.Get("type"), d.Fleet.SubnetID, d.Fleet.SecurityGroupID))
+	})
 	mux.HandleFunc("POST /api/v1/instances/{region}/{id}/adopt", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Template string `json:"template"`
