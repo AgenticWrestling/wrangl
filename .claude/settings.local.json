@@ -1,0 +1,5 @@
+{"hooks": {
+  "PostToolUse":  [{"hooks":[{"type":"command","command":"wrangl runner hook PostToolUse"}]}],
+  "Notification": [{"hooks":[{"type":"command","command":"wrangl runner hook Notification"}]}],
+  "Stop":         [{"hooks":[{"type":"command","command":"wrangl runner hook Stop"}]}]},
+ "enableAllProjectMcpServers": true}
