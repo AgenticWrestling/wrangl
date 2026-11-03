@@ -232,9 +232,19 @@ Rules:
 
 // execCLI runs the real agent CLI.
 func execCLI(ctx context.Context, sp Spec) (Result, error) {
-	bin, err := exec.LookPath(sp.Agent.Command)
-	if err != nil {
-		return Result{}, fmt.Errorf("%q not found on the controller's PATH", sp.Agent.Command)
+	path := searchPath()
+	bin := sp.Agent.Command
+	if !strings.Contains(bin, "/") {
+		bin = ""
+		for _, d := range filepath.SplitList(path) {
+			if fi, err := os.Stat(filepath.Join(d, sp.Agent.Command)); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+				bin = filepath.Join(d, sp.Agent.Command)
+				break
+			}
+		}
+	}
+	if bin == "" {
+		return Result{}, fmt.Errorf("%q not found on the controller's PATH (or ~/.local/bin, ~/bin)", sp.Agent.Command)
 	}
 	args := []string{"-p", sp.Prompt, "--output-format", "json",
 		"--append-system-prompt", sp.System,
@@ -253,9 +263,7 @@ func execCLI(ctx context.Context, sp Spec) (Result, error) {
 	cmd := exec.CommandContext(ctx, "nice", append([]string{"-n", "10", bin}, args...)...)
 	cmd.Dir = sp.Dir
 	cmd.Env = append(os.Environ(), sp.Env...)
-	if self, err := os.Executable(); err == nil { // make sure `wrangl` resolves to this build
-		cmd.Env = append(cmd.Env, "PATH="+filepath.Dir(self)+string(os.PathListSeparator)+os.Getenv("PATH"))
-	}
+	cmd.Env = append(cmd.Env, "PATH="+path)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	var out, errb bytes.Buffer
@@ -276,6 +284,19 @@ func execCLI(ctx context.Context, sp Spec) (Result, error) {
 		return res, errors.New("the agent returned nothing")
 	}
 	return res, nil
+}
+
+// searchPath is the controller's PATH plus where user-installed tools live: a systemd user unit
+// has a minimal PATH, but the agent CLI and `wrangl` itself sit in ~/.local/bin.
+func searchPath() string {
+	var dirs []string
+	if self, err := os.Executable(); err == nil {
+		dirs = append(dirs, filepath.Dir(self))
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(h, ".local", "bin"), filepath.Join(h, "bin"), filepath.Join(h, ".claude", "local"))
+	}
+	return strings.Join(append(dirs, os.Getenv("PATH")), string(os.PathListSeparator))
 }
 
 // parseOutput reads `claude -p --output-format json`. Non-JSON output is taken as the answer.
