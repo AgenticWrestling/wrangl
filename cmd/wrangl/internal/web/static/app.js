@@ -1,5 +1,5 @@
 // wrangl PWA glue: sheets, drag-and-drop reordering, the read-only terminal, web push.
-// Live page updates are Datastar's job (data-on-load @get /ui/live in the layout).
+// Live page updates are Datastar's job (data-init @get /ui/live in the layout).
 'use strict';
 
 function openSheet(id) {
@@ -429,12 +429,3 @@ function ghManifest(form) {
   return true;
 }
 window.ghManifest = ghManifest;
-
-// Two-step confirm: the first click arms the button, the second one proceeds.
-window.armTerminate = (btn) => {
-  if (btn.dataset.armed) return true;
-  btn.dataset.armed = '1';
-  btn.textContent = 'Confirm terminate';
-  setTimeout(() => { delete btn.dataset.armed; btn.textContent = 'Terminate'; }, 5000);
-  return false;
-};

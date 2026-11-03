@@ -306,3 +306,7 @@ table.logs .logdetail { white-space: pre-wrap; word-break: break-word; max-width
 table.logs tr.lv-error td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 .rank { width: 1.6em; text-align: right; }
+
+#topcosts .row.other { flex-wrap: wrap; }
+#topcosts ul.parts { flex-basis: 100%; list-style: none; margin: 2px 0 6px 2.4em; padding: 0; font-size: 0.85rem; }
+#topcosts ul.parts li { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; border-top: 1px dotted var(--line); }

@@ -1,14 +1,14 @@
 {{define "main-template"}}{{$t := .T}}
 <div class="crumbs dim small"><a href="/settings">Settings</a> › Runner templates › {{$t.Name}}</div>
 <div id="tpl" class="tpl" data-name="{{$t.Name}}" data-arch="{{$t.Arch}}" data-img="{{.ImgMode}}"
-  data-signals-tpdesc="{{json $t.Description}}" data-signals-tpmax="{{json .MaxStr}}" data-signals-tpidle="{{json .IdleStr}}"
-  data-signals-tparch="{{json $t.Arch}}" data-signals-tpvcpu="{{json .VcpuStr}}" data-signals-tpram="{{json .RamStr}}" data-signals-tpdisk="{{json .DiskStr}}"
-  data-signals-tptypes="{{json .TypesCSV}}" data-signals-tpimg="{{json .ImgMode}}" data-signals-tpami="{{json .AmiStr}}"
-  data-signals-tpmise="{{json $t.MiseToml}}" data-signals-tpsetup="{{json $t.SetupScript}}">
+  data-signals:tpdesc="{{json $t.Description}}" data-signals:tpmax="{{json .MaxStr}}" data-signals:tpidle="{{json .IdleStr}}"
+  data-signals:tparch="{{json $t.Arch}}" data-signals:tpvcpu="{{json .VcpuStr}}" data-signals:tpram="{{json .RamStr}}" data-signals:tpdisk="{{json .DiskStr}}"
+  data-signals:tptypes="{{json .TypesCSV}}" data-signals:tpimg="{{json .ImgMode}}" data-signals:tpami="{{json .AmiStr}}"
+  data-signals:tpmise="{{json $t.MiseToml}}" data-signals:tpsetup="{{json $t.SetupScript}}">
 <div class="row tplhead"><h2 class="grow">{{$t.Name}} <span class="pill">v{{$t.Version}}</span></h2>
   <span class="dim small">saving makes v{{add (int $t.Version) 1}}; idle runners re-apply it, busy ones when they finish</span>
   <a class="btn" href="/settings">Cancel</a>
-  <button class="btn primary" data-on-click="@post('/ui/act/template-save?name={{$t.Name}}')">Save as v{{add (int $t.Version) 1}}</button></div>
+  <button class="btn primary" data-on:click="@post('/ui/act/template-save?name={{$t.Name}}')">Save as v{{add (int $t.Version) 1}}</button></div>
 
 <section class="card">
   <h3>Basics</h3>

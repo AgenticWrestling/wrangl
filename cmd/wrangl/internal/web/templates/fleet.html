@@ -16,7 +16,7 @@
     <b>{{.Name}}</b> <span class="dim">v{{.Version}}{{if eq .FailedVersion .Version}} ⚠ apply failed{{end}}</span>
     <span class="grow"></span>
     <span class="dim">{{.Demand}} queued · {{.Live}}/{{.MaxRunners}} live</span>
-    <button class="btn small" data-on-click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button>
+    <button class="btn small" data-on:click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button>
   </div>{{end}}
 </section>{{end}}
 {{if not .Cards}}<p class="empty">No runners. Launch one from a template above, or <code>wrangl fleet launch</code>.</p>{{end}}
@@ -40,7 +40,7 @@
     <span class="dim small" title="launched {{.LaunchedAt.Format "2006-01-02 15:04"}} UTC">{{ago (.LaunchedAt.Format "2006-01-02T15:04:05.000Z")}}</span>
     <span class="cost">{{if eq .State "running"}}{{if .PriceKnown}}{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim small" title="indicative rate"> ~</span>{{end}}{{else}}<span class="dim small">no rate</span>{{end}}{{else}}<span class="dim small">no compute cost</span>{{end}}</span>
     {{if eq .State "running"}}<button type="button" class="btn small" onclick="openAdopt('{{.Region}}','{{.ID}}','{{.Arch}}','{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}')">Adopt…</button>{{end}}
-    {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on-click="window.armTerminate(evt.currentTarget) && @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}')">Terminate</button>{{end}}
+    {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on:click="el.dataset.armed ? @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}') : (el.dataset.armed = 1, el.textContent = 'Confirm terminate')">Terminate</button>{{end}}
   </div>{{else}}<p class="empty">No other instances.</p>{{end}}
 </section>
 <section class="card others" id="topcosts">
@@ -51,12 +51,13 @@
     <span class="dim small rank">{{inc $i}}</span>
     <div class="otherid"><b class="{{if $.Top.Resources}}mono{{end}}">{{$t.Name}}</b>{{if $.Top.Resources}}<div class="dim small">{{$t.Service}}</div>{{end}}</div>
     <span class="grow"></span><span class="cost">{{usd $t.USD}}</span>
+    {{if $t.Parts}}<ul class="parts">{{range $t.Parts}}<li><span>{{.Label}}</span><span class="dim small mono" title="{{.Usage}}">{{.Usage}}</span><span class="grow"></span><span>{{usd .USD}}</span></li>{{end}}</ul>{{end}}
   </div>{{else}}{{if not .Top.Error}}<p class="empty">Nothing else is costing money yet.</p>{{end}}{{end}}
 </section>{{end}}{{end}}
 {{end}}
 
 {{define "post-runners"}}{{if .Spend}}
-<dialog id="sheet-adopt" class="sheet" data-signals-adopttpl="''">
+<dialog id="sheet-adopt" class="sheet" data-signals:adopttpl="''">
   <h2>Adopt <span id="adopt-name"></span></h2>
   <p class="hint">Turns this running instance into a runner. wrangl creates a one-time token; you run one command on the instance.</p>
   <label>Runner template
@@ -66,7 +67,7 @@
   <div id="adopt-result"></div>
   <div class="actions">
     <button class="btn" onclick="this.closest('dialog').close()">Close</button>
-    <button class="btn primary" id="adopt-go" data-on-click="@post('/ui/act/instance-adopt?region='+encodeURIComponent(window.adoptRegion)+'&iid='+encodeURIComponent(window.adoptID))">Create token</button>
+    <button class="btn primary" id="adopt-go" data-on:click="@post('/ui/act/instance-adopt?region='+encodeURIComponent(window.adoptRegion)+'&iid='+encodeURIComponent(window.adoptID))">Create token</button>
   </div>
 </dialog>{{end}}{{end}}
 
@@ -86,10 +87,10 @@
   {{spark .Spark}}
   <div class="actions wrap">
     {{if termok $r.State}}<a class="btn primary" href="/runner/{{$r.Name}}/term">Terminal</a>{{end}}
-    {{if $r.Cordoned}}<button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')">Uncordon</button>
-    {{else}}<button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')">Cordon</button>{{end}}
-    <button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')">Drain</button>
-    <button class="btn danger" data-on-click="confirm('Terminate {{$r.Name}}?') && @post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')">Terminate</button>
+    {{if $r.Cordoned}}<button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')">Uncordon</button>
+    {{else}}<button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')">Cordon</button>{{end}}
+    <button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')">Drain</button>
+    <button class="btn danger" data-on:click="confirm('Terminate {{$r.Name}}?') && @post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')">Terminate</button>
   </div>
 </section>
 {{with .Run}}<section class="card"><h3>Working on</h3>

@@ -43,9 +43,9 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		return string(b)
 	}
 
-	get("/backlog?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `\/ui\/live?`, "datastar-1.0.0-beta.11.js")
+	get("/backlog?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
-	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals-outline=")
+	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals:outline=")
 	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)
 	get("/ui/detail?sqid="+big+"&part=sheets", "sheet-edit", `data-bind="etarget"`, "Target date")
 
@@ -92,9 +92,9 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/static/app.css", ".ty-milestone > .row .title", "font-weight: 600")
 	get("/runners", runner, "tiny")
 	get("/runner/"+runner, "Cordon", "Recent runs")
-	get("/runner/"+runner+"/term", `id="termapp"`, `href="/runner/`+runner+`"`, "wrangl</a>", `/static/vendor/wterm-0.5.7.js`, `/static/term.js`, `/static/term.css`)
-	get("/static/vendor/wterm-0.5.7.js", "WTerm")
-	get("/static/vendor/wterm-0.5.7.css", ".wterm")
+	get("/runner/"+runner+"/term", `id="termapp"`, `href="/runner/`+runner+`"`, "wrangl</a>", `/static/vendor/wterm-0.5.8.js`, `/static/term.js`, `/static/term.css`)
+	get("/static/vendor/wterm-0.5.8.js", "WTerm")
+	get("/static/vendor/wterm-0.5.8.css", ".wterm")
 	get("/static/term.js", "Engine", "/term/")
 	get("/static/term.css", ".tkeys", "safe-area-inset")
 	get("/logs", "<table", "small feature")
@@ -138,7 +138,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		t.Fatal(err)
 	}
 	get("/settings", `href="/settings/templates/edme"`)
-	get("/settings/templates/edme", "Basics", "Machine", "Image", "Tools (mise)", "Setup script", "Save as v2", `data-signals-tpmax="&#34;0&#34;"`, "tp-img", "Search the AWS Marketplace", "runs /bin/true")
+	get("/settings/templates/edme", "Basics", "Machine", "Image", "Tools (mise)", "Setup script", "Save as v2", `data-signals:tpmax="&#34;0&#34;"`, "tp-img", "Search the AWS Marketplace", "runs /bin/true")
 	if out := post("/ui/act/template-save?name=edme", `{"tpdesc":"edited in the web","tpmax":"2","tpidle":"15m","tparch":"`+arch+`","tpvcpu":"2","tpram":"4GiB","tpdisk":"20GiB","tptypes":"m7g.large,m7g.xlarge","tpimg":"ami","tpami":"ami-0123456789abcdef0","tpmise":"[tools]\nnode = \"24\"\n","tpsetup":"echo hi"}`); !strings.Contains(out, "edme is now v2") {
 		t.Fatalf("saving the template: %s", out)
 	}
@@ -181,12 +181,12 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		}
 	}
 	resp.Body.Close()
-	if s := live.String(); !strings.Contains(s, "event: datastar-merge-fragments") || !strings.Contains(s, `data: fragments <main id="main">`) || !strings.Contains(s, "big job") {
+	if s := live.String(); !strings.Contains(s, "event: datastar-patch-elements") || !strings.Contains(s, `data: elements <main id="main">`) || !strings.Contains(s, "big job") {
 		t.Fatalf("live stream: %.1500s", s)
 	}
 
 	// Actions: create (signals as JSON), split, and a failing action's error toast.
-	if out := post("/ui/act/task-new?project=web", `{"title":"from the phone","prompt":"tap tap","ttype":"docs"}`); !strings.Contains(out, "created ") || !strings.Contains(out, "datastar-merge-signals") {
+	if out := post("/ui/act/task-new?project=web", `{"title":"from the phone","prompt":"tap tap","ttype":"docs"}`); !strings.Contains(out, "created ") || !strings.Contains(out, "datastar-patch-signals") {
 		t.Fatalf("task-new: %s", out)
 	}
 	var sqid string

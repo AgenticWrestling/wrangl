@@ -217,3 +217,18 @@ func TestTopCostsResourcesAndFallback(t *testing.T) {
 		t.Fatalf("fallback: %+v", top)
 	}
 }
+
+func TestUsageLabel(t *testing.T) {
+	for in, want := range map[string]string{
+		"USE1-NatGateway-Hours":        "NAT gateway hours",
+		"EBS:VolumeUsage.gp3":          "EBS volumes (gp3)",
+		"USW2-EBS:SnapshotUsage":       "EBS snapshots",
+		"USE1-PublicIPv4:InUseAddress": "Public IPv4 addresses (in use)",
+		"USE1-DataTransfer-Out-Bytes":  "Data transfer out to the internet",
+		"SomethingNew":                 "SomethingNew",
+	} {
+		if got := usageLabel(in); got != want {
+			t.Errorf("%s: %q, want %q", in, got, want)
+		}
+	}
+}

@@ -392,24 +392,27 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// mergeFragments writes a Datastar merge-fragments event (one data line per HTML line).
+// mergeFragments writes a Datastar patch-elements event (one data line per HTML line): the
+// elements are morphed into the page by id.
 func mergeFragments(w io.Writer, html string) {
-	io.WriteString(w, "event: datastar-merge-fragments\n")
+	io.WriteString(w, "event: datastar-patch-elements\n")
 	for _, line := range strings.Split(html, "\n") {
-		fmt.Fprintf(w, "data: fragments %s\n", line)
+		fmt.Fprintf(w, "data: elements %s\n", line)
 	}
 	io.WriteString(w, "\n")
 }
 
-// mergeSignals writes a Datastar merge-signals event.
+// mergeSignals writes a Datastar patch-signals event.
 func mergeSignals(w io.Writer, signals map[string]any) {
 	b, _ := json.Marshal(signals)
-	fmt.Fprintf(w, "event: datastar-merge-signals\ndata: signals %s\n\n", b)
+	fmt.Fprintf(w, "event: datastar-patch-signals\ndata: signals %s\n\n", b)
 }
 
+// executeScript runs js in the page: Datastar has no script event, so the script is appended
+// to <body> and removes itself once it has run.
 func executeScript(w io.Writer, js string) {
-	io.WriteString(w, "event: datastar-execute-script\n")
-	fmt.Fprintf(w, "data: script %s\n\n", strings.ReplaceAll(js, "\n", " "))
+	io.WriteString(w, "event: datastar-patch-elements\ndata: selector body\ndata: mode append\n")
+	fmt.Fprintf(w, "data: elements <script data-effect=\"el.remove()\">%s</script>\n\n", strings.ReplaceAll(js, "\n", " "))
 }
 
 // goLater sends the browser to the page that fixes a GitHub App problem, after the toast has

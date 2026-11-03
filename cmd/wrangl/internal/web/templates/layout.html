@@ -20,7 +20,7 @@
 <script src="/static/vendor/xterm-addon-fit-0.11.0.js" defer></script>{{end}}
 <script src="/static/vendor/sortable-1.15.7.min.js" defer></script>
 <script src="/static/app.js" defer></script>
-<script type="module" src="/static/vendor/datastar-1.0.0-beta.11.js"></script>
+<script type="module" src="/static/vendor/datastar-1.0.4.js"></script>
 </head>
 <body data-view="{{.View}}">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -53,7 +53,7 @@
   <h1>{{.Title}}</h1>
 </header>
 <div id="detail-sheets"></div>
-<div id="live" data-on-load="@get('{{.LiveURL}}')"></div>
+<div id="live" data-init="@get('{{.LiveURL}}')"></div>
 {{.Pre}}
 <main id="main">{{.Main}}</main>
 {{.Post}}

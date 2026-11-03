@@ -7,8 +7,8 @@
   {{if eq .Kind "plan_review"}}<pre class="outline">{{outline .Payload}}</pre>{{end}}
   {{if .AllowFreeText}}<textarea data-bind="ans{{.ID}}" rows="3" placeholder="Reply / feedback"></textarea>{{end}}
   <div class="actions wrap">
-    {{$id := .ID}}{{range .Options}}<button class="btn{{if or (eq .Value "accept") (eq .Value "approve") (eq .Value "yes")}} primary{{end}}" title="{{.Description}}" data-on-click="@post('/ui/act/answer?id={{$id}}&amp;value={{.Value}}')">{{.Label}}</button>{{end}}
-    {{if and .AllowFreeText (not .Options)}}<button class="btn primary" data-on-click="@post('/ui/act/answer?id={{$id}}')">Send</button>{{end}}
+    {{$id := .ID}}{{range .Options}}<button class="btn{{if or (eq .Value "accept") (eq .Value "approve") (eq .Value "yes")}} primary{{end}}" title="{{.Description}}" data-on:click="@post('/ui/act/answer?id={{$id}}&amp;value={{.Value}}')">{{.Label}}</button>{{end}}
+    {{if and .AllowFreeText (not .Options)}}<button class="btn primary" data-on:click="@post('/ui/act/answer?id={{$id}}')">Send</button>{{end}}
   </div>
 </section>{{end}}
 {{if .PRs}}<h2 class="section">Open pull requests</h2>{{end}}
@@ -19,9 +19,9 @@
   {{if $p.ReviewSummaryMd}}<details><summary>Review</summary><div class="prose">{{md $p.ReviewSummaryMd}}</div></details>{{end}}
   <textarea data-bind="pr{{$p.ID}}" rows="2" placeholder="What should change? (for Request changes)"></textarea>
   <div class="actions wrap">
-    <button class="btn primary" data-on-click="confirm('Approve and merge?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=approve')">Approve &amp; merge</button>
-    <button class="btn" data-on-click="@post('/ui/act/pr?id={{$p.ID}}&amp;op=request-changes')">Request changes</button>
-    <button class="btn danger" data-on-click="confirm('Close without merging?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=close')">Close</button>
+    <button class="btn primary" data-on:click="confirm('Approve and merge?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=approve')">Approve &amp; merge</button>
+    <button class="btn" data-on:click="@post('/ui/act/pr?id={{$p.ID}}&amp;op=request-changes')">Request changes</button>
+    <button class="btn danger" data-on:click="confirm('Close without merging?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=close')">Close</button>
   </div>
 </section>{{end}}
 {{end}}
@@ -58,7 +58,7 @@
   <h3>Runner templates</h3>
   {{range .Templates}}<div class="row"><b>{{.Name}}</b> <span class="dim">v{{.Version}} · ≥{{.MinVcpu}} vCPU · ≥{{.MinRamMib}} MiB · ≥{{.MinDiskGib}} GiB</span><span class="grow"></span>
     <a class="btn small" href="/settings/templates/{{.Name}}">Edit</a>
-    <button class="btn small" data-on-click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
+    <button class="btn small" data-on:click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
   {{else}}<p class="empty">No templates. Create one with <code>wrangl template create</code>.</p>{{end}}
 </section>
 <p class="dim small center">wrangl · <a href="/api/v1/events">event stream</a></p>

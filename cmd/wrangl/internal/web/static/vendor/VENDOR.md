@@ -4,7 +4,7 @@ Served from the binary (go:embed) so the PWA needs no CDN behind Cloudflare Acce
 
 | File | Package | sha256 |
 |---|---|---|
-| datastar-1.0.0-beta.11.js | @starfederation/datastar 1.0.0-beta.11 | fc47d2b4cfea9e6cdc93d287a0db38b2e894d813aa1e892e11de1be526620372 |
+| datastar-1.0.4.js | Datastar 1.0.4 (starfederation/datastar, bundles/datastar.js via cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4; the npm package stops at beta.11) | 727844adfc825ee651fb93c544a2a739986f9a21820a94524b35f0cac470cf91 |
 | sortable-1.15.7.min.js | sortablejs 1.15.7 | bf4241bc73fef7f11c59a283a69fe8051cdd31c6d8ff5a2b9ba219e7831fcf76 |
 | xterm-6.0.0.js | @xterm/xterm 6.0.0 | 14903579ff54664cd72f8e8699e6961a6272c21863ec1c3b118cdc8af5d4a972 |
 | xterm-addon-fit-0.11.0.js | @xterm/addon-fit 0.11.0 | ba3ea256ce0620a0992a197d6c9baea64823fc93d8da07a9e366ca9943c18527 |
@@ -25,9 +25,9 @@ Icons: nine Font Awesome Free 6.5.2 solid SVGs (play, pen-to-square, code-branch
 
 ## Web terminal (wterm)
 
-wterm 0.5.7 (@wterm/dom + @wterm/core; Apache-2.0; https://github.com/vercel-labs/wterm), fetched from the npm registry on 2026-11-03. The JS is `esbuild --bundle --minify --format=iife --target=es2020` of `import * as wterm from "@wterm/dom"; window.wterm = wterm;` (its WASM core is inlined as base64, so no separate .wasm is served). The CSS is the package's unmodified `src/terminal.css`; the wrangl theme lives in `static/term.css`.
+wterm 0.5.8 (@wterm/dom + @wterm/core; Apache-2.0; https://github.com/vercel-labs/wterm), fetched from the npm registry on 2026-11-03. The JS is `esbuild --bundle --minify --format=iife --target=es2020` of `import * as wterm from "@wterm/dom"; window.wterm = wterm;` (its WASM core is inlined as base64, so no separate .wasm is served). The CSS is the package's unmodified `src/terminal.css`; the wrangl theme lives in `static/term.css`.
 
 | File | sha256 |
 |---|---|
-| wterm-0.5.7.js | 5aed3b36eed47d1ec1c4e6696a1e509aae5e74fad4493a7ef29b693c6d402281 |
-| wterm-0.5.7.css | d6963992474bef69242dd4e3b130619840c7954f34e8dbaa1f6d0035910bdd1b |
+| wterm-0.5.8.js | 49fdb877753608a01afaae33542ffdfd2dc3c82060585c7f2dc838e3f2a3264b |
+| wterm-0.5.8.css | d6963992474bef69242dd4e3b130619840c7954f34e8dbaa1f6d0035910bdd1b |

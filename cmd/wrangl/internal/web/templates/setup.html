@@ -8,17 +8,17 @@
 <section class="card">
   <h3>GitHub accounts</h3>
   <p class="hint">A GitHub App has to be created in the account that owns the repositories, so each account you work in (your own, and any organisation) has its own wrangl App. Repositories you can link come from these accounts. For an organisation you must be an owner of it to create the App.</p>
-  <form class="addacct" data-signals-acctlogin="{{json .Suggest}}" data-signals-acctkind="'user'" onsubmit="return false">
+  <form class="addacct" data-signals:acctlogin="{{json .Suggest}}" data-signals:acctkind="'user'" onsubmit="return false">
     <label>Account name<input data-bind="acctlogin" placeholder="njreid or my-org" autocapitalize="off" autocomplete="off"></label>
     <label>Kind<select data-bind="acctkind"><option value="user">Personal account</option><option value="org">Organisation</option></select></label>
-    <button class="btn primary" type="button" data-on-click="@post('/ui/act/account-add?back={{q .Back}}')">Add account</button>
+    <button class="btn primary" type="button" data-on:click="@post('/ui/act/account-add?back={{q .Back}}')">Add account</button>
   </form>
 </section>
 
 {{range .Accounts}}<section class="card gh-account{{if .Focus}} focus{{end}}" id="acct-{{.Login}}">
   <div class="row"><h3>{{.Login}}</h3><span class="pill">{{if eq .Kind "org"}}organisation{{else}}personal{{end}}</span><span class="grow"></span>
     {{if .App}}<span class="tag ok">✓ App ready</span>{{else}}<span class="tag attn">! no App yet</span>{{end}}
-    <button class="btn small danger" data-on-click="confirm('Unlink {{.Login}}? Its repositories stop working until you add it again.') && @post('/ui/act/account-remove?login={{.Login}}')">Remove</button></div>
+    <button class="btn small danger" data-on:click="confirm('Unlink {{.Login}}? Its repositories stop working until you add it again.') && @post('/ui/act/account-remove?login={{.Login}}')">Remove</button></div>
   {{if .App}}
   <dl class="kv"><dt>App</dt><dd><a href="{{.App.HTMLURL}}" target="_blank" rel="noopener">{{.App.Slug}}</a> <code class="sqid">{{.App.ID}}</code></dd></dl>
   <div class="actions wrap"><a class="btn primary" href="{{.App.InstallURL}}" target="_blank" rel="noopener">Install on repositories</a><a class="btn" href="{{.InstallationsURL}}" target="_blank" rel="noopener">Manage access</a></div>

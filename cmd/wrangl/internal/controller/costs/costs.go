@@ -111,6 +111,58 @@ type TopCost struct {
 	Name    string  `json:"name"`    // resource id, or the service name when only service data exists
 	Service string  `json:"service"` // AWS service
 	USD     float64 `json:"usd"`
+	// Parts breaks a service down by usage type (only "EC2 - Other", which hides EBS, NAT,
+	// public IPv4 addresses and data transfer behind one name).
+	Parts []Part `json:"parts,omitempty"`
+}
+
+// Part is one usage type within a service.
+type Part struct {
+	Label string  `json:"label"`
+	Usage string  `json:"usage"` // AWS usage type, e.g. USE1-NatGateway-Hours
+	USD   float64 `json:"usd"`
+}
+
+const ec2Other = "EC2 - Other"
+
+// usageLabel turns an EC2 - Other usage type into words. AWS prefixes usage types with the
+// region ("USE1-"); the rest is matched on the part that says what is being paid for.
+func usageLabel(u string) string {
+	t := u
+	if i := strings.Index(t, "-"); i > 0 && i <= 5 && strings.ToUpper(t[:i]) == t[:i] {
+		t = t[i+1:]
+	}
+	switch {
+	case strings.HasPrefix(t, "EBS:VolumeUsage"):
+		return "EBS volumes (" + strings.TrimPrefix(strings.TrimPrefix(t, "EBS:VolumeUsage"), ".") + ")"
+	case strings.HasPrefix(t, "EBS:SnapshotUsage"):
+		return "EBS snapshots"
+	case strings.HasPrefix(t, "EBS:VolumeP-IOPS"):
+		return "EBS provisioned IOPS"
+	case strings.HasPrefix(t, "EBS:VolumeP-Throughput"):
+		return "EBS provisioned throughput"
+	case strings.HasPrefix(t, "NatGateway-Hours"):
+		return "NAT gateway hours"
+	case strings.HasPrefix(t, "NatGateway-Bytes"):
+		return "NAT gateway data processed"
+	case strings.Contains(t, "PublicIPv4:InUseAddress"):
+		return "Public IPv4 addresses (in use)"
+	case strings.Contains(t, "PublicIPv4:IdleAddress"):
+		return "Public IPv4 addresses (idle: not attached)"
+	case strings.Contains(t, "ElasticIP:IdleAddress"):
+		return "Elastic IPs (idle: not attached)"
+	case strings.Contains(t, "DataTransfer-Out"):
+		return "Data transfer out to the internet"
+	case strings.Contains(t, "DataTransfer-Regional"):
+		return "Data transfer between AZs"
+	case strings.Contains(t, "DataTransfer"):
+		return "Data transfer"
+	case strings.Contains(t, "VpcEndpoint"):
+		return "VPC endpoint"
+	case strings.Contains(t, "LoadBalancer"):
+		return "Load balancer"
+	}
+	return u
 }
 
 // TopCosts is the ten most expensive non-instance things in the account. Resource-level data
@@ -278,7 +330,7 @@ func (s *Service) topCosts(ctx context.Context) TopCosts {
 		}
 	}
 	if rerr == nil {
-		return TopCosts{Items: top(res, true), Resources: true, Period: "last 14 days"}
+		return TopCosts{Items: s.withParts(ctx, top(res, true), now), Resources: true, Period: "last 14 days"}
 	}
 
 	// Fall back to services, month to date.
@@ -302,8 +354,53 @@ func (s *Service) topCosts(ctx context.Context) TopCosts {
 			sum(svcs, g.Keys, g.Metrics["UnblendedCost"].Amount)
 		}
 	}
-	return TopCosts{Items: top(svcs, false), Period: "month to date",
+	return TopCosts{Items: s.withParts(ctx, top(svcs, false), now), Period: "month to date",
 		Note: "Per-resource costs are not available (" + shortErr(rerr) + "). Turn on resource-level data in Cost Explorer > Preferences to see individual resources."}
+}
+
+// withParts breaks "EC2 - Other" down by usage type, month to date (one more Cost Explorer
+// request, only when that service is in the list).
+func (s *Service) withParts(ctx context.Context, items []TopCost, now time.Time) []TopCost {
+	for i := range items {
+		if items[i].Service != ec2Other {
+			continue
+		}
+		first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		if !now.After(first.Add(24 * time.Hour)) {
+			first = first.AddDate(0, -1, 0)
+		}
+		out, err := s.Cost.GetCostAndUsage(ctx, &costexplorer.GetCostAndUsageInput{
+			TimePeriod:  &cetypes.DateInterval{Start: aws.String(first.Format("2006-01-02")), End: aws.String(now.AddDate(0, 0, 1).Format("2006-01-02"))},
+			Granularity: cetypes.GranularityMonthly,
+			Metrics:     []string{"UnblendedCost"},
+			Filter:      &cetypes.Expression{Dimensions: &cetypes.DimensionValues{Key: cetypes.DimensionService, Values: []string{ec2Other}}},
+			GroupBy:     []cetypes.GroupDefinition{{Type: cetypes.GroupDefinitionTypeDimension, Key: aws.String("USAGE_TYPE")}},
+		})
+		if err != nil {
+			s.Log.Warn("ec2-other breakdown", "err", err)
+			return items
+		}
+		byLabel := map[string]*Part{}
+		for _, r := range out.ResultsByTime {
+			for _, g := range r.Groups {
+				v, _ := strconv.ParseFloat(aws.ToString(g.Metrics["UnblendedCost"].Amount), 64)
+				if v < 0.005 || len(g.Keys) == 0 {
+					continue
+				}
+				lbl := usageLabel(g.Keys[0])
+				if p := byLabel[lbl]; p != nil {
+					p.USD += v
+				} else {
+					byLabel[lbl] = &Part{Label: lbl, Usage: g.Keys[0], USD: v}
+				}
+			}
+		}
+		for _, p := range byLabel {
+			items[i].Parts = append(items[i].Parts, *p)
+		}
+		sort.Slice(items[i].Parts, func(a, b int) bool { return items[i].Parts[a].USD > items[i].Parts[b].USD })
+	}
+	return items
 }
 
 func shortErr(err error) string {
