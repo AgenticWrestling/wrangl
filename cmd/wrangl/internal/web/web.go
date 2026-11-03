@@ -129,6 +129,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	for _, f := range []string{"sw.js", "manifest.webmanifest"} {
 		f := f
 		mux.HandleFunc("GET /"+f, func(w http.ResponseWriter, r *http.Request) {
+			if f == "manifest.webmanifest" {
+				w.Header().Set("Content-Type", "application/manifest+json")
+			}
 			if f == "sw.js" {
 				w.Header().Set("Service-Worker-Allowed", "/")
 			}
