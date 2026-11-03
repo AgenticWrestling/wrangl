@@ -336,4 +336,5 @@ type TaskThread struct {
 	Status    string        `json:"status"`
 	SessionID string        `json:"session_id"`
 	Proposals string        `json:"proposals"`
+	Rev       string        `json:"rev"`
 }

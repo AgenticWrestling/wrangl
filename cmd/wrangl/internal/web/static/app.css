@@ -324,3 +324,9 @@ table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 .thread .prop.error{border-color:var(--danger,#c44)}
 .thread .reply{display:flex;gap:.5rem;align-items:flex-end;margin-top:.6rem}
 .thread .reply textarea{flex:1;min-width:0}
+
+/* brand mark: always on the dark tile it was drawn for, so it reads in the light theme too */
+.brand { display: inline-flex; flex: none; padding: 2px; border-radius: 8px; background: #0f1115; line-height: 0; }
+.brand img { display: block; }
+.about { text-align: center; padding: 8px 0 0; }
+.about img { width: min(280px, 70%); height: auto; background: #0f1115; border-radius: 16px; padding: 12px 12px 4px; }

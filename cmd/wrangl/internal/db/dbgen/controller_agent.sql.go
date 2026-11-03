@@ -160,7 +160,7 @@ func (q *Queries) GetControllerAgentByName(ctx context.Context, name string) (Co
 }
 
 const getThreadMessage = `-- name: GetThreadMessage :one
-SELECT id, task_id, at, role, body, agent_id, status, session_id, proposals FROM task_thread WHERE id = ?
+SELECT id, task_id, at, role, body, agent_id, status, session_id, proposals, rev FROM task_thread WHERE id = ?
 `
 
 func (q *Queries) GetThreadMessage(ctx context.Context, id int64) (TaskThread, error) {
@@ -176,6 +176,7 @@ func (q *Queries) GetThreadMessage(ctx context.Context, id int64) (TaskThread, e
 		&i.Status,
 		&i.SessionID,
 		&i.Proposals,
+		&i.Rev,
 	)
 	return i, err
 }
@@ -221,7 +222,7 @@ func (q *Queries) ListControllerAgents(ctx context.Context) ([]ControllerAgent, 
 }
 
 const listThread = `-- name: ListThread :many
-SELECT id, task_id, at, role, body, agent_id, status, session_id, proposals FROM task_thread WHERE task_id = ? ORDER BY id
+SELECT id, task_id, at, role, body, agent_id, status, session_id, proposals, rev FROM task_thread WHERE task_id = ? ORDER BY id
 `
 
 func (q *Queries) ListThread(ctx context.Context, taskID int64) ([]TaskThread, error) {
@@ -243,6 +244,7 @@ func (q *Queries) ListThread(ctx context.Context, taskID int64) ([]TaskThread, e
 			&i.Status,
 			&i.SessionID,
 			&i.Proposals,
+			&i.Rev,
 		); err != nil {
 			return nil, err
 		}
@@ -278,6 +280,37 @@ type SetThreadProposalsParams struct {
 func (q *Queries) SetThreadProposals(ctx context.Context, arg SetThreadProposalsParams) error {
 	_, err := q.db.ExecContext(ctx, setThreadProposals, arg.Proposals, arg.ID)
 	return err
+}
+
+const setThreadRev = `-- name: SetThreadRev :exec
+UPDATE task_thread SET rev = ? WHERE id = ?
+`
+
+type SetThreadRevParams struct {
+	Rev string `json:"rev"`
+	ID  int64  `json:"id"`
+}
+
+func (q *Queries) SetThreadRev(ctx context.Context, arg SetThreadRevParams) error {
+	_, err := q.db.ExecContext(ctx, setThreadRev, arg.Rev, arg.ID)
+	return err
+}
+
+const subtreeRev = `-- name: SubtreeRev :one
+WITH RECURSIVE sub (id) AS (
+    SELECT t.id FROM task t WHERE t.id = ?1
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT CAST(COUNT(*) || ':' || COALESCE(MAX(task.updated_at), '') || ':' || COALESCE(SUM(task.parent_id), 0) AS TEXT) AS rev
+FROM sub JOIN task ON task.id = sub.id
+`
+
+func (q *Queries) SubtreeRev(ctx context.Context, rootID int64) (string, error) {
+	row := q.db.QueryRowContext(ctx, subtreeRev, rootID)
+	var rev string
+	err := row.Scan(&rev)
+	return rev, err
 }
 
 const threadSession = `-- name: ThreadSession :one

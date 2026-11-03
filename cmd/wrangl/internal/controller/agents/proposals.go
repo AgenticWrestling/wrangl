@@ -101,6 +101,9 @@ func (s *Service) Apply(ctx context.Context, msgID int64, n int) error {
 	if err != nil {
 		return err
 	}
+	if cur, err := s.DB.RQ.SubtreeRev(ctx, m.TaskID); err == nil && m.Rev != "" && cur != m.Rev {
+		return fmt.Errorf("%w: the tasks changed since this was suggested; ask again", errs.Conflict)
+	}
 	proj, _ := s.DB.RQ.GetProject(ctx, task.ProjectID)
 	res, err := s.run(ctx, ps[n], proj.Slug)
 	if err != nil {
@@ -111,6 +114,9 @@ func (s *Service) Apply(ctx context.Context, msgID int64, n int) error {
 	b, _ := json.Marshal(ps)
 	if e := s.DB.Q.SetThreadProposals(ctx, dbgen.SetThreadProposalsParams{ID: msgID, Proposals: string(b)}); e != nil {
 		return e
+	}
+	if err == nil { // our own change must not expire the sibling options
+		s.stamp(ctx, m.TaskID, msgID)
 	}
 	s.Bus.Publish("thread", task.Sqid.String)
 	s.Bus.Publish("task", task.Sqid.String)

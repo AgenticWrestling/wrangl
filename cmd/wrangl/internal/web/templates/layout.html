@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>{{.Title}} · wrangl</title>
 <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/icons/64.png" type="image/png" sizes="64x64">
 <link rel="apple-touch-icon" href="/icons/180.png">
 <link rel="stylesheet" href="/static/app.css">
 <link rel="stylesheet" href="/static/chroma.css">
@@ -51,6 +51,7 @@
 </svg>
 <header class="top">
   {{if ne .View "backlog"}}<button class="back" onclick="history.length > 1 ? history.back() : location.assign('/backlog')" aria-label="Back">‹</button>{{end}}
+  <a class="brand" href="/backlog" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="28" height="28"></a>
   <h1>{{.Title}}</h1>
 </header>
 <div id="detail-sheets"></div>

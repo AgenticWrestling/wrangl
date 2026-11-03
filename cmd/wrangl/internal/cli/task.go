@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -427,8 +429,37 @@ func taskCmd(g *Global) *cobra.Command {
 				if m.Status == "running" {
 					body = "(thinking…)"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s:\n%s\n\n", m.At, m.Role, body)
+				fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s (message %d):\n%s\n", m.At, m.Role, m.ID, body)
+				var props []struct{ Label, Action, State, Result string }
+				json.Unmarshal([]byte(m.Proposals), &props)
+				for i, p := range props {
+					st := "approve with: wrangl task apply " + fmt.Sprint(m.ID, " ", i)
+					if p.State != "" {
+						st = p.State + ": " + p.Result
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  [%d] %s (%s) - %s\n", i, p.Label, p.Action, st)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
 			}
+			return nil
+		},
+	}
+	apply := &cobra.Command{
+		Use: "apply <message-id> <n>", Short: "Approve proposal n (0-based) from `task thread`", Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			id, e1 := strconv.ParseInt(args[0], 10, 64)
+			n, e2 := strconv.Atoi(args[1])
+			if e1 != nil || e2 != nil {
+				return fmt.Errorf("message id and n must be numbers")
+			}
+			if err := c.ApplyProposal(cmd.Context(), id, n); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "applied")
 			return nil
 		},
 	}
@@ -458,7 +489,7 @@ func taskCmd(g *Global) *cobra.Command {
 		},
 	}
 	return group("task", "Manage the hierarchical work stack",
-		create, tree, list, show, edit, move, needs, split, queue, ask, thread,
+		create, tree, list, show, edit, move, needs, split, queue, ask, thread, apply,
 		action("complete", "Mark a leaf done (finished and merged)"),
 		action("reopen", "Reopen a leaf"),
 		action("cancel", "Cancel a task and its unfinished subtasks"),

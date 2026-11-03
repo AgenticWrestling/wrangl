@@ -82,6 +82,7 @@
     <button class="btn small" data-on:click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
   {{else}}<p class="empty">No templates. Create one with <code>wrangl template create</code>.</p>{{end}}
 </section>
+<div class="about"><img src="/static/logo.png" alt="wrangl, metaharness orchestrator" width="280" height="305"></div>
 <p class="dim small center">wrangl · <a href="/api/v1/events">event stream</a></p>
 {{end}}
 

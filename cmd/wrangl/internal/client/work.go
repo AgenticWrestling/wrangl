@@ -342,6 +342,13 @@ type ThreadMessage struct {
 	Role   string `json:"role"`
 	Body   string `json:"body"`
 	Status string `json:"status"`
+	// Proposals is a JSON array of {label, description, action, state, result}.
+	Proposals string `json:"proposals"`
+}
+
+// ApplyProposal approves proposal n (0-based) of a thread message.
+func (c *Client) ApplyProposal(ctx context.Context, msgID int64, n int) error {
+	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/thread/%d/apply/%d", msgID, n), nil, nil)
 }
 
 // AskTask asks a controller agent (agent "" = the default) about a task and its subtree.

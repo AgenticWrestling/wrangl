@@ -216,3 +216,20 @@ func TestProposalApply(t *testing.T) {
 		t.Fatalf("range: %v", err)
 	}
 }
+
+func TestProposalGoesStale(t *testing.T) {
+	s, root, _ := setup(t)
+	ctx := context.Background()
+	s.Exec = func(context.Context, Spec) (Result, error) {
+		return Result{Text: "x\n```wrangl-proposals\n[{\"label\":\"Reopen\",\"action\":\"task.reopen\",\"args\":{\"sqid\":\"" + root + "\"}}]\n```"}, nil
+	}
+	s.Ask(ctx, root, "", "q")
+	msg := waitDone(t, s, root)[1]
+	time.Sleep(20 * time.Millisecond) // the rev stamp follows the finish
+	if _, err := s.Stack.Create(ctx, stack.CreateParams{Project: "p", Parent: root, Title: "Surprise", Actor: stack.User}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(ctx, msg.ID, 0); !errors.Is(err, errs.Conflict) || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("stale: %v", err)
+	}
+}

@@ -126,7 +126,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		}
 		fileSrv.ServeHTTP(w, r)
 	})))
-	for _, f := range []string{"sw.js", "manifest.webmanifest", "icon.svg"} {
+	for _, f := range []string{"sw.js", "manifest.webmanifest"} {
 		f := f
 		mux.HandleFunc("GET /"+f, func(w http.ResponseWriter, r *http.Request) {
 			if f == "sw.js" {

@@ -85,6 +85,16 @@ var (
 
 // icon serves /icon-<size>.png: a generated PNG (installable PWAs on iOS want raster icons).
 func (h *Handler) icon(w http.ResponseWriter, r *http.Request) {
+	// the brand icons are pre-rendered (docs/brand/make-logo.py); other sizes fall back to the
+	// drawn ring so old links keep working.
+	if name := r.PathValue("size"); strings.HasSuffix(name, ".png") && !strings.ContainsAny(name, "/\\") {
+		if b, err := assets.ReadFile("static/icons/" + name); err == nil {
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write(b)
+			return
+		}
+	}
 	size, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("size"), ".png"))
 	if err != nil || size < 16 || size > 1024 {
 		http.NotFound(w, r)

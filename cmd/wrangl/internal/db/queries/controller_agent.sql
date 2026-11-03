@@ -47,3 +47,15 @@ SELECT session_id FROM task_thread WHERE task_id = ? AND agent_id = ? AND sessio
 
 -- name: FailRunningThreadMessages :exec
 UPDATE task_thread SET status = 'error', body = 'The controller restarted before this finished.' WHERE status = 'running';
+
+-- name: SubtreeRev :one
+WITH RECURSIVE sub (id) AS (
+    SELECT t.id FROM task t WHERE t.id = sqlc.arg(root_id)
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT CAST(COUNT(*) || ':' || COALESCE(MAX(task.updated_at), '') || ':' || COALESCE(SUM(task.parent_id), 0) AS TEXT) AS rev
+FROM sub JOIN task ON task.id = sub.id;
+
+-- name: SetThreadRev :exec
+UPDATE task_thread SET rev = ? WHERE id = ?;

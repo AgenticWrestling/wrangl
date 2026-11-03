@@ -106,7 +106,7 @@ func (s *Service) Ask(ctx context.Context, sqid, agentName, question string) (db
 		return dbgen.TaskThread{}, err
 	}
 	s.Bus.Publish("thread", sqid)
-	go s.answer(context.WithoutCancel(ctx), sqid, aid, ag, session, brief+"\n\n## Question\n\n"+question)
+	go s.answer(context.WithoutCancel(ctx), sqid, t.ID, aid, ag, session, brief+"\n\n## Question\n\n"+question)
 	return dbgen.TaskThread{ID: aid, TaskID: t.ID, Role: "agent", Status: "running"}, nil
 }
 
@@ -127,7 +127,7 @@ func (s *Service) agent(ctx context.Context, name string) (dbgen.ControllerAgent
 	return ag, err
 }
 
-func (s *Service) answer(ctx context.Context, sqid string, msgID int64, ag dbgen.ControllerAgent, session, prompt string) {
+func (s *Service) answer(ctx context.Context, sqid string, taskID, msgID int64, ag dbgen.ControllerAgent, session, prompt string) {
 	defer s.Bus.Publish("thread", sqid)
 	select { // wait for a slot, but not forever
 	case s.slots() <- struct{}{}:
@@ -174,6 +174,9 @@ func (s *Service) answer(ctx context.Context, sqid string, msgID int64, ag dbgen
 	}
 	text, props := extractProposals(res.Text)
 	s.finish(ctx, msgID, text, "done", res.SessionID, props...)
+	if len(props) > 0 {
+		s.stamp(ctx, taskID, msgID)
+	}
 }
 
 func (s *Service) finish(ctx context.Context, id int64, body, status, session string, props ...Proposal) {
@@ -400,3 +403,10 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 }
 
 var regexpName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+// stamp records the focus task's current subtree fingerprint on a message.
+func (s *Service) stamp(ctx context.Context, taskID, msgID int64) {
+	if rev, err := s.DB.RQ.SubtreeRev(ctx, taskID); err == nil {
+		s.DB.Q.SetThreadRev(ctx, dbgen.SetThreadRevParams{ID: msgID, Rev: rev})
+	}
+}
