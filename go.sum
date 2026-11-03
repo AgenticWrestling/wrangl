@@ -26,6 +26,8 @@ github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.8 h1:WOp5De9iWdEHDPh2Kb0tBP3vGBm/
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.8/go.mod h1:z8W8YgfhbWl62XqcTtK+CxPrE+iHGRVUOtrrbIOp7ZY=
 github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.78.0 h1:6r+3E3bDRGiPm2x5t0eKy5jkAtWtgpwdCHi2dMaZy1c=
 github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.78.0/go.mod h1:N336OxQ6TvRbb6V1esVE8PtQFU86YvYaS+lVjsJTmP0=
+github.com/aws/aws-sdk-go-v2/service/costexplorer v1.74.5 h1:yoMP1GeXqKuEcbe2V/hrLYFANnx8Ypx83NSR6e2u0BA=
+github.com/aws/aws-sdk-go-v2/service/costexplorer v1.74.5/go.mod h1:aYP4DYWZpu+W9v0Izt9D/nLllZ95eeG5b5FEQmVIpMU=
 github.com/aws/aws-sdk-go-v2/service/ec2 v1.343.0 h1:pOxNUJbUOy779gx205gEpySpT5fu3B0ifPD8jBxujZI=
 github.com/aws/aws-sdk-go-v2/service/ec2 v1.343.0/go.mod h1:khWfxrzSgMjGMAZIaYAHu3IobEo7KRRNwPYaHb1zpng=
 github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect v1.33.2 h1:s7F6Yy62wans1iw0xuDFoqVNo+it4gCU1/bpfUFl0yk=
@@ -34,6 +36,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.23 h1:MCIR6i
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.23/go.mod h1:pphWFS+z0MmIPivj8c/6bATd1Z+Av7Ust75DPdEFsPA=
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.8 h1:+PMpWlJYOn2tm7sm6OZ/ZLd4jStl17T7wjNapd1Rczs=
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.8/go.mod h1:cnG3xZLGQL4c/bt8pjdzlFtZsW7epBBuNS04a5xMjdo=
+github.com/aws/aws-sdk-go-v2/service/pricing v1.51.2 h1:h30+bVFh3ud8jQtrE+nYkC7uY7G9BQgO8Lhn08Acpow=
+github.com/aws/aws-sdk-go-v2/service/pricing v1.51.2/go.mod h1:YUM0X2P9g9OuCW3hq1nvek1dd2kmBX4RhOeNdeoTD3g=
 github.com/aws/aws-sdk-go-v2/service/signin v1.12.1 h1:WZLC+k/CZx11kZGQDqu9mpA8yhiXGX2I//jhuJE1FDo=
 github.com/aws/aws-sdk-go-v2/service/signin v1.12.1/go.mod h1:wxAk0D2oVBSjuXEIzvcKxTZfM90zticdAbh/VD42L0Y=
 github.com/aws/aws-sdk-go-v2/service/ssm v1.81.2 h1:GnK/9Xino71FUigioVvDxwa7dhXSsonIsugTSCinZD0=

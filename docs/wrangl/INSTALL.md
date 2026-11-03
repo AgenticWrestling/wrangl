@@ -389,7 +389,7 @@ script), how big the machine must be, and how to start the agent. Save this as
 name: go-claude
 arch: arm64
 min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
-instance_types: [m7g.large, m7g.xlarge]     # optional; omit to pick the smallest shape that fits (no local-NVMe types: im4gn costs ~3x m7g)
+instance_types: [m7g.large, m7g.xlarge]     # optional; omit to pick the smallest shape that fits (no local-NVMe types: im4gn costs ~2x m7g)
 max_runners: 2
 idle_timeout: 30m                           # terminated after this long idle (default 30m)
 setup_script: |                             # runs as root, only when it changes

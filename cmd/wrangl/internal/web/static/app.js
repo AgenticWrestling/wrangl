@@ -245,6 +245,22 @@ document.addEventListener('click', (e) => {
   markFs();
 });
 
+// --- adopt an instance (Runners) ----------------------------------------------------------------
+
+function openAdopt(region, id, arch, name) {
+  window.adoptRegion = region; window.adoptID = id;
+  const nm = document.getElementById('adopt-name'); if (nm) nm.textContent = name;
+  const sel = document.getElementById('adopt-tpl');
+  if (sel) {
+    let first = null;
+    [...sel.options].forEach((o) => { const ok = !arch || o.dataset.arch === arch; o.hidden = o.disabled = !ok; if (ok && !first) first = o; });
+    if (first) { sel.value = first.value; sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  }
+  const res = document.getElementById('adopt-result'); if (res) res.innerHTML = '';
+  openSheet('sheet-adopt');
+}
+window.openAdopt = openAdopt;
+
 // --- boot --------------------------------------------------------------------------------
 
 function boot() {

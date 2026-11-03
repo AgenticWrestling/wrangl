@@ -10,6 +10,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.78.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.343.0
 	github.com/aws/aws-sdk-go-v2/service/ec2instanceconnect v1.33.2
+	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.74.5
+	github.com/aws/aws-sdk-go-v2/service/pricing v1.51.2
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.81.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.6
 	github.com/charmbracelet/bubbletea v1.3.10

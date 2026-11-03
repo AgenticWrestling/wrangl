@@ -77,6 +77,8 @@ func New(d api.Deps) (*Handler, error) {
 		"json":  func(v any) template.JS { b, _ := json.Marshal(v); return template.JS(b) },
 		"q":     url.QueryEscape,
 		"add":   func(a, b int) int { return a + b },
+		"usd":   func(v float64) string { return fmt.Sprintf("$%.2f", v) },
+		"usdh":  func(v float64) string { return fmt.Sprintf("$%.3f", v) },
 		"pctof": func(a, b int64) int64 {
 			if b == 0 {
 				return 0
@@ -520,6 +522,26 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			return cards[i].R.Launched == 0 && cards[j].R.Launched != 0
 		})
 		d["Cards"] = cards
+		if h.D.Costs != nil {
+			snap := h.D.Costs.Cached()
+			known := map[string]bool{}
+			for _, c := range cards {
+				if c.R.InstanceID.Valid && c.R.State != "terminated" {
+					known[c.R.InstanceID.String] = true
+				}
+			}
+			d["Spend"], d["SpendAsOf"], d["SpendErrors"] = snap.Summary, snap.AsOf, snap.Errors
+			others := api.OtherInstances(snap, known)
+			d["Others"] = others
+			var otherHourly float64
+			for _, o := range others {
+				if o.State == "running" && o.PriceKnown {
+					otherHourly += o.HourlyUSD
+				}
+			}
+			d["OtherHourly"] = otherHourly
+			d["Templates2"], _ = db.RQ.ListTemplates(ctx)
+		}
 		demand, _ := db.RQ.TemplateDemand(ctx)
 		d["Demand"], d["Title"] = demand, "Runners"
 	case "runner":
@@ -838,6 +860,17 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	case "task-plan":
 		_, err = h.D.Plans.Queue(ctx, sqid, str("guidance"))
 		msg = "planning… the proposal will arrive in Inbox"
+	case "instance-adopt":
+		var res *api.AdoptResult
+		res, err = api.Adopt(ctx, h.D, q.Get("region"), q.Get("iid"), str("adopttpl"))
+		if err == nil {
+			note := ""
+			if !res.Reachable {
+				note = `<p class="warn">` + template.HTMLEscapeString(res.Note) + `</p>`
+			}
+			mergeFragments(w, `<div id="adopt-result" class="adopt-result"><p>Run this on the instance (it needs the wrangl binary, from <code>`+template.HTMLEscapeString(res.Binary)+`</code>, and the token works once for 30 minutes):</p><pre>`+template.HTMLEscapeString(res.Command)+`</pre>`+note+`</div>`)
+			msg = "token created"
+		}
 	case "task-queue":
 		_, err = h.D.Plans.QueueWork(ctx, sqid)
 		msg = "queued"

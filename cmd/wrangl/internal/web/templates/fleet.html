@@ -1,4 +1,16 @@
 {{define "main-runners"}}
+{{if .Spend}}<section class="card spend" aria-label="AWS spend">
+  {{if .SpendAsOf.IsZero}}<p class="dim small">Reading the AWS account…</p>{{else}}
+  <div class="spendgrid">
+    <div><div class="dim small">Running now</div><div class="big">{{usdh .Spend.HourlyUSD}}<span class="dim small">/h</span></div><div class="dim small">{{.Spend.Running}} instance{{if ne .Spend.Running 1}}s{{end}}, all regions{{if .Spend.UnpricedRunning}} · {{.Spend.UnpricedRunning}} unpriced{{end}}</div></div>
+    {{if .Spend.CostAvailable}}
+    <div><div class="dim small">Month to date</div><div class="big">{{usd .Spend.MonthToDateUSD}}</div><div class="dim small">whole account, {{.Spend.Month}}</div></div>
+    <div><div class="dim small">Projected for the month</div><div class="big">{{usd .Spend.ProjectedUSD}}</div><div class="dim small">month to date + forecast ({{usd .Spend.ForecastRestUSD}} to go)</div></div>
+    {{else}}<div class="grow"><div class="dim small">Month to date and projection</div><div class="warn small">{{if .Spend.CostError}}{{.Spend.CostError}}{{else}}not available yet{{end}}</div></div>{{end}}
+  </div>
+  <p class="dim small">Hourly is the on-demand EC2 rate of what is running (storage, transfer and other services not included); the monthly figures are Cost Explorer's, for every resource in the account, refreshed every few hours and up to a day behind.{{range .SpendErrors}} <span class="warn">Could not read {{.}}.</span>{{end}}</p>
+  {{end}}
+</section>{{end}}
 {{if .Demand}}<section class="card"><h3>Templates</h3>
   {{range .Demand}}<div class="row">
     <b>{{.Name}}</b> <span class="dim">v{{.Version}}{{if eq .FailedVersion .Version}} ⚠ apply failed{{end}}</span>
@@ -18,7 +30,34 @@
   {{with .Run}}<div class="row small">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</div>
   {{else}}{{if .R.IdleSince.Valid}}<div class="row small dim">idle since {{ago .R.IdleSince.String}}</div>{{end}}{{end}}
 </a>{{end}}
+{{if .Spend}}{{if not .SpendAsOf.IsZero}}<section class="card others" id="others">
+  <div class="row"><h3>Other instances in this account</h3><span class="grow"></span><span class="dim small">{{len .Others}} · {{usdh .OtherHourly}}/h running · every region</span></div>
+  <p class="hint">Not wrangl runners. Tracked here for cost; a running one can be adopted as a runner.</p>
+  {{range .Others}}<div class="row other st-{{.State}}">
+    <div class="otherid"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b>{{if .Managed}} <span class="pill" title="launched by a wrangl controller, but not a runner of this one">wrangl</span>{{end}}<div class="dim small"><code>{{.ID}}</code> · {{.Region}} · {{.Type}}</div></div>
+    <span class="pill">{{.State}}</span>
+    <span class="grow"></span>
+    <span class="dim small" title="launched {{.LaunchedAt.Format "2006-01-02 15:04"}} UTC">{{ago (.LaunchedAt.Format "2006-01-02T15:04:05.000Z")}}</span>
+    <span class="cost">{{if eq .State "running"}}{{if .PriceKnown}}{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim small" title="indicative rate"> ~</span>{{end}}{{else}}<span class="dim small">no rate</span>{{end}}{{else}}<span class="dim small">no compute cost</span>{{end}}</span>
+    {{if eq .State "running"}}<button type="button" class="btn small" onclick="openAdopt('{{.Region}}','{{.ID}}','{{.Arch}}','{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}')">Adopt…</button>{{end}}
+  </div>{{else}}<p class="empty">No other instances.</p>{{end}}
+</section>{{end}}{{end}}
 {{end}}
+
+{{define "post-runners"}}{{if .Spend}}
+<dialog id="sheet-adopt" class="sheet" data-signals-adopttpl="''">
+  <h2>Adopt <span id="adopt-name"></span></h2>
+  <p class="hint">Turns this running instance into a runner. wrangl creates a one-time token; you run one command on the instance.</p>
+  <label>Runner template
+    <select data-bind="adopttpl" id="adopt-tpl">{{range .Templates2}}<option value="{{.Name}}" data-arch="{{.Arch}}">{{.Name}} ({{.Arch}})</option>{{end}}</select>
+  </label>
+  <p class="hint">Only templates for the instance's architecture can be used.</p>
+  <div id="adopt-result"></div>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Close</button>
+    <button class="btn primary" id="adopt-go" data-on-click="@post('/ui/act/instance-adopt?region='+encodeURIComponent(window.adoptRegion)+'&iid='+encodeURIComponent(window.adoptID))">Create token</button>
+  </div>
+</dialog>{{end}}{{end}}
 
 {{define "main-runner"}}{{$r := .R}}
 <section class="card">

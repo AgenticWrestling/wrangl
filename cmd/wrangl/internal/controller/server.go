@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	"github.com/aws/aws-sdk-go-v2/service/pricing"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/costs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -92,6 +96,7 @@ type Server struct {
 	PRs          *prs.Service
 	Plans        *plans.Service
 	Deliverables *deliverables.Service
+	Costs        *costs.Service // nil without AWS
 	Push         *webpush.Service
 	Bus          *events.Bus
 }
@@ -139,7 +144,32 @@ func (s *Server) awsProvisioner(ctx context.Context, controllerID string) (*prov
 	if err != nil {
 		return nil, fmt.Errorf("aws config: %w", err)
 	}
+	s.Costs = newCosts(ac, s.cfg.AWS.Region, s.log)
 	return &provision.Provisioner{EC2: ec2.NewFromConfig(ac), SSM: ssm.NewFromConfig(ac), ControllerID: controllerID}, nil
+}
+
+// newCosts builds the spend/inventory service from the same credentials. Cost Explorer and the
+// Pricing API are global services served from us-east-1; instances are read in every enabled
+// region.
+func newCosts(ac aws.Config, home string, log *slog.Logger) *costs.Service {
+	in := func(region string) aws.Config { c := ac.Copy(); c.Region = region; return c }
+	return &costs.Service{
+		Pricing: pricing.NewFromConfig(in("us-east-1")),
+		Cost:    costexplorer.NewFromConfig(in("us-east-1")),
+		EC2:     func(region string) costs.EC2API { return ec2.NewFromConfig(in(region)) },
+		Regions: func(ctx context.Context) ([]string, error) {
+			out, err := ec2.NewFromConfig(ac).DescribeRegions(ctx, &ec2.DescribeRegionsInput{})
+			if err != nil {
+				return nil, err
+			}
+			var rs []string
+			for _, r := range out.Regions {
+				rs = append(rs, aws.ToString(r.RegionName))
+			}
+			return rs, nil
+		},
+		Home: home, Log: log,
+	}
 }
 
 // Run starts everything, blocks until ctx is cancelled, then shuts down HTTP, NATS and
@@ -358,7 +388,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
 	}
-	loops.Add(5)
+	loops.Add(6)
 	go func() {
 		defer loops.Done()
 		s.PRs.Reconcile(loopCtx)
@@ -375,6 +405,13 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}()
 	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
 	go func() { defer loops.Done(); s.Deliverables.Loop(loopCtx) }()
+	go func() {
+		defer loops.Done()
+		if s.Costs == nil {
+			return
+		}
+		s.Costs.Loop(loopCtx, time.Minute)
+	}()
 	go func() { defer loops.Done(); sched.Loop(loopCtx, schedInterval) }()
 	go func() {
 		defer loops.Done()
@@ -477,7 +514,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables,
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs,
 		Setup: &ghsetup.Service{DataDir: s.cfg.DataDir, PublicURL: strings.TrimSuffix(s.cfg.Web.PublicURL, "/"),
 			AppName: appName(s.cfg.Cloudflare.OwnerEmail)}}
 	api.Register(mux, deps)
