@@ -108,6 +108,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		Percent                                                                       *int
 		Limit                                                                         *int
 		Type                                                                          string
+		TargetDate                                                                    *string `json:"target_date"`
 		// ask_question
 		DetailMD      string                 `json:"detail_md"`
 		AllowFreeText bool                   `json:"allow_free_text"`
@@ -280,7 +281,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 			return nil, fmt.Errorf("%w: give parent, or project for a top-level task", errs.Invalid)
 		}
 		t, err := s.Stack.Create(ctx, stack.CreateParams{Project: project, Parent: a.Parent, Title: a.Title, Prompt: a.Prompt,
-			Pos: a.Position.pos(), Needs: a.Needs, Type: a.Type, Actor: sc.Actor})
+			Pos: a.Position.pos(), Needs: a.Needs, Type: a.Type, TargetDate: deref(a.TargetDate), Actor: sc.Actor})
 		if err != nil {
 			return nil, err
 		}
@@ -304,7 +305,12 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 				return nil, err
 			}
 		}
-		if title != nil || prompt != nil || a.Type == "" {
+		if a.TargetDate != nil {
+			if t, err = s.Stack.SetTargetDate(ctx, a.Sqid, *a.TargetDate, sc.Actor); err != nil {
+				return nil, err
+			}
+		}
+		if title != nil || prompt != nil || (a.Type == "" && a.TargetDate == nil) {
 			if t, err = s.Stack.Edit(ctx, a.Sqid, title, prompt, sc.Actor); err != nil {
 				return nil, err
 			}
@@ -446,3 +452,10 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 
 // ToolHandler implements a tool owned by another service (submit_review, propose_split).
 type ToolHandler func(ctx context.Context, sc Scope, args json.RawMessage) (any, error)
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

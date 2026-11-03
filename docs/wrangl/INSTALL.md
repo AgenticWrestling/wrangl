@@ -392,10 +392,13 @@ idle_timeout: 30m                           # terminated after this long idle (d
 setup_script: |                             # runs as root, only when it changes
   dnf install -y git make gcc
 mise_toml: |                                # installed for the unprivileged `agent` user
+  [settings]
+  npm.package_manager = "npm"   # mise's default (aube) skips the postinstall that fetches claude's native binary
+
   [tools]
   go = "1.26"
   node = "24"
-  "npm:@anthropic-ai/claude-code" = "latest"
+  "npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }
 agent:
   start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]

@@ -253,6 +253,7 @@ type Task struct {
 	UpdatedAt         string           `json:"updated_at"`
 	CompletedAt       sql.NullString   `json:"completed_at"`
 	TaskType          dbtypes.TaskType `json:"task_type"`
+	TargetDate        sql.NullString   `json:"target_date"`
 }
 
 type TaskDependency struct {

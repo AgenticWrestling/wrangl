@@ -39,3 +39,14 @@ func TestShellPreludeInstallsOnce(t *testing.T) {
 		t.Fatalf("mise calls: %q", calls)
 	}
 }
+
+func TestLookPathIn(t *testing.T) {
+	d := t.TempDir()
+	os.WriteFile(filepath.Join(d, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	if p, ok := lookPathIn("claude", "/nonexistent:"+d); !ok || p != filepath.Join(d, "claude") {
+		t.Fatalf("got %q %v", p, ok)
+	}
+	if _, ok := lookPathIn("nope", d); ok {
+		t.Fatal("found a missing binary")
+	}
+}

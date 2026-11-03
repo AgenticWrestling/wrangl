@@ -123,6 +123,11 @@ WHERE id = sqlc.arg(id) RETURNING *;
 UPDATE task SET task_type = sqlc.arg(task_type), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE id = sqlc.arg(id);
 
+-- name: SetTaskTargetDate :exec
+-- NULL clears it. Dates are YYYY-MM-DD.
+UPDATE task SET target_date = sqlc.narg(target_date), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = sqlc.arg(id);
+
 -- name: MoveTask :exec
 UPDATE task SET parent_id = sqlc.narg(parent_id), rank = sqlc.arg(rank),
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -171,7 +176,7 @@ WITH RECURSIVE sub (id, depth, path) AS (
     SELECT c.id, sub.depth + 1, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
 )
 SELECT task.id, CAST(COALESCE(task.sqid, '') AS TEXT) AS sqid, task.parent_id, task.title, task.state, task.rank,
-       task.repo_id, task.template_id, task.created_by, task.task_type,
+       task.repo_id, task.template_id, task.created_by, task.task_type, task.target_date,
        CAST(sub.depth AS INTEGER) AS depth,
        CAST((SELECT COUNT(*) FROM task_dependency d JOIN task p ON p.id = d.depends_on_id
              WHERE d.task_id = task.id AND p.state <> 'done') AS INTEGER) AS unmet,

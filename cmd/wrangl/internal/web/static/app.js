@@ -151,6 +151,58 @@ async function pushState() {
   st.textContent = sub ? 'Push is on for this device.' : 'Push is off for this device.';
 }
 
+// --- inline task details -------------------------------------------------------------------
+// Clicking a task's title expands its full details and controls under the row (one at a
+// time). The detail box is data-ignore-morph, so the live re-render leaves it alone; it is
+// refreshed here instead, unless you are in the middle of editing it.
+
+let openDetail = null;
+
+function detailBox(sqid) { return document.getElementById('d-' + sqid); }
+
+function closeDetails() {
+  document.querySelectorAll('.detail').forEach((d) => {
+    d.querySelectorAll('dialog[open]').forEach((x) => x.close());
+    d.innerHTML = '';
+    const a = d.parentElement && d.parentElement.querySelector(':scope > .row .title');
+    if (a) a.setAttribute('aria-expanded', 'false');
+  });
+}
+
+async function loadDetail(sqid) {
+  const box = detailBox(sqid);
+  if (!box) { openDetail = null; return; }
+  try {
+    const r = await fetch('/ui/detail?sqid=' + encodeURIComponent(sqid), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error(String(r.status));
+    box.innerHTML = await r.text();
+    const a = box.parentElement.querySelector(':scope > .row .title');
+    if (a) a.setAttribute('aria-expanded', 'true');
+  } catch (_) {
+    box.innerHTML = '';
+    openDetail = null;
+  }
+}
+
+function toggleDetail(sqid, ev) {
+  if (ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button > 0)) return true; // open the page
+  if (ev) ev.preventDefault();
+  const same = openDetail === sqid;
+  closeDetails();
+  openDetail = same ? null : sqid;
+  if (!same) loadDetail(sqid);
+  return false;
+}
+window.toggleDetail = toggleDetail;
+
+function refreshDetail() {
+  if (!openDetail) return;
+  const box = detailBox(openDetail);
+  if (!box) return;
+  if (box.querySelector('dialog[open]') || box.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+  loadDetail(openDetail);
+}
+
 // --- boot --------------------------------------------------------------------------------
 
 function boot() {
@@ -161,8 +213,14 @@ function boot() {
   const main = document.getElementById('main');
   if (main) {
     let t;
-    new MutationObserver(() => { clearTimeout(t); t = setTimeout(initSortables, 50); })
-      .observe(main, { childList: true, subtree: true });
+    let rt;
+    new MutationObserver((muts) => {
+      clearTimeout(t); t = setTimeout(initSortables, 50);
+      // a re-render of the list (not our own fill of a detail box) refreshes the open detail
+      if (openDetail && muts.some((m) => !m.target.closest || !m.target.closest('.detail'))) {
+        clearTimeout(rt); rt = setTimeout(refreshDetail, 400);
+      }
+    }).observe(main, { childList: true, subtree: true });
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
 }

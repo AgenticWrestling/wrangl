@@ -12,12 +12,12 @@ Served from the binary (go:embed) so the PWA needs no CDN behind Cloudflare Acce
 
 ## Fonts
 
-Didact Gothic (SIL Open Font License 1.1), fetched from fonts.gstatic.com (Google Fonts, v21) on 2026-11-02. Only the latin and latin-ext subsets are served.
+Red Hat Display (SIL Open Font License 1.1), variable font (wght 300-900), fetched from fonts.gstatic.com (Google Fonts, v21) on 2026-11-03. Only the latin and latin-ext subsets are served. Replaces Didact Gothic.
 
 | File | sha256 |
 |---|---|
-| fonts/didact-gothic-latin.woff2 | a70246317c186a410244c8947aef7fedc04afe1da634eef3e6b2f37b72d5c627 |
-| fonts/didact-gothic-latin-ext.woff2 | e2466a31de21630a2e8c181b7a919301dcaf4a1410ff9b2e1667639b744f6c20 |
+| fonts/red-hat-display-latin.woff2 | f7a7830b81e351f89b91f0201de71c8d937e25df5a3e31ecca9b4ee877abedb7 |
+| fonts/red-hat-display-latin-ext.woff2 | 500d3bfa4e42db97b676a8f1ae3fea651011fd4b73fee592b80b242353da9ead |
 
 IBM Plex Mono (SIL OFL 1.1), Google Fonts v20, latin subset, fetched 2026-11-02: fonts/ibm-plex-mono-latin.woff2 sha256 08949f728dc52d528e69b1667d15c89a5686a4ee9a296ff90983985f99c380f7
 

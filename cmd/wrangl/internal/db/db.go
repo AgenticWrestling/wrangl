@@ -68,6 +68,15 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		w.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
 	}
+	// Reopen the writer: a migration that edited sqlite_master (00009) leaves the migrating
+	// connection with its pre-edit schema in memory.
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	if w, err = sql.Open("sqlite", dsn(path, true)); err != nil {
+		return nil, err
+	}
+	w.SetMaxOpenConns(1)
 	r, err := sql.Open("sqlite", dsn(path, false))
 	if err != nil {
 		w.Close()

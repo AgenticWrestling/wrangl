@@ -13,18 +13,34 @@ const (
 	TaskCode         TaskType = "code" // the default: change the code
 	TaskUX           TaskType = "ux"
 	TaskArchitecture TaskType = "architecture"
-	TaskSpec         TaskType = "spec" // spec only: no code changes
+	TaskSpec         TaskType = "spec" // deprecated: parses to docs; kept so old rows stay valid
+	TaskBug          TaskType = "bug"
+	TaskResearch     TaskType = "research" // non-code knowledge work: a report with sources
 	TaskDocs         TaskType = "docs"
 	TaskReview       TaskType = "review"
+	// Planning types: they group work rather than being done themselves, and are drawn
+	// bold. A release holds milestones; a milestone holds features and loose tasks; a
+	// feature holds tasks. Nothing enforces that nesting.
+	TaskRelease   TaskType = "release"
+	TaskMilestone TaskType = "milestone"
+	TaskFeature   TaskType = "feature"
 )
 
 // TaskTypes is every type, in display order.
-var TaskTypes = []TaskType{TaskCode, TaskUX, TaskArchitecture, TaskSpec, TaskDocs, TaskReview}
+var TaskTypes = []TaskType{TaskCode, TaskBug, TaskUX, TaskArchitecture, TaskDocs, TaskResearch, TaskReview, TaskRelease, TaskMilestone, TaskFeature}
 
 var taskTypeLabels = map[TaskType]string{
 	TaskCode: "Code", TaskUX: "UX design", TaskArchitecture: "Architecture",
-	TaskSpec: "Spec only", TaskDocs: "Docs update", TaskReview: "Code review",
+	TaskSpec: "Docs", TaskDocs: "Docs", TaskBug: "Bug fix", TaskResearch: "Research", TaskReview: "Code review",
+	TaskRelease: "Release", TaskMilestone: "Milestone", TaskFeature: "Feature",
 }
+
+// OwnerGate reports whether a pull request for a task of this type always waits for the
+// owner, however the project's auto-merge is set: designs and decisions are judgment calls.
+func (t TaskType) OwnerGate() bool { return t == TaskUX || t == TaskArchitecture }
+
+// Planning reports whether t is a release, milestone or feature.
+func (t TaskType) Planning() bool { return t == TaskRelease || t == TaskMilestone || t == TaskFeature }
 
 // Label is the human name.
 func (t TaskType) Label() string { return taskTypeLabels[t] }
@@ -38,25 +54,36 @@ func ParseTaskType(s string) (TaskType, error) {
 		return TaskCode, nil
 	}
 	t := TaskType(s)
+	if t == TaskSpec {
+		return TaskDocs, nil
+	}
 	if !t.Valid() {
-		return "", fmt.Errorf("task type %q: want one of code, ux, architecture, spec, docs, review", s)
+		return "", fmt.Errorf("task type %q: want one of code, bug, ux, architecture, docs, research, review, release, milestone, feature", s)
 	}
 	return t, nil
 }
 
-// Guidance is the line added to an agent's prompt for this type ("" for code).
+// Guidance is the block added to an agent's prompt for this type ("" for code).
 func (t TaskType) Guidance() string {
 	switch t {
+	case TaskBug:
+		return "This is a bug fix. First reproduce the defect and write a failing test that captures it; then fix the cause (not the symptom) and show the test passes. State the root cause in your completion summary."
 	case TaskUX:
-		return "This is a UX design task: focus on user flows, layout and interaction; produce mockups, component structure or UI changes as the task asks."
+		return "This is a UX design task: focus on user flows, layout and interaction. Produce two or three variants, and for each save a mockup image (PNG at desktop and phone widths) under docs/design/<task sqid>/. If you can publish an interactive prototype (a Claude Artifact), include its link in your completion summary; otherwise commit a self-contained HTML prototype beside the images. Do not change application code unless the task asks. The owner reviews the visuals, not a code diff."
 	case TaskArchitecture:
-		return "This is an architecture task: decide structure, boundaries and trade-offs; record the decision (for example as an ADR or design doc) before or instead of large code changes."
-	case TaskSpec:
-		return "This is a spec-only task: write or update the specification document. Do not change application code."
+		return "This is an architecture task: decide structure, boundaries and trade-offs. Write an ADR (context, options with at least two real alternatives, decision, consequences) as a markdown document in the repo's docs. Do not change application code. The owner will read and decide before it merges."
 	case TaskDocs:
-		return "This is a docs update: change documentation only (README, guides, comments) to match the current behaviour."
+		return "This is a documentation task (README, guides, specifications, comments). Change documentation only, and verify every command, path and behaviour you describe against the code."
+	case TaskResearch:
+		return "This is a research task: non-code knowledge work. Deliver a markdown report in the repo's notes/research area with: the question; a recommendation up front (at most ten lines); the analysis; a Sources list (URL or document, access date, and the passage relied on); your assumptions; open questions; and your confidence. Cite every factual claim and never invent a source; say plainly what you could not find or verify. For legal topics state the jurisdiction and that this is research for counsel to review, not legal advice. Do not change application code."
 	case TaskReview:
-		return "This is a code review task: read the code in question and report findings with file:line references; do not rewrite it unless the task asks you to."
+		return "This is a code review task: read the code in question and report severity-ranked findings with file:line references; do not rewrite it unless the task asks you to."
+	case TaskRelease:
+		return "This task is a release: a container for milestones. Its prompt states what shipping it means; work happens in its subtasks, not here."
+	case TaskMilestone:
+		return "This task is a milestone: a container for features and loose tasks. Its prompt states the definition of done; work happens in its subtasks, not here."
+	case TaskFeature:
+		return "This task is a feature: a container for the tasks that deliver it. Its prompt states the goal and acceptance criteria; work happens in its subtasks, not here."
 	}
 	return ""
 }

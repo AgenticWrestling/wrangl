@@ -18,25 +18,28 @@
 <ul class="tasks sortable root" data-parent="">{{template "tasklist" .Roots}}</ul>
 {{end}}
 
-{{define "tasklist"}}{{range .}}<li class="task st-{{.State}}" data-sqid="{{.Sqid}}">
+{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} ty-{{.Type}}" data-sqid="{{.Sqid}}">
   <div class="row">
     <span class="handle" aria-label="Drag to reorder">⠿</span>
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
     {{ticon .Type}}
-    <a class="title" href="/task/{{.Sqid}}">{{.Title}}</a>
+    <a class="title" href="/task/{{.Sqid}}" onclick="return toggleDetail('{{.Sqid}}', event)" aria-expanded="false">{{.Title}}</a>
     {{if .Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
     {{if or (eq .State "in_progress") .LockedBy}}<span class="tag prog" title="{{if .LockedBy}}running on {{.LockedBy}}{{else}}in progress{{end}}">▶ {{if .LockedBy}}{{.LockedBy}}{{else}}in progress{{end}}</span>{{end}}
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
+    {{if .Target}}<span class="tag target" title="target date">{{.Target}}</span>{{end}}
     <code class="sqid">{{.Sqid}}</code>
   </div>
+  <div class="detail" id="d-{{.Sqid}}" data-ignore-morph></div>
   <ul class="tasks sortable" data-parent="{{.Sqid}}">{{template "tasklist" .Kids}}</ul>
 </li>{{end}}{{end}}
 
 {{define "post-backlog"}}{{template "sheet-project" .}}{{if .Project}}
-<dialog id="sheet-new" class="sheet" data-signals-ttype="'code'">
+<dialog id="sheet-new" class="sheet" data-signals-ttype="'code'" data-signals-ttarget="''">
   <h2>New task in {{.Project}}</h2>
   <label>Title<input data-bind="title" placeholder="What needs doing?" autocomplete="off"></label>
   {{template "typepick" .Types}}
+  <label>Target date<input type="date" data-bind="ttarget"></label>
   <label>Prompt<textarea data-bind="prompt" rows="6" placeholder="Instructions for the agent (markdown)"></textarea></label>
   <label class="check"><input type="checkbox" data-bind="queue"> Queue it now</label>
   <div class="actions">

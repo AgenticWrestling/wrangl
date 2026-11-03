@@ -30,9 +30,12 @@ max_runners: 1
 setup_script: |
   dnf install -y git make gcc
 mise_toml: |
+  [settings]
+  npm.package_manager = "npm"   # mise's default (aube) skips the postinstall that fetches claude's native binary
+
   [tools]
   node = "24"
-  "npm:@anthropic-ai/claude-code" = "latest"
+  "npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }
 agent:
   drive: interactive
   start:  ["claude", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "--remote-control", "{{.SessionName}}", "{{.Prompt}}"]

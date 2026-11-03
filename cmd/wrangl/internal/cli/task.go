@@ -31,6 +31,9 @@ func printTree(w io.Writer, nodes []proto.TaskNode) {
 		if m := typeMark[n.Type]; m != "" {
 			title = m + " " + title
 		}
+		if n.Target != "" {
+			extra += "  🎯 " + n.Target
+		}
 		fmt.Fprintf(w, "%s%s %s %s%s\n", strings.Repeat("  ", int(n.Depth-base)), n.Sqid, stateGlyph[n.State], title, extra)
 	}
 }
@@ -62,10 +65,10 @@ func positionArgs(c *cobra.Command) (first bool, after, before string) {
 	return
 }
 
-const typeHelp = "task type: code, ux, architecture, spec, docs, review (default: the parent's, else code)"
+const typeHelp = "task type: code, bug, ux, architecture, docs, research, review, release, milestone, feature (default: the parent's, else code)"
 
 // typeMark is the CLI/TUI marker for a task type ("" for code).
-var typeMark = map[string]string{"ux": "[ux]", "architecture": "[arch]", "spec": "[spec]", "docs": "[docs]", "review": "[review]"}
+var typeMark = map[string]string{"ux": "[ux]", "architecture": "[arch]", "spec": "[docs]", "docs": "[docs]", "bug": "[bug]", "research": "[research]", "review": "[review]", "release": "[RELEASE]", "milestone": "[MILESTONE]", "feature": "[FEATURE]"}
 
 func taskCmd(g *Global) *cobra.Command {
 	client := func() (*clientT, error) { return apiClient(g) }
@@ -86,6 +89,7 @@ func taskCmd(g *Global) *cobra.Command {
 			req.Issue, _ = f.GetString("issue")
 			req.Needs, _ = f.GetStringSlice("needs")
 			req.Type, _ = f.GetString("type")
+			req.TargetDate, _ = f.GetString("target-date")
 			req.First, req.After, req.Before = positionArgs(cmd)
 			if p, err := promptArg(cmd); err != nil {
 				return err
@@ -104,6 +108,7 @@ func taskCmd(g *Global) *cobra.Command {
 	cf.String("prompt", "", "prompt text")
 	cf.StringP("file", "f", "", "read the prompt from a markdown file")
 	cf.String("parent", "", "parent task sqid (default: top level)")
+	cf.String("target-date", "", "target date, YYYY-MM-DD")
 	cf.String("repo", "", "owner/name (default: inherited)")
 	cf.String("template", "", "runner template (default: inherited)")
 	cf.String("issue", "", "linked GitHub issue (owner/name#number)")
@@ -175,6 +180,12 @@ func taskCmd(g *Global) *cobra.Command {
 			}
 			return emit(cmd, g, t, func(w io.Writer) {
 				fmt.Fprintf(w, "task\t%s %s %s\nproject\t%s\nparent\t%s\ncreated by\t%s\n", t.Sqid, stateGlyph[t.State], t.Title, t.Project, dash(t.Parent), t.CreatedBy)
+				if t.Type != "" && t.Type != "code" {
+					fmt.Fprintf(w, "type\t%s\n", t.Type)
+				}
+				if t.TargetDate != "" {
+					fmt.Fprintf(w, "target\t%s\n", t.TargetDate)
+				}
 				if t.Summary != "" {
 					fmt.Fprintf(w, "summary\t%s\n", t.Summary)
 				}
@@ -230,6 +241,10 @@ func taskCmd(g *Global) *cobra.Command {
 				t, _ := cmd.Flags().GetString("type")
 				req.Type = &t
 			}
+			if cmd.Flags().Changed("target-date") {
+				t, _ := cmd.Flags().GetString("target-date")
+				req.TargetDate = &t
+			}
 			_, err = c.EditTask(cmd.Context(), args[0], req)
 			return err
 		},
@@ -237,6 +252,7 @@ func taskCmd(g *Global) *cobra.Command {
 	edit.Flags().String("title", "", "new title")
 	edit.Flags().String("prompt", "", "new prompt")
 	edit.Flags().String("type", "", typeHelp)
+	edit.Flags().String("target-date", "", "target date, YYYY-MM-DD (empty clears it)")
 	edit.Flags().StringP("file", "f", "", "read the new prompt from a file")
 	edit.MarkFlagsMutuallyExclusive("prompt", "file")
 

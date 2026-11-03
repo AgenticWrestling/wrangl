@@ -222,7 +222,20 @@ type CreateParams struct {
 	Issue    string // owner/name#number; optional
 	Needs    []string
 	Type     string // dbtypes.TaskType name; "" = inherit the parent's, else code
-	Actor    Actor
+	// TargetDate is YYYY-MM-DD; "" = none.
+	TargetDate string
+	Actor      Actor
+}
+
+// parseTargetDate checks a YYYY-MM-DD date; "" is valid (no date).
+func parseTargetDate(s string) (sql.NullString, error) {
+	if s == "" {
+		return sql.NullString{}, nil
+	}
+	if _, err := time.Parse("2006-01-02", s); err != nil {
+		return sql.NullString{}, invalid("target date %q: want YYYY-MM-DD", s)
+	}
+	return sql.NullString{String: s, Valid: true}, nil
 }
 
 // Create adds a task.
@@ -233,8 +246,12 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 	if c.Actor == "" {
 		c.Actor = User
 	}
+	td, err := parseTargetDate(c.TargetDate)
+	if err != nil {
+		return dbgen.Task{}, err
+	}
 	var out dbgen.Task
-	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
 		p, err := s.project(ctx, q, c.Project)
 		if err != nil {
 			return err
@@ -263,7 +280,9 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 		}
 		if c.Type == "" && parentID != 0 {
 			if pt, err := q.GetTask(ctx, parentID); err == nil {
-				tt = pt.TaskType // subtasks inherit the parent's type unless told otherwise
+				if !pt.TaskType.Planning() {
+					tt = pt.TaskType // subtasks inherit the parent's type unless told otherwise
+				} // (a release, milestone or feature's children are ordinary tasks)
 			}
 		}
 		params := dbgen.CreateTaskParams{ProjectID: p.ID, ParentID: nint(parentID), Rank: rank, Title: c.Title, Prompt: c.Prompt, TaskType: tt}
@@ -285,6 +304,12 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 		}
 		if out, err = s.newTask(ctx, q, params, c.Actor); err != nil {
 			return err
+		}
+		if td.Valid {
+			if err := q.SetTaskTargetDate(ctx, dbgen.SetTaskTargetDateParams{TargetDate: td, ID: out.ID}); err != nil {
+				return err
+			}
+			out.TargetDate = td
 		}
 		if c.Issue != "" {
 			iss, err := issueByRef(ctx, q, p.ID, c.Issue)
@@ -396,6 +421,33 @@ func (s *Service) SetType(ctx context.Context, sqid, typ string, actor Actor) (d
 			return err
 		}
 		return s.event(ctx, q, sqid, actor, "update", map[string]any{"type": string(tt)})
+	})
+	return out, err
+}
+
+// SetTargetDate sets a task's target date (YYYY-MM-DD); "" clears it.
+func (s *Service) SetTargetDate(ctx context.Context, sqid, date string, actor Actor) (dbgen.Task, error) {
+	td, err := parseTargetDate(date)
+	if err != nil {
+		return dbgen.Task{}, err
+	}
+	var out dbgen.Task
+	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+		t, err := s.Task(ctx, q, sqid)
+		if err != nil {
+			return err
+		}
+		if t.TargetDate == td {
+			out = t
+			return nil
+		}
+		if err := q.SetTaskTargetDate(ctx, dbgen.SetTaskTargetDateParams{TargetDate: td, ID: t.ID}); err != nil {
+			return err
+		}
+		if out, err = q.GetTask(ctx, t.ID); err != nil {
+			return err
+		}
+		return s.event(ctx, q, sqid, actor, "update", map[string]any{"target_date": date})
 	})
 	return out, err
 }

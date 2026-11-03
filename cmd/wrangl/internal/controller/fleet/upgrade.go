@@ -34,7 +34,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 	if err != nil {
 		return err
 	}
-	want := sums[r.Arch]
+	want := sums[unameArch(r.Arch)] // r.Arch is the EC2 name (arm64); sums are keyed by uname -m
 	if want == "" {
 		return nil // nothing to serve for this arch
 	}

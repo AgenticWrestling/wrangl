@@ -605,6 +605,13 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 	for k, v := range s.a.Env { // resolved secrets
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
+	// exec.Command looked argv[0] up in the daemon's PATH; the agent's tools (mise shims)
+	// are only on the agent's PATH.
+	if !strings.Contains(argv[0], "/") {
+		if p, ok := lookPathIn(argv[0], envValue(cmd.Env, "PATH")); ok {
+			cmd.Path, cmd.Err = p, nil
+		}
+	}
 	attrs := &syscall.SysProcAttr{Setsid: true, Setctty: true}
 	if s.id.drop {
 		attrs.Credential = &syscall.Credential{Uid: uint32(s.id.uid), Gid: uint32(s.id.gid)}
@@ -987,4 +994,25 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 			nudged = false
 		}
 	}
+}
+
+// envValue returns key's value in a KEY=VALUE list ("" if absent).
+func envValue(env []string, key string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(env[i], key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// lookPathIn finds an executable file called name in the given PATH-style list.
+func lookPathIn(name, path string) (string, bool) {
+	for _, d := range filepath.SplitList(path) {
+		p := filepath.Join(d, name)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return p, true
+		}
+	}
+	return "", false
 }

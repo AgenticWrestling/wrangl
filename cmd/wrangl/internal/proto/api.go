@@ -136,6 +136,7 @@ type TaskNode struct {
 	Title    string `json:"title"`
 	State    string `json:"state"`
 	Type     string `json:"type"`
+	Target   string `json:"target_date,omitempty"` // YYYY-MM-DD
 	Depth    int64  `json:"depth"`
 	Unmet    int64  `json:"unmet_precursors,omitempty"`
 	Children int64  `json:"children,omitempty"`
@@ -177,6 +178,7 @@ type TaskDetail struct {
 	Prompt     string          `json:"prompt"`
 	State      string          `json:"state"`
 	Type       string          `json:"type"`
+	TargetDate string          `json:"target_date,omitempty"` // YYYY-MM-DD
 	CreatedBy  string          `json:"created_by"`
 	Summary    string          `json:"summary,omitempty"`
 	Children   []TaskRef       `json:"children"`
@@ -199,7 +201,9 @@ type TaskCreateRequest struct {
 	Template string   `json:"template,omitempty"`
 	Issue    string   `json:"issue,omitempty"`
 	Needs    []string `json:"needs,omitempty"`
-	Type     string   `json:"type,omitempty"` // code | ux | architecture | spec | docs | review
+	Type     string   `json:"type,omitempty"` // code | ux | architecture | spec | docs | review | release | milestone | feature
+	// TargetDate is YYYY-MM-DD.
+	TargetDate string `json:"target_date,omitempty"`
 }
 
 // TaskPatchRequest edits title/prompt/type.
@@ -207,6 +211,8 @@ type TaskPatchRequest struct {
 	Title  *string `json:"title,omitempty"`
 	Prompt *string `json:"prompt,omitempty"`
 	Type   *string `json:"type,omitempty"`
+	// TargetDate: YYYY-MM-DD; "" clears it; nil leaves it.
+	TargetDate *string `json:"target_date,omitempty"`
 }
 
 // TaskMoveRequest moves/reranks a task. Parent nil + Root false = keep parent.

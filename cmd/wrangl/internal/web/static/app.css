@@ -1,13 +1,13 @@
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
   src: url(/static/vendor/fonts/ibm-plex-mono-latin.woff2) format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
-/* Didact Gothic (SIL OFL), vendored: the PWA loads nothing from a CDN. One weight only, so
-   bold is synthesised by the browser. */
-@font-face { font-family: "Didact Gothic"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url(/static/vendor/fonts/didact-gothic-latin-ext.woff2) format("woff2");
+/* Red Hat Display (SIL OFL), vendored variable font (wght 300-900): the PWA loads nothing
+   from a CDN. Body text is 300; bold is 600. */
+@font-face { font-family: "Red Hat Display"; font-style: normal; font-weight: 300 900; font-display: swap;
+  src: url(/static/vendor/fonts/red-hat-display-latin-ext.woff2) format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
-@font-face { font-family: "Didact Gothic"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url(/static/vendor/fonts/didact-gothic-latin.woff2) format("woff2");
+@font-face { font-family: "Red Hat Display"; font-style: normal; font-weight: 300 900; font-display: swap;
+  src: url(/static/vendor/fonts/red-hat-display-latin.woff2) format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 
 :root {
@@ -34,7 +34,7 @@
   --del-bg: color-mix(in srgb, var(--c13) 18%, transparent);
   --hunk: var(--c9);
   --radius: 12px; --tabs-h: 58px; --side-w: 188px;
-  --font: "Didact Gothic", system-ui, sans-serif;
+  --font: "Red Hat Display", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sqid: #b4bac4; /* light grey */
   color-scheme: dark;
@@ -43,7 +43,7 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  font: 16px/1.45 var(--font);
+  font: 300 16px/1.45 var(--font);
   padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 16px);
 }
 a { color: var(--link); text-decoration: none; }
@@ -72,7 +72,7 @@ nav.tabs a { flex: 1; display: flex; flex-direction: column; align-items: center
 nav.tabs a span:first-child { font-size: 1.2rem; line-height: 1.2; }
 nav.tabs a.on { color: var(--prog); font-weight: 600; }
 .badge:empty { display: none; }
-.badge { position: absolute; top: 6px; left: calc(50% + 6px); background: var(--attn); color: var(--c0); font-weight: 700; border-radius: 9px; font-size: 0.68rem; min-width: 18px; padding: 0 5px; text-align: center; }
+.badge { position: absolute; top: 6px; left: calc(50% + 6px); background: var(--attn); color: var(--c0); font-weight: 600; border-radius: 9px; font-size: 0.68rem; min-width: 18px; padding: 0 5px; text-align: center; }
 
 .card { display: block; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin: 0 0 12px; color: inherit; }
 details.card > summary { cursor: pointer; font-weight: 600; }
@@ -193,6 +193,17 @@ dialog hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { border-color: var(--err); color: var(--err); }
 .ticon.ti-code { stroke: var(--faint); }
+/* Planning types (release, milestone, feature) are drawn bold, with a stronger icon. */
+.ticon.ti-bug { stroke: var(--attn); }
+.ticon.ti-release, .ticon.ti-milestone, .ticon.ti-feature { stroke: var(--ink); stroke-width: 2.2; }
+.ty-release > .row .title, .ty-milestone > .row .title, .ty-feature > .row .title { font-weight: 600; }
+.card.runner.pinned { background: color-mix(in srgb, var(--raised) 78%, var(--prog) 22%); border-color: color-mix(in srgb, var(--line) 55%, var(--prog) 45%); }
+.detail:empty { display: none; }
+.detail { margin: 4px 0 8px 22px; padding-left: 12px; border-left: 2px solid var(--line); }
+.detail > .card:first-child { margin-top: 4px; }
+li.task:has(> .detail:not(:empty)) > .row { background: var(--raised); border-radius: 8px; }
+.pill.host { color: var(--prog); border-color: var(--prog); }
+.tag.target { color: var(--ink2); border-color: var(--line); }
 
 /* Project bar (backlog): the four most recently updated projects, the rest in a menu, then [+]. */
 .projbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }

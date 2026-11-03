@@ -172,6 +172,11 @@ func (w *Worker) OpenShell(ctx context.Context) (string, error) {
 		"PATH=" + strings.Join([]string{id.home + "/.local/share/mise/shims", id.home + "/.local/bin", filepath.Dir(w.Cfg.MiseBin), "/usr/local/bin", "/usr/bin", "/bin"}, ":"),
 		"WRANGL_SOCK=" + w.Cfg.Socket(), "WRANGL_MISE=" + w.shellMise(),
 	}
+	if filepath.Base(shell) == "fish" {
+		// Nobody is attached to answer fish's terminal queries when the shell starts, and it
+		// would wait 10s for them.
+		cmd.Env = append(cmd.Env, "fish_features=no-query-term")
+	}
 	if v := os.Getenv("HTTPS_PROXY"); v != "" {
 		cmd.Env = append(cmd.Env, "HTTPS_PROXY="+v, "https_proxy="+v)
 	}

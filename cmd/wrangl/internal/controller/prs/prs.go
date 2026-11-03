@@ -287,7 +287,11 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 		}
 		// The review run ended without submitting a review: the owner decides.
 	}
-	if proj.AutoMerge == 1 && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && s.Reviewer != nil {
+	ownerGate := false // designs and decisions always wait for the owner
+	if t, err := s.DB.RQ.GetTask(ctx, pr.TaskID); err == nil {
+		ownerGate = t.TaskType.OwnerGate()
+	}
+	if proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && s.Reviewer != nil {
 		return s.merge(ctx, pr, "auto_merged", "Auto-merged by wrangl: gates passed and the review rated it low risk.")
 	}
 	return s.askOwner(ctx, pr, g)

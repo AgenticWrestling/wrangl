@@ -18,11 +18,11 @@ func TestTaskTypes(t *testing.T) {
 	if plain.TaskType != dbtypes.TaskCode {
 		t.Fatalf("default type %q", plain.TaskType)
 	}
-	spec, err := s.Create(ctx, stack.CreateParams{Project: "p", Title: "write the spec", Type: "spec"})
-	if err != nil || spec.TaskType != dbtypes.TaskSpec {
+	spec, err := s.Create(ctx, stack.CreateParams{Project: "p", Title: "write the spec", Type: "docs"})
+	if err != nil || spec.TaskType != dbtypes.TaskDocs {
 		t.Fatalf("typed create: %q %v", spec.TaskType, err)
 	}
-	if kid := mk(t, s, spec.Sqid.String, "section", stack.Position{}); kid.TaskType != dbtypes.TaskSpec {
+	if kid := mk(t, s, spec.Sqid.String, "section", stack.Position{}); kid.TaskType != dbtypes.TaskDocs {
 		t.Fatalf("subtask did not inherit: %q", kid.TaskType)
 	}
 	if _, err := s.Create(ctx, stack.CreateParams{Project: "p", Title: "x", Type: "poetry"}); !errors.Is(err, errs.Invalid) {
@@ -46,7 +46,7 @@ func TestTaskTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created[0].TaskType != dbtypes.TaskReview || created[3].TaskType != dbtypes.TaskSpec {
+	if created[0].TaskType != dbtypes.TaskReview || created[3].TaskType != dbtypes.TaskDocs {
 		t.Fatalf("split types: %q %q", created[0].TaskType, created[3].TaskType)
 	}
 	rows, _ := d.RQ.ProjectTree(ctx, 1)
@@ -57,7 +57,7 @@ func TestTaskTypes(t *testing.T) {
 	if !seen[dbtypes.TaskDocs] || !seen[dbtypes.TaskReview] {
 		t.Fatalf("ProjectTree types: %v", seen)
 	}
-	if g := dbtypes.TaskSpec.Guidance(); !strings.Contains(g, "Do not change application code") {
+	if g := dbtypes.TaskDocs.Guidance(); !strings.Contains(g, "Change documentation only") {
 		t.Fatal(g)
 	}
 }

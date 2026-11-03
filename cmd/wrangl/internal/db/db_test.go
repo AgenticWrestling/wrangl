@@ -171,3 +171,20 @@ func TestGeneratedParamsAreTyped(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanningTaskTypesAndTargetDate(t *testing.T) {
+	d, _ := open(t)
+	exec(t, d, `INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('go','[tools]','{}',4,16384,100)`)
+	exec(t, d, `INSERT INTO project (slug, name) VALUES ('p', 'p')`)
+	for i, typ := range []string{"release", "milestone", "feature", "code"} {
+		exec(t, d, `INSERT INTO task (project_id, title, rank, task_type, target_date) VALUES (1, ?, ?, ?, '2026-12-01')`, typ, string(rune('A'+i)), typ)
+	}
+	// The widened CHECK is visible to every connection, and still rejects unknown types.
+	var n int
+	if err := d.R.QueryRow(`SELECT COUNT(*) FROM task WHERE task_type IN ('release','milestone','feature') AND target_date = '2026-12-01'`).Scan(&n); err != nil || n != 3 {
+		t.Fatalf("planning rows: %d %v", n, err)
+	}
+	if _, err := d.W.Exec(`INSERT INTO task (project_id, title, rank, task_type) VALUES (1, 'x', 'Z', 'epic')`); err == nil {
+		t.Fatal("unknown task type accepted")
+	}
+}

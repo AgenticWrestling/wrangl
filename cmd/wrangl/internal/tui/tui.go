@@ -616,4 +616,4 @@ func dash(s string) string {
 }
 
 // typeMark marks non-code task types in the work-stack pane.
-var typeMark = map[string]string{"ux": "[ux]", "architecture": "[arch]", "spec": "[spec]", "docs": "[docs]", "review": "[review]"}
+var typeMark = map[string]string{"ux": "[ux]", "architecture": "[arch]", "spec": "[docs]", "docs": "[docs]", "bug": "[bug]", "research": "[research]", "review": "[review]", "release": "[RELEASE]", "milestone": "[MILESTONE]", "feature": "[FEATURE]"}

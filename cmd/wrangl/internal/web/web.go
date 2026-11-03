@@ -114,6 +114,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /runner/{name}/term", h.termPage)
 	mux.HandleFunc("GET /setup/github/callback", h.githubCallback)
 	mux.HandleFunc("GET /ui/live", h.live)
+	mux.HandleFunc("GET /ui/detail", h.detail)
 	mux.HandleFunc("POST /ui/act/{action}", h.act)
 }
 
@@ -169,6 +170,34 @@ func (h *Handler) render(name string, data any) (template.HTML, error) {
 		return "", err
 	}
 	return template.HTML(b.String()), nil
+}
+
+// detail serves a task's full page content (card, controls and edit sheets) as an HTML
+// fragment, for the backlog to expand inline under the task's row.
+func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
+	data, err := h.data(r.Context(), "task", r)
+	if err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, errs.NotFound) {
+			code = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), code)
+		return
+	}
+	main, err := h.render("main-task", data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	post, err := h.render("post-task", data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	io.WriteString(w, string(main))
+	io.WriteString(w, string(post))
 }
 
 // fakeReq lets data() read path values from the live stream's query.
@@ -350,6 +379,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			}
 			cards = append(cards, c)
 		}
+		// Machines the fleet doesn't launch (the controller host) are permanent: pin them first.
+		sort.SliceStable(cards, func(i, j int) bool {
+			return cards[i].R.Launched == 0 && cards[j].R.Launched != 0
+		})
 		d["Cards"] = cards
 		demand, _ := db.RQ.TemplateDemand(ctx)
 		d["Demand"], d["Title"] = demand, "Runners"
@@ -545,7 +578,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, err
 	var roots []*node
 	lockOf := map[int64]string{}
 	for _, t := range rows {
-		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
+		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
 			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled"}
 		lock := locks[t.ID]
 		if lock == "" && t.ParentID.Valid {
@@ -630,10 +663,10 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	case "task-new":
 		var t dbgen.Task
 		pos := stack.Position{First: q.Get("first") == "1", After: q.Get("after")}
-		t, err = h.D.Stack.Create(ctx, stack.CreateParams{Project: q.Get("project"), Parent: q.Get("parent"), Title: str("title"), Prompt: str("prompt"), Type: str("ttype"), Pos: pos, Actor: stack.User})
+		t, err = h.D.Stack.Create(ctx, stack.CreateParams{Project: q.Get("project"), Parent: q.Get("parent"), Title: str("title"), Prompt: str("prompt"), Type: str("ttype"), TargetDate: str("ttarget"), Pos: pos, Actor: stack.User})
 		if err == nil {
 			msg = "created " + t.Sqid.String
-			reset = map[string]any{"title": "", "prompt": "", "queue": false}
+			reset = map[string]any{"title": "", "prompt": "", "queue": false, "ttarget": ""}
 			if q.Get("parent") == "" { // the backlog sheet's type picker (subtasks inherit instead)
 				reset["ttype"] = "code"
 			}
@@ -649,6 +682,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		title, prompt := str("etitle"), str("eprompt")
 		if _, err = h.D.Stack.Edit(ctx, sqid, &title, &prompt, stack.User); err == nil && str("etype") != "" {
 			_, err = h.D.Stack.SetType(ctx, sqid, str("etype"), stack.User)
+		}
+		if err == nil {
+			_, err = h.D.Stack.SetTargetDate(ctx, sqid, str("etarget"), stack.User)
 		}
 		msg = "saved"
 	case "task-split":

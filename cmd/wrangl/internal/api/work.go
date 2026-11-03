@@ -261,7 +261,7 @@ func registerWork(mux *http.ServeMux, d Deps) {
 				continue
 			}
 			out = append(out, proto.TaskNode{Sqid: t.Sqid, Parent: sqidByID[t.ParentID.Int64], Title: t.Title, State: t.State,
-				Type: string(t.TaskType), Depth: t.Depth, Unmet: t.Unmet, Children: t.Children, LockedBy: lock})
+				Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children, LockedBy: lock})
 		}
 		return out, nil
 	}
@@ -347,7 +347,7 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		t, err := d.Stack.Create(r.Context(), stack.CreateParams{Project: req.Project, Parent: req.Parent, Title: req.Title,
 			Prompt: req.Prompt, Pos: stack.Position{First: req.First, After: req.After, Before: req.Before},
-			Repo: req.Repo, Template: req.Template, Issue: req.Issue, Needs: req.Needs, Type: req.Type, Actor: stack.User})
+			Repo: req.Repo, Template: req.Template, Issue: req.Issue, Needs: req.Needs, Type: req.Type, TargetDate: req.TargetDate, Actor: stack.User})
 		if err != nil {
 			writeErr(w, err)
 			return
@@ -369,7 +369,7 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		p, _ := db.RQ.GetProject(ctx, t.ProjectID)
 		det := proto.TaskDetail{Sqid: t.Sqid.String, Project: p.Slug, Title: t.Title, Prompt: t.Prompt, State: t.State,
-			Type: string(t.TaskType), CreatedBy: t.CreatedBy, Summary: t.CompletionSummary,
+			Type: string(t.TaskType), TargetDate: t.TargetDate.String, CreatedBy: t.CreatedBy, Summary: t.CompletionSummary,
 			Children: []proto.TaskRef{}, Precursors: []proto.TaskRef{}, Dependents: []proto.TaskRef{}, Runs: []proto.TaskRunView{}, Events: []proto.TaskEventView{}}
 		if t.ParentID.Valid {
 			if pt, err := db.RQ.GetTask(ctx, t.ParentID.Int64); err == nil {
@@ -410,7 +410,10 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		if req.Type != nil {
 			t, err = d.Stack.SetType(r.Context(), r.PathValue("sqid"), *req.Type, stack.User)
 		}
-		if err == nil && (req.Title != nil || req.Prompt != nil || req.Type == nil) {
+		if err == nil && req.TargetDate != nil {
+			t, err = d.Stack.SetTargetDate(r.Context(), r.PathValue("sqid"), *req.TargetDate, stack.User)
+		}
+		if err == nil && (req.Title != nil || req.Prompt != nil || (req.Type == nil && req.TargetDate == nil)) {
 			t, err = d.Stack.Edit(r.Context(), r.PathValue("sqid"), req.Title, req.Prompt, stack.User)
 		}
 		if err != nil {
