@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"net/http"
 	"net/url"
 	"strings"
@@ -102,6 +103,13 @@ func registerCosts(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusOK, d.Fleet.Prov.CheckLaunch(r.Context(), q.Get("ami"), q.Get("type"), d.Fleet.SubnetID, d.Fleet.SecurityGroupID))
 	})
+	mux.HandleFunc("DELETE /api/v1/instances/{region}/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := TerminateOther(r.Context(), d, r.PathValue("region"), r.PathValue("id")); err != nil {
+			writeErr(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /api/v1/instances/{region}/{id}/adopt", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Template string `json:"template"`
@@ -117,6 +125,49 @@ func registerCosts(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusCreated, res)
 	})
+}
+
+// TerminateOther terminates an instance listed under "Other instances". It refuses anything
+// that is not in the last scan, that is a live runner (use the runner's own Terminate), or
+// that is the controller itself.
+func TerminateOther(ctx context.Context, d Deps, region, id string) (name string, err error) {
+	snap := d.Costs.Cached()
+	var in *costs.Instance
+	for i := range snap.Instances {
+		if snap.Instances[i].ID == id && snap.Instances[i].Region == region {
+			in = &snap.Instances[i]
+		}
+	}
+	if in == nil {
+		return "", fmt.Errorf("%w: no instance %s in %s", errs.NotFound, id, region)
+	}
+	if in.State != "running" && in.State != "stopped" && in.State != "pending" && in.State != "stopping" {
+		return "", fmt.Errorf("%w: %s is %s", errs.Conflict, id, in.State)
+	}
+	if u, perr := url.Parse(d.Fleet.EnrollURL); perr == nil && u.Hostname() != "" && in.PrivateIP == u.Hostname() {
+		return "", fmt.Errorf("%w: %s is the controller's own host", errs.Forbidden, id)
+	}
+	rows, err := d.Fleet.DB.RQ.ListRunners(ctx, 0)
+	if err != nil {
+		return "", err
+	}
+	for _, x := range rows {
+		if x.Runner.InstanceID.String == id && x.Runner.State != "terminated" {
+			return "", fmt.Errorf("%w: %s is runner %s; terminate it from Runners", errs.Conflict, id, x.Runner.Name)
+		}
+	}
+	name = in.Name
+	if name == "" {
+		name = id
+	}
+	if err := d.Costs.Terminate(ctx, region, id); err != nil {
+		return "", err
+	}
+	_ = d.Fleet.DB.Q.AddLogEntry(context.WithoutCancel(ctx), dbgen.AddLogEntryParams{
+		At: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"), Kind: "runner", Level: "warn", Subject: name,
+		Title: "Instance terminated", Detail: fmt.Sprintf("%s in %s, %s (not a runner), from the web UI", id, region, in.Type),
+	})
+	return name, nil
 }
 
 // AdoptResult is what an operator needs to turn a running instance into a runner.

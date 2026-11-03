@@ -41,6 +41,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 	if hb.BinarySHA == want {
 		if r.UpgradeSha != "" {
 			s.Log.Info("runner upgraded", "runner", r.Name, "sha256", short(want))
+			s.note(ctx, "upgrade", "info", r.Name, "Runner binary upgraded", short(want))
 			s.Bus.Publish("runner", r.Name)
 			return s.DB.Q.ClearUpgrade(ctx, id)
 		}
@@ -71,6 +72,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 		return fmt.Errorf("%s declined the upgrade: %s", r.Name, ack.Reason)
 	}
 	s.Log.Info("upgrade sent", "runner", r.Name, "sha256", short(want))
+	s.note(ctx, "upgrade", "info", r.Name, "Runner binary upgrade sent", short(hb.BinarySHA)+" → "+short(want))
 	return nil
 }
 

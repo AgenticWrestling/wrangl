@@ -175,6 +175,19 @@ func TestLaunchEnrolHeartbeatReap(t *testing.T) {
 	if r, _ = e.s.DB.RQ.GetRunnerByName(ctx, name); r.State != "terminated" {
 		t.Fatalf("runner state %s", r.State)
 	}
+	// Spin-up, enrol and spin-down all land on the Logs page.
+	ents, _ := e.s.DB.RQ.ListLogEntries(ctx, 50)
+	got := map[string]bool{}
+	for _, en := range ents {
+		if en.Subject == name {
+			got[en.Title] = true
+		}
+	}
+	for _, want := range []string{"Runner launched", "Runner enrolled", "Runner terminated"} {
+		if !got[want] {
+			t.Errorf("no %q log entry for %s: %v", want, name, got)
+		}
+	}
 	// Heartbeats from a terminated runner are ignored, not resurrecting it.
 	e.s.Heartbeat(ctx, natsd.RunnerHeartbeatSubject(resp.RunnerID), []byte(`{}`))
 	if r, _ = e.s.DB.RQ.GetRunnerByName(ctx, name); r.State != "terminated" {

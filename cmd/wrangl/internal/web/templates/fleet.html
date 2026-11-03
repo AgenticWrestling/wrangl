@@ -40,6 +40,7 @@
     <span class="dim small" title="launched {{.LaunchedAt.Format "2006-01-02 15:04"}} UTC">{{ago (.LaunchedAt.Format "2006-01-02T15:04:05.000Z")}}</span>
     <span class="cost">{{if eq .State "running"}}{{if .PriceKnown}}{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim small" title="indicative rate"> ~</span>{{end}}{{else}}<span class="dim small">no rate</span>{{end}}{{else}}<span class="dim small">no compute cost</span>{{end}}</span>
     {{if eq .State "running"}}<button type="button" class="btn small" onclick="openAdopt('{{.Region}}','{{.ID}}','{{.Arch}}','{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}')">Adopt…</button>{{end}}
+    {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on-click="el.dataset.armed ? @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}') : (el.dataset.armed = 1, el.textContent = 'Confirm terminate')">Terminate</button>{{end}}
   </div>{{else}}<p class="empty">No other instances.</p>{{end}}
 </section>{{end}}{{end}}
 {{end}}
@@ -95,9 +96,19 @@
   <span class="dim small">{{.ProjectSlug}}/{{.TaskSqid}}{{if ne .Run.Kind "work"}} · {{.Run.Kind}}{{end}}{{if .RunnerName}} · {{.RunnerName}}{{end}} · {{ago .Run.QueuedAt}}</span>
 </a>{{end}}{{end}}
 
-{{define "main-runs"}}{{$g := .Groups}}
-{{range $name := .Order}}{{with index $g $name}}<section class="card"><h3>{{$name}}</h3>{{template "runrows" .}}</section>{{end}}{{end}}
-{{if not .Groups}}<p class="empty">No runs yet. Queue a task from the backlog.</p>{{end}}
+{{define "main-logs"}}
+<div class="logbar">{{range $k := list "" "run" "runner" "template" "upgrade"}}<a class="pill{{if eq $k $.Kind}} on{{end}}" href="/logs{{if $k}}?kind={{$k}}{{end}}">{{if $k}}{{$k}}{{else}}all{{end}}</a>{{end}}</div>
+{{if .Rows}}<div class="logwrap"><table class="logs">
+<thead><tr><th>When</th><th>Kind</th><th>Status</th><th>Subject</th><th>Event</th><th>Detail</th></tr></thead>
+<tbody>{{range .Rows}}<tr class="lv-{{.Level}}">
+<td class="dim nowrap" title="{{.At}}">{{ago .At}}</td>
+<td><span class="pill">{{.Kind}}</span></td>
+<td>{{if .State}}{{template "runtag" .State}}{{else if eq .Level "error"}}<span class="tag attn">! error</span>{{else if eq .Level "warn"}}<span class="tag attn">! warn</span>{{end}}</td>
+<td class="mono">{{if .Subject}}{{if eq .Kind "template"}}{{.Subject}}{{else if eq .Kind "run"}}{{.Subject}}{{else}}<a href="/runner/{{.Subject}}">{{.Subject}}</a>{{end}}{{end}}</td>
+<td>{{if .Link}}<a href="{{.Link}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</td>
+<td class="dim logdetail">{{.Detail}}</td>
+</tr>{{end}}</tbody></table></div>
+{{else}}<p class="empty">Nothing logged yet.</p>{{end}}
 {{end}}
 
 

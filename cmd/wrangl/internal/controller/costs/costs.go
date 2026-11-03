@@ -38,6 +38,7 @@ type CostAPI interface {
 type EC2API interface {
 	DescribeInstances(context.Context, *ec2.DescribeInstancesInput, ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
 	DescribeInstanceTypes(context.Context, *ec2.DescribeInstanceTypesInput, ...func(*ec2.Options)) (*ec2.DescribeInstanceTypesOutput, error)
+	TerminateInstances(context.Context, *ec2.TerminateInstancesInput, ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error)
 }
 
 // Service holds the AWS clients and the caches.
@@ -101,6 +102,23 @@ type Snapshot struct {
 	Summary   Summary    `json:"summary"`
 	Instances []Instance `json:"instances"`
 	Errors    []string   `json:"errors,omitempty"` // regions that could not be read
+}
+
+// Terminate terminates one instance in a region and drops it from the cached snapshot so
+// the page updates at once. Callers decide whether the instance may be terminated.
+func (s *Service) Terminate(ctx context.Context, region, id string) error {
+	if _, err := s.EC2(region).TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{id}}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	for i := range s.snap.Instances {
+		if s.snap.Instances[i].ID == id && s.snap.Instances[i].Region == region {
+			s.snap.Instances[i].State = "shutting-down"
+			s.snap.Instances[i].HourlyUSD = 0
+		}
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 // Cached returns the last refresh (zero AsOf: none yet).

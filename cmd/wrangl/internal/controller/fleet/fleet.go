@@ -80,6 +80,21 @@ type Service struct {
 
 func (s *Service) now() time.Time { return s.Now().UTC() }
 
+// note appends to the Logs page. Failures are logged, never returned: a missing log line
+// must not fail the operation it describes.
+func (s *Service) note(ctx context.Context, kind, level, subject, title, detail string) {
+	err := s.DB.Q.AddLogEntry(context.WithoutCancel(ctx), dbgen.AddLogEntryParams{
+		At: ts(s.now()), Kind: kind, Level: level, Subject: subject, Title: title, Detail: detail,
+	})
+	if err != nil {
+		s.Log.Error("log entry", "err", err)
+		return
+	}
+	if s.Bus != nil {
+		s.Bus.Publish("log", subject)
+	}
+}
+
 func ts(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
 
 func nullStr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
@@ -282,6 +297,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 		return zero, err
 	}
 	s.Log.Info("launched runner", "runner", name, "instance", inst.ID, "type", inst.Type)
+	s.note(ctx, "runner", "info", name, "Runner launched", fmt.Sprintf("%s · %s · template %s", inst.Type, inst.ID, t.Name))
 	s.Bus.Publish("runner", name)
 	return r, nil
 }
@@ -311,6 +327,7 @@ func (s *Service) terminate(ctx context.Context, id int64, name, instanceID, rea
 		return err
 	}
 	s.Log.Info("terminated runner", "runner", name, "instance", instanceID, "reason", reason)
+	s.note(ctx, "runner", "info", name, "Runner terminated", reason+" · "+instanceID)
 	defer s.Bus.Publish("runner", name)
 	return s.DB.Q.MarkTerminated(ctx, dbgen.MarkTerminatedParams{TerminatedAt: nullStr(ts(s.now())), ID: id})
 }
@@ -410,6 +427,7 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 		return nil, err
 	}
 	s.Log.Info("runner enrolled", "runner", resp.Name, "id", resp.RunnerID, "from", remoteIP)
+	s.note(ctx, "runner", "info", resp.Name, "Runner enrolled", "from "+remoteIP)
 	return &resp, nil
 }
 
@@ -460,6 +478,7 @@ func (s *Service) SweepOffline(ctx context.Context) error {
 	})
 	for _, r := range rows {
 		s.Log.Warn("runner offline", "runner", r.Name)
+		s.note(ctx, "runner", "warn", r.Name, "Runner offline", "no heartbeat")
 		s.Bus.Publish("runner", r.Name)
 		if s.OnOffline != nil {
 			s.OnOffline(r.Name)

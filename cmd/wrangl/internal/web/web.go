@@ -141,12 +141,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/backlog", http.StatusFound) })
 	for path, view := range map[string]string{
 		"/backlog": "backlog", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
-		"/runs": "runs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
+		"/logs": "logs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
 		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/project/{slug}": "project", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
 	}
+	mux.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/logs", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("GET /runner/{name}/term", h.termPage)
 	mux.HandleFunc("GET /setup/github/callback", h.githubCallback)
 	mux.HandleFunc("GET /ui/live", h.live)
@@ -323,7 +326,7 @@ func reqValue(r *http.Request, k string) string {
 // live is the page's Datastar stream: it re-renders #main on every change notice.
 func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	view := r.URL.Query().Get("view")
-	if _, ok := map[string]bool{"backlog": true, "task": true, "runners": true, "runner": true, "runs": true, "run": true, "inbox": true, "settings": true, "project": true}[view]; !ok {
+	if _, ok := map[string]bool{"backlog": true, "task": true, "runners": true, "runner": true, "logs": true, "run": true, "inbox": true, "settings": true, "project": true}[view]; !ok {
 		w.WriteHeader(http.StatusNoContent) // static pages (diff, files) are not live
 		return
 	}
@@ -577,23 +580,12 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			d["Progress"], _ = db.RQ.SubtreeOrdered(ctx, run.TaskID)
 		}
 		d["Recent"], _ = db.RQ.ListRuns(ctx, dbgen.ListRunsParams{Runner: r2.Name, Lim: 10})
-	case "runs":
-		rows, err := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{Lim: 100})
+	case "logs":
+		rows, err := h.logRows(ctx, reqValue(r, "kind"))
 		if err != nil {
 			return nil, err
 		}
-		groups := map[string][]dbgen.ListRunsRow{}
-		for _, x := range rows {
-			g := x.Run.State
-			switch g {
-			case "assigned", "preparing", "running", "pushing", "cancelling":
-				g = "running"
-			case "succeeded", "failed", "cancelled":
-				g = "recent"
-			}
-			groups[g] = append(groups[g], x)
-		}
-		d["Groups"], d["Order"], d["Title"] = groups, []string{"needs_input", "running", "blocked", "queued", "recent"}, "Runs"
+		d["Rows"], d["Kind"], d["Title"] = rows, reqValue(r, "kind"), "Logs"
 	case "run", "diff", "files":
 		id, _ := strconv.ParseInt(reqValue(r, "id"), 10, 64)
 		run, err := db.RQ.GetRun(ctx, id)
@@ -921,6 +913,10 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	case "task-plan":
 		_, err = h.D.Plans.Queue(ctx, sqid, str("guidance"))
 		msg = "planning… the proposal will arrive in Inbox"
+	case "instance-terminate":
+		var name string
+		name, err = api.TerminateOther(ctx, h.D, q.Get("region"), q.Get("iid"))
+		msg = "terminating " + name
 	case "instance-adopt":
 		var res *api.AdoptResult
 		res, err = api.Adopt(ctx, h.D, q.Get("region"), q.Get("iid"), str("adopttpl"))
@@ -1073,6 +1069,59 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- helpers ---------------------------------------------------------------------------
+
+// logRow is one line of the Logs table: a run, or an operational entry (runner, template,
+// upgrade). Runs are just one kind.
+type logRow struct {
+	At, Kind, Level, Subject, Title, Detail, Link, State string
+}
+
+// logRows merges runs and log entries, newest first. kind filters ("" = everything).
+func (h *Handler) logRows(ctx context.Context, kind string) ([]logRow, error) {
+	var out []logRow
+	if kind == "" || kind == "run" {
+		runs, err := h.D.Fleet.DB.RQ.ListRuns(ctx, dbgen.ListRunsParams{Lim: 200})
+		if err != nil {
+			return nil, err
+		}
+		for _, x := range runs {
+			at := x.Run.QueuedAt
+			if x.Run.FinishedAt.Valid {
+				at = x.Run.FinishedAt.String
+			} else if x.Run.StartedAt.Valid {
+				at = x.Run.StartedAt.String
+			}
+			detail := x.ProjectSlug + "/" + x.TaskSqid
+			if x.Run.Kind != "work" {
+				detail += " · " + x.Run.Kind
+			}
+			level := "info"
+			if x.Run.State == "failed" || x.Run.State == "needs_input" || x.Run.State == "blocked" {
+				level = "warn"
+			}
+			out = append(out, logRow{At: at, Kind: "run", Level: level, Subject: x.RunnerName, State: x.Run.State,
+				Title: fmt.Sprintf("#%d %s", x.Run.ID, x.TaskTitle), Detail: detail, Link: fmt.Sprintf("/run/%d", x.Run.ID)})
+		}
+	}
+	if kind != "run" {
+		ents, err := h.D.Fleet.DB.RQ.ListLogEntries(ctx, 300)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range ents {
+			if kind != "" && e.Kind != kind {
+				continue
+			}
+			l := ""
+			if e.Kind == "runner" || e.Kind == "upgrade" || (e.Kind == "template" && !strings.HasPrefix(e.Title, "Template updated")) {
+				l = "/runner/" + e.Subject
+			}
+			out = append(out, logRow{At: e.At, Kind: e.Kind, Level: e.Level, Subject: e.Subject, Title: e.Title, Detail: e.Detail, Link: l})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At > out[j].At })
+	return out, nil
+}
 
 func ago(ts string) string {
 	if ts == "" {

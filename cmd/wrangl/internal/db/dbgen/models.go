@@ -70,6 +70,16 @@ type Issue struct {
 	SyncedAt string `json:"synced_at"`
 }
 
+type LogEntry struct {
+	ID      int64  `json:"id"`
+	At      string `json:"at"`
+	Kind    string `json:"kind"`
+	Level   string `json:"level"`
+	Subject string `json:"subject"`
+	Title   string `json:"title"`
+	Detail  string `json:"detail"`
+}
+
 type LogLine struct {
 	ID      int64  `json:"id"`
 	RunID   int64  `json:"run_id"`

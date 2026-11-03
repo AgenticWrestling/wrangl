@@ -60,6 +60,10 @@ func (f fakeEC2) DescribeInstanceTypes(context.Context, *ec2.DescribeInstanceTyp
 	return &ec2.DescribeInstanceTypesOutput{}, nil
 }
 
+func (f fakeEC2) TerminateInstances(context.Context, *ec2.TerminateInstancesInput, ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error) {
+	return &ec2.TerminateInstancesOutput{}, nil
+}
+
 func inst(id, typ, state, name string, tags ...string) types.Instance {
 	i := types.Instance{InstanceId: aws.String(id), InstanceType: types.InstanceType(typ), State: &types.InstanceState{Name: types.InstanceStateName(state)},
 		Architecture: types.ArchitectureValuesArm64, LaunchTime: aws.Time(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)), VpcId: aws.String("vpc-1"), PrivateIpAddress: aws.String("10.0.0.5"),
@@ -157,5 +161,20 @@ func TestIndicativeFallbackIsFlagged(t *testing.T) {
 	}
 	if _, ok, _ := s.Price(context.Background(), "ap-south-1", "m7g.large"); ok {
 		t.Fatal("the indicative table is us-east-1 only")
+	}
+}
+
+func TestTerminateMarksCachedInstance(t *testing.T) {
+	s := svc(fakeCost{mtd: "1", rest: "1"})
+	if err := s.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Terminate(context.Background(), "eu-west-1", "i-eu"); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range s.Cached().Instances {
+		if in.ID == "i-eu" && (in.State != "shutting-down" || in.HourlyUSD != 0) {
+			t.Fatalf("not marked: %+v", in)
+		}
 	}
 }
