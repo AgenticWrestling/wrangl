@@ -61,6 +61,7 @@
 {{.Post}}
 <div id="toast" class="toast"></div>
 <nav class="tabs">
+  <a class="side-brand" href="/backlog" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="36" height="36"><b>wrangl</b></a>
   <a href="/backlog" class="{{if or (eq .View "backlog") (eq .View "task")}}on{{end}}"><span>☰</span>Backlog</a>
   <a href="/runners" class="{{if or (eq .View "runners") (eq .View "runner")}}on{{end}}"><span>⚙</span>Runners</a>
   <a href="/logs" class="{{if or (eq .View "logs") (eq .View "run") (eq .View "diff") (eq .View "files")}}on{{end}}"><span>▤</span>Logs</a>
