@@ -81,6 +81,11 @@ task clean   # remove ./build
 
 ## wrangl
 
+<p align="center"><img src="cmd/wrangl/internal/web/static/logo.png" alt="wrangl, metaharness orchestrator" width="280"></p>
+
+**W**ork, **R**un, **A**sk, **N**udge, **G**ate, **L**and: put work on a backlog, run it on a
+fleet of agents, answer what they ask, steer them, gate what they produce, and land it.
+
 A single binary that runs as a **controller** (SQLite, embedded NATS + JetStream, HTTP API) or a
 **runner** (enrols, applies a mise-based template, drives a coding agent through a hierarchical
 task stack), plus the client CLI/TUI. Design: [`docs/superpowers/specs/2026-10-31-wrangl-design.md`](docs/superpowers/specs/2026-10-31-wrangl-design.md).

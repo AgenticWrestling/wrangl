@@ -1,5 +1,7 @@
 # Installing wrangl
 
+*wrangl: **W**ork, **R**un, **A**sk, **N**udge, **G**ate, **L**and.*
+
 This guide takes you from an empty AWS account to a runner finishing a task and pushing a
 branch to GitHub. Do the steps in order. Each step ends with a check.
 
