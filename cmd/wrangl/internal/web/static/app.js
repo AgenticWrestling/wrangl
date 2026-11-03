@@ -37,15 +37,9 @@ new MutationObserver(() => {
 
 let dragging = false;
 
-async function moveTask(evt) {
-  const li = evt.item;
-  const sqid = li.dataset.sqid;
-  const parent = evt.to.dataset.parent || '';
-  let prev = li.previousElementSibling;
-  while (prev && !prev.dataset.sqid) prev = prev.previousElementSibling;
-  const body = {};
-  if (parent === '') body.root = true; else body.parent = parent;
-  if (prev) body.after = prev.dataset.sqid; else body.first = true;
+// postMove asks the server to move a task: body is {root|parent, first|after}. Shared by drag
+// and drop (moveTask) and the keyboard reorder (keys.js).
+async function postMove(sqid, body) {
   try {
     const r = await fetch('/api/v1/tasks/' + encodeURIComponent(sqid) + '/move', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
@@ -54,13 +48,26 @@ async function moveTask(evt) {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
       toast('move failed: ' + (e.error || r.status), true);
-      location.reload();
-      return;
+      return false;
     }
     toast('moved ' + sqid);
+    return true;
   } catch (e) {
     toast('move failed: ' + e, true);
+    return false;
   }
+}
+window.postMove = postMove;
+
+async function moveTask(evt) {
+  const li = evt.item;
+  const parent = evt.to.dataset.parent || '';
+  let prev = li.previousElementSibling;
+  while (prev && !prev.dataset.sqid) prev = prev.previousElementSibling;
+  const body = {};
+  if (parent === '') body.root = true; else body.parent = parent;
+  if (prev) body.after = prev.dataset.sqid; else body.first = true;
+  if (!(await postMove(li.dataset.sqid, body))) location.reload();
 }
 
 function initSortables() {

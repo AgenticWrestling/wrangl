@@ -255,3 +255,15 @@ label.check { font-size: 0.95rem; }
 .seg button { font: inherit; font-size: 0.9rem; border: 1px solid var(--line); background: var(--raised); color: var(--ink2); padding: 7px 14px; border-radius: 999px; cursor: pointer; }
 .seg button[aria-checked="true"] { border-color: var(--prog); color: var(--ink); font-weight: 600; }
 .fs-sample { margin: 8px 0 0; }
+
+/* keyboard control (keys.js): selection is a bar + outline, not colour alone */
+li.task.ksel > .row { outline: 2px solid var(--ink); outline-offset: -2px; border-left: 6px solid var(--ink); background: var(--raised); }
+li.task.kcollapsed > ul.tasks { display: none; }
+li.task.kfiltered { display: none; }
+.kbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--card); border-top: 1px solid var(--line); padding: 8px 16px; display: flex; gap: 8px; align-items: center; }
+.kbar input { flex: 1; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--faint); border-radius: 8px; padding: 6px 10px; }
+.khelp { max-width: 560px; }
+.khelp .g { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 28px; }
+.khelp h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.khelp .g div { display: flex; justify-content: space-between; gap: 8px; }
+.khelp kbd { font: 500 0.74rem var(--mono); border: 1px solid var(--faint); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; margin-left: 4px; }
