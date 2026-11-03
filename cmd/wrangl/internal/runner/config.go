@@ -38,6 +38,10 @@ type Config struct {
 	// AgentHome overrides the agent's home directory (default: from the passwd entry).
 	AgentHome string `yaml:"agent_home,omitempty"`
 	MiseBin   string `yaml:"mise_bin"`
+	// Host marks the controller's own machine enrolled as a permanent runner: it runs as the
+	// current user in that user's real home, never powers the box off, and leaves the user's
+	// mise config and tools alone (templates are acknowledged, not applied).
+	Host bool `yaml:"host,omitempty"`
 	// SocketPath is the daemon's local socket for the agent's hooks and MCP shim.
 	SocketPath string `yaml:"socket_path,omitempty"`
 }

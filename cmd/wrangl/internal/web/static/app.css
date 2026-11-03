@@ -1,3 +1,15 @@
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-mono-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+/* Didact Gothic (SIL OFL), vendored: the PWA loads nothing from a CDN. One weight only, so
+   bold is synthesised by the browser. */
+@font-face { font-family: "Didact Gothic"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/static/vendor/fonts/didact-gothic-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Didact Gothic"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/static/vendor/fonts/didact-gothic-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
 :root {
   /* 16-colour dark palette. c0–c7 are neutrals; c8–c15 are the Okabe–Ito colourblind-safe
      accents (with a light tint for links). Status always pairs colour with a glyph and a
@@ -21,18 +33,24 @@
   --add-bg: color-mix(in srgb, var(--c10) 18%, transparent);
   --del-bg: color-mix(in srgb, var(--c13) 18%, transparent);
   --hunk: var(--c9);
-  --radius: 12px; --tabs-h: 58px;
+  --radius: 12px; --tabs-h: 58px; --side-w: 188px;
+  --font: "Didact Gothic", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sqid: #b4bac4; /* light grey */
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.45 var(--font);
   padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 16px);
 }
 a { color: var(--link); text-decoration: none; }
-code, pre, .sqid { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.86em; }
+code, pre, .sqid { font-family: var(--mono); font-size: 0.86em; }
+.sqid { color: var(--sqid); }
+.fa { width: 0.95em; height: 0.95em; fill: currentColor; vertical-align: -0.12em; margin-right: 6px; flex: none; }
+.btn .fa:only-child { margin-right: 0; }
 h1 { font-size: 1.1rem; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 h2 { font-size: 1.05rem; margin: 0 0 12px; }
 h2.section { margin: 20px 16px 8px; }
@@ -117,7 +135,7 @@ li.task > .row { background: var(--card); border: 1px solid var(--line); border-
 li.task.st-in_progress > .row { border-left: 3px solid var(--prog); }
 li.task > .row:has(.tag.attn) { border-left: 3px solid var(--attn); }
 li.task .title { color: inherit; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-li.task .sqid { color: var(--faint); font-size: 0.75rem; }
+li.task .sqid { color: var(--sqid); font-size: 0.78rem; }
 .handle { cursor: grab; color: var(--dim); touch-action: none; padding: 0 4px; user-select: none; }
 .glyph { width: 1em; text-align: center; }
 .st-done > .row .title, .st-cancelled > .row .title { color: var(--dim); text-decoration: line-through; }
@@ -175,3 +193,41 @@ dialog hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { border-color: var(--err); color: var(--err); }
 .ticon.ti-code { stroke: var(--faint); }
+
+/* Project bar (backlog): the four most recently updated projects, the rest in a menu, then [+]. */
+.projbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.pbtn { font: inherit; font-size: 0.9rem; line-height: 1.2; border: 1px solid var(--line); background: var(--raised); color: var(--ink2); padding: 7px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; list-style: none; display: inline-block; }
+.pbtn::-webkit-details-marker { display: none; }
+.pbtn.on { border-color: var(--prog); color: var(--ink); background: color-mix(in srgb, var(--prog) 14%, transparent); }
+.pbtn.add { color: var(--link); padding: 7px 12px; }
+.pbtn:focus-visible { outline: 2px solid var(--prog); outline-offset: 2px; }
+details.pmore { position: relative; }
+details.pmore .menu { position: absolute; z-index: 8; top: calc(100% + 6px); left: 0; min-width: 160px; max-height: 50vh; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+details.pmore .menu a { display: block; padding: 8px 12px; border-radius: 6px; color: var(--ink2); white-space: nowrap; }
+details.pmore .menu a:hover, details.pmore .menu a.on { background: var(--raised); color: var(--ink); }
+
+/* Project page */
+.toollist { list-style: none; margin: 0; padding: 0; }
+section.tools { border-style: dashed; }
+section.tools .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.btn[disabled] { pointer-events: none; }
+label.check { font-size: 0.95rem; }
+
+/* Desktop: the bottom tab bar becomes a left-hand panel. */
+@media (min-width: 900px) {
+  body { padding-bottom: 0; padding-left: var(--side-w); }
+  nav.tabs {
+    inset: 0 auto 0 0; width: var(--side-w); flex-direction: column; justify-content: flex-start; gap: 2px;
+    border-top: 0; border-right: 1px solid var(--line); padding: calc(env(safe-area-inset-top) + 16px) 10px 16px;
+  }
+  nav.tabs::before { content: "wrangl"; color: var(--ink); font-size: 1.25rem; padding: 4px 12px 16px; letter-spacing: 0.02em; }
+  nav.tabs a { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; height: auto; padding: 10px 12px; border-radius: 10px; font-size: 0.98rem; }
+  nav.tabs a:hover { background: var(--raised); color: var(--ink2); }
+  nav.tabs a.on { background: color-mix(in srgb, var(--prog) 14%, transparent); }
+  nav.tabs a span:first-child { width: 1.4em; text-align: center; font-size: 1.1rem; }
+  .badge { position: static; margin-left: auto; }
+  header.top { padding-left: 24px; padding-right: 24px; }
+  main { max-width: 900px; margin-left: 0; padding: 16px 24px; }
+  .term-card { margin-left: 24px; margin-right: 24px; max-width: 900px; }
+  .toast { bottom: 24px; left: calc(50% + var(--side-w) / 2); }
+}

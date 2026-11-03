@@ -245,3 +245,28 @@ type AnswerRequest struct {
 	Value string `json:"value,omitempty"`
 	Text  string `json:"text,omitempty"`
 }
+
+// TermInfo describes one terminal session on a runner: the PTY of the run in progress
+// ("run-<id>") or a login shell the owner opened ("sh-<n>").
+type TermInfo struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"` // run | shell
+	Title string `json:"title"`
+	Cols  uint16 `json:"cols"`
+	Rows  uint16 `json:"rows"`
+}
+
+// TermSize is the cmd.term.size payload.
+type TermSize struct {
+	Cols uint16 `json:"cols"`
+	Rows uint16 `json:"rows"`
+}
+
+// TermOpenReply answers cmd.shell.open.
+type TermOpenReply struct {
+	ID    string `json:"id,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// TermEndHeader marks the final (empty) message of a terminal's output on the PTY stream.
+const TermEndHeader = "Wrangl-Term-End"

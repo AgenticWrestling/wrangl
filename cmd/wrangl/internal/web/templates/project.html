@@ -1,0 +1,71 @@
+{{define "main-project"}}{{$p := .P}}
+<section class="card">
+  <div class="meta"><a href="/backlog?project={{$p.Slug}}">‹ Backlog</a><code>{{$p.Slug}}</code>
+    {{if .Template}}<span class="pill">runs on {{.Template}}</span>{{end}}
+    {{if $p.AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if $p.AutoQueue}}<span class="pill">auto-queue</span>{{end}}</div>
+  <h2>{{$p.Name}}</h2>
+  <div class="actions wrap">
+    <a class="btn primary" href="/backlog?project={{$p.Slug}}">Open backlog</a>
+    <button class="btn" onclick="openSheet('sheet-edit-project')">Edit project</button>
+  </div>
+</section>
+
+<section class="card" id="goals">
+  <div class="row"><h3>Goals &amp; definition of done</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-edit-project')">Edit</button></div>
+  {{if $p.Description}}<div class="prose">{{md $p.Description}}</div>
+  {{else}}<p class="empty">No goals written yet. Describe what this project is for and what "done" looks like, in markdown.</p>{{end}}
+</section>
+
+<section class="card" id="repos">
+  <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-repo')">＋ Link repo</button></div>
+  {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span><span class="grow"></span>
+    <button class="btn small danger" data-on-click="confirm('Unlink {{.Owner}}/{{.Name}} from {{$p.Slug}}?') && @post('/ui/act/repo-unlink?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Unlink</button></div>{{end}}
+  {{else}}<p class="empty">No repositories linked. Tasks need one to run.</p>{{end}}
+  {{if not .GitHub}}<p class="hint">GitHub isn't configured on this controller yet (<code>github.author_app</code>), so repos can't be linked.</p>{{end}}
+</section>
+
+<section class="card tools" id="tools">
+  <div class="row"><h3>Custom tools</h3><span class="grow"></span><span class="pill">coming soon</span>
+    <button class="btn small" disabled aria-disabled="true" title="Not available yet">＋ Add tool</button></div>
+  <p class="hint">Register tools for this project's agents (MCP servers, HTTP APIs, CLIs) and store the credentials they authenticate with. Registered tools will be listed here, each with its auth status.</p>
+  <ul class="toollist" id="toollist"></ul>
+  <p class="empty">No tools registered.</p>
+</section>
+{{end}}
+
+{{define "post-project"}}{{$p := .P}}
+<dialog id="sheet-edit-project" class="sheet" data-signals-pname="{{json $p.Name}}" data-signals-pgoals="{{json $p.Description}}" data-signals-ptemplate="{{json .Template}}" data-signals-pautomerge="{{json (gt $p.AutoMerge 0)}}" data-signals-pautoqueue="{{json (gt $p.AutoQueue 0)}}">
+  <h2>Edit {{$p.Slug}}</h2>
+  <label>Name<input data-bind="pname" autocomplete="off"></label>
+  <label>Goals &amp; definition of done (markdown)<textarea data-bind="pgoals" rows="12" placeholder="## Goal&#10;What this project is for.&#10;&#10;## Done when&#10;- [ ] ..."></textarea></label>
+  <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
+  <label class="check"><input type="checkbox" data-bind="pautomerge"> Auto-merge low-risk PRs</label>
+  <label class="check"><input type="checkbox" data-bind="pautoqueue"> Auto-queue new tasks</label>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/project-save?slug={{$p.Slug}}')" data-close>Save</button>
+  </div>
+</dialog>
+<dialog id="sheet-repo" class="sheet">
+  <h2>Link a repository</h2>
+  <label>GitHub repo<input data-bind="repoadd" placeholder="owner/name" autocapitalize="off" autocomplete="off"></label>
+  <p class="hint">The wrangl author App must be installed on it.</p>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/repo-link?slug={{$p.Slug}}')" data-close>Link</button>
+  </div>
+</dialog>
+{{end}}
+
+{{define "sheet-project"}}<dialog id="sheet-project" class="sheet">
+  <h2>New project</h2>
+  <label>Slug<input data-bind="slug" autocapitalize="off" autocomplete="off" placeholder="my-app"></label>
+  <label>Name (optional)<input data-bind="pname" autocomplete="off"></label>
+  <label>Goals &amp; definition of done (markdown, optional)<textarea data-bind="pgoals" rows="6" placeholder="What is this for, and what does done look like?"></textarea></label>
+  <label>Repositories (owner/name, one per line)<textarea data-bind="prepos" rows="2" placeholder="you/your-repo" autocapitalize="off"></textarea></label>
+  <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
+  <div class="actions">
+    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn primary" data-on-click="@post('/ui/act/project-new')" data-close>Create</button>
+  </div>
+</dialog>{{end}}

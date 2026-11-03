@@ -72,8 +72,8 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 	}
 	if o.Poweroff == nil {
 		o.Poweroff = func() error {
-			if len(cfg.PoweroffCommand) == 0 {
-				return errors.New("no poweroff_command configured")
+			if cfg.Host || len(cfg.PoweroffCommand) == 0 {
+				return errors.New("no poweroff_command configured (or a host runner)")
 			}
 			out, err := exec.Command(cfg.PoweroffCommand[0], cfg.PoweroffCommand[1:]...).CombinedOutput()
 			if err != nil {
@@ -269,6 +269,50 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 			o.Log.Error("agent socket", "path", cfg.Socket(), "err", err)
 		}
 	}()
+	// Web terminal (owner-facing): list, type into, resize and open/close PTYs. Input and
+	// resize are plain publishes; the controller forwards them only while the owner has
+	// taken control.
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "term.in.*"), func(m *nats.Msg) {
+		if err := worker.TermInput(termID(m.Subject), m.Data); err != nil {
+			o.Log.Debug("term input", "err", err)
+		}
+	}); err != nil {
+		return err
+	}
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "term.size.*"), func(m *nats.Msg) {
+		var sz proto.TermSize
+		if json.Unmarshal(m.Data, &sz) == nil {
+			if err := worker.TermResize(termID(m.Subject), sz); err != nil {
+				o.Log.Debug("term resize", "err", err)
+			}
+		}
+	}); err != nil {
+		return err
+	}
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "term.list"), func(m *nats.Msg) {
+		respond(m, worker.TermList())
+	}); err != nil {
+		return err
+	}
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "shell.open"), func(m *nats.Msg) {
+		id, err := worker.OpenShell(ctx)
+		if err != nil {
+			respond(m, proto.TermOpenReply{Error: err.Error()})
+			return
+		}
+		respond(m, proto.TermOpenReply{ID: id})
+	}); err != nil {
+		return err
+	}
+	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "term.close.*"), func(m *nats.Msg) {
+		if err := worker.CloseTerm(termID(m.Subject)); err != nil {
+			respond(m, proto.TermOpenReply{Error: err.Error()})
+			return
+		}
+		respond(m, proto.TermOpenReply{})
+	}); err != nil {
+		return err
+	}
 	for _, kind := range []string{"diff", "tree", "file"} {
 		if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, kind), func(m *nats.Msg) {
 			var ref proto.RunRef
@@ -347,4 +391,9 @@ func Status(ctx context.Context, cfg *Config) (time.Duration, error) {
 	}
 	defer nc.Close()
 	return nc.RTT()
+}
+
+// termID is the session id in a wr.r.<r>.cmd.term.<op>.<id> subject.
+func termID(subject string) string {
+	return subject[strings.LastIndex(subject, ".")+1:]
 }

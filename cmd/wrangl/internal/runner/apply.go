@@ -154,6 +154,14 @@ func (a *Applier) Apply(ctx context.Context, t proto.TemplateApply) (string, err
 		return out.String(), err
 	}
 
+	if a.Cfg.Host {
+		step("host runner: template left unapplied (the machine is managed by hand)")
+		if err := os.WriteFile(filepath.Join(a.Cfg.StateDir, "template-version"), []byte(strconv.FormatInt(t.Version, 10)+"\n"), 0o600); err != nil {
+			return out.String(), err
+		}
+		return out.String(), nil
+	}
+
 	// 1. mise binary.
 	if _, err := os.Stat(a.Cfg.MiseBin); errors.Is(err, os.ErrNotExist) {
 		step("installing mise to %s", a.Cfg.MiseBin)

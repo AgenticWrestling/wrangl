@@ -69,9 +69,10 @@ type Service struct {
 	sumCache                         sync.Map
 	Now                              func() time.Time
 	Log                              *slog.Logger
-	Bus                              *events.Bus         // change notices
-	OnOffline                        func(runner string) // web push (M8)
-	hist                             history             // recent heartbeats for sparklines
+	Bus                              *events.Bus               // change notices
+	OnOffline                        func(runner string)       // web push (M8)
+	Attached                         func(runnerID int64) bool // someone has a web terminal open: not idle
+	hist                             history                   // recent heartbeats for sparklines
 	// AllowLoopbackEnroll lets tests launch with a 127.0.0.1 enrol URL. Production
 	// refuses: a runner on another host could never reach it.
 	AllowLoopbackEnroll bool
@@ -480,6 +481,9 @@ func (s *Service) Reap(ctx context.Context) ([]string, error) {
 	var reaped []string
 	var errs []error
 	for _, c := range cands {
+		if c.State == "idle" && s.Attached != nil && s.Attached(c.ID) {
+			continue // being watched or used through the web terminal
+		}
 		reason := map[string]string{
 			"idle":    fmt.Sprintf("idle for over %s", time.Duration(c.IdleTimeoutS)*time.Second),
 			"offline": fmt.Sprintf("offline for over %s", time.Duration(c.IdleTimeoutS)*time.Second),

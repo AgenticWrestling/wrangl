@@ -168,3 +168,23 @@ function boot() {
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+
+// The backlog's project menu is a <details>: close it on an outside click or Escape.
+document.addEventListener('click', (e) => {
+  document.querySelectorAll('details.pmore[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.querySelectorAll('details.pmore[open]').forEach((d) => { d.open = false; });
+});
+
+// Setup page: put the chosen App name into the manifest before it goes to GitHub.
+function ghManifest(form) {
+  const name = form.querySelector('#gh-name').value.trim();
+  if (!name) return false;
+  const field = form.querySelector('#gh-manifest');
+  const m = JSON.parse(field.value);
+  m.name = name;
+  field.value = JSON.stringify(m);
+  return true;
+}
+window.ghManifest = ghManifest;

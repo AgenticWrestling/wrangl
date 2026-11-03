@@ -326,6 +326,7 @@ func TestPRFlowEndToEnd(t *testing.T) {
 
 	runners := mustRunners(t, api, ctx)
 	checkPWA(t, e, hc, runners[0].Name, big, other, pq.ID)
+	checkTerm(t, ctx, hc, runners[0].Name)
 
 	stopDaemon()
 	<-ddone

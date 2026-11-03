@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/plans"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/prs"
@@ -71,12 +72,15 @@ type Deps struct {
 	Push     *webpush.Service
 	JS       jetstream.JetStream
 	Bus      *events.Bus
+	Setup    *ghsetup.Service
+	Term     *TermHub
 }
 
 // Register mounts /api/v1 on mux.
 func Register(mux *http.ServeMux, d Deps) {
 	f := d.Fleet
 	registerWork(mux, d)
+	registerTerm(mux, d)
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { streamEvents(w, r, d.Bus) })
 	mux.HandleFunc("GET /api/v1/push/key", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"public_key": d.Push.Keys.Public})

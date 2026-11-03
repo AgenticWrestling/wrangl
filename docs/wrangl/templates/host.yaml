@@ -1,0 +1,15 @@
+# The controller host as a permanent runner. Enrol it with
+#   wrangl fleet enroll-token --template host     (then on the host:)
+#   wrangl runner bootstrap --host --controller http://<private-ip>:4223 --token wre_...
+# It runs as a systemd --user unit under your own account, in your real home. Templates are
+# acknowledged but never applied (your mise config is left alone), it never powers the box
+# off, and the fleet never launches or reaps it. Adjust `arch` to the host's.
+name: host
+arch: x86_64
+min: { vcpu: 1, ram: 1GiB, disk: 5GiB }
+max_runners: 1
+mise_toml: ""
+agent:
+  start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
+  turn_timeout: 2h

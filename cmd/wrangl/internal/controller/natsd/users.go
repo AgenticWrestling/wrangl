@@ -2,6 +2,7 @@ package natsd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -20,9 +21,36 @@ func RunnerTemplateEventSubject(r int64) string { return fmt.Sprintf("wr.evt.%d.
 const TemplateEventWildcard = "wr.evt.*.template"
 
 // Run event and output subjects (r = runner, x = run).
-func RunStateSubject(r, x int64) string      { return fmt.Sprintf("wr.evt.%d.%d.state", r, x) }
-func RunLogSubject(r, x int64) string        { return fmt.Sprintf("wr.evt.%d.%d.log", r, x) }
-func RunPTYSubject(r, x int64) string        { return fmt.Sprintf("wr.pty.%d.%d", r, x) }
+func RunStateSubject(r, x int64) string { return fmt.Sprintf("wr.evt.%d.%d.state", r, x) }
+func RunLogSubject(r, x int64) string   { return fmt.Sprintf("wr.evt.%d.%d.log", r, x) }
+func RunPTYSubject(r, x int64) string   { return fmt.Sprintf("wr.pty.%d.%d", r, x) }
+
+// TermIDOK reports whether id is a terminal session id: "run-<n>" or "sh-<n>".
+func TermIDOK(id string) bool {
+	rest, ok := strings.CutPrefix(id, "run-")
+	if !ok {
+		rest, ok = strings.CutPrefix(id, "sh-")
+	}
+	if !ok || rest == "" || len(rest) > 20 {
+		return false
+	}
+	for _, c := range rest {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// TermPTYSubject is where terminal session id's output goes (id must pass TermIDOK).
+// A run's terminal is the run's own PTY subject.
+func TermPTYSubject(r int64, id string) string {
+	if rest, ok := strings.CutPrefix(id, "run-"); ok {
+		return fmt.Sprintf("wr.pty.%d.%s", r, rest)
+	}
+	return fmt.Sprintf("wr.pty.%d.%s", r, id)
+}
+
 func StackSubject(r int64, op string) string { return fmt.Sprintf("wr.stack.%d.%s", r, op) }
 
 // Wildcards the controller consumes.

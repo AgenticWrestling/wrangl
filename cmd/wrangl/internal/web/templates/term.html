@@ -1,0 +1,58 @@
+{{define "termpage"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#0f1115">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>{{.Name}} terminal · wrangl</title>
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/180.png">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/vendor/wterm-0.5.7.css">
+<link rel="stylesheet" href="/static/term.css">
+<script src="/static/vendor/wterm-0.5.7.js" defer></script>
+<script src="/static/term.js" defer></script>
+</head>
+<body class="termpage">
+<div id="termapp" data-runner="{{.Name}}" data-usable="{{if .Usable}}1{{else}}0{{end}}">
+  <header class="tbar">
+    <a class="tclose" href="/runner/{{.Name}}" aria-label="Close terminal and return to wrangl"><span aria-hidden="true">✕</span> wrangl</a>
+    <span class="tname">{{.Name}}</span>
+    <span id="tstate" class="tstate" role="status">{{if .Usable}}connecting…{{else}}{{.State}}{{end}}</span>
+    <span class="grow"></span>
+    <button type="button" id="tfit" class="tbtn" aria-pressed="true" title="Scale the terminal to fit the screen width">Fit</button>
+    <button type="button" id="tshell" class="tbtn" title="Open a shell on this runner" aria-label="Open a shell">＋<span class="lbl"> Shell</span></button>
+    <button type="button" id="tctl" class="tbtn ctl" aria-pressed="false" title="Take control to type into this session; Release goes back to watching">Take control</button>
+  </header>
+  {{if .Usable}}
+  <nav id="ttabs" class="ttabs" role="tablist" aria-label="Sessions"></nav>
+  <div id="tstage" class="tstage"><p id="tempty" class="tempty">No sessions yet. Agent runs appear here when they start; open a shell with ＋ Shell.</p></div>
+  <div id="tkeys" class="tkeys" role="toolbar" aria-label="Extra keys">
+    <button type="button" data-k="esc">Esc</button>
+    <button type="button" data-k="tab">Tab</button>
+    <button type="button" data-k="ctrl" data-mod="ctrl" aria-pressed="false">Ctrl</button>
+    <button type="button" data-k="alt" data-mod="alt" aria-pressed="false">Alt</button>
+    <button type="button" data-k="up" aria-label="Up">↑</button>
+    <button type="button" data-k="down" aria-label="Down">↓</button>
+    <button type="button" data-k="left" aria-label="Left">←</button>
+    <button type="button" data-k="right" aria-label="Right">→</button>
+    <button type="button" data-k="home">Home</button>
+    <button type="button" data-k="end">End</button>
+    <button type="button" data-k="pgup">PgUp</button>
+    <button type="button" data-k="pgdn">PgDn</button>
+    <button type="button" data-t="|">|</button>
+    <button type="button" data-t="~">~</button>
+    <button type="button" data-t="/">/</button>
+    <button type="button" data-t="-">-</button>
+    <button type="button" data-k="ctrlc" class="danger">^C</button>
+    <button type="button" data-k="kbd" aria-label="Show keyboard">⌨</button>
+  </div>
+  {{else}}
+  <div class="tstage"><p class="tempty">This runner is {{.State}}, so there is no terminal to open yet.</p></div>
+  {{end}}
+</div>
+</body>
+</html>{{end}}

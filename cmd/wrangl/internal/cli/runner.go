@@ -31,6 +31,7 @@ func runnerCmd(g *Global) *cobra.Command {
 	bf := bootstrap.Flags()
 	bf.StringVar(&bo.Token, "token", "", "one-time enrolment token (required)")
 	bf.StringVar(&bo.SHA256, "sha256", "", "expected sha256 of this binary")
+	bf.BoolVar(&bo.Host, "host", false, "enrol THIS machine (the controller host) as a permanent runner under the current user; installs a systemd --user unit")
 	bootstrap.MarkFlagRequired("token")
 	for _, h := range []struct {
 		name, usage string

@@ -49,6 +49,7 @@ type Worker struct {
 	answers    waiters
 	continueFn func(ctx context.Context) (string, bool) // interactive drive (M9)
 	sess       *session                                 // the run in progress (hooks report its agent session id)
+	terms      terms                                    // PTYs the owner can watch from the web terminal
 }
 
 // Kind is the kind of the run in progress.
@@ -634,11 +635,13 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 			rules = append(rules, expectRule{re: re, send: e.Send, repeat: e.Repeat})
 		}
 	}
-	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 50, Cols: 200})
+	size := pty.Winsize{Rows: 50, Cols: 200}
+	f, err := pty.StartWithSize(cmd, &size)
 	if err != nil {
 		return 0, fmt.Errorf("start agent %s: %w", argv[0], err)
 	}
 	defer f.Close()
+	defer w.addRunTerm(s.a.RunID, f, size)()
 
 	ptySubj := natsd.RunPTYSubject(w.Cfg.RunnerID, s.a.RunID)
 	readDone := make(chan struct{})

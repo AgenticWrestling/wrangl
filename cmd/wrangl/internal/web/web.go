@@ -18,11 +18,13 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nreid/devhost/cmd/wrangl/internal/api"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
 	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
 	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
@@ -58,6 +60,10 @@ func New(d api.Deps) (*Handler, error) {
 		"lower":     strings.ToLower,
 		"outline":   outlineFromPayload,
 		"ticon":     typeIcon,
+		"termok":    termUsable,
+		"faicon": func(n string) template.HTML {
+			return template.HTML(`<svg class="fa" aria-hidden="true"><use href="#fa-` + n + `"/></svg>`)
+		},
 		"typeEdit": func(types []dbtypes.TaskType, cur dbtypes.TaskType) map[string]any {
 			return map[string]any{"Types": types, "Cur": string(cur)}
 		},
@@ -100,11 +106,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	for path, view := range map[string]string{
 		"/backlog": "backlog", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
 		"/runs": "runs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
-		"/inbox": "inbox", "/more": "more",
+		"/inbox": "inbox", "/more": "more", "/project/{slug}": "project", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
 	}
+	mux.HandleFunc("GET /runner/{name}/term", h.termPage)
+	mux.HandleFunc("GET /setup/github/callback", h.githubCallback)
 	mux.HandleFunc("GET /ui/live", h.live)
 	mux.HandleFunc("POST /ui/act/{action}", h.act)
 }
@@ -129,7 +137,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request, view string) {
 	for k, v := range r.URL.Query() {
 		q[k] = v
 	}
-	for _, k := range []string{"sqid", "name", "id"} {
+	for _, k := range []string{"sqid", "name", "id", "slug"} {
 		if v := r.PathValue(k); v != "" {
 			q.Set(k, v)
 		}
@@ -174,7 +182,7 @@ func reqValue(r *http.Request, k string) string {
 // live is the page's Datastar stream: it re-renders #main on every change notice.
 func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	view := r.URL.Query().Get("view")
-	if _, ok := map[string]bool{"backlog": true, "task": true, "runners": true, "runner": true, "runs": true, "run": true, "inbox": true, "more": true}[view]; !ok {
+	if _, ok := map[string]bool{"backlog": true, "task": true, "runners": true, "runner": true, "runs": true, "run": true, "inbox": true, "more": true, "project": true}[view]; !ok {
 		w.WriteHeader(http.StatusNoContent) // static pages (diff, files) are not live
 		return
 	}
@@ -272,6 +280,8 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			return nil, err
 		}
 		d["Projects"] = projects
+		d["Recent"], d["Rest"] = recentProjects(projects, 4)
+		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		slug := r.URL.Query().Get("project")
 		if slug == "" && len(projects) > 0 {
 			slug = projects[0].Slug
@@ -459,8 +469,37 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		prs, _ := db.RQ.ListPRs(ctx, "open")
 		d["Questions"], d["PRs"], d["Title"] = qs, prs, "Inbox"
+	case "project":
+		p, err := h.D.Projects.Project(ctx, reqValue(r, "slug"))
+		if err != nil {
+			return nil, err
+		}
+		repos, err := db.RQ.ListRepos(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		d["P"], d["Repos"], d["Title"] = p, repos, p.Name
+		d["Templates"], _ = db.RQ.ListTemplates(ctx)
+		d["GitHub"] = h.D.Projects.GH != nil
+		d["Template"] = ""
+		if p.DefaultTemplateID.Valid {
+			if t, err := db.RQ.GetTemplate(ctx, p.DefaultTemplateID.Int64); err == nil {
+				d["Template"] = t.Name
+			}
+		}
+	case "setup":
+		d["Title"] = "Setup"
+		app, have := h.D.Setup.Current()
+		d["App"], d["HaveApp"] = app, have
+		d["Active"] = h.D.Projects.GH != nil
+		d["State"] = h.D.Setup.NewState()
+		d["AppName"] = h.D.Setup.AppName
+		m, err := h.D.Setup.Manifest(h.D.Setup.AppName)
+		d["Manifest"], d["ManifestErr"] = string(m), errString(err)
+		d["Created"], d["Error"] = r.URL.Query().Get("created") == "1", r.URL.Query().Get("error")
 	case "more":
 		d["Projects"], _ = db.RQ.ListProjects(ctx)
+		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "More"
 	}
@@ -684,9 +723,40 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		_, err = h.D.Fleet.Launch(ctx, q.Get("template"))
 		msg = "launching a " + q.Get("template") + " runner"
 	case "project-new":
-		t := str("ptemplate")
-		_, err = h.D.Projects.Create(ctx, str("slug"), projectsParams(t))
-		msg, nav = "project created", "/backlog?project="+url.QueryEscape(str("slug"))
+		slug := str("slug")
+		pp := projectsParams(str("ptemplate"))
+		if n := str("pname"); n != "" {
+			pp.Name = &n
+		}
+		if g := str("pgoals"); g != "" {
+			pp.Description = &g
+		}
+		if _, err = h.D.Projects.Create(ctx, slug, pp); err != nil {
+			break
+		}
+		msg, nav = "project created", "/project/"+url.PathEscape(slug)
+		var failed []string
+		for _, ref := range strings.FieldsFunc(str("prepos"), func(r rune) bool { return r == ',' || r == '\n' || r == ' ' }) {
+			if _, lerr := h.D.Projects.LinkRepo(ctx, slug, ref, ""); lerr != nil {
+				failed = append(failed, ref+": "+lerr.Error())
+			}
+		}
+		if len(failed) > 0 {
+			msg = "project created; not linked: " + strings.Join(failed, "; ")
+		}
+		reset = map[string]any{"slug": "", "pname": "", "pgoals": "", "prepos": "", "ptemplate": ""}
+	case "project-save":
+		slug := q.Get("slug")
+		name, goals, tmpl := str("pname"), str("pgoals"), str("ptemplate")
+		am, aq := flag("pautomerge"), flag("pautoqueue")
+		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq})
+		msg = "saved " + slug
+	case "repo-link":
+		_, err = h.D.Projects.LinkRepo(ctx, q.Get("slug"), str("repoadd"), "")
+		msg, reset = "repo linked", map[string]any{"repoadd": ""}
+	case "repo-unlink":
+		err = h.D.Projects.UnlinkRepo(ctx, q.Get("slug"), q.Get("repo"))
+		msg = "repo unlinked"
 	default:
 		err = fmt.Errorf("unknown action")
 	}
@@ -778,4 +848,53 @@ func parseDiff(s string) []diffFile {
 		}
 	}
 	return files
+}
+
+// recentProjects splits projects into the n most recently updated and the rest (both in
+// recency order, ties broken by slug).
+func recentProjects(all []dbgen.Project, n int) (recent, rest []dbgen.Project) {
+	sorted := append([]dbgen.Project(nil), all...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].UpdatedAt > sorted[j].UpdatedAt })
+	if len(sorted) <= n {
+		return sorted, nil
+	}
+	return sorted[:n], sorted[n:]
+}
+
+// githubCallback is where GitHub sends the owner's browser after they confirm the App.
+func (h *Handler) githubCallback(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if _, err := h.D.Setup.Exchange(r.Context(), q.Get("code"), q.Get("state")); err != nil {
+		http.Redirect(w, r, "/setup?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/setup?created=1", http.StatusSeeOther)
+}
+
+// termUsable reports whether a runner in this state can host a terminal: it is up and
+// enrolled (launching, enrolling, offline and terminated runners have no daemon to talk to).
+func termUsable(state string) bool {
+	switch state {
+	case "provisioning", "idle", "busy", "cordoned", "draining":
+		return true
+	}
+	return false
+}
+
+// termPage serves the fullscreen runner terminal. It has its own minimal document, with no
+// navigation, so it can fill a phone screen; the page script does the rest.
+func (h *Handler) termPage(w http.ResponseWriter, r *http.Request) {
+	rn, err := h.D.Fleet.DB.RQ.GetRunnerByName(r.Context(), r.PathValue("name"))
+	if err != nil {
+		http.Error(w, "runner not found", http.StatusNotFound)
+		return
+	}
+	var b bytes.Buffer
+	if err := h.tmpl.ExecuteTemplate(&b, "termpage", map[string]any{"Name": rn.Name, "State": rn.State, "Usable": termUsable(rn.State)}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(b.Bytes())
 }

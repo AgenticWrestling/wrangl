@@ -34,8 +34,11 @@ type BootstrapOptions struct {
 	IMDSURL    string // default http://169.254.169.254
 	NoSystemd  bool
 	NoUser     bool
-	Binary     string // path written into the unit; default /usr/local/bin/wrangl
-	Log        io.Writer
+	// Host enrols this machine as the controller host's permanent runner: config and state
+	// under the current user's home, a systemd --user unit, the agent is the current user.
+	Host   bool
+	Binary string // path written into the unit; default /usr/local/bin/wrangl
+	Log    io.Writer
 }
 
 // The daemon runs as root (it holds the NATS credentials, installs mise, runs the
@@ -75,6 +78,20 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	}
 	etc := filepath.Join(o.Root, "etc", "wrangl")
 	state := filepath.Join(o.Root, "var", "lib", "wrangl")
+	var uhome string
+	if o.Host {
+		u, err := user.Current()
+		if err != nil {
+			return nil, err
+		}
+		uhome = u.HomeDir
+		etc = filepath.Join(uhome, ".config", "wrangl-host-runner")
+		state = filepath.Join(uhome, ".local", "state", "wrangl-host-runner")
+		o.NoUser = true
+		if exe, err := os.Executable(); err == nil && o.Binary == "/usr/local/bin/wrangl" {
+			o.Binary = exe
+		}
+	}
 	for _, d := range []string{etc, state} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return nil, err
@@ -116,6 +133,17 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	if o.NoUser {
 		cfg.AgentUser = ""
 	}
+	if o.Host {
+		cfg.Host = true
+		cfg.PoweroffCommand = nil
+		cfg.CAFile, cfg.CredsFile = filepath.Join(etc, "ca.pem"), filepath.Join(etc, "runner.creds")
+		cfg.StateDir = state
+		cfg.SocketPath = filepath.Join(state, "runner.sock")
+		cfg.MiseBin = filepath.Join(uhome, ".local", "bin", "mise")
+		if p, err := exec.LookPath("mise"); err == nil {
+			cfg.MiseBin = p
+		}
+	}
 	if o.Root != "" { // tests: keep paths inside the prefix
 		cfg.CAFile, cfg.CredsFile = filepath.Join(etc, "ca.pem"), filepath.Join(etc, "runner.creds")
 		cfg.StateDir = state
@@ -140,6 +168,24 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	}
 	logf("enrolled as %s (runner %d)", resp.Name, resp.RunnerID)
 
+	if o.Host && !o.NoSystemd {
+		dir := filepath.Join(uhome, ".config", "systemd", "user")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+		unit := fmt.Sprintf("[Unit]\nDescription=wrangl runner (controller host)\nAfter=network-online.target\n\n[Service]\nExecStart=%s --config %s runner run\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n",
+			o.Binary, filepath.Join(etc, "runner.yaml"))
+		if err := os.WriteFile(filepath.Join(dir, "wrangl-host-runner.service"), []byte(unit), 0o644); err != nil {
+			return nil, err
+		}
+		for _, args := range [][]string{{"--user", "daemon-reload"}, {"--user", "enable", "--now", "wrangl-host-runner.service"}} {
+			if out, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, out)
+			}
+		}
+		logf("started wrangl-host-runner.service (user unit)")
+		return cfg, nil
+	}
 	if !o.NoSystemd {
 		unit := filepath.Join(o.Root, "etc/systemd/system/wrangl-runner.service")
 		if err := os.WriteFile(unit, []byte(fmt.Sprintf(unitTmpl, o.Binary)), 0o644); err != nil {

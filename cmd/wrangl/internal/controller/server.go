@@ -26,6 +26,7 @@ import (
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/cfaccess"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
+	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/plans"
 	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
@@ -444,7 +445,11 @@ func listenUnix(path string) (net.Listener, error) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus}
+	term := &api.TermHub{}
+	s.Fleet.Attached = term.Attached
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term,
+		Setup: &ghsetup.Service{DataDir: s.cfg.DataDir, PublicURL: strings.TrimSuffix(s.cfg.Web.PublicURL, "/"),
+			AppName: appName(s.cfg.Cloudflare.OwnerEmail)}}
 	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	ui, err := web.New(deps)
@@ -485,6 +490,11 @@ func (s *Server) github() (gh.API, error) {
 		return s.GH, nil
 	}
 	app := s.cfg.GitHub.AuthorApp
+	if app.ID == 0 { // not in controller.yaml: use the App the web Setup page created
+		if a, ok := ghsetup.Load(s.cfg.DataDir); ok {
+			app = config.GitHubApp{ID: a.ID, PrivateKey: ghsetup.KeyRel}
+		}
+	}
 	if app.ID == 0 {
 		s.log.Warn("github.author_app not set: repo linking, issue sync and pushes to GitHub are disabled")
 		return nil, nil
@@ -539,4 +549,19 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(st)
+}
+
+// appName suggests a GitHub App name from the owner's email (App names are global).
+func appName(email string) string {
+	local, _, _ := strings.Cut(email, "@")
+	var b strings.Builder
+	for _, r := range strings.ToLower(local) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "wrangl-author"
+	}
+	return "wrangl-author-" + b.String()
 }

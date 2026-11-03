@@ -9,7 +9,7 @@
 </section>{{end}}
 {{if not .Cards}}<p class="empty">No runners. Launch one from a template above, or <code>wrangl fleet launch</code>.</p>{{end}}
 {{range .Cards}}<a class="card runner st-{{.R.State}}" href="/runner/{{.R.Name}}">
-  <div class="row"><b>{{.R.Name}}</b> <span class="pill">{{.R.State}}</span>{{if .R.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if .R.DrainRequested}}<span class="pill warn">draining</span>{{end}}{{if .R.UpgradeSha}}<span class="tag prog">⟳ upgrading</span>{{end}}<span class="grow"></span><span class="dim">{{.T.Name}}</span></div>
+  <div class="row"><b>{{.R.Name}}</b> <span class="pill">{{.R.State}}</span>{{if .R.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if .R.DrainRequested}}<span class="pill warn">draining</span>{{end}}{{if .R.UpgradeSha}}<span class="tag prog">⟳ upgrading</span>{{end}}<span class="grow"></span>{{if termok .R.State}}<button type="button" class="btn small" onclick="event.preventDefault();event.stopPropagation();location.assign('/runner/{{.R.Name}}/term')">Terminal</button>{{end}}<span class="dim">{{.T.Name}}</span></div>
   <div class="row small dim">{{.R.InstanceType}} · {{.R.Vcpu}} vCPU · {{.R.RamMib}} MiB · {{.R.Az}}</div>
   <div class="row small">
     <span>CPU {{pct .M.CPUPercent}}</span><span>Mem {{pct .M.MemPercent}}</span><span>Disk {{pct .M.DiskPercent}}</span>
@@ -35,6 +35,7 @@
   </dl>
   {{spark .Spark}}
   <div class="actions wrap">
+    {{if termok $r.State}}<a class="btn primary" href="/runner/{{$r.Name}}/term">Terminal</a>{{end}}
     {{if $r.Cordoned}}<button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')">Uncordon</button>
     {{else}}<button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')">Cordon</button>{{end}}
     <button class="btn" data-on-click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')">Drain</button>

@@ -1,0 +1,95 @@
+/* Runner terminal page: a fullscreen app shell around wterm. Colours come from app.css. */
+html, body.termpage { height: 100%; margin: 0; padding: 0; overflow: hidden; background: var(--bg); overscroll-behavior: none; }
+body.termpage { padding-left: 0; padding-bottom: 0; }
+
+#termapp {
+  --tkeys-h: 0px;
+  position: fixed; left: 0; right: 0; top: 0; height: 100dvh; display: flex; flex-direction: column;
+  background: var(--bg); color: var(--ink);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.tbar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 2px solid var(--line);
+  background: var(--card); flex: none; min-width: 0;
+}
+#termapp.controlling .tbar { border-bottom-color: var(--attn); }
+.tclose {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; flex: none;
+  background: var(--raised); border: 1px solid var(--faint); color: var(--ink); font-size: 1rem;
+}
+.tname { color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tstate { color: var(--dim); font-size: 0.85rem; white-space: nowrap; }
+.tstate.live::before { content: "● "; color: var(--ok); }
+.tstate.bad::before { content: "▲ "; color: var(--attn); }
+.tbtn {
+  font: inherit; font-size: 0.9rem; color: var(--ink2); background: var(--raised); border: 1px solid var(--line);
+  border-radius: 999px; padding: 8px 12px; cursor: pointer; white-space: nowrap; flex: none;
+}
+.tbtn[aria-pressed="true"] { border-color: var(--prog); color: var(--ink); }
+.tbtn.ctl { min-width: 8.5em; }
+.tbtn.ctl[aria-pressed="true"] { background: var(--attn); border-color: var(--attn); color: var(--c0); }
+.tbtn.ctl[aria-pressed="false"]::before { content: "👁 "; }
+.tbtn.ctl[aria-pressed="true"]::before { content: "⌨ "; }
+.tbtn:focus-visible, .tclose:focus-visible, .tkeys button:focus-visible, .ttab:focus-visible { outline: 2px solid var(--prog); outline-offset: 2px; }
+.tbtn:disabled { opacity: 0.5; }
+
+.ttabs { display: flex; gap: 4px; padding: 6px 10px 0; overflow-x: auto; flex: none; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.ttabs:empty { display: none; }
+.ttab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 10px 10px 0 0; background: var(--card); color: var(--dim); font: inherit; font-size: 0.88rem;
+  cursor: pointer; white-space: nowrap; flex: none;
+}
+.ttab[aria-selected="true"] { background: var(--raised); color: var(--ink); border-color: var(--prog); }
+.ttab .tx { padding: 0 2px; margin-left: 2px; color: var(--dim); }
+.ttab.ended { text-decoration: line-through; text-decoration-color: var(--faint); }
+
+.tstage { position: relative; flex: 1; min-height: 0; background: var(--c0); }
+.tempty { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--dim); }
+.tempty[hidden] { display: none; }
+.tpane { position: absolute; inset: 0; visibility: hidden; overflow: hidden; }
+.tpane.on { visibility: visible; }
+.tscroll { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
+.tterm.wterm { box-shadow: none; border-radius: 0; padding: 6px; }
+/* View only: the terminal keeps the PTY's size and the stage scrolls. Controlling: it fills the stage. */
+.tpane:not(.ctl) .tterm.wterm { width: max-content; min-width: 100%; }
+.tpane.ctl .tscroll { overflow: hidden; }
+.tpane.ctl .tterm.wterm { width: 100%; height: 100%; }
+.tbanner { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 12px; background: color-mix(in srgb, var(--attn) 22%, var(--card)); color: var(--ink); font-size: 0.85rem; z-index: 3; }
+.tbanner[hidden] { display: none; }
+
+/* The wrangl palette inside wterm (colours match the PWA's Okabe-Ito accents). */
+.tterm.wterm {
+  --term-fg: #eef0f3; --term-bg: #0f1115; --term-cursor: #56b4e9;
+  --term-color-0: #1f232b; --term-color-1: #d55e00; --term-color-2: #009e73; --term-color-3: #f0e442;
+  --term-color-4: #0072b2; --term-color-5: #cc79a7; --term-color-6: #56b4e9; --term-color-7: #c5cad3;
+  --term-color-8: #4b5261; --term-color-9: #e69f00; --term-color-10: #3fc39b; --term-color-11: #f5ec7a;
+  --term-color-12: #a6d8f5; --term-color-13: #e3a6c8; --term-color-14: #a6d8f5; --term-color-15: #eef0f3;
+  --term-font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --term-font-size: 13px; --term-row-height: 16px; --term-line-height: 1.2;
+}
+
+.tkeys {
+  display: none; flex: none; gap: 6px; padding: 6px 8px; overflow-x: auto; background: var(--card);
+  border-top: 1px solid var(--line); scrollbar-width: none; touch-action: pan-x;
+}
+#termapp.controlling .tkeys { display: flex; }
+.tkeys button {
+  font: inherit; font-size: 0.95rem; min-width: 44px; min-height: 44px; padding: 0 12px; flex: none; color: var(--ink);
+  background: var(--raised); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; user-select: none; -webkit-user-select: none;
+}
+.tkeys button:active { background: var(--c3); }
+.tkeys button[aria-pressed="true"] { background: var(--prog); color: var(--c0); border-color: var(--prog); }
+.tkeys button.danger { color: var(--attn); }
+
+@media (max-width: 560px) {
+  .tname { display: none; }
+  .tbar { gap: 6px; padding: 6px 8px; }
+  .tclose { padding: 8px 12px; }
+  .tstate { font-size: 0.78rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; max-width: 6.5em; }
+  .tbtn { padding: 8px 10px; font-size: 0.85rem; }
+  .tbtn.ctl { min-width: 0; }
+  .tbtn.ctl::before { display: none; }
+  .tbtn .lbl { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) { .tpane { transition: none; } }

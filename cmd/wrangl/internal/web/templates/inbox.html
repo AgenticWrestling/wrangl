@@ -35,7 +35,11 @@
 </section>
 <section class="card">
   <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-project')">＋ New</button></div>
-  {{range .Projects}}<a class="row link" href="/backlog?project={{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}<p class="empty">No projects.</p>{{end}}
+  {{range .Projects}}<a class="row link" href="/project/{{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}<p class="empty">No projects.</p>{{end}}
+</section>
+<section class="card">
+  <div class="row"><h3>Setup</h3><span class="grow"></span><a class="btn small" href="/setup">Open</a></div>
+  <p class="hint">Connect GitHub so wrangl can clone, push and open pull requests.</p>
 </section>
 <section class="card">
   <h3>Runner templates</h3>
@@ -46,15 +50,4 @@
 <p class="dim small center">wrangl · <a href="/api/v1/events">event stream</a></p>
 {{end}}
 
-{{define "post-more"}}
-<dialog id="sheet-project" class="sheet">
-  <h2>New project</h2>
-  <label>Slug<input data-bind="slug" autocapitalize="off" autocomplete="off" placeholder="my-app"></label>
-  <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
-  <p class="hint">Link a repo afterwards with <code>wrangl repo link</code>.</p>
-  <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on-click="@post('/ui/act/project-new')" data-close>Create</button>
-  </div>
-</dialog>
-{{end}}
+{{define "post-more"}}{{template "sheet-project" .}}{{end}}
