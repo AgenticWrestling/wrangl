@@ -305,3 +305,4 @@ table.logs td.mono { font-family: var(--mono, ui-monospace, monospace); font-siz
 table.logs .logdetail { white-space: pre-wrap; word-break: break-word; max-width: 46ch; }
 table.logs tr.lv-error td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
+.rank { width: 1.6em; text-align: right; }

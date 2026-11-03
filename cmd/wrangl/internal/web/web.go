@@ -82,6 +82,7 @@ func New(d api.Deps) (*Handler, error) {
 		"add":    func(a, b int) int { return a + b },
 		"int":    func(v int64) int { return int(v) },
 		"memgib": func(mib int64) string { return fmt.Sprintf("%g GiB", float64(mib)/1024) },
+		"inc":    func(i int) int { return i + 1 },
 		"usd":    func(v float64) string { return fmt.Sprintf("$%.2f", v) },
 		"usdh":   func(v float64) string { return fmt.Sprintf("$%.3f", v) },
 		"pctof": func(a, b int64) int64 {
@@ -555,6 +556,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 				}
 			}
 			d["OtherHourly"] = otherHourly
+			d["Top"] = snap.Top
 			d["Templates2"], _ = db.RQ.ListTemplates(ctx)
 		}
 		demand, _ := db.RQ.TemplateDemand(ctx)

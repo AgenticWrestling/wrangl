@@ -42,6 +42,16 @@
     {{if eq .State "running"}}<button type="button" class="btn small" onclick="openAdopt('{{.Region}}','{{.ID}}','{{.Arch}}','{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}')">Adopt…</button>{{end}}
     {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on-click="el.dataset.armed ? @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}') : (el.dataset.armed = 1, el.textContent = 'Confirm terminate')">Terminate</button>{{end}}
   </div>{{else}}<p class="empty">No other instances.</p>{{end}}
+</section>
+<section class="card others" id="topcosts">
+  <div class="row"><h3>Most expensive other resources</h3><span class="grow"></span><span class="dim small">{{.Top.Period}}{{if .Top.Resources}} · by resource{{else}} · by service{{end}} · not EC2 instances</span></div>
+  {{if .Top.Error}}<p class="warn">{{.Top.Error}}</p>{{end}}
+  {{if .Top.Note}}<p class="hint">{{.Top.Note}}</p>{{end}}
+  {{range $i, $t := .Top.Items}}<div class="row other">
+    <span class="dim small rank">{{inc $i}}</span>
+    <div class="otherid"><b class="{{if $.Top.Resources}}mono{{end}}">{{$t.Name}}</b>{{if $.Top.Resources}}<div class="dim small">{{$t.Service}}</div>{{end}}</div>
+    <span class="grow"></span><span class="cost">{{usd $t.USD}}</span>
+  </div>{{else}}{{if not .Top.Error}}<p class="empty">Nothing else is costing money yet.</p>{{end}}{{end}}
 </section>{{end}}{{end}}
 {{end}}
 

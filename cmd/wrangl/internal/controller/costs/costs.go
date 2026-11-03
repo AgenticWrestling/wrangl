@@ -33,6 +33,7 @@ type PricingAPI interface {
 type CostAPI interface {
 	GetCostAndUsage(context.Context, *costexplorer.GetCostAndUsageInput, ...func(*costexplorer.Options)) (*costexplorer.GetCostAndUsageOutput, error)
 	GetCostForecast(context.Context, *costexplorer.GetCostForecastInput, ...func(*costexplorer.Options)) (*costexplorer.GetCostForecastOutput, error)
+	GetCostAndUsageWithResources(context.Context, *costexplorer.GetCostAndUsageWithResourcesInput, ...func(*costexplorer.Options)) (*costexplorer.GetCostAndUsageWithResourcesOutput, error)
 }
 
 type EC2API interface {
@@ -102,6 +103,25 @@ type Snapshot struct {
 	Summary   Summary    `json:"summary"`
 	Instances []Instance `json:"instances"`
 	Errors    []string   `json:"errors,omitempty"` // regions that could not be read
+	Top       TopCosts   `json:"top_costs"`
+}
+
+// TopCost is one line of the "most expensive other resources" list.
+type TopCost struct {
+	Name    string  `json:"name"`    // resource id, or the service name when only service data exists
+	Service string  `json:"service"` // AWS service
+	USD     float64 `json:"usd"`
+}
+
+// TopCosts is the ten most expensive non-instance things in the account. Resource-level data
+// needs the account to opt in (Cost Explorer > Preferences) and covers only the last 14 days;
+// without it the list falls back to month-to-date cost per service.
+type TopCosts struct {
+	Items     []TopCost `json:"items"`
+	Resources bool      `json:"resources"` // false: items are services
+	Period    string    `json:"period"`    // e.g. "last 14 days"
+	Note      string    `json:"note,omitempty"`
+	Error     string    `json:"error,omitempty"`
 }
 
 // Terminate terminates one instance in a region and drops it from the cached snapshot so
@@ -168,10 +188,11 @@ func (s *Service) Refresh(ctx context.Context) error {
 		sum.MonthToDateUSD, sum.ForecastRestUSD, sum.ProjectedUSD, sum.CostAvailable = prev.Summary.MonthToDateUSD, prev.Summary.ForecastRestUSD, prev.Summary.ProjectedUSD, true
 		prev.Summary = sum
 		s.mu.Lock()
-		s.snap = Snapshot{AsOf: prev.AsOf, Summary: sum, Instances: insts, Errors: errs}
+		s.snap = Snapshot{AsOf: prev.AsOf, Summary: sum, Instances: insts, Errors: errs, Top: prev.Top}
 		s.mu.Unlock()
 		return nil
 	}
+	top := s.topCosts(ctx)
 	mtd, rest, cerr := s.monthBill(ctx)
 	if cerr != nil {
 		sum.CostError = cerr.Error()
@@ -179,9 +200,121 @@ func (s *Service) Refresh(ctx context.Context) error {
 		sum.MonthToDateUSD, sum.ForecastRestUSD, sum.ProjectedUSD, sum.CostAvailable = mtd, rest, mtd+rest, true
 	}
 	s.mu.Lock()
-	s.snap = Snapshot{AsOf: s.now(), Summary: sum, Instances: insts, Errors: errs}
+	s.snap = Snapshot{AsOf: s.now(), Summary: sum, Instances: insts, Errors: errs, Top: top}
 	s.mu.Unlock()
 	return nil
+}
+
+const ec2Compute = "Amazon Elastic Compute Cloud - Compute"
+
+// topCosts lists the ten most expensive things that are not EC2 instance compute: EBS volumes,
+// snapshots, NAT gateways, load balancers, S3 buckets and so on. It prefers per-resource data
+// and falls back to per-service totals for the month so far.
+func (s *Service) topCosts(ctx context.Context) TopCosts {
+	if s.Cost == nil {
+		return TopCosts{Error: "cost explorer is not configured"}
+	}
+	now := s.now()
+	day := func(t time.Time) string { return t.Format("2006-01-02") }
+	notEC2 := &cetypes.Expression{Not: &cetypes.Expression{Dimensions: &cetypes.DimensionValues{
+		Key: cetypes.DimensionService, Values: []string{ec2Compute}}}}
+	sum := func(groups map[string]float64, key []string, amt *string) {
+		v, _ := strconv.ParseFloat(aws.ToString(amt), 64)
+		groups[strings.Join(key, "\x00")] += v
+	}
+	top := func(m map[string]float64, resources bool) []TopCost {
+		var out []TopCost
+		for k, v := range m {
+			if v < 0.005 {
+				continue
+			}
+			parts := strings.SplitN(k, "\x00", 2)
+			tc := TopCost{USD: v}
+			if resources {
+				tc.Name, tc.Service = parts[0], parts[len(parts)-1]
+				if tc.Name == "" || tc.Name == "NoResourceId" {
+					tc.Name = "(no resource id)"
+				}
+			} else {
+				tc.Name, tc.Service = parts[0], parts[0]
+			}
+			out = append(out, tc)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].USD > out[j].USD })
+		if len(out) > 10 {
+			out = out[:10]
+		}
+		return out
+	}
+
+	// Resource-level: the API only looks back 14 days.
+	from := now.AddDate(0, 0, -13)
+	var rerr error
+	res := map[string]float64{}
+	var token *string
+	for page := 0; page < 20; page++ {
+		out, err := s.Cost.GetCostAndUsageWithResources(ctx, &costexplorer.GetCostAndUsageWithResourcesInput{
+			TimePeriod:  &cetypes.DateInterval{Start: aws.String(day(from)), End: aws.String(day(now.AddDate(0, 0, 1)))},
+			Granularity: cetypes.GranularityMonthly,
+			Metrics:     []string{"UnblendedCost"},
+			Filter:      notEC2,
+			GroupBy: []cetypes.GroupDefinition{
+				{Type: cetypes.GroupDefinitionTypeDimension, Key: aws.String("RESOURCE_ID")},
+				{Type: cetypes.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")},
+			},
+			NextPageToken: token,
+		})
+		if err != nil {
+			rerr = err
+			break
+		}
+		for _, r := range out.ResultsByTime {
+			for _, g := range r.Groups {
+				sum(res, g.Keys, g.Metrics["UnblendedCost"].Amount)
+			}
+		}
+		if token = out.NextPageToken; token == nil {
+			break
+		}
+	}
+	if rerr == nil {
+		return TopCosts{Items: top(res, true), Resources: true, Period: "last 14 days"}
+	}
+
+	// Fall back to services, month to date.
+	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	if !now.After(first.Add(24 * time.Hour)) {
+		first = first.AddDate(0, -1, 0)
+	}
+	svcs := map[string]float64{}
+	out, err := s.Cost.GetCostAndUsage(ctx, &costexplorer.GetCostAndUsageInput{
+		TimePeriod:  &cetypes.DateInterval{Start: aws.String(day(first)), End: aws.String(day(now.AddDate(0, 0, 1)))},
+		Granularity: cetypes.GranularityMonthly,
+		Metrics:     []string{"UnblendedCost"},
+		Filter:      notEC2,
+		GroupBy:     []cetypes.GroupDefinition{{Type: cetypes.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")}},
+	})
+	if err != nil {
+		return TopCosts{Error: "cost explorer: " + err.Error()}
+	}
+	for _, r := range out.ResultsByTime {
+		for _, g := range r.Groups {
+			sum(svcs, g.Keys, g.Metrics["UnblendedCost"].Amount)
+		}
+	}
+	return TopCosts{Items: top(svcs, false), Period: "month to date",
+		Note: "Per-resource costs are not available (" + shortErr(rerr) + "). Turn on resource-level data in Cost Explorer > Preferences to see individual resources."}
+}
+
+func shortErr(err error) string {
+	m := err.Error()
+	if i := strings.Index(m, "api error "); i >= 0 {
+		m = m[i+len("api error "):]
+	}
+	if len(m) > 140 {
+		m = m[:140] + "…"
+	}
+	return m
 }
 
 // monthBill returns the account's month-to-date spend (all services) and Cost Explorer's

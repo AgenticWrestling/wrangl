@@ -3,8 +3,10 @@ package costs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +36,21 @@ func (f fakePricing) GetProducts(_ context.Context, in *pricing.GetProductsInput
 type fakeCost struct {
 	mtd, rest string
 	err       error
+	resErr    error // resource-level data unavailable
+}
+
+func (f fakeCost) GetCostAndUsageWithResources(context.Context, *costexplorer.GetCostAndUsageWithResourcesInput, ...func(*costexplorer.Options)) (*costexplorer.GetCostAndUsageWithResourcesOutput, error) {
+	if f.resErr != nil {
+		return nil, f.resErr
+	}
+	g := func(id, svc, amt string) cetypes.Group {
+		return cetypes.Group{Keys: []string{id, svc}, Metrics: map[string]cetypes.MetricValue{"UnblendedCost": {Amount: aws.String(amt)}}}
+	}
+	groups := []cetypes.Group{g("vol-1", "EC2 - Other", "3.10"), g("nat-1", "EC2 - Other", "9.50"), g("bucket", "Amazon S3", "0.001"), g("NoResourceId", "Support", "1.00")}
+	for i := 0; i < 12; i++ {
+		groups = append(groups, g(fmt.Sprintf("x-%d", i), "Amazon S3", "0.50"))
+	}
+	return &costexplorer.GetCostAndUsageWithResourcesOutput{ResultsByTime: []cetypes.ResultByTime{{Groups: groups}}}, nil
 }
 
 func (f fakeCost) GetCostAndUsage(context.Context, *costexplorer.GetCostAndUsageInput, ...func(*costexplorer.Options)) (*costexplorer.GetCostAndUsageOutput, error) {
@@ -176,5 +193,27 @@ func TestTerminateMarksCachedInstance(t *testing.T) {
 		if in.ID == "i-eu" && (in.State != "shutting-down" || in.HourlyUSD != 0) {
 			t.Fatalf("not marked: %+v", in)
 		}
+	}
+}
+
+func TestTopCostsResourcesAndFallback(t *testing.T) {
+	s := svc(fakeCost{mtd: "1", rest: "1"})
+	if err := s.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	top := s.Cached().Top
+	if !top.Resources || len(top.Items) != 10 || top.Items[0].Name != "nat-1" || top.Items[1].Name != "vol-1" || top.Items[2].Name != "(no resource id)" {
+		t.Fatalf("%+v", top)
+	}
+	for _, it := range top.Items {
+		if it.Name == "bucket" {
+			t.Fatal("sub-cent resources must be dropped")
+		}
+	}
+	s = svc(fakeCost{mtd: "1", rest: "1", resErr: errors.New("api error DataUnavailableException: opt in")})
+	s.Refresh(context.Background())
+	top = s.Cached().Top
+	if top.Resources || top.Period != "month to date" || !strings.Contains(top.Note, "opt in") {
+		t.Fatalf("fallback: %+v", top)
 	}
 }
