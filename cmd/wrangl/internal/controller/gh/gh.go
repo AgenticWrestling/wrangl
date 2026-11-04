@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Repo is a repository the author App is installed on.
+// Repo is a repository the account's App is installed on.
 type Repo struct {
 	Owner, Name    string
 	DefaultBranch  string
@@ -55,7 +55,7 @@ var ErrNotInstalled = errors.New("the GitHub App is not installed on this reposi
 // so the fix is the Setup flow for that account.
 type NoAppError struct {
 	Owner string
-	Role  string // "" (author) or "reviewer"
+	Role  string // "" (the account's App) or "reviewer" (optional)
 }
 
 func (e *NoAppError) Error() string {
@@ -68,7 +68,7 @@ func (e *NoAppError) Error() string {
 // NotInstalledError is ErrNotInstalled with the repository it is about.
 type NotInstalledError struct {
 	Owner, Name string
-	Role        string // "" (author) or "reviewer"
+	Role        string // "" (the account's App) or "reviewer" (optional)
 }
 
 func (e *NotInstalledError) Error() string {
@@ -191,7 +191,7 @@ const (
 	ChecksNone    = "none" // no checks configured
 )
 
-// PRAPI is the M6 pull-request surface. The author App creates PRs; the reviewer App
+// PRAPI is the M6 pull-request surface. The account's App creates PRs and merges; the optional reviewer App
 // reviews, approves and merges them (GitHub forbids approving your own PR).
 type PRAPI interface {
 	CreatePR(ctx context.Context, r Repo, head, base, title, body string) (PR, error)

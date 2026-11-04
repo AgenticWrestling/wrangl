@@ -325,3 +325,56 @@ func TestCreateInArchivedProjectRejected(t *testing.T) {
 	}
 	mk(t, s, "", "after restore", stack.Position{})
 }
+
+// Every mutation of a task in an archived project is refused (409 "archived"), and works again
+// after the project is restored.
+func TestMutationsOnArchivedProjectRefusedUntilRestored(t *testing.T) {
+	s, d := setup(t)
+	ctx := context.Background()
+	a, err := s.Create(ctx, stack.CreateParams{Project: "p", Title: "a", Repo: "o/a", Actor: stack.User})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := mk(t, s, "", "b", stack.Position{})
+	if _, _, err := d.ArchiveProject(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	title := "new"
+	type op struct {
+		name string
+		fn   func() error
+	}
+	ops := []op{
+		{"queue", func() error { _, err := s.Queue(ctx, a.Sqid.String); return err }},
+		{"queue-with-agent", func() error { _, err := s.QueueWith(ctx, a.Sqid.String, "claude"); return err }},
+		{"edit", func() error { _, err := s.Edit(ctx, a.Sqid.String, &title, nil, stack.User); return err }},
+		{"type", func() error { _, err := s.SetType(ctx, a.Sqid.String, "bug", stack.User); return err }},
+		{"target", func() error { _, err := s.SetTargetDate(ctx, a.Sqid.String, "2030-01-01", stack.User); return err }},
+		{"move", func() error {
+			_, err := s.Move(ctx, a.Sqid.String, &b.Sqid.String, stack.Position{}, stack.User)
+			return err
+		}},
+		{"needs", func() error { return s.NeedsAdd(ctx, a.Sqid.String, b.Sqid.String, stack.User) }},
+		{"complete", func() error { return s.Complete(ctx, a.Sqid.String, "", stack.User) }},
+		{"cancel", func() error { return s.Cancel(ctx, a.Sqid.String, "", stack.User) }},
+		{"split", func() error {
+			_, err := s.Split(ctx, a.Sqid.String, []stack.SplitNode{{Title: "x"}}, false, false, stack.User)
+			return err
+		}},
+		{"delete", func() error { return s.Delete(ctx, a.Sqid.String, stack.User) }},
+	}
+	for _, o := range ops {
+		if err := o.fn(); !errors.Is(err, errs.Conflict) || !strings.Contains(err.Error(), "archived") {
+			t.Errorf("%s on an archived project: %v", o.name, err)
+		}
+	}
+	if _, err := d.Q.RestoreProject(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Queue(ctx, a.Sqid.String); err != nil {
+		t.Fatalf("queue after restore: %v", err)
+	}
+	if _, err := s.Edit(ctx, b.Sqid.String, &title, nil, stack.User); err != nil {
+		t.Fatalf("edit after restore: %v", err)
+	}
+}

@@ -1,6 +1,6 @@
 # ADR 0001: Agent definitions are separate from runner templates
 
-- Status: **Proposed** (the owner decides before this merges)
+- Status: **Accepted, implemented**
 - Task: 3VTW9Q, under "Agent definitions; templates list the agents they allow" (fxRVRL)
 - Touches: `runner_template.agent_json`, `proto.AgentSpec`, `scheduler.assignOne`, template apply / versioning (`fleet/templates_apply.go`), runner self-upgrade (`fleet/upgrade.go`), `docs/wrangl/agents.md`
 

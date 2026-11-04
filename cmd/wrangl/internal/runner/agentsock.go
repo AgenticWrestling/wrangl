@@ -205,7 +205,7 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 		reply(rw, 200, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /tools", func(rw http.ResponseWriter, r *http.Request) {
-		kind := w.Kind()
+		kind := "" // unknown when several runs are active and the caller names none
 		if rs, err := w.target(runOf(r)); err == nil {
 			kind = rs.kind
 		}

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -62,7 +64,7 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		it := inboxItem{
 			DOM: fmt.Sprintf("q%d", q.ID), Key: fmt.Sprintf("q%d", q.ID), Bind: fmt.Sprintf("ans%d", q.ID),
 			Kind: q.Kind, Tag: "? needs input", TagClass: "k-questions", Task: q.Task, TaskTitle: q.TaskTitle, RunID: q.RunID,
-			Age: ago(q.CreatedAt), Title: q.Prompt, Chat: q.AllowFreeText, ChatHint: "Reply / feedback", Changes: changes[q.Task],
+			Age: dbtime.Ago(q.CreatedAt, time.Now()), Title: q.Prompt, Chat: q.AllowFreeText, ChatHint: "Reply / feedback", Changes: changes[q.Task],
 		}
 		switch q.Kind {
 		case "plan_review":
@@ -100,7 +102,7 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		it := inboxItem{
 			DOM: fmt.Sprintf("pr-%d", p.ID), Key: fmt.Sprintf("pr%d", p.ID), Bind: fmt.Sprintf("pr%d", p.ID),
 			Kind: "pr_review", Tag: "◐ in review", TagClass: "k-review", Task: r.TaskSqid, TaskTitle: r.TaskTitle, RunID: p.RunID,
-			Age: ago(p.CreatedAt), Title: fmt.Sprintf("Review pull request %s#%d", r.Repo, p.GhNumber),
+			Age: dbtime.Ago(p.CreatedAt, time.Now()), Title: fmt.Sprintf("Review pull request %s#%d", r.Repo, p.GhNumber),
 			Chat: true, ChatHint: "What should change? (for Request changes)", Changes: changes[r.TaskSqid],
 		}
 		it.Links = append(it.Links,
@@ -170,7 +172,7 @@ func (h *Handler) runDoc(ctx context.Context, runID int64) *runDocT {
 		doc := h.fetchRunDoc(fctx, runID)
 		h.docs.Store(runID, &docEntry{doc: doc, at: time.Now()})
 		if doc != nil {
-			h.D.Bus.Publish("question", "doc")
+			h.D.Bus.Doc(runID)
 		}
 	}()
 	return nil

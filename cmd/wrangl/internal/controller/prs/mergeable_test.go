@@ -2,6 +2,7 @@ package prs
 
 import (
 	"context"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -117,7 +118,7 @@ func autoMergeFixture(t *testing.T, autoResolve bool) (*Service, *gh.Fake, *[]in
 	s.Runs = &runs.Service{DB: s.DB, Log: s.Log, Bus: &events.Bus{}, Now: time.Now}
 	s.Now = time.Now
 	s.DB.W.Exec(`UPDATE project SET auto_merge = 1, auto_resolve = ? WHERE id = 1`, autoResolve)
-	if err := s.DB.Q.SetPRReview(context.Background(), dbgen.SetPRReviewParams{Risk: nstr("low"), Summary: "ok", ReviewedSha: "", ID: 1}); err != nil {
+	if err := s.DB.Q.SetPRReview(context.Background(), dbgen.SetPRReviewParams{Risk: dbnull.Str("low"), Summary: "ok", ReviewedSha: "", ID: 1}); err != nil {
 		t.Fatal(err)
 	}
 	var queued []int64

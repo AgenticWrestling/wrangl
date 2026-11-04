@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"log/slog"
 	"strings"
 	"sync"
@@ -89,7 +90,7 @@ func (s *Service) Loop(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Service) openReviews(ctx context.Context) error {
-	cutoff := s.now().Add(-PRGrace).Format("2006-01-02T15:04:05.000Z")
+	cutoff := dbtime.Format(s.now().Add(-PRGrace))
 	rows, err := s.DB.R.QueryContext(ctx, `
 SELECT t.id, t.sqid, t.title, t.completion_summary, r.id, r.status_text
 FROM task t JOIN run r ON r.id = t.completed_run_id
@@ -251,7 +252,7 @@ func (s *Service) closeStale(ctx context.Context) error {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
-			s.Bus.Publish("question", fmt.Sprint(o.id))
+			s.Bus.Question(o.id)
 		}
 	}
 	return nil

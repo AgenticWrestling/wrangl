@@ -68,10 +68,7 @@
 <nav class="tabs">
   <a class="side-brand" href="/tasks" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="36" height="36"><b>wrangl</b></a>
   <a href="/tasks" class="{{if or (eq .View "tasks") (eq .View "task")}}on{{end}}"><span>☰</span>Tasks</a>
-  <div class="subnav" aria-label="Recent projects">
-    {{range .NavProjects}}<a href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>
-    {{end}}
-  </div>
+  {{template "subnav" .}}
   <a href="/runners" class="{{if or (eq .View "runners") (eq .View "runner")}}on{{end}}"><span>⚙</span>Runners</a>
   <a href="/logs" class="{{if or (eq .View "logs") (eq .View "run") (eq .View "diff") (eq .View "files")}}on{{end}}"><span>▤</span>Logs</a>
   <a href="/inbox" class="{{if eq .View "inbox"}}on{{end}}"><span>✉</span>Inbox<span id="inbox-badge" class="badge">{{if .Inbox}}{{.Inbox}}{{end}}</span></a>
@@ -79,3 +76,8 @@
 </nav>
 </body>
 </html>{{end}}
+
+{{define "subnav"}}<div id="subnav" class="subnav" aria-label="Recent projects">
+    {{range .NavProjects}}<a href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>
+    {{end}}
+  </div>{{end}}

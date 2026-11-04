@@ -50,117 +50,94 @@ func registerAgentDefs(mux *http.ServeMux, d Deps) {
 		}
 		return s, nil
 	}
-	get := func(w http.ResponseWriter, r *http.Request) (dbgen.Agent, bool) {
+	// byName loads the agent named in the path.
+	byName := func(r *http.Request) (dbgen.Agent, error) {
 		a, err := db.RQ.GetAgentByName(r.Context(), r.PathValue("name"))
 		if errors.Is(err, sql.ErrNoRows) {
-			writeErr(w, fmt.Errorf("%w: agent %q", errs.NotFound, r.PathValue("name")))
-			return a, false
-		} else if err != nil {
-			writeErr(w, err)
-			return a, false
+			return a, fmt.Errorf("%w: agent %q", errs.NotFound, r.PathValue("name"))
 		}
-		return a, true
+		return a, err
 	}
-	mux.HandleFunc("GET /api/v1/agent-defs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/agent-defs", getJSON(func(r *http.Request) ([]proto.AgentView, error) {
 		as, err := db.RQ.ListAgentDefs(r.Context())
 		if err != nil {
-			writeErr(w, err)
-			return
+			return nil, err
 		}
 		out := []proto.AgentView{}
 		for _, a := range as {
 			out = append(out, view(r.Context(), a))
 		}
-		writeJSON(w, http.StatusOK, out)
-	})
-	mux.HandleFunc("GET /api/v1/agent-defs/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if a, ok := get(w, r); ok {
-			writeJSON(w, http.StatusOK, view(r.Context(), a))
+		return out, nil
+	}))
+	mux.HandleFunc("GET /api/v1/agent-defs/{name}", getJSON(func(r *http.Request) (proto.AgentView, error) {
+		a, err := byName(r)
+		if err != nil {
+			return proto.AgentView{}, err
 		}
-	})
-	mux.HandleFunc("POST /api/v1/agent-defs", func(w http.ResponseWriter, r *http.Request) {
-		var req proto.AgentRequest
-		if err := decode(r, &req); err != nil {
-			writeErr(w, err)
-			return
-		}
+		return view(r.Context(), a), nil
+	}))
+	mux.HandleFunc("POST /api/v1/agent-defs", handle(http.StatusCreated, func(r *http.Request, req proto.AgentRequest) (proto.AgentView, error) {
 		if !agentNameRe.MatchString(req.Name) {
-			writeErr(w, fmt.Errorf("%w: agent name %q: lowercase letters, digits and '-'", errs.Invalid, req.Name))
-			return
+			return proto.AgentView{}, fmt.Errorf("%w: agent name %q: lowercase letters, digits and '-'", errs.Invalid, req.Name)
 		}
 		s, err := spec(req.Spec)
 		if err != nil {
-			writeErr(w, err)
-			return
+			return proto.AgentView{}, err
 		}
 		a, err := db.Q.InsertAgent(r.Context(), dbgen.InsertAgentParams{Name: req.Name, Description: req.Description, SpecJson: s})
 		if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 			err = fmt.Errorf("%w: agent %q exists (use edit)", errs.Conflict, req.Name)
 		}
 		if err != nil {
-			writeErr(w, err)
-			return
+			return proto.AgentView{}, err
 		}
-		writeJSON(w, http.StatusCreated, view(r.Context(), a))
-	})
+		return view(r.Context(), a), nil
+	}))
+	// PUT looks the agent up before reading the body, so an unknown name is a 404 whatever the body.
 	mux.HandleFunc("PUT /api/v1/agent-defs/{name}", func(w http.ResponseWriter, r *http.Request) {
-		cur, ok := get(w, r)
-		if !ok {
-			return
-		}
-		var req proto.AgentRequest
-		if err := decode(r, &req); err != nil {
-			writeErr(w, err)
-			return
-		}
-		s, err := spec(req.Spec)
+		cur, err := byName(r)
 		if err != nil {
 			writeErr(w, err)
 			return
 		}
-		desc := req.Description
-		if desc == "" {
-			desc = cur.Description
-		}
-		a, err := db.Q.UpdateAgentDef(r.Context(), dbgen.UpdateAgentDefParams{Description: desc, SpecJson: s, Name: cur.Name})
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, view(r.Context(), a))
+		handle(http.StatusOK, func(r *http.Request, req proto.AgentRequest) (proto.AgentView, error) {
+			s, err := spec(req.Spec)
+			if err != nil {
+				return proto.AgentView{}, err
+			}
+			desc := req.Description
+			if desc == "" {
+				desc = cur.Description
+			}
+			a, err := db.Q.UpdateAgentDef(r.Context(), dbgen.UpdateAgentDefParams{Description: desc, SpecJson: s, Name: cur.Name})
+			if err != nil {
+				return proto.AgentView{}, err
+			}
+			return view(r.Context(), a), nil
+		})(w, r)
 	})
-	mux.HandleFunc("DELETE /api/v1/agent-defs/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := get(w, r); !ok {
-			return
+	mux.HandleFunc("DELETE /api/v1/agent-defs/{name}", ack(http.StatusNoContent, func(r *http.Request) error {
+		if _, err := byName(r); err != nil {
+			return err
 		}
-		if _, err := db.Q.DeleteAgentDef(r.Context(), r.PathValue("name")); err != nil {
-			writeErr(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+		_, err := db.Q.DeleteAgentDef(r.Context(), r.PathValue("name"))
+		return err
+	}))
 	allow := func(add bool) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			a, ok := get(w, r)
-			if !ok {
-				return
+		return ack(http.StatusNoContent, func(r *http.Request) error {
+			a, err := byName(r)
+			if err != nil {
+				return err
 			}
 			t, err := d.Fleet.Template(r.Context(), r.PathValue("template"))
 			if err != nil {
-				writeErr(w, err)
-				return
+				return err
 			}
 			if add {
-				err = db.Q.AddTemplateAgent(r.Context(), dbgen.AddTemplateAgentParams{TemplateID: t.ID, AgentID: a.ID})
-			} else {
-				err = db.Q.RemoveTemplateAgent(r.Context(), dbgen.RemoveTemplateAgentParams{TemplateID: t.ID, AgentID: a.ID})
+				return db.Q.AddTemplateAgent(r.Context(), dbgen.AddTemplateAgentParams{TemplateID: t.ID, AgentID: a.ID})
 			}
-			if err != nil {
-				writeErr(w, err)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
-		}
+			return db.Q.RemoveTemplateAgent(r.Context(), dbgen.RemoveTemplateAgentParams{TemplateID: t.ID, AgentID: a.ID})
+		})
 	}
 	mux.HandleFunc("PUT /api/v1/agent-defs/{name}/templates/{template}", allow(true))
 	mux.HandleFunc("DELETE /api/v1/agent-defs/{name}/templates/{template}", allow(false))

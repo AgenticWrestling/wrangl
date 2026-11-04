@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"log/slog"
 	"net/url"
 	"os"
@@ -157,8 +158,8 @@ func (s *Service) Submit(ctx context.Context, sc runs.Scope, raw json.RawMessage
 		}
 		return nil, err
 	}
-	if s.Bus != nil {
-		s.Bus.Publish("task", fmt.Sprint(taskID))
+	if t, err := s.DB.RQ.GetTask(ctx, taskID); err == nil {
+		s.Bus.Task(t.Sqid.String)
 	}
 	return map[string]any{"ok": true, "id": d.ID, "note": "Recorded. The owner will see it on the task."}, nil
 }
@@ -184,7 +185,7 @@ func (s *Service) Open(ctx context.Context, id int64) (dbgen.Deliverable, string
 // Sweep deletes deliverables (rows and files) created before now-retention. It returns how
 // many were removed.
 func (s *Service) Sweep(ctx context.Context, retention time.Duration) (int, error) {
-	cutoff := s.now().Add(-retention).Format("2006-01-02T15:04:05.000Z")
+	cutoff := dbtime.Format(s.now().Add(-retention))
 	n := 0
 	for {
 		rows, err := s.DB.RQ.ExpiredDeliverables(ctx, cutoff)

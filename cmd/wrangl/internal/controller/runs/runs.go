@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -56,9 +58,7 @@ type Service struct {
 	OnAgentNotice func(run dbgen.Run, message string)
 }
 
-func (s *Service) ts() string { return s.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
-
-func nstr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
+func (s *Service) ts() string { return dbtime.Format(s.Now()) }
 
 // parseEvt splits wr.evt.<runner>.<run>.<kind>.
 func parseEvt(subject, kind string) (runner, run int64, ok bool) {
@@ -101,11 +101,11 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 	if err != nil {
 		return err
 	}
-	defer s.Bus.Publish("run", strconv.FormatInt(runID, 10))
+	defer s.Bus.Run(runID)
 	if !proto.Terminal(st.State) {
 		started := sql.NullString{}
 		if st.State == "preparing" || st.State == "running" {
-			started = nstr(s.ts())
+			started = dbnull.Str(s.ts())
 		}
 		return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
 			if err := q.UpdateRunProgress(ctx, dbgen.UpdateRunProgressParams{
@@ -126,7 +126,7 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 	}
 	if err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
 		if err := q.FinishRun(ctx, dbgen.FinishRunParams{
-			State: st.State, Now: nstr(s.ts()), ExitCode: code, Error: st.Error, StatusText: st.Status,
+			State: st.State, Now: dbnull.Str(s.ts()), ExitCode: code, Error: st.Error, StatusText: st.Status,
 			Pushed: pushed, HeadSha: st.HeadSHA, ID: runID,
 		}); err != nil {
 			return err
@@ -136,7 +136,7 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 				return err
 			}
 		}
-		return q.ReleaseRunner(ctx, dbgen.ReleaseRunnerParams{Now: nstr(s.ts()), ID: runnerID})
+		return q.ReleaseRunner(ctx, dbgen.ReleaseRunnerParams{Now: dbnull.Str(s.ts()), ID: runnerID})
 	}); err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func (s *Service) HandleHook(ctx context.Context, subject string, data []byte) e
 		payload = `{"truncated":true}`
 	}
 	if err := s.DB.Q.InsertHookEvent(ctx, dbgen.InsertHookEventParams{RunID: runID, Seq: h.Seq,
-		Ts: h.TS.UTC().Format("2006-01-02T15:04:05.000Z"), Name: h.Event, PayloadJson: payload}); err != nil {
+		Ts: dbtime.Format(h.TS), Name: h.Event, PayloadJson: payload}); err != nil {
 		return err
 	}
 	if h.Event == "Notification" {
@@ -194,9 +194,7 @@ func (s *Service) HandleHook(ctx context.Context, subject string, data []byte) e
 			Message string `json:"message"`
 		}
 		json.Unmarshal(h.Payload, &n)
-		if s.Bus != nil {
-			s.Bus.Publish("run", strconv.FormatInt(runID, 10))
-		}
+		s.Bus.Run(runID)
 		if s.OnAgentNotice != nil {
 			s.OnAgentNotice(run, n.Message)
 		}
@@ -221,7 +219,7 @@ func (s *Service) HandleLog(ctx context.Context, subject string, data []byte) er
 		l.Stream = "runner"
 	}
 	return s.DB.Q.InsertLogLine(ctx, dbgen.InsertLogLineParams{
-		RunID: runID, Seq: l.Seq, Ts: l.TS.UTC().Format("2006-01-02T15:04:05.000Z"), Stream: l.Stream, Level: "info", Message: l.Message,
+		RunID: runID, Seq: l.Seq, Ts: dbtime.Format(l.TS), Stream: l.Stream, Level: "info", Message: l.Message,
 	})
 }
 
@@ -295,7 +293,14 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 
 // Cancel cancels a run: a queued run directly, an active one via its runner.
 func (s *Service) Cancel(ctx context.Context, runID int64) error {
-	n, err := s.DB.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: nstr(s.ts()), ID: runID})
+	if run, err := s.DB.RQ.GetRun(ctx, runID); err == nil {
+		if t, err := s.DB.RQ.GetTask(ctx, run.TaskID); err == nil {
+			if err := stack.ActiveProject(ctx, s.DB.RQ, t.ProjectID); err != nil {
+				return err
+			}
+		}
+	}
+	n, err := s.DB.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: dbnull.Str(s.ts()), ID: runID})
 	if err != nil {
 		return err
 	}
@@ -356,14 +361,14 @@ func (s *Service) Inspect(ctx context.Context, runID int64, kind, path string, s
 
 // SweepLost fails active runs whose runner is gone.
 func (s *Service) SweepLost(ctx context.Context) error {
-	cutoff := s.Now().Add(-LostAfter).UTC().Format("2006-01-02T15:04:05.000Z")
-	lost, err := s.DB.RQ.RunsOnLostRunners(ctx, nstr(cutoff))
+	cutoff := dbtime.Format(s.Now().Add(-LostAfter))
+	lost, err := s.DB.RQ.RunsOnLostRunners(ctx, dbnull.Str(cutoff))
 	if err != nil {
 		return err
 	}
 	for _, r := range lost {
 		err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-			if err := q.FinishRun(ctx, dbgen.FinishRunParams{State: "failed", Now: nstr(s.ts()), Error: "runner lost", ID: r.ID}); err != nil {
+			if err := q.FinishRun(ctx, dbgen.FinishRunParams{State: "failed", Now: dbnull.Str(s.ts()), Error: "runner lost", ID: r.ID}); err != nil {
 				return err
 			}
 			if r.CurrentTaskID.Valid {
@@ -405,7 +410,7 @@ func (s *Service) afterLost(ctx context.Context, runID int64) {
 		} else {
 			s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: fmt.Sprintf("runner lost; retrying as run %d", nr.ID), ID: runID})
 			s.Log.Info("runner lost; run requeued", "run", runID, "new_run", nr.ID)
-			s.Bus.Publish("run", fmt.Sprint(runID))
+			s.Bus.Run(runID)
 		}
 		return
 	}
@@ -417,7 +422,7 @@ func (s *Service) afterLost(ctx context.Context, runID int64) {
 // hung (waiting on a prompt, a dead process, a deadlocked tool). The owner can cancel the run or
 // keep waiting; a kept-waiting run is raised again after another StuckAfter of silence.
 func (s *Service) SweepStuck(ctx context.Context) error {
-	cutoff := s.Now().Add(-StuckAfter).UTC().Format("2006-01-02T15:04:05.000Z")
+	cutoff := dbtime.Format(s.Now().Add(-StuckAfter))
 	stuck, err := s.DB.RQ.StuckRuns(ctx, cutoff)
 	if err != nil {
 		return err
@@ -461,7 +466,7 @@ func (s *Service) FailRun(ctx context.Context, runID int64, reason string) error
 		return nil
 	}
 	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		if err := q.FinishRun(ctx, dbgen.FinishRunParams{State: "failed", Now: nstr(s.ts()), Error: reason, StatusText: reason, ID: runID}); err != nil {
+		if err := q.FinishRun(ctx, dbgen.FinishRunParams{State: "failed", Now: dbnull.Str(s.ts()), Error: reason, StatusText: reason, ID: runID}); err != nil {
 			return err
 		}
 		if run.CurrentTaskID.Valid {
@@ -470,7 +475,7 @@ func (s *Service) FailRun(ctx context.Context, runID int64, reason string) error
 			}
 		}
 		if run.RunnerID.Valid {
-			return q.ReleaseRunner(ctx, dbgen.ReleaseRunnerParams{Now: nstr(s.ts()), ID: run.RunnerID.Int64})
+			return q.ReleaseRunner(ctx, dbgen.ReleaseRunnerParams{Now: dbnull.Str(s.ts()), ID: run.RunnerID.Int64})
 		}
 		return nil
 	})

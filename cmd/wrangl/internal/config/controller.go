@@ -32,10 +32,11 @@ type AWS struct {
 type GitHubApp struct {
 	ID            int64  `yaml:"id"`
 	PrivateKey    string `yaml:"private_key"`
-	WebhookSecret string `yaml:"webhook_secret,omitempty"` // reviewer app only
+	WebhookSecret string `yaml:"webhook_secret,omitempty"` // legacy reviewer app only
 }
 
-// GitHub holds the two Apps: author pushes and opens PRs, reviewer approves and merges.
+// GitHub holds the legacy single-App config. Per-account Apps now live in the database (one App
+// per account; an optional reviewer App for repos that require approving reviews).
 type GitHub struct {
 	AuthorApp   GitHubApp `yaml:"author_app"`
 	ReviewerApp GitHubApp `yaml:"reviewer_app"`

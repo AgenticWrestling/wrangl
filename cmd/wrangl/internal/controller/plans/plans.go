@@ -6,11 +6,11 @@ package plans
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"log/slog"
 	"strings"
 	"time"
@@ -40,8 +40,6 @@ type Proposal struct {
 	Guidance  string            `json:"guidance,omitempty"`
 }
 
-func nint(v int64) sql.NullInt64 { return sql.NullInt64{Int64: v, Valid: v != 0} }
-
 func uuid4() string {
 	b := make([]byte, 16)
 	rand.Read(b)
@@ -64,7 +62,7 @@ func (s *Service) QueueWorkWith(ctx context.Context, sqid, agent string) (dbgen.
 		return dbgen.Run{}, err
 	}
 	if t.TaskType.Planning() {
-		kids, err := s.DB.RQ.ListChildren(ctx, nint(t.ID))
+		kids, err := s.DB.RQ.ListChildren(ctx, dbnull.Int(t.ID))
 		if err != nil {
 			return dbgen.Run{}, err
 		}
@@ -79,6 +77,9 @@ func (s *Service) QueueWorkWith(ctx context.Context, sqid, agent string) (dbgen.
 func (s *Service) Queue(ctx context.Context, sqid, guidance string) (dbgen.Run, error) {
 	t, err := s.Stack.Task(ctx, s.DB.RQ, sqid)
 	if err != nil {
+		return dbgen.Run{}, err
+	}
+	if err := stack.ActiveProject(ctx, s.DB.RQ, t.ProjectID); err != nil {
 		return dbgen.Run{}, err
 	}
 	if t.State != "open" {
@@ -156,7 +157,7 @@ func (s *Service) Queue(ctx context.Context, sqid, guidance string) (dbgen.Run, 
 		"set chain if each depends on the previous. Explain your reasoning in rationale_md.\n")
 	n, _ := s.DB.RQ.CountRunsForTask(ctx, t.ID)
 	run, err := s.DB.Q.QueueSpecialRun(ctx, dbgen.QueueSpecialRunParams{
-		TaskID: t.ID, Kind: "plan", Attempt: n + 1, TemplateID: nint(templateID), RepoID: nint(repoID),
+		TaskID: t.ID, Kind: "plan", Attempt: n + 1, TemplateID: dbnull.Int(templateID), RepoID: dbnull.Int(repoID),
 		Branch: repo.DefaultBranch, SessionUuid: uuid4(), PromptOverride: b.String(), ContinueBranch: 1,
 	})
 	if err != nil {
@@ -220,7 +221,7 @@ func (s *Service) ProposeSplit(ctx context.Context, sc runs.Scope, raw json.RawM
 	if p.Chain {
 		d.WriteString("\n_Each top-level subtask needs the previous one._\n")
 	}
-	q, err := s.Runs.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: t.ID, RunID: nint(sc.RunID), Kind: "plan_review",
+	q, err := s.Runs.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: t.ID, RunID: dbnull.Int(sc.RunID), Kind: "plan_review",
 		Prompt: fmt.Sprintf("Accept the proposed split of %s %q?", t.Sqid.String, t.Title), DetailMd: d.String(),
 		AllowFreeText: 1, PayloadJson: string(payload)}, []proto.QuestionOption{
 		{Label: "Accept", Value: "accept"},

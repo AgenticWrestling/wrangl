@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"log/slog"
 	"sync"
 	"time"
@@ -106,7 +107,7 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 		// Launch, wait, reap, launch... forever costs money and tells nobody: after
 		// MaxEnrolFailures never-enrolled runners within EnrolFailWindow, stop and ask the owner.
 		failed, ferr := s.Fleet.DB.RQ.CountFailedEnrolments(ctx, dbgen.CountFailedEnrolmentsParams{
-			TemplateID: t.ID, TerminatedAt: now.Add(-EnrolFailWindow).UTC().Format("2006-01-02T15:04:05.000Z")})
+			TemplateID: t.ID, TerminatedAt: dbtime.Format(now.Add(-EnrolFailWindow))})
 		if ferr == nil && failed >= MaxEnrolFailures {
 			if s.askedStuck == nil {
 				s.askedStuck = map[int64]time.Time{}

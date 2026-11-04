@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ func (d *DB) ArchiveProject(ctx context.Context, projectID int64) (dbgen.Project
 			cur, _ := q.GetProject(ctx, projectID)
 			return &ActiveRunsError{Project: cur.Slug, Runs: active}
 		}
-		now := sql.NullString{String: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"), Valid: true}
+		now := sql.NullString{String: dbtime.Format(time.Now()), Valid: true}
 		if p, err = q.ArchiveProject(ctx, dbgen.ArchiveProjectParams{Now: now, ID: projectID}); err != nil {
 			return err
 		}
