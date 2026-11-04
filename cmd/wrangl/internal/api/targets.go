@@ -9,11 +9,10 @@ import (
 // registerTargets serves remote targets (docs/wrangl/adr/0002).
 func registerTargets(mux *http.ServeMux, d Deps) {
 	db := d.Fleet.DB
-	mux.HandleFunc("GET /api/v1/targets", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/targets", getJSON(func(r *http.Request) ([]proto.TargetView, error) {
 		ts, err := db.RQ.ListRemoteTargets(r.Context(), r.URL.Query().Get("all") == "1")
 		if err != nil {
-			writeErr(w, err)
-			return
+			return nil, err
 		}
 		out := []proto.TargetView{}
 		for _, g := range ts {
@@ -29,13 +28,9 @@ func registerTargets(mux *http.ServeMux, d Deps) {
 			}
 			out = append(out, v)
 		}
-		writeJSON(w, http.StatusOK, out)
-	})
-	mux.HandleFunc("DELETE /api/v1/targets/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if err := d.Fleet.TerminateTarget(r.Context(), r.PathValue("name")); err != nil {
-			writeErr(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+		return out, nil
+	}))
+	mux.HandleFunc("DELETE /api/v1/targets/{name}", ack(http.StatusNoContent, func(r *http.Request) error {
+		return d.Fleet.TerminateTarget(r.Context(), r.PathValue("name"))
+	}))
 }
