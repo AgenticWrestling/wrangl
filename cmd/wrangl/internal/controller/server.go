@@ -43,6 +43,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/scheduler"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/taskreview"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
@@ -102,6 +103,7 @@ type Server struct {
 	Stack        *stack.Service
 	Projects     *projects.Service
 	Runs         *runs.Service
+	TaskReviews  *taskreview.Service
 	PRs          *prs.Service
 	Plans        *plans.Service
 	Agents       *agents.Service // controller agents ("Ask?" on a task)
@@ -292,7 +294,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Push = &webpush.Service{DB: s.db, Keys: vapid, Subject: subject, Log: s.log}
 	s.Runs.OnQuestion = func(q dbgen.Question) {
 		title := map[string]string{"agent": "An agent has a question", "approval": "Approval needed", "pr_review": "PR waiting for review",
-			"plan_review": "Proposed split ready", "deliverable_review": "Deliverables ready for review", "system": "A run needs you"}[q.Kind]
+			"plan_review": "Proposed split ready", "deliverable_review": "Deliverables ready for review", "task_review": "Task waiting for review", "system": "A run needs you"}[q.Kind]
 		s.Push.Notify(webpush.Notification{Title: title, Body: q.Prompt, URL: fmt.Sprintf("/inbox#q%d", q.ID), Tag: fmt.Sprintf("q%d", q.ID)})
 	}
 	s.Fleet.OnOffline = func(name string) {
@@ -302,7 +304,10 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		if r, err := s.db.RQ.GetRun(ctx, runID); err == nil && (r.State == "failed" || r.State == "blocked") {
 			s.Push.Notify(webpush.Notification{Title: "Run " + r.State, Body: fmt.Sprintf("run %d: %s", runID, r.Error+r.StatusText), URL: fmt.Sprintf("/run/%d", runID), Tag: fmt.Sprintf("run%d", runID)})
 		}
-		go s.PRs.OnRunFinished(context.Background(), runID) // GitHub calls must not hold up event ingest
+		go func() { // GitHub calls must not hold up event ingest
+			s.PRs.OnRunFinished(context.Background(), runID)
+			s.TaskReviews.Sync(context.Background()) // after the PR step: a task with no PR needs the owner
+		}()
 		if s.Deliverables != nil {
 			go s.Deliverables.OnRunFinished(context.Background(), s.review(), runID)
 		}
@@ -329,6 +334,8 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Runs.ToolHandlers["propose_split"] = s.Plans.ProposeSplit
 	s.Runs.AnswerHandlers["plan_review"] = s.Plans.Answer
 	s.Runs.AnswerHandlers["pr_review"] = s.PRs.AnswerPR
+	s.TaskReviews = &taskreview.Service{DB: s.db, Runs: s.Runs, Stack: s.Stack, Log: s.log}
+	s.Runs.AnswerHandlers[taskreview.Kind] = s.TaskReviews.Answer
 
 	stackSub, err := s.nats.Conn.Subscribe(natsd.StackWildcard, func(m *nats.Msg) {
 		s.Runs.HandleStack(context.Background(), m)
@@ -419,10 +426,11 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
 	}
-	loops.Add(6)
+	loops.Add(7)
 	go func() {
 		defer loops.Done()
 		s.PRs.Reconcile(loopCtx)
+		s.TaskReviews.Sync(loopCtx) // backfill: tasks already in review with no tracked PR
 		t := time.NewTicker(reconcile)
 		defer t.Stop()
 		for {
@@ -431,9 +439,11 @@ func (s *Server) Run(ctx context.Context) (err error) {
 				return
 			case <-t.C:
 				s.PRs.Reconcile(loopCtx)
+				s.TaskReviews.Sync(loopCtx)
 			}
 		}
 	}()
+	go func() { defer loops.Done(); s.TaskReviews.Watch(loopCtx, s.Bus) }()
 	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
 	go func() { defer loops.Done(); s.Deliverables.Loop(loopCtx) }()
 	go func() {

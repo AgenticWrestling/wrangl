@@ -91,6 +91,9 @@ func (s *Service) Answer(ctx context.Context, id int64, value, text string) erro
 		}
 		return fmt.Errorf("%w: choose one of the options", errs.Invalid)
 	}
+	if q.Kind == "task_review" && value == "reopen" && strings.TrimSpace(text) == "" {
+		return fmt.Errorf("%w: say what is missing (the note goes to the next run)", errs.Invalid)
+	}
 	n, err := s.DB.Q.AnswerQuestion(ctx, dbgen.AnswerQuestionParams{OptionID: optID, Text: text, Now: nstr(s.ts()), ID: id})
 	if err != nil {
 		return err

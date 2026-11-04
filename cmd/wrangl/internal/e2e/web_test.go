@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // checkPWA drives the M8 web UI against a controller that has run the PR and plan flows.
@@ -105,6 +107,40 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/run/1/diff")
 	get("/run/1/files")
 	get("/inbox", "plan_review", "another big job", `pre class="outline"`)
+	// A task_review item (a task in review with no tracked PR): shown with its summary, and
+	// Accept / Reopen from the Inbox act on the task.
+	{
+		mkReview := func(title string) (sqid string, qid int64) {
+			t.Helper()
+			ts := e.mk(proto.TaskCreateRequest{Title: title, Prompt: "p"})
+			if _, err := e.db.W.Exec(`UPDATE task SET state='in_review', completion_summary='nothing to change, already built' WHERE sqid=?`, ts); err != nil {
+				t.Fatal(err)
+			}
+			q, err := e.db.W.Exec(`INSERT INTO question (task_id, kind, prompt, detail_md, allow_free_text)
+				SELECT id, 'task_review', 'Review '||sqid, 'nothing to change, already built', 1 FROM task WHERE sqid=?`, ts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			qid, _ = q.LastInsertId()
+			for i, o := range [][2]string{{"Accept", "accept"}, {"Reopen", "reopen"}} {
+				if _, err := e.db.W.Exec(`INSERT INTO question_option (question_id, position, label, value) VALUES (?,?,?,?)`, qid, i, o[0], o[1]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return ts, qid
+		}
+		okSqid, okQ := mkReview("review accept")
+		reSqid, reQ := mkReview("review reopen")
+		get("/inbox", "task review", "review accept", "nothing to change, already built", fmt.Sprintf("value=accept"), "value=reopen")
+		post(fmt.Sprintf("/ui/act/answer?id=%d&value=accept", okQ), "{}")
+		post(fmt.Sprintf("/ui/act/answer?id=%d&value=reopen", reQ), fmt.Sprintf(`{"ans%d":"add the missing docs"}`, reQ))
+		if d := e.task(okSqid); d.State != "done" {
+			t.Fatalf("accepted task: %s", d.State)
+		}
+		if d := e.task(reSqid); d.State != "open" || !strings.Contains(d.Prompt, "add the missing docs") {
+			t.Fatalf("reopened task: %s %q", d.State, d.Prompt)
+		}
+	}
 	get("/settings", "enablePush", "tiny", "sheet-project", "Appearance", `id="fs-seg"`, `data-fs="1.15"`)
 	get("/static/app.css", "calc(16px * var(--fs, 1))")
 	get("/tasks?project=web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/project/web")

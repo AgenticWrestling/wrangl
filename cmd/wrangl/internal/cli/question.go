@@ -41,7 +41,7 @@ func printQuestion(w io.Writer, q proto.QuestionView) {
 func questionCmd(g *Global) *cobra.Command {
 	var all bool
 	list := &cobra.Command{
-		Use: "list", Short: "List open questions (from agents, approvals, PR reviews)", Args: cobra.NoArgs,
+		Use: "list", Short: "List open questions (from agents, approvals, PR and task reviews)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := apiClient(g)
 			if err != nil {
@@ -78,7 +78,7 @@ func questionCmd(g *Global) *cobra.Command {
 			return emit(cmd, g, q, func(w io.Writer) { printQuestion(w, q) })
 		},
 	}
-	var text string
+	var text, option string
 	answer := &cobra.Command{
 		Use: "answer <id> [option-value]", Short: "Answer a question with an option and/or --text", Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -89,6 +89,12 @@ func questionCmd(g *Global) *cobra.Command {
 			value := ""
 			if len(args) == 2 {
 				value = args[1]
+			}
+			if option != "" {
+				if value != "" && value != option {
+					return fmt.Errorf("give the option once: %q or --option %q", value, option)
+				}
+				value = option
 			}
 			if value == "" && text == "" {
 				return fmt.Errorf("give an option value or --text")
@@ -104,6 +110,7 @@ func questionCmd(g *Global) *cobra.Command {
 			return nil
 		},
 	}
+	answer.Flags().StringVar(&option, "option", "", "option value to choose (same as the positional argument), e.g. accept|reopen for a task_review")
 	answer.Flags().StringVar(&text, "text", "", "free-text answer (or extra detail with an option)")
 	return group("question", "Questions from agents, approvals and PR reviews", list, show, answer)
 }
