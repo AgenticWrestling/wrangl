@@ -66,10 +66,10 @@ func TestArchiveProjectEndToEnd(t *testing.T) {
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b)
 	}
-	const link = `href="/tasks?project=old"`
+	const link = `href="/projects/old"`
 
 	// Active: visible in the project bar, the left panel and the Inbox.
-	if _, body := get("/tasks?project=keep"); strings.Count(body, link) < 2 {
+	if _, body := get("/projects/keep"); strings.Count(body, link) < 2 {
 		t.Fatalf("active project missing from the project bar / left panel: %d links", strings.Count(body, link))
 	}
 	if _, body := get("/inbox"); !strings.Contains(body, "Review old work?") {
@@ -88,16 +88,16 @@ func TestArchiveProjectEndToEnd(t *testing.T) {
 		!strings.Contains(refused.Message, "active runs") {
 		t.Fatalf("archive with a running run: %v", err)
 	}
-	if _, body := get("/tasks?project=keep"); !strings.Contains(body, link) {
+	if _, body := get("/projects/keep"); !strings.Contains(body, link) {
 		t.Fatal("a refused archive hid the project")
 	}
 
-	// Once the run ends, archiving works: hidden from /tasks, the left panel and /inbox.
+	// Once the run ends, archiving works: hidden from /projects, the left panel and /inbox.
 	db.W.Exec(`UPDATE run SET state='succeeded' WHERE id=?`, runID)
 	if _, err := api.ArchiveProject(ctx, "old"); err != nil {
 		t.Fatal(err)
 	}
-	if _, body := get("/tasks?project=keep"); strings.Contains(body, "project=old") {
+	if _, body := get("/projects/keep"); strings.Contains(body, "/projects/old") {
 		t.Fatal("archived project still in the project bar or left panel")
 	}
 	if _, body := get("/inbox"); strings.Contains(body, "Review old work?") {
@@ -111,7 +111,7 @@ func TestArchiveProjectEndToEnd(t *testing.T) {
 	}
 
 	// Direct URLs keep working; the project and its task are still there, but inert.
-	if code, body := get("/tasks?project=old"); code != 200 || !strings.Contains(body, "old work") {
+	if code, body := get("/projects/old"); code != 200 || !strings.Contains(body, "old work") {
 		t.Fatalf("direct project URL: %d", code)
 	}
 	if code, body := get("/task/" + task.Sqid); code != 200 || !strings.Contains(body, "old work") {
@@ -125,7 +125,7 @@ func TestArchiveProjectEndToEnd(t *testing.T) {
 	if _, err := api.RestoreProject(ctx, "old"); err != nil {
 		t.Fatal(err)
 	}
-	if _, body := get("/tasks?project=keep"); strings.Count(body, link) < 2 {
+	if _, body := get("/projects/keep"); strings.Count(body, link) < 2 {
 		t.Fatal("restored project missing from the project bar / left panel")
 	}
 	if _, body := get("/inbox"); !strings.Contains(body, "Review old work?") {

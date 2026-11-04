@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -131,7 +132,7 @@ agent:
 		return n == 2, fmt.Sprintf("%d of 2 started", n)
 	})
 	hc := runner.SocketClient(cfg.Listen.Unix)
-	resp, err := hc.Get("http://x/tasks?project=web")
+	resp, err := hc.Get("http://x/projects/web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +146,16 @@ agent:
 	if strings.Count(page, `class="task run `) != 2 || strings.Contains(page, `id="queue"`) || !strings.Contains(page, "▶ ") {
 		t.Fatalf("want two run entries with a runner tag and nothing queued:\n%.1500s", page)
 	}
+	// The project page strip says one runner is active, and the API lists it with both sessions.
+	for _, want := range []string{`class="phead"`, `class="pstrip"`, "runners 1 active", "Edit goals &amp; repos", `data-confirm="Archive web?`, `class="showdone"`} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("project page missing %q", want)
+		}
+	}
+	if prs, err := api.ProjectRunners(ctx, "web"); err != nil || len(prs) != 1 || len(prs[0].Sessions) != 2 || len(prs[0].AlsoServing) != 0 {
+		t.Fatalf("project runners = %+v, %v; want one runner with two sessions", prs, err)
+	}
+	d := e.mk(proto.TaskCreateRequest{Title: "fourth independent task", Prompt: "do d"})
 	// A third task has no free slot (one runner at its max): it waits in Queue.
 	c := e.mk(proto.TaskCreateRequest{Title: "third independent task", Prompt: "do c"})
 	runC, _, err := api.QueueTask(ctx, c)
@@ -152,11 +163,91 @@ agent:
 		t.Fatal(err)
 	}
 	waitFor(t, "task C in Queue", 10*time.Second, func() (bool, string) {
-		r, _ := hc.Get("http://x/tasks?project=web")
+		r, _ := hc.Get("http://x/projects/web")
 		b, _ := io.ReadAll(r.Body)
 		r.Body.Close()
 		return strings.Contains(string(b), `id="queue"`), "not queued yet"
 	})
+	// Queue verbs: queue D behind C, move D up (persisted queue_rank), dequeue it, then Queue all.
+	act := func(path string) string {
+		t.Helper()
+		r, err := hc.Post("http://x/ui/act/"+path, "application/json", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		return string(b)
+	}
+	queueOrder := func() []string { // sqids of the Queue section, in page order
+		r, _ := hc.Get("http://x/projects/web")
+		b, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		pg := string(b)
+		i := strings.Index(pg, `id="queue"`)
+		if i < 0 {
+			return nil
+		}
+		sec := pg[i:]
+		if j := strings.Index(sec, `id="backlog"`); j > 0 {
+			sec = sec[:j]
+		}
+		var out []string
+		for _, sq := range []string{a, c, d} {
+			if k := strings.Index(sec, `data-sqid="`+sq+`"`); k >= 0 {
+				out = append(out, fmt.Sprintf("%05d:%s", k, sq))
+			}
+		}
+		sort.Strings(out)
+		for i := range out {
+			out[i] = out[i][6:]
+		}
+		return out
+	}
+	runD, _, err := api.QueueTask(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ord := queueOrder() // tree order decides among unranked runs; the test only needs the two rows
+	if len(ord) != 2 {
+		t.Fatalf("queue order = %v, want C and D", ord)
+	}
+	runOf := map[string]int64{c: runC, d: runD}
+	first, second := ord[0], ord[1]
+	if out := act("queue-move?id=" + fmt.Sprint(runOf[second]) + "&dir=up&sqid=" + second); !strings.Contains(out, "moved up") {
+		t.Fatalf("queue-move up: %s", out)
+	}
+	if got := queueOrder(); len(got) != 2 || got[0] != second || got[1] != first {
+		t.Fatalf("after up, queue order = %v, want [%s %s]", got, second, first)
+	}
+	if out := act("queue-move?id=" + fmt.Sprint(runOf[second]) + "&dir=up&sqid=" + second); !strings.Contains(out, "nothing to move") {
+		t.Fatalf("moving the first row up should be refused: %s", out)
+	}
+	act("queue-move?id=" + fmt.Sprint(runOf[second]) + "&dir=down&sqid=" + second)
+	if got := queueOrder(); len(got) != 2 || got[0] != first || got[1] != second {
+		t.Fatalf("after down, queue order = %v, want [%s %s]", got, first, second)
+	}
+	if err := api.DequeueTask(ctx, a); err == nil {
+		t.Fatal("dequeueing a running task must be refused")
+	}
+	if out := act("task-dequeue?sqid=" + d); !strings.Contains(out, "back in the backlog") {
+		t.Fatalf("task-dequeue: %s", out)
+	}
+	if got := queueOrder(); len(got) != 1 || got[0] != c {
+		t.Fatalf("after dequeue, queue = %v, want [%s]", got, c)
+	}
+	if out := act("queue-all?project=web"); !strings.Contains(out, "queued 1") { // only D is open and idle
+		t.Fatalf("queue-all: %s", out)
+	}
+	if got := queueOrder(); len(got) != 2 {
+		t.Fatalf("after queue-all, queue = %v, want C and D", got)
+	}
+	if err := api.DequeueTask(ctx, d); err != nil { // leave only C waiting, as the rest of the test expects
+		t.Fatal(err)
+	}
+	if err := api.DequeueTask(ctx, d); err == nil {
+		t.Fatal("dequeueing twice must be refused")
+	}
 	// An expanded run entry's card survives live re-renders, for a running one (A) and a queued
 	// one (C) alike.
 	for _, sq := range []string{a, c} {

@@ -278,6 +278,13 @@ func registerTasks(mux *http.ServeMux, d Deps) {
 		}
 		return out, nil
 	}))
+	mux.HandleFunc("POST /api/v1/tasks/{sqid}/dequeue", getJSON(func(r *http.Request) (map[string]any, error) {
+		n, err := d.Runs.Dequeue(r.Context(), r.PathValue("sqid"))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"dequeued": n}, nil
+	}))
 	mux.HandleFunc("POST /api/v1/tasks/{sqid}/queue", handleOpt(http.StatusCreated, func(r *http.Request, req proto.QueueRequest) (map[string]any, error) {
 		run, err := d.Plans.QueueWorkWith(r.Context(), r.PathValue("sqid"), req.Agent)
 		if err != nil {

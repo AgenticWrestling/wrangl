@@ -55,8 +55,8 @@
   </defs>
 </svg>
 <header class="top">
-  {{if ne .View "tasks"}}<button class="back" onclick="history.length > 1 ? history.back() : location.assign('/tasks')" aria-label="Back">‹</button>{{end}}
-  <a class="brand" href="/tasks" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="28" height="28"></a>
+  {{if ne .View "tasks"}}<button class="back" onclick="history.length > 1 ? history.back() : location.assign('/projects')" aria-label="Back">‹</button>{{end}}
+  <a class="brand" href="/projects" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="28" height="28"></a>
   <h1>{{.Title}}</h1>
 </header>
 <div id="detail-sheets"></div>
@@ -66,8 +66,8 @@
 {{.Post}}
 <div id="toast" class="toast"></div>
 <nav class="tabs">
-  <a class="side-brand" href="/tasks" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="36" height="36"><b>wrangl</b></a>
-  <a href="/tasks" class="{{if or (eq .View "tasks") (eq .View "task")}}on{{end}}"><span>☰</span>Tasks</a>
+  <a class="side-brand" href="/projects" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="36" height="36"><b>wrangl</b></a>
+  <a href="/projects" class="{{if or (eq .View "tasks") (eq .View "task") (eq .View "projects") (eq .View "project")}}on{{end}}"><span>☰</span>Projects</a>
   {{template "subnav" .}}
   <a href="/runners" class="{{if or (eq .View "runners") (eq .View "runner")}}on{{end}}"><span>⚙</span>Runners</a>
   <a href="/logs" class="{{if or (eq .View "logs") (eq .View "run") (eq .View "diff") (eq .View "files")}}on{{end}}"><span>▤</span>Logs</a>
@@ -78,6 +78,6 @@
 </html>{{end}}
 
 {{define "subnav"}}<div id="subnav" class="subnav" aria-label="Recent projects">
-    {{range .NavProjects}}<a href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>
+    {{range .NavProjects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>
     {{end}}
   </div>{{end}}

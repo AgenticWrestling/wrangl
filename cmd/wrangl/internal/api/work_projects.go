@@ -93,6 +93,9 @@ func registerProjects(mux *http.ServeMux, d Deps) {
 		}
 		return projectView(r.Context(), d, p), nil
 	}))
+	mux.HandleFunc("GET /api/v1/projects/{slug}/runners", getJSON(func(r *http.Request) ([]proto.ProjectRunner, error) {
+		return d.Projects.Runners(r.Context(), r.PathValue("slug"))
+	}))
 	mux.HandleFunc("PATCH /api/v1/projects/{slug}", handle(http.StatusOK, func(r *http.Request, req proto.ProjectRequest) (proto.ProjectView, error) {
 		p, err := d.Projects.Update(r.Context(), r.PathValue("slug"), projectParams(req))
 		if err != nil {

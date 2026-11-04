@@ -468,3 +468,44 @@ func (s *Service) IssueToTask(ctx context.Context, slug, ref, parent, template s
 		Repo: owner + "/" + name, Template: template, Issue: ref, Actor: stack.User,
 	})
 }
+
+// Runners lists every runner that has an active session (run) for the project, with those sessions
+// and the other projects each runner is serving at the same time. Runners are not owned by projects
+// and there can be many, so nothing here assumes one.
+func (s *Service) Runners(ctx context.Context, slug string) ([]proto.ProjectRunner, error) {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.DB.R.QueryContext(ctx, `
+SELECT ru.name, ru.state, COALESCE(tp.name, ''), r.id, COALESCE(t.sqid, ''), t.title, r.state,
+       (SELECT group_concat(DISTINCT p2.slug) FROM run r2 JOIN task t2 ON t2.id = r2.task_id JOIN project p2 ON p2.id = t2.project_id
+         WHERE r2.runner_id = ru.id AND p2.id <> p.id AND r2.state IN ('assigned','preparing','running','needs_input','blocked','pushing'))
+FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
+JOIN runner ru ON ru.id = r.runner_id LEFT JOIN runner_template tp ON tp.id = ru.template_id
+WHERE p.id = ? AND r.state IN ('assigned','preparing','running','needs_input','blocked','pushing')
+ORDER BY ru.name, r.id`, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []proto.ProjectRunner{}
+	for rows.Next() {
+		var name, rstate, tmpl, sqid, title, runState string
+		var runID int64
+		var also sql.NullString
+		if err := rows.Scan(&name, &rstate, &tmpl, &runID, &sqid, &title, &runState, &also); err != nil {
+			return nil, err
+		}
+		if n := len(out); n == 0 || out[n-1].Name != name {
+			pr := proto.ProjectRunner{Name: name, State: rstate, Template: tmpl, Sessions: []proto.ProjectSession{}}
+			if also.Valid && also.String != "" {
+				pr.AlsoServing = strings.Split(also.String, ",")
+			}
+			out = append(out, pr)
+		}
+		last := &out[len(out)-1]
+		last.Sessions = append(last.Sessions, proto.ProjectSession{Run: runID, Task: sqid, Title: title, State: runState})
+	}
+	return out, rows.Err()
+}

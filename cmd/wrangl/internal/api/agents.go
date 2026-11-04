@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 )
@@ -49,5 +50,25 @@ func registerAgents(mux *http.ServeMux, d Deps) {
 			return nil, err
 		}
 		return rq.ListThread(r.Context(), t.ID)
+	}))
+	// Project chat (ADR 0005): ask about a whole project, read the thread, approve a proposal.
+	mux.HandleFunc("POST /api/v1/projects/{slug}/ask", handle(http.StatusAccepted, func(r *http.Request, in askRequest) (agents.ProjectMessage, error) {
+		return d.Agents.AskProject(r.Context(), r.PathValue("slug"), in.Agent, in.Question)
+	}))
+	mux.HandleFunc("GET /api/v1/projects/{slug}/thread", func(w http.ResponseWriter, r *http.Request) {
+		msgs, chip, err := d.Agents.ProjectThread(r.Context(), r.PathValue("slug"))
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"messages": msgs, "context": chip})
+	})
+	mux.HandleFunc("POST /api/v1/project-thread/{id}/apply/{n}", ack(http.StatusNoContent, func(r *http.Request) error {
+		id, e1 := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		n, e2 := strconv.Atoi(r.PathValue("n"))
+		if e1 != nil || e2 != nil {
+			return fmt.Errorf("%w: bad id", errs.Invalid)
+		}
+		return d.Agents.ApplyProject(r.Context(), id, n)
 	}))
 }

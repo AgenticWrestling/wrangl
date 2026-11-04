@@ -3,12 +3,15 @@ package web
 // Actions: actions on projects and their repos.
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 )
 
 func actProjectNew(h *Handler, a *actReq) (res actResult, err error) {
@@ -23,7 +26,7 @@ func actProjectNew(h *Handler, a *actReq) (res actResult, err error) {
 	if _, err = h.D.Projects.Create(a.ctx, slug, pp); err != nil {
 		return
 	}
-	res.msg, res.nav = "project created", "/project/"+url.PathEscape(slug)
+	res.msg, res.nav = "project created", "/projects/"+url.PathEscape(slug)+"/settings"
 	var failed []string
 	for _, ref := range strings.FieldsFunc(a.str("prepos"), func(r rune) bool { return r == ',' || r == '\n' || r == ' ' }) {
 		if _, lerr := h.D.Projects.LinkRepo(a.ctx, slug, ref, ""); lerr != nil {
@@ -70,12 +73,43 @@ func actRepoLink(h *Handler, a *actReq) (res actResult, err error) {
 	}
 	_, err = h.D.Projects.LinkRepo(a.ctx, a.q.Get("slug"), ref, "")
 	res.msg, res.reset = "repo linked", map[string]any{"repoadd": "", "repoother": ""}
-	res.back = "/project/" + a.q.Get("slug") // where a missing GitHub App error should link to
+	res.back = "/projects/" + a.q.Get("slug") + "/settings" // where a missing GitHub App error should link to
 	return
 }
 
 func actRepoUnlink(h *Handler, a *actReq) (res actResult, err error) {
 	err = h.D.Projects.UnlinkRepo(a.ctx, a.q.Get("slug"), a.q.Get("repo"))
 	res.msg = "repo unlinked"
+	return
+}
+
+func actProjectAsk(h *Handler, a *actReq) (res actResult, err error) {
+	if _, err = h.D.Agents.AskProject(a.ctx, a.q.Get("slug"), "", a.str("chatq")); err == nil {
+		res.reset = map[string]any{"chatq": ""}
+	}
+	return
+}
+
+func actProjectProposalApply(h *Handler, a *actReq) (res actResult, err error) {
+	n, _ := strconv.Atoi(a.q.Get("n"))
+	if err = h.D.Agents.ApplyProject(a.ctx, a.id, n); err == nil {
+		res.msg = "done"
+	}
+	return
+}
+
+func actProjectArchive(h *Handler, a *actReq) (res actResult, err error) {
+	_, _, err = h.D.Projects.Archive(a.ctx, a.q.Get("slug"))
+	var are *db.ActiveRunsError
+	if errors.As(err, &are) {
+		err = fmt.Errorf("%w: %s", errs.Conflict, are.Error())
+	}
+	res.msg, res.nav = "archived "+a.q.Get("slug"), "/projects"
+	return
+}
+
+func actProjectRestore(h *Handler, a *actReq) (res actResult, err error) {
+	_, err = h.D.Projects.Restore(a.ctx, a.q.Get("slug"))
+	res.msg, res.nav = "restored "+a.q.Get("slug"), "/projects"
 	return
 }

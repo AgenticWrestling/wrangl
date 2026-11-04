@@ -336,6 +336,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Agents = &agents.Service{DB: s.db, Stack: s.Stack, Bus: s.Bus, Log: s.log, Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
 	s.Agents.Recover(context.Background())
 	s.Agents.Queue = func(ctx context.Context, sqid string) error { _, err := s.Plans.QueueWork(ctx, sqid); return err }
+	s.Agents.Dequeue = func(ctx context.Context, sqid string) error { _, err := s.Runs.Dequeue(ctx, sqid); return err }
 	s.Runs.ToolHandlers["propose_split"] = s.Plans.ProposeSplit
 	s.Runs.AnswerHandlers["plan_review"] = s.Plans.Answer
 	s.Runs.AnswerHandlers["pr_review"] = s.PRs.AnswerPR

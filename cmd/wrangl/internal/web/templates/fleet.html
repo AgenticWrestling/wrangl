@@ -16,7 +16,7 @@
     <b>{{.Name}}</b> <span class="dim">v{{.Version}}{{if eq .FailedVersion .Version}} ⚠ apply failed{{end}}</span>
     <span class="grow"></span>
     <span class="dim">{{.Demand}} queued · {{.Live}}/{{.MaxRunners}} live</span>
-    <button class="btn small" data-on:click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button>
+    <button class="btn small" data-confirm="Launch a {{.Name}} runner?" data-confirm-yes="Launch" data-on:click="@post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button>
   </div>{{end}}
 </section>{{end}}
 {{if not .Cards}}<p class="empty">No runners. Launch one from a template above, or <code>wrangl fleet launch</code>.</p>{{end}}
@@ -90,7 +90,7 @@
     {{if $r.Cordoned}}<button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')">Uncordon</button>
     {{else}}<button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')">Cordon</button>{{end}}
     <button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')">Drain</button>
-    <button class="btn danger" data-on:click="confirm('Terminate {{$r.Name}}?') && @post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')">Terminate</button>
+    <button class="btn danger" data-confirm="Terminate {{$r.Name}}?" data-confirm-yes="Terminate" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')">Terminate</button>
   </div>
 </section>
 {{with .Run}}<section class="card"><h3>Working on</h3>

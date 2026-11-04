@@ -485,5 +485,97 @@ section.card.k-running { border-left: 4px solid var(--prog); }
 .icard details.idetail > summary { cursor: pointer; color: var(--dim); font-size: 0.88rem; }
 .icard details.idetail[open] > .prose { max-height: 28rem; overflow: auto; padding: 4px 12px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
 
+/* Inline confirm (app.js: [data-confirm]): the button is replaced in place by "Question? Yes Cancel". */
+.iconfirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; max-width: 100%; padding: 4px 6px 4px 12px; border: 1px solid color-mix(in srgb, var(--err) 45%, var(--line)); border-radius: 18px; background: color-mix(in srgb, var(--err) 8%, var(--card)); animation: iconfirm-in .12s ease-out; }
+.iconfirm .iq { font-size: 0.85rem; color: var(--ink2); flex: 1 1 auto; white-space: normal; }
+.iconfirm .btn.yes { background: var(--err); border-color: var(--err); color: #fff; }
+@keyframes iconfirm-in { from { opacity: 0; transform: scale(.96); } }
+@media (max-width: 700px) { .iconfirm .btn { min-height: 40px; padding: 8px 14px; } .iconfirm { padding-left: 12px; } .iconfirm .iq { flex-basis: 100%; } }
+@media (prefers-reduced-motion: reduce) { .iconfirm { animation: none; } }
+
+/* Project switcher: on a phone the current project is a pill that opens a menu (projects + All projects); from 900px up the left panel and the project bar do that. */
+.ppill { margin-bottom: 10px; }
+.ppill .menu a.all { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; color: var(--link); }
+@media (max-width: 899px) { .projbar { display: none; } }
+@media (min-width: 900px) { .ppill { display: none; } }
+
+/* Projects list: a table on desktop, expandable cards on a phone (same markup). */
+table.plist th.num, table.plist td.num { text-align: right; white-space: nowrap; }
+table.plist td.pname .caret { display: inline-block; color: var(--dim); transition: transform .12s; }
+table.plist tbody.open .caret { transform: rotate(90deg); }
+table.plist tr.more { display: none; }
+table.plist tbody.open tr.more { display: table-row; }
+table.plist tr.more > td { background: var(--raised); padding: 8px 14px 14px; }
+table.plist .about { margin: 0 0 8px; }
+table.plist .pcols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin-bottom: 8px; }
+table.plist .pcols h4 { margin: 4px 0; font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+table.plist .pcols p { margin: 2px 0; }
+.newproj label { display: block; margin: 6px 0; }
+.newproj input, .newproj textarea, .newproj select { display: block; width: 100%; }
+details.archived summary { cursor: pointer; }
+@media (max-width: 700px) {
+  .logwrap:has(table.plist) { border: 0; background: none; overflow: visible; }
+  table.plist, table.plist tbody, table.plist tr, table.plist td { display: block; }
+  table.plist thead { display: none; }
+  table.plist tbody.prow { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+  table.plist tr.expandable { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 10px 12px; }
+  table.plist tr.expandable td { border: 0; padding: 0; }
+  table.plist td.pname { flex: 1 0 100%; font-size: 1rem; }
+  table.plist td.num { text-align: left; }
+  table.plist td.num::before { content: attr(data-label) " "; color: var(--dim); font-size: 0.75rem; }
+  table.plist tbody.open tr.more { display: block; }
+  table.plist tr.more > td { padding: 8px 12px 12px; }
+  table.plist .pcols { grid-template-columns: 1fr; }
+}
+
+/* Project page header and strip */
+.phead h1 { margin: 4px 0 2px; font-size: 1.4rem; }
+.phead .about { margin: 0 0 10px; color: var(--ink2); }
+.pstrip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.pstrip .chip { white-space: nowrap; }
+details.rchip { position: relative; }
+details.rchip > summary { list-style: none; cursor: pointer; }
+details.rchip > summary::-webkit-details-marker { display: none; }
+details.rchip .menu.rlist { position: absolute; z-index: 8; top: calc(100% + 6px); left: 0; width: min(440px, 92vw); max-height: 60vh; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.rlist .rr { padding: 6px 0; border-top: 1px solid var(--line); }
+.rlist .rr:first-child { border-top: 0; }
+.rlist .rs { margin: 2px 0 0 12px; }
+.showdone { margin: 10px 0 0; }
+@media (max-width: 700px) { details.rchip .menu.rlist { position: fixed; left: 8px; right: 8px; width: auto; top: auto; bottom: calc(var(--tabs-h) + 8px); } }
+.chip.on { border-color: var(--prog); color: var(--ink); }
+
+/* Row verbs (Queue / Dequeue / up / down / Stop) and the flash on the row just acted on */
+.task .vact { display: inline-flex; gap: 4px; align-items: center; margin-left: auto; }
+.task .row > .btn.vact { margin-left: auto; }
+@keyframes rowflash { from { background: color-mix(in srgb, var(--prog) 35%, transparent); } to { background: transparent; } }
+.task.flash > .row { animation: rowflash 1.4s ease-out; }
+@media (prefers-reduced-motion: reduce) { .task.flash > .row { animation: none; outline: 2px solid var(--prog); } }
+
+/* Needs you strip on the project page */
+.needsyou { margin: 0 0 14px; padding: 10px 12px 2px; border: 1px solid color-mix(in srgb, var(--attn) 45%, var(--line)); border-radius: var(--radius); background: color-mix(in srgb, var(--attn) 6%, var(--bg)); }
+.needsyou h3 { margin: 0 0 8px; font-size: 1rem; }
+.needsyou .badge.inline { position: static; display: inline-block; vertical-align: middle; }
+
+/* Project chat: a right-hand panel on desktop, full screen on a phone with a floating button. */
+.chatfab { display: none; }
+.projchat { display: none; flex-direction: column; position: fixed; z-index: 30; background: var(--card); border: 1px solid var(--line); }
+#chatroot.open .projchat { display: flex; }
+.projchat .chathead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.projchat .chatchip { font-size: 0.75rem; padding: 2px 10px; color: var(--dim); }
+.projchat .chatlog { flex: 1; overflow-y: auto; padding: 8px 12px; }
+.projchat .chatin { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.projchat .chatin textarea { flex: 1 1 200px; font: inherit; }
+.projchat .chatin > p { flex-basis: 100%; margin: 0; }
+.projchat .prop { text-align: left; white-space: normal; }
+a.tlink code { color: var(--link); }
+@media (min-width: 900px) {
+  .projchat { top: 0; right: 0; bottom: 0; width: 400px; border-width: 0 0 0 1px; }
+  main:has(#chatroot.open) { margin-right: 400px; }
+}
+@media (max-width: 899px) {
+  .projchat { inset: 0; border: 0; z-index: 40; }
+  .chatfab { display: flex; align-items: center; justify-content: center; position: fixed; right: 16px; bottom: calc(var(--tabs-h) + 16px + env(safe-area-inset-bottom)); width: 52px; height: 52px; border-radius: 50%; border: 0; background: var(--brand); color: var(--brand-ink); box-shadow: 0 4px 14px rgba(0,0,0,.5); z-index: 12; font-size: 1.3rem; cursor: pointer; }
+  #chatroot.open .chatfab { display: none; }
+}
 /* the parent-task jump tag on In progress rows: long titles are elided */
 .tag.ptag { display: inline-block; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }

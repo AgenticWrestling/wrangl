@@ -3,6 +3,7 @@ package web
 // Actions: actions on tasks, questions, pull requests and runs.
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"net/url"
@@ -77,16 +78,83 @@ func actTaskSplit(h *Handler, a *actReq) (res actResult, err error) {
 }
 
 func actTaskPlan(h *Handler, a *actReq) (res actResult, err error) {
-	res.back = "/tasks"
+	res.back = "/projects"
 	_, err = h.D.Plans.Queue(a.ctx, a.sqid, a.str("guidance"))
 	res.msg = "planning… the proposal will arrive in Inbox"
 	return
 }
 
 func actTaskQueue(h *Handler, a *actReq) (res actResult, err error) {
-	res.back = "/tasks"
+	res.back = "/projects"
 	_, err = h.D.Plans.QueueWork(a.ctx, a.sqid)
-	res.msg = "queued"
+	res.msg, res.flash = "queued", a.sqid
+	return
+}
+
+func actTaskDequeue(h *Handler, a *actReq) (res actResult, err error) {
+	_, err = h.D.Runs.Dequeue(a.ctx, a.sqid)
+	res.msg, res.flash = "back in the backlog", a.sqid
+	return
+}
+
+// actQueueMove is up/down on a queued row: it swaps the run's rank with the neighbour's.
+func actQueueMove(h *Handler, a *actReq) (res actResult, err error) {
+	run, rerr := h.D.Fleet.DB.RQ.GetRun(a.ctx, a.id)
+	if rerr != nil {
+		return res, rerr
+	}
+	task, _ := h.D.Fleet.DB.RQ.GetTask(a.ctx, run.TaskID)
+	proj, _ := h.D.Fleet.DB.RQ.GetProject(a.ctx, task.ProjectID)
+	secs, terr := h.tree(a.ctx, proj.Slug, false)
+	if terr != nil {
+		return res, terr
+	}
+	var ids []int64
+	at := -1
+	for i, e := range secs.Queue {
+		ids = append(ids, e.RunID)
+		if e.RunID == a.id {
+			at = i
+		}
+	}
+	to := at - 1
+	if a.q.Get("dir") == "down" {
+		to = at + 1
+	}
+	if at < 0 || to < 0 || to >= len(ids) {
+		return res, fmt.Errorf("%w: nothing to move", errs.Conflict)
+	}
+	ids[at], ids[to] = ids[to], ids[at]
+	for i, rid := range ids { // persist the whole order so ties (unranked runs) stay put
+		if _, err = h.D.Fleet.DB.Q.SetRunQueueRank(a.ctx, dbgen.SetRunQueueRankParams{QueueRank: sql.NullFloat64{Float64: float64(i + 1), Valid: true}, ID: rid}); err != nil {
+			return
+		}
+	}
+	res.msg, res.flash = "moved "+a.q.Get("dir"), a.sqid
+	return
+}
+
+// actQueueAll queues every open top-level task of the project that is not already queued or running.
+func actQueueAll(h *Handler, a *actReq) (res actResult, err error) {
+	secs, terr := h.tree(a.ctx, a.q.Get("project"), false)
+	if terr != nil {
+		return res, terr
+	}
+	n, skipped := 0, 0
+	for _, nd := range secs.Backlog {
+		if nd.State != "open" {
+			continue
+		}
+		if _, qerr := h.D.Plans.QueueWork(a.ctx, nd.Sqid); qerr != nil {
+			skipped++
+			continue
+		}
+		n++
+	}
+	res.msg = fmt.Sprintf("queued %d", n)
+	if skipped > 0 {
+		res.msg += fmt.Sprintf(" (%d skipped: locked or not queueable)", skipped)
+	}
 	return
 }
 
@@ -109,7 +177,7 @@ func actTaskDelete(h *Handler, a *actReq) (res actResult, err error) {
 	if err = terr; err == nil {
 		p, _ := h.D.Fleet.DB.RQ.GetProject(a.ctx, t.ProjectID)
 		err = h.D.Stack.Delete(a.ctx, a.sqid, stack.User)
-		res.msg, res.nav = "deleted", "/tasks?project="+url.QueryEscape(p.Slug)
+		res.msg, res.nav = "deleted", "/projects/"+url.PathEscape(p.Slug)
 	}
 	return
 }

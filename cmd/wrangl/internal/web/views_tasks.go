@@ -5,11 +5,13 @@ package web
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
@@ -22,27 +24,80 @@ func (h *Handler) viewTasks(ctx context.Context, view string, r *http.Request, d
 	d["Projects"] = projects
 	d["Recent"], d["Rest"] = recentProjects(projects, 4)
 	d["Templates"], _ = db.RQ.ListTemplates(ctx)
-	slug := r.URL.Query().Get("project")
-	if slug == "" && len(projects) > 0 {
-		slug = projects[0].Slug
+	slug := reqValue(r, "slug")
+	if slug == "" {
+		slug = reqValue(r, "project")
 	}
-	d["Project"], d["Title"] = slug, "Tasks"
+	d["Project"], d["Title"] = slug, slug
+	if _, err := db.RQ.GetProjectBySlug(ctx, slug); err != nil {
+		return fmt.Errorf("%w: project %q", errs.NotFound, slug)
+	}
 	d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
-	if slug != "" { // a direct link to an archived project still works, with its actions disabled
-		if cur, err := db.RQ.GetProjectBySlug(ctx, slug); err == nil {
-			d["Archived"] = cur.ArchivedAt.Valid
-		}
+	if cur, err := db.RQ.GetProjectBySlug(ctx, slug); err == nil { // a direct link to an archived project still works, with its actions disabled
+		d["Archived"] = cur.ArchivedAt.Valid
 	}
 	d["Types"] = dbtypes.TaskTypes
 	d["All"] = r.URL.Query().Get("all") == "1"
-	if slug != "" {
-		secs, err := h.tree(ctx, slug, d["All"].(bool))
-		if err != nil {
-			return err
-		}
-		d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
-		d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
+	secs, err := h.tree(ctx, slug, d["All"].(bool))
+	if err != nil {
+		return err
 	}
+	d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
+	d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
+	d["ProjectRunners"], _ = h.D.Projects.Runners(ctx, slug)
+	// Needs you: this project's open questions, task/plan reviews and PRs, as Inbox cards.
+	var qs []proto.QuestionView
+	if all, qerr := h.D.Runs.Questions(ctx, false); qerr == nil {
+		for _, q := range all {
+			if q.Project == slug {
+				qs = append(qs, q)
+			}
+		}
+	}
+	var prs []dbgen.ListPRsRow
+	if all, perr := db.RQ.ListPRs(ctx, "open"); perr == nil {
+		for _, p := range all {
+			if _, ok := secs.Index[p.TaskSqid]; ok {
+				prs = append(prs, p)
+			}
+		}
+	}
+	var pid int64
+	if cur, cerr := db.RQ.GetProjectBySlug(ctx, slug); cerr == nil {
+		pid = cur.ID
+	}
+	if h.D.Agents != nil {
+		d["Chat"], d["ChatChip"], d["ChatAgents"] = h.chatView(ctx, slug)
+		d["ChatOpen"] = r.URL.Query().Get("chat") == "1"
+	}
+	d["Needs"] = h.inboxItems(ctx, qs, prs, h.changeLinks(ctx, pid))
+	if p, err := h.D.Projects.Project(ctx, slug); err == nil {
+		d["P"], d["About"] = p, firstLine(p.Description)
+		d["Repos"], _ = db.RQ.ListRepos(ctx, p.ID)
+		var caps []string // the concurrency chip: instances this project may run, per template (project cap, bounded by the template's ceiling)
+		lims, _ := h.D.Projects.Limits(ctx, slug)
+		for _, l := range lims {
+			if n := min(l.Max, l.Ceiling); n > 0 {
+				caps = append(caps, fmt.Sprintf("%s ×%d", l.Template, n))
+			}
+		}
+		d["Caps"] = caps
+	}
+	return nil
+}
+
+// viewProjects is the project list: counts per project and expandable rows (ADR 0005).
+func (h *Handler) viewProjects(ctx context.Context, view string, r *http.Request, d map[string]any) error {
+	db := h.D.Fleet.DB
+	d["Title"] = "Projects"
+	d["Templates"], _ = db.RQ.ListTemplates(ctx)
+	active, _ := db.RQ.ListProjects(ctx, "active")
+	rows, err := projectRows(ctx, db, active)
+	if err != nil {
+		return err
+	}
+	d["Projects"], d["Rows"] = active, rows
+	d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 	return nil
 }
 

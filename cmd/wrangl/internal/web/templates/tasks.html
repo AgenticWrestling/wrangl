@@ -1,17 +1,38 @@
 {{define "main-tasks"}}
+<details class="pmore ppill">
+  <summary class="pbtn on" aria-label="Switch project">{{.Project}} <span aria-hidden="true">▾</span></summary>
+  <div class="menu">{{range .Projects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>{{end}}<a class="all" href="/projects">All projects</a></div>
+</details>
 <div class="projbar" role="toolbar" aria-label="Projects">
-  {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
+  {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
   {{if .Rest}}<details class="pmore">
     <summary class="pbtn{{range .Rest}}{{if eq .Slug $.Project}} on{{end}}{{end}}" aria-label="More projects">…</summary>
-    <div class="menu">{{range .Rest}}<a href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
+    <div class="menu">{{range .Rest}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
   </details>{{end}}
   <button class="pbtn add" onclick="openSheet('sheet-project')" aria-label="New project" title="New project">＋</button>
 </div>
-{{if .Project}}<div class="bar">
-  <a class="chip" href="/tasks?project={{.Project}}{{if not .All}}&amp;all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
-  <a class="chip{{if .NowOnly}} on{{end}}" href="/tasks?project={{.Project}}{{if not .NowOnly}}&amp;now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
-  <a class="chip" href="/project/{{.Project}}">Project goals &amp; repos</a>
+{{if .Project}}{{with .P}}<header class="phead">
+  <h1>{{if .Name}}{{.Name}}{{else}}{{.Slug}}{{end}} <code class="sqid">{{.Slug}}</code>{{if $.Archived}} <span class="tag wait">archived</span>{{end}}</h1>
+  {{with $.About}}<p class="about">{{.}}</p>{{end}}
+</header>
+<div class="pstrip" role="toolbar" aria-label="Project">
+  {{range $.Repos}}{{with .Repo}}<span class="chip" title="Linked repository">{{.Owner}}/{{.Name}}</span>{{end}}{{else}}<a class="chip dim" href="/projects/{{.Slug}}/settings#repos">no repos linked</a>{{end}}
+  <details class="pmore rchip"><summary class="chip{{if $.ProjectRunners}} on{{end}}" title="Runners with a session for this project">runners {{len $.ProjectRunners}} active</summary>
+    <div class="menu rlist">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> <span class="tag">{{.State}}</span>{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
+      {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
+  </details>
+  <a class="chip" href="/projects/{{.Slug}}/settings#limits" title="How many runner instances this project may start, per template">concurrency {{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
+  {{if .AutoMerge}}<span class="chip on" title="Passing PRs merge without review">auto-merge</span>{{end}}
+  <a class="chip" href="/projects/{{.Slug}}/settings">Edit goals &amp; repos</a>
   <span class="grow"></span>
+  {{if not $.Archived}}<button class="btn small danger" data-confirm="Archive {{.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{.Slug}}')">Archive</button>{{end}}
+</div>{{end}}
+{{template "needsyou" .Needs}}
+{{template "projchat" .}}
+<div class="bar">
+  <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
+  <span class="grow"></span>
+  <button class="btn" data-on:click="$chat = !$chat" aria-controls="projchat" title="Talk to a controller agent about this project">Comment</button>
   <button class="btn primary" data-key="n" onclick="openSheet('sheet-new')">＋ New task</button>
 </div>{{end}}
 {{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
@@ -24,9 +45,52 @@
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
   <ul class="tasks runs queue-sort" role="tree" aria-label="Queue">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
-<section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
-<ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul></section>
+<section class="tsec" id="backlog"><div class="row"><h3>Backlog</h3><span class="grow"></span>{{if .Roots}}{{if not .Archived}}<button class="btn small" data-confirm="Queue every open top-level task in {{.Project}}?" data-confirm-yes="Queue all" data-on:click="@post('/ui/act/queue-all?project={{.Project}}')">Queue all</button>{{end}}{{end}}</div>
+<ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul>
+<p class="showdone"><a class="chip" href="/projects/{{.Project}}{{if not .All}}?all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a></p></section>
 {{end}}{{end}}
+
+{{define "main-projects"}}
+<div class="bar"><span class="grow"></span><button class="btn primary" data-signals:newproj__ifmissing="false" data-on:click="$newproj = !$newproj" data-attr:aria-expanded="$newproj">＋ New project</button></div>
+<section class="card newproj" data-show="$newproj" style="display:none">
+  <h3>New project</h3>
+  <label>Slug<input data-bind="slug" autocapitalize="off" autocomplete="off" placeholder="my-app"></label>
+  <label>Name (optional)<input data-bind="pname" autocomplete="off"></label>
+  <label>Goals &amp; definition of done (markdown, optional)<textarea data-bind="pgoals" rows="4" placeholder="What is this for, and what does done look like?"></textarea></label>
+  <label>Repositories (owner/name, one per line)<textarea data-bind="prepos" rows="2" placeholder="you/your-repo" autocapitalize="off"></textarea></label>
+  <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
+  <div class="actions"><button class="btn" data-on:click="$newproj = false">Cancel</button><button class="btn primary" data-on:click="@post('/ui/act/project-new')">Create</button></div>
+</section>
+{{if not .Rows}}<p class="empty">No projects yet. Use ＋ New project to create one.</p>{{else}}
+<div class="logwrap"><table class="logs plist">
+<thead><tr><th>Project</th><th class="num">Runners</th><th class="num">In progress</th><th class="num">Queued</th><th class="num">Backlog</th><th class="num">Inbox</th></tr></thead>
+{{range $i, $p := .Rows}}{{$k := print "pj" $i}}<tbody class="lrow prow" id="proj-{{$p.Slug}}" data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}">
+<tr class="expandable" data-on:click="if (!evt.target.closest('a,button')) {{sig "" $k}} = !{{sig "" $k}}" title="Show details" tabindex="0" data-on:keydown="(evt.key == 'Enter' || evt.key == ' ') && !evt.target.closest('a,button') && (evt.preventDefault(), {{sig "" $k}} = !{{sig "" $k}})">
+<td class="pname"><span class="caret" aria-hidden="true">▸</span> <a href="/projects/{{$p.Slug}}"><b>{{if $p.Name}}{{$p.Name}}{{else}}{{$p.Slug}}{{end}}</b></a> <code class="sqid">{{$p.Slug}}</code></td>
+<td class="num" data-label="Runners">{{template "cnt" $p.Runners}}</td>
+<td class="num" data-label="In progress">{{template "cnt" $p.InProgress}}</td>
+<td class="num" data-label="Queued">{{template "cnt" $p.Queued}}</td>
+<td class="num" data-label="Backlog">{{template "cnt" $p.Backlog}}</td>
+<td class="num inbox" data-label="Inbox">{{if $p.Inbox}}<a class="tag attn" href="/projects/{{$p.Slug}}" title="Needs you">{{$p.Inbox}}</a>{{else}}<span class="dim">0</span>{{end}}</td>
+</tr>
+<tr class="more" data-show="{{sig "" $k}}" style="display:none"><td colspan="6">
+  {{with about $p.Description}}<p class="about"><span class="dim">About</span> {{.}}</p>{{else}}<p class="about dim">No description yet.</p>{{end}}
+  <div class="pcols">
+    <div><h4>Runners now</h4>{{range $p.RunnerList}}<p><a href="/runner/{{.Name}}">{{.Name}}</a> <span class="dim small">{{.Sessions}} session{{if ne .Sessions 1}}s{{end}}</span>{{if .Also}} <span class="tag wait">also serving {{range $j, $o := .Also}}{{if $j}}, {{end}}{{$o}}{{end}}</span>{{end}}</p>{{else}}<p class="dim">None running.</p>{{end}}</div>
+    <div><h4>Recent activity</h4>{{range $p.Recent}}<p><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid}}">{{.Title}}</a> <span class="dim small">{{ago .At}}</span></p>{{else}}<p class="dim">Nothing yet.</p>{{end}}</div>
+  </div>
+  <div class="actions wrap">
+    <a class="btn primary small" href="/projects/{{$p.Slug}}">Open</a>
+    <a class="btn small" href="/projects/{{$p.Slug}}?chat=1" title="Talk to a controller agent about this project">Comment</a>
+    <a class="btn small" href="/projects/{{$p.Slug}}/settings">Edit</a>
+    <button class="btn small danger" data-confirm="Archive {{$p.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{$p.Slug}}')">Archive</button>
+  </div>
+</td></tr>
+</tbody>{{end}}</table></div>{{end}}
+{{if .ArchivedProjects}}<details class="card archived"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
+  {{range .ArchivedProjects}}<div class="row"><a href="/projects/{{.Slug}}"><b>{{.Slug}}</b></a> <span class="dim">{{.Name}}</span><span class="grow"></span><button class="btn small" data-on:click="@post('/ui/act/project-restore?slug={{.Slug}}')">Restore</button></div>{{end}}</details>{{end}}
+{{end}}
+{{define "cnt"}}{{if .}}{{.}}{{else}}<span class="dim">0</span>{{end}}{{end}}
 
 {{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
   <div class="row">
@@ -40,6 +104,7 @@
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
+    <span class="vact">{{if .Runner}}<button class="btn small danger" data-confirm="Stop run #{{.RunID}} on {{.Runner}}? The agent is cancelled." data-confirm-yes="Stop" data-on:click="@post('/ui/act/run-cancel?id={{.RunID}}')">Stop</button>{{else}}<button class="btn small" aria-label="Move up" title="Move up" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=up&amp;sqid={{$n.Sqid}}')">↑</button><button class="btn small" aria-label="Move down" title="Move down" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=down&amp;sqid={{$n.Sqid}}')">↓</button><button class="btn small" title="Take it out of the queue" data-on:click="@post('/ui/act/task-dequeue?sqid={{$n.Sqid}}')">Dequeue</button>{{end}}</span>
     <a class="dim small" href="/run/{{.RunID}}">run #{{.RunID}}</a>
     <code class="sqid">{{$n.Sqid}}</code>
   </div>
@@ -64,6 +129,7 @@
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
     {{if .Total}}<span class="prog-bar" title="{{.Done}} of {{.Total}} done"><i style="width:{{pctof .Done .Total}}%"></i></span><span class="dim small">{{.Done}}/{{.Total}}</span>{{end}}
     {{if .Target}}<span class="tag target{{if .Slip}} slip-{{.Slip}}{{end}}" title="target date{{if .Slip}} ({{.Slip}}){{end}}">{{.Target}}{{if eq .Slip "late"}} · late{{else if .Slip}} · at risk{{end}}</span>{{end}}
+    {{if and (eq .State "open") (not .Parent)}}<button class="btn small vact" title="Add to the queue" data-on:click="@post('/ui/act/task-queue?sqid={{.Sqid}}')">Queue</button>{{end}}
     <code class="sqid">{{.Sqid}}</code>
   </div>
   {{if and .Awaits .Kids}}<div class="banner" role="note">{{template "bannertext" .}}</div>{{end}}
@@ -99,3 +165,25 @@
 {{define "rollchips"}}{{if .RollFail}}<span class="chip-roll k-failed" title="{{.RollFail}} failed below">✕ {{.RollFail}}</span>{{end}}{{if .RollQ}}<span class="chip-roll k-questions" title="{{.RollQ}} blocked on questions below">? {{.RollQ}}</span>{{end}}{{if .RollRev}}<span class="chip-roll k-review" title="{{.RollRev}} in review below">◐ {{.RollRev}}</span>{{end}}{{end}}
 
 {{define "bannertext"}}Awaiting you: {{if eq .Kind "failed"}}this task failed{{else if eq .Kind "questions"}}this task has open questions{{else if eq .Kind "review"}}this task is in review{{end}}{{if or .RollFail .RollQ .RollRev}}{{if or (eq .Kind "failed") (eq .Kind "questions") (eq .Kind "review")}}; {{end}}beneath it:{{if .RollFail}} {{.RollFail}} failed{{end}}{{if .RollQ}} {{.RollQ}} with questions{{end}}{{if .RollRev}} {{.RollRev}} in review{{end}}{{end}}{{end}}
+
+{{define "projchat"}}{{if .Project}}<div id="chatroot" data-signals:chat__ifmissing="{{if .ChatOpen}}true{{else}}false{{end}}" data-signals:chatq__ifmissing="''" data-class:open="$chat">
+  <button class="chatfab" data-on:click="$chat = true" aria-label="Comment on {{.Project}}" title="Comment">{{faicon "comment"}}</button>
+  <aside id="projchat" class="projchat thread" role="complementary" aria-label="Project chat">
+    <header class="chathead"><b>Comment on {{.Project}}</b>
+      <span class="chip chatchip" title="What the agent reads: this project's tasks, runs, pull requests and repos">{{.ChatChip.Tasks}} tasks · {{.ChatChip.Runs}} runs · {{.ChatChip.PRs}} PRs · {{.ChatChip.Repos}} repos{{if .ChatChip.Trimmed}} · trimmed{{end}}</span>
+      <span class="grow"></span><button class="btn small" data-on:click="$chat = false" aria-label="Close chat">✕</button></header>
+    <div class="chatlog">
+      {{if not .Chat}}<p class="dim small">Ask about this project, or type <code>/queue &lt;task&gt;</code> or <code>/dequeue &lt;task&gt;</code>. The agent can propose changes; nothing happens until you approve them.</p>{{end}}
+      {{range .Chat}}<div class="msg {{.Role}}{{if eq .Status "error"}} err{{end}}">
+        <div class="who">{{if eq .Role "user"}}You{{else}}{{if .Agent}}{{.Agent}}{{else}}wrangl{{end}}{{end}} <span class="dim">{{ago .At}}</span></div>
+        {{if eq .Status "running"}}<p class="dim">thinking…</p>{{else}}<div class="prose">{{.Body}}</div>{{end}}
+        {{if .Props}}<div class="props">{{$mid := .ID}}{{range $i, $p := .Props}}
+          <button class="btn small prop {{$p.State}}" {{if eq $p.State "done"}}disabled{{end}} title="{{$p.Description}}{{if $p.Result}} · {{$p.Result}}{{end}}" data-on:click="@post('/ui/act/project-proposal-apply?id={{$mid}}&amp;n={{$i}}')">{{if eq $p.State "done"}}✓ {{else if eq $p.State "error"}}! {{end}}{{if eq $p.State ""}}Approve: {{end}}{{$p.Label}}</button>
+          {{if eq $p.State "error"}}<span class="err small">{{$p.Result}}</span>{{end}}{{end}}</div>{{end}}
+      </div>{{end}}
+    </div>
+    <div class="chatin">{{if not .ChatAgents}}<p class="dim small">No controller agent is enabled; register one in Settings to get answers (slash commands still work).</p>{{end}}
+      <textarea data-bind="chatq" rows="2" placeholder="Ask, or /queue or /dequeue a task…" data-on:keydown="(evt.ctrlKey || evt.metaKey) && evt.key == 'Enter' && $chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')"></textarea>
+      <button class="btn small primary" data-on:click="$chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')">Send</button></div>
+  </aside>
+</div>{{end}}{{end}}

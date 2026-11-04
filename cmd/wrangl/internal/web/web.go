@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,6 +81,7 @@ func New(d api.Deps) (*Handler, error) {
 		"glyph":  func(s string) string { return glyph[s] },
 		"dict":   func(k, v string) map[string]string { return map[string]string{k: v} },
 		"ago":    func(ts string) string { return dbtime.Ago(ts, time.Now()) },
+		"about":  firstLine,
 		"md":     markdown,
 		"pct":    func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 		"spark":  sparkline,
@@ -154,21 +156,36 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/css")
 		io.WriteString(w, h.css)
 	})
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/tasks", http.StatusFound) })
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/projects", http.StatusFound) })
 	for path, view := range map[string]string{
-		"/tasks": "tasks", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
+		"/projects": "projects", "/projects/{slug}": "tasks", "/projects/{slug}/settings": "project", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
 		"/logs": "logs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
-		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/project/{slug}": "project", "/setup": "setup",
+		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
 	}
-	mux.HandleFunc("GET /backlog", func(w http.ResponseWriter, r *http.Request) { // the old name of /tasks
-		to := "/tasks"
-		if r.URL.RawQuery != "" {
-			to += "?" + r.URL.RawQuery
+	// Old URLs keep working: /tasks (and its old name /backlog) is the project page, /project/{slug}
+	// (goals & repos) is that project's settings page.
+	toProject := func(frag string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			slug := q.Get("project")
+			q.Del("project")
+			to := "/projects"
+			if slug != "" {
+				to += "/" + url.PathEscape(slug)
+			}
+			if len(q) > 0 && slug != "" {
+				to += "?" + q.Encode()
+			}
+			http.Redirect(w, r, to+frag, http.StatusFound)
 		}
-		http.Redirect(w, r, to+"#backlog", http.StatusFound)
+	}
+	mux.HandleFunc("GET /tasks", toProject(""))
+	mux.HandleFunc("GET /backlog", toProject("#backlog"))
+	mux.HandleFunc("GET /project/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(r.PathValue("slug"))+"/settings", http.StatusFound)
 	})
 	mux.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/logs", http.StatusMovedPermanently)
@@ -496,6 +513,7 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 // runner heartbeat on the Settings page, say) leaves it alone.
 var liveKinds = map[string][]string{
 	"tasks":    {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindThread},
+	"projects": {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindRunner},
 	"task":     {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindThread},
 	"runners":  {events.KindRunner, events.KindRun},
 	"runner":   {events.KindRunner, events.KindRun},
@@ -737,6 +755,7 @@ type viewFn func(h *Handler, ctx context.Context, view string, r *http.Request, 
 // views maps a page name to the function that gathers its template data.
 var views = map[string]viewFn{
 	"tasks":    (*Handler).viewTasks,
+	"projects": (*Handler).viewProjects,
 	"task":     (*Handler).viewTask,
 	"runners":  (*Handler).viewRunners,
 	"runner":   (*Handler).viewRunner,
@@ -785,6 +804,54 @@ type threadMsg struct {
 	Role, Status, Agent, At string
 	Body                    template.HTML
 	Props                   []agents.Proposal
+}
+
+// chatMsg is one message of a project chat, rendered for the panel.
+type chatMsg struct {
+	ID                      int64
+	Role, Status, Agent, At string
+	Body                    template.HTML
+	Props                   []agents.Proposal
+}
+
+var codeSqidRE = regexp.MustCompile(`<code>([0-9A-Za-z]{3,16})</code>`)
+
+// chatView loads the project's chat (task ids in agent replies become links to their rows), the
+// context chip and whether any controller agent can answer.
+func (h *Handler) chatView(ctx context.Context, slug string) ([]chatMsg, agents.ProjectContext, bool) {
+	msgs, chip, err := h.D.Agents.ProjectThread(ctx, slug)
+	if err != nil {
+		return nil, chip, false
+	}
+	can := false
+	if ags, _ := h.D.Agents.DB.RQ.ListControllerAgents(ctx); len(ags) > 0 {
+		for _, a := range ags {
+			can = can || a.Enabled == 1
+		}
+	}
+	var out []chatMsg
+	for _, m := range msgs {
+		cm := chatMsg{ID: m.ID, Role: m.Role, Status: m.Status, Agent: m.Agent, At: m.At, Props: m.Proposals}
+		if m.Role == "agent" {
+			known := map[string]bool{}
+			for _, t := range m.Tasks {
+				known[t.Sqid] = true
+			}
+			html := string(markdown(m.Body))
+			html = codeSqidRE.ReplaceAllStringFunc(html, func(s string) string {
+				sq := codeSqidRE.FindStringSubmatch(s)[1]
+				if !known[sq] {
+					return s
+				}
+				return `<a class="tlink" href="/task/` + sq + `" data-goto="` + sq + `">` + s + `</a>`
+			})
+			cm.Body = template.HTML(html)
+		} else {
+			cm.Body = template.HTML("<p>" + strings.ReplaceAll(template.HTMLEscapeString(m.Body), "\n", "<br>") + "</p>")
+		}
+		out = append(out, cm)
+	}
+	return out, chip, can
 }
 
 // threadView loads a task's thread and the agents that can be asked.
@@ -1040,6 +1107,7 @@ type actResult struct {
 	msg    string         // the toast
 	nav    string         // page to go to afterwards
 	dropEl string         // id of a card to remove from the page
+	flash  string         // sqid of the row that was acted on: it lights up after the live patch
 	back   string         // where a missing/uninstalled GitHub App error should link to
 	reset  map[string]any // signals to clear on success
 }
@@ -1057,38 +1125,45 @@ func needAgents(fn actFn) actFn {
 }
 
 var actions = map[string]actFn{
-	"task-new":           actTaskNew,
-	"task-edit":          actTaskEdit,
-	"task-ask":           needAgents(actTaskAsk),
-	"proposal-apply":     needAgents(actProposalApply),
-	"account-check":      actAccountCheck,
-	"agent-save":         needAgents(actAgentSave),
-	"agent-delete":       needAgents(actAgentDelete),
-	"task-split":         actTaskSplit,
-	"task-plan":          actTaskPlan,
-	"instance-terminate": actInstanceTerminate,
-	"instance-adopt":     actInstanceAdopt,
-	"task-queue":         actTaskQueue,
-	"task-complete":      actTaskState,
-	"task-reopen":        actTaskState,
-	"task-cancel":        actTaskState,
-	"task-delete":        actTaskDelete,
-	"task-needs":         actTaskNeeds,
-	"answer":             actAnswer,
-	"pr":                 actPR,
-	"pr-resolve":         actPRResolve,
-	"run-cancel":         actRunCancel,
-	"runner":             actRunner,
-	"fleet-launch":       actFleetLaunch,
-	"project-new":        actProjectNew,
-	"project-save":       actProjectSave,
-	"project-limit":      actProjectLimit,
-	"repo-notes":         actRepoNotes,
-	"repo-link":          actRepoLink,
-	"template-save":      actTemplateSave,
-	"account-add":        actAccountAdd,
-	"account-remove":     actAccountRemove,
-	"repo-unlink":        actRepoUnlink,
+	"task-new":               actTaskNew,
+	"task-edit":              actTaskEdit,
+	"task-ask":               needAgents(actTaskAsk),
+	"proposal-apply":         needAgents(actProposalApply),
+	"account-check":          actAccountCheck,
+	"agent-save":             needAgents(actAgentSave),
+	"agent-delete":           needAgents(actAgentDelete),
+	"task-split":             actTaskSplit,
+	"task-plan":              actTaskPlan,
+	"instance-terminate":     actInstanceTerminate,
+	"instance-adopt":         actInstanceAdopt,
+	"task-queue":             actTaskQueue,
+	"task-dequeue":           actTaskDequeue,
+	"queue-move":             actQueueMove,
+	"queue-all":              actQueueAll,
+	"project-ask":            needAgents(actProjectAsk),
+	"project-proposal-apply": needAgents(actProjectProposalApply),
+	"project-archive":        actProjectArchive,
+	"project-restore":        actProjectRestore,
+	"task-complete":          actTaskState,
+	"task-reopen":            actTaskState,
+	"task-cancel":            actTaskState,
+	"task-delete":            actTaskDelete,
+	"task-needs":             actTaskNeeds,
+	"answer":                 actAnswer,
+	"pr":                     actPR,
+	"pr-resolve":             actPRResolve,
+	"run-cancel":             actRunCancel,
+	"runner":                 actRunner,
+	"fleet-launch":           actFleetLaunch,
+	"project-new":            actProjectNew,
+	"project-save":           actProjectSave,
+	"project-limit":          actProjectLimit,
+	"repo-notes":             actRepoNotes,
+	"repo-link":              actRepoLink,
+	"template-save":          actTemplateSave,
+	"account-add":            actAccountAdd,
+	"account-remove":         actAccountRemove,
+	"repo-unlink":            actRepoUnlink,
 }
 
 func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
@@ -1120,6 +1195,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.dropEl != "" {
 		executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", res.dropEl))
+	}
+	if res.flash != "" { // the row that was acted on lights up once the live patch has re-rendered it
+		executeScript(w, fmt.Sprintf("window.wrFlash&&wrFlash(%q)", res.flash))
 	}
 	if res.nav != "" {
 		executeScript(w, fmt.Sprintf("window.location.assign(%q)", res.nav))
@@ -1354,7 +1432,7 @@ func (h *Handler) repoChoices(ctx context.Context, slug string, linked []dbgen.L
 	accts, _ := h.D.Setup.Accounts(ctx)
 	var out []repoGroup
 	for _, ac := range accts {
-		g := repoGroup{Login: ac.Login, Kind: ac.Kind, SetupURL: "/setup?account=" + url.QueryEscape(ac.Login) + "&back=" + url.QueryEscape("/project/"+slug)}
+		g := repoGroup{Login: ac.Login, Kind: ac.Kind, SetupURL: "/setup?account=" + url.QueryEscape(ac.Login) + "&back=" + url.QueryEscape("/projects/"+slug+"/settings")}
 		if ac.App == nil {
 			g.NoApp = true
 			out = append(out, g)

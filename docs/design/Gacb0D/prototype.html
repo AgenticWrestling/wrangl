@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gacb0D project chat</title>
+<style>
+@font-face{font-family:'Red Hat Display';src:url(fonts/red-hat-display-latin.woff2) format('woff2');font-weight:300 900}
+:root{--bg:#0f1115;--card:#171a21;--raised:#1f232b;--line:#2c313c;--ink:#eef0f3;--ink2:#c5cad3;--dim:#8a919e;--prog:#56b4e9;--attn:#e69f00;--link:#a6d8f5;--brand:#0072b2;--err:#d55e00;--ok:#009e73;--wait:#f0e442}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:300 16px/1.45 'Red Hat Display',system-ui,sans-serif;min-height:100vh}
+.dim{color:var(--dim)}.small{font-size:.8rem}.grow{flex:1}code{font-family:ui-monospace,monospace;font-size:.85em}a,.lnk{color:var(--link)}
+.page{padding:16px 18px;max-width:760px}.page.shift{margin-right:400px}h1{margin:0 0 2px;font-size:1.4rem}
+.chip{font-size:.82rem;border:1px solid var(--line);border-radius:999px;padding:5px 12px;color:var(--ink2)}.btn{font:inherit;font-size:.9rem;border:1px solid var(--line);background:var(--raised);color:var(--ink);padding:7px 14px;border-radius:999px}.btn.primary{background:var(--brand);border-color:var(--brand)}.btn.small{padding:4px 10px;font-size:.8rem}
+.bar{display:flex;gap:8px;margin:10px 0;align-items:center}.row{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:6px}.row.flash{background:#56b4e955}
+h3{margin:12px 0 6px;font-size:1rem}
+.panel{background:var(--card);border:1px solid var(--line);display:flex;flex-direction:column}
+.panel.right{position:fixed;top:0;right:0;bottom:0;width:400px;border-width:0 0 0 1px}
+.panel.full{position:fixed;inset:0}.panel.sheet{position:fixed;left:0;right:0;bottom:0;height:62vh;border-radius:16px 16px 0 0;box-shadow:0 -8px 30px #000a}.panel.inline{border-radius:12px;margin:10px 0;height:340px}
+.hd{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line)}.ctx{font-size:.75rem;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--dim)}
+.log{flex:1;overflow:auto;padding:8px 12px}.msg{padding:.5rem 0 .5rem .6rem;border-top:1px solid var(--line)}.msg:first-child{border-top:0}.msg.agent{border-left:3px solid var(--ok)}.who{font-size:.8rem;font-weight:600}
+.props{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.in{display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--line)}.in div{flex:1;background:var(--raised);border:1px solid var(--line);border-radius:8px;padding:8px;color:var(--dim)}
+.fab{position:fixed;right:16px;bottom:74px;width:52px;height:52px;border-radius:50%;background:var(--brand);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px #0008;font-size:1.3rem}
+.tabs{position:fixed;left:0;right:0;bottom:0;height:58px;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:center;color:var(--dim);font-size:.72rem}
+.side{position:fixed;left:0;top:0;bottom:0;width:188px;border-right:1px solid var(--line);background:var(--card);padding:14px}
+.sw{position:fixed;left:8px;top:8px;background:#000c;padding:6px 8px;border-radius:8px;font-size:12px;display:flex;gap:6px;z-index:99}.sw a{color:var(--link);text-decoration:none}body.shot .sw{display:none}
+@media(min-width:900px){.page{margin-left:200px}}@media(max-width:899px){.side{display:none}}
+</style></head><body><div class="sw"><a href="#A">A</a><a href="#A-closed">A closed</a><a href="#B">B</a><a href="#C">C</a></div><div id="app"></div>
+<script>
+const chat=(h)=>`<div class="hd"><b>Comment on wrangl</b><span class="ctx">12 tasks · 3 runs · 2 PRs · 2 repos</span><span class="grow"></span><span class="btn small">✕</span></div>
+<div class="log"><div class="msg"><div class="who">You <span class="dim">2m ago</span></div><p>what should run next?</p></div>
+<div class="msg agent"><div class="who">claude <span class="dim">1m ago</span></div><p>Start with <a class="lnk"><code>k3Fv9a</code></a> (retry): it unblocks <a class="lnk"><code>p9Qx2b</code></a>. Docs can wait.</p><div class="props"><span class="btn small primary">Approve: Queue k3Fv9a</span><span class="btn small primary">Approve: Queue p9Qx2b</span></div></div>
+<div class="msg"><div class="who">You <span class="dim">now</span></div><p>/dequeue docs</p></div><div class="msg agent"><div class="who">wrangl <span class="dim">now</span></div><p>Done: /dequeue <a class="lnk"><code>d0cs11</code></a> Docs pass.</p></div></div>
+<div class="in"><div>Ask, or /queue or /dequeue a task…</div><span class="btn small primary">Send</span></div>`;
+const pg=(shift)=>`<div class="page${shift?' shift':''}"><h1>wrangl <code class="dim">wrangl</code></h1><p class="dim">Self-hosted agent fleet and web UI</p><div class="bar"><span class="chip">you/wrangl</span><span class="chip">runners 2 active</span><span class="chip">auto-merge</span></div>
+<div class="bar"><span class="grow"></span><span class="btn">Comment</span><span class="btn primary">＋ New task</span></div><h3>Queue</h3><div class="row">⧗ Retry for uploader <code class="dim">k3Fv9a</code></div><div class="row flash">⧗ Cache layer <code class="dim">p9Qx2b</code></div><h3>Backlog</h3><div class="row">○ Docs pass <code class="dim">d0cs11</code></div>`;
+function render(){const [v,st]=(location.hash.slice(1)||'A').split('-');document.body.className=location.search.includes('shot')?'shot':'';
+ const desk=innerWidth>=900;let h='';
+ if(desk)h=`<div class="side"><b>wrangl</b><p class="dim small">Projects</p></div>`+pg(v=='A'&&st!='closed'||v=='B')+(v=='C'?`</div>`:'</div>');
+ if(desk){h=`<div class="side"><b>wrangl</b><p class="dim small">Projects</p></div>`+(v=='C'?pg(false).replace('<h3>Queue</h3>',`<div class="panel inline">${chat()}</div><h3>Queue</h3>`)+'</div>':pg(st!='closed')+'</div>'+(st=='closed'?'':`<div class="panel right">${chat()}</div>`))}
+ else{h=pg(false)+'</div>'+(v=='A'?(st=='closed'?`<div class="fab">💬</div>`:`<div class="panel full">${chat()}</div>`):v=='B'?`<div class="panel sheet">${chat()}</div>`:'')+(v=='C'?'':'');
+  if(v=='C')h=pg(false).replace('<h3>Queue</h3>',`<div class="panel inline">${chat()}</div><h3>Queue</h3>`)+'</div>';
+  h+=`<div class="tabs"><span>Projects</span><span>Runners</span><span>Logs</span><span>Inbox</span><span>Settings</span></div>`}
+ app.innerHTML=h}
+addEventListener('hashchange',render);render();
+</script></body></html>

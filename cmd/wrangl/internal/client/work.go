@@ -24,6 +24,13 @@ func (c *Client) Projects(ctx context.Context) ([]proto.ProjectView, error) {
 	return c.ProjectsFiltered(ctx, "")
 }
 
+// ProjectRunners lists the runners with an active session for the project (several may serve it,
+// and one may serve several projects).
+func (c *Client) ProjectRunners(ctx context.Context, slug string) ([]proto.ProjectRunner, error) {
+	var out []proto.ProjectRunner
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects/"+esc(slug)+"/runners", nil, &out)
+}
+
 // ProjectsFiltered lists projects; archived is "" or "active" (default), "archived" or "all".
 func (c *Client) ProjectsFiltered(ctx context.Context, archived string) ([]proto.ProjectView, error) {
 	var out []proto.ProjectView
@@ -195,6 +202,16 @@ func (c *Client) QueueTaskWith(ctx context.Context, sqid, agent string) (int64, 
 		Branch string `json:"branch"`
 	}
 	return out.RunID, out.Branch, c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/queue", proto.QueueRequest{Agent: agent}, &out)
+}
+
+// DequeueTask removes a task's queued run from the queue; it errors (409) when there is none.
+func (c *Client) DequeueTask(ctx context.Context, sqid string) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/dequeue", nil, nil)
+}
+
+// SetQueueOrder ranks the queued runs in the given order (run ids).
+func (c *Client) SetQueueOrder(ctx context.Context, runs []int64) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/runs/queue-order", map[string]any{"runs": runs}, nil)
 }
 
 // TaskAction posts complete | reopen | cancel.
@@ -471,4 +488,21 @@ func (c *Client) Targets(ctx context.Context, all bool) ([]proto.TargetView, err
 }
 func (c *Client) TerminateTarget(ctx context.Context, name string) error {
 	return c.json(ctx, http.MethodDelete, "/api/v1/targets/"+esc(name), nil, nil)
+}
+
+// AskProject asks a controller agent about a whole project (the project chat; "/queue x" and
+// "/dequeue x" are commands answered without the model).
+func (c *Client) AskProject(ctx context.Context, slug, agent, question string) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(slug)+"/ask", map[string]string{"agent": agent, "question": question}, nil)
+}
+
+// ProjectThread is the project chat as JSON: {"messages": [...], "context": {...}}.
+func (c *Client) ProjectThread(ctx context.Context, slug string) (json.RawMessage, error) {
+	var out json.RawMessage
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects/"+esc(slug)+"/thread", nil, &out)
+}
+
+// ApplyProjectProposal approves option n of a project chat message.
+func (c *Client) ApplyProjectProposal(ctx context.Context, msgID int64, n int) error {
+	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/project-thread/%d/apply/%d", msgID, n), nil, nil)
 }

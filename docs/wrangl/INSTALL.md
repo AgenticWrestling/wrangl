@@ -716,9 +716,9 @@ wrangl project restore web      # bring it back
 - **Queued runs are cancelled** with the reason `project archived`. Restoring does not requeue
   them; queue the tasks again.
 - **Hidden:** the project and its tasks disappear from `wrangl project list`, `task list`,
-  the Inbox (questions, task reviews, PRs), run lists, log search, the Tasks page and the left
+  the Inbox (questions, task reviews, PRs), run lists, log search, the Projects list (archived ones only show in its collapsed "Archived projects" section, with Restore) and the left
   panel, the Settings project list, and the project list the agents' MCP tools see. By-name
-  lookups (`project show`, `task show`, `/project/<slug>`, `/task/<sqid>`) still work.
+  lookups (`project show`, `task show`, `/projects/<slug>`, `/task/<sqid>`) still work.
 - **Inert:** the scheduler assigns no runs and launches no runners for it (`fleet.launch`
   proposals are refused), auto-queue and auto-merge do nothing, new tasks are rejected (HTTP
   409 "project ... is archived"), and no new task-review or failure questions are raised.

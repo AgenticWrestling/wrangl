@@ -3,6 +3,10 @@
 {{range .Items}}{{template "icard" .}}{{end}}
 {{end}}
 
+{{/* The Inbox cards for one project, as a strip on the project page; empty means no strip. */}}
+{{define "needsyou"}}{{if .}}<section class="needsyou" id="needs-you" aria-label="Needs you"><h3>Needs you <span class="badge inline">{{len .}}</span></h3>
+{{range .}}{{template "icard" .}}{{end}}</section>{{end}}{{end}}
+
 {{define "icard"}}{{$k := .Key}}<section class="card icard q-{{.Kind}} {{.TagClass}}" id="{{.DOM}}" data-signals:b{{$k}}__ifmissing="false" data-signals:c{{$k}}__ifmissing="false" data-class:busy="{{sig "b" $k}}">
   <div class="meta"><span class="tag {{.TagClass}}">{{.Tag}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}{{range .Links}} · <a href="{{.URL}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>{{.Text}}{{if .External}} ↗{{end}}</a>{{end}}{{if .Changes.URL}} · <a href="{{.Changes.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Changes.Title}}">{{faicon "edit"}}{{.Changes.Label}} ↗</a>{{end}}{{range .Pills}}<span class="pill {{.Class}}">{{.Text}}</span>{{end}}<span class="grow"></span><span class="dim">{{.Age}}</span></div>
   <h3>{{.Title}}</h3>
@@ -10,7 +14,7 @@
   {{range .Details}}<details class="idetail"{{if .Open}} open{{end}}><summary>{{.Summary}}</summary>{{if .Pre}}<pre class="outline">{{.Pre}}</pre>{{end}}{{if .HTML}}<div class="prose">{{.HTML}}</div>{{end}}</details>{{end}}
   {{if .Chat}}<textarea data-bind="{{.Bind}}" data-show="{{sig "c" $k}}" style="display:none" rows="3" placeholder="{{.ChatHint}}"></textarea>{{end}}
   <div class="actions wrap">
-    {{range .Actions}}<button class="btn {{.Class}}"{{if .Tip}} title="{{.Tip}}"{{end}} data-indicator:b{{$k}} data-attr:disabled="{{sig "b" $k}}" data-on:click="{{if .NeedsText}}!({{sig "" $.Bind}} || '').trim() ? ({{sig "c" $k}} = true) : {{end}}{{if .Confirm}}confirm('{{.Confirm}}') && {{end}}@post('{{.URL}}')">{{if .Busy}}<span data-show="!{{sig "b" $k}}">{{.Label}}</span><span data-show="{{sig "b" $k}}" style="display:none"><span class="spin" aria-hidden="true"></span> {{.Busy}}</span>{{else}}{{.Label}}{{end}}</button>{{end}}
+    {{range .Actions}}<button class="btn {{.Class}}"{{if .Confirm}} data-confirm="{{.Confirm}}" data-confirm-yes="{{.Label}}"{{end}}{{if .Tip}} title="{{.Tip}}"{{end}} data-indicator:b{{$k}} data-attr:disabled="{{sig "b" $k}}" data-on:click="{{if .NeedsText}}!({{sig "" $.Bind}} || '').trim() ? ({{sig "c" $k}} = true) : {{end}}@post('{{.URL}}')">{{if .Busy}}<span data-show="!{{sig "b" $k}}">{{.Label}}</span><span data-show="{{sig "b" $k}}" style="display:none"><span class="spin" aria-hidden="true"></span> {{.Busy}}</span>{{else}}{{.Label}}{{end}}</button>{{end}}
     {{if .Chat}}<button type="button" class="chatbtn" aria-label="Add a comment" title="Comment" data-attr:aria-pressed="{{sig "c" $k}}" data-on:click="{{sig "c" $k}} = !{{sig "c" $k}}">{{faicon "comment"}}</button>{{end}}
   </div>
 </section>{{end}}
