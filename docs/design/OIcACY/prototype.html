@@ -1,0 +1,54 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OIcACY inline confirm</title>
+<style>
+@font-face{font-family:'Red Hat Display';src:url(fonts/red-hat-display-latin.woff2) format('woff2');font-weight:300 900}
+:root{--bg:#0f1115;--card:#171a21;--raised:#1f232b;--line:#2c313c;--ink:#eef0f3;--ink2:#c5cad3;--dim:#8a919e;--brand:#0072b2;--err:#d55e00;--review:#cc79a7;--link:#a6d8f5;--ok:#009e73}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:300 16px/1.45 'Red Hat Display',system-ui,sans-serif;padding:24px;max-width:760px}
+h1{font-size:1.1rem;margin:0 0 4px}h2{font-size:.8rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin:22px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px}
+.card h3{margin:6px 0;font-size:1rem}.meta{font-size:.8rem;color:var(--dim)}.tag{background:color-mix(in srgb,var(--review) 25%,transparent);color:var(--review);border-radius:9px;padding:0 8px;margin-right:6px}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.btn{font-family:inherit;font-size:inherit;font-size:.9rem;border:1px solid var(--line);background:var(--raised);color:var(--ink);padding:8px 14px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}.btn.danger{color:var(--err);border-color:color-mix(in srgb,var(--err) 45%,var(--line))}
+.btn.small{padding:4px 10px;font-size:.8rem}
+.btn.yes{background:var(--err);border-color:var(--err);color:#fff}
+/* A: swap in place */
+.A .iconfirm{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 8px;max-width:100%;padding:4px 6px 4px 12px;border:1px solid color-mix(in srgb,var(--err) 45%,var(--line));border-radius:18px;background:color-mix(in srgb,var(--err) 8%,var(--card))}
+.A .iq{font-size:.85rem;color:var(--ink2);flex:1 1 auto}
+/* B: armed button */
+.B .armed{display:inline-flex;gap:4px;align-items:center}.B .armed .btn.yes{padding:8px 16px;font-weight:600}.B .armed .x{width:36px;height:36px;padding:0;border-radius:50%}
+.B .hint{font-size:.78rem;color:var(--err);flex-basis:100%;margin:2px 4px 0}
+/* C: panel under row */
+.C .panel{flex-basis:100%;border:1px solid color-mix(in srgb,var(--err) 45%,var(--line));border-left:4px solid var(--err);border-radius:10px;background:var(--raised);padding:10px 12px}
+.C .panel b{display:block;margin-bottom:2px}.C .panel p{margin:0 0 8px;color:var(--ink2);font-size:.88rem}.C .panel .row{display:flex;gap:8px;flex-wrap:wrap}
+.C .btn[aria-expanded=true]{border-color:var(--err);color:var(--err)}
+.bar{position:fixed;left:8px;bottom:8px;background:#000c;padding:6px 8px;border-radius:8px;font-size:12px;display:flex;gap:6px;z-index:9}.bar a{color:var(--link)}
+body.shot .bar{display:none}
+@media(max-width:700px){body{padding:12px}.btn{min-height:44px}.btn.small{min-height:40px}.A .iq{flex-basis:100%}}
+</style></head><body>
+<h1 id="ttl"></h1><p class="meta" id="sub"></p>
+<div id="app"></div>
+<div class="bar"><span>variant</span><a href="#A-idle">A</a><a href="#B-idle">B</a><a href="#C-idle">C</a><span>|</span><a href="#A-ask">ask</a></div>
+<script>
+const Q={del:{label:'Delete',prompt:'Delete this task and its subtasks?',yes:'Delete',detail:'Deletes “Add retry to uploader” and its 3 subtasks. Runs on them are cancelled. This cannot be undone.'},
+ merge:{label:'Approve & merge',prompt:'Approve and merge?',yes:'Approve & merge',detail:'Squash-merges #42 into main and closes the task.'},
+ close:{label:'Close',prompt:'Close without merging?',yes:'Close PR',detail:'Closes #42 on GitHub without merging. The task returns to in progress.'}};
+function btn(v,id,cls,open){const q=Q[id];
+ if(!open) return `<button class="btn ${cls}" data-id="${id}">${q.label}</button>`;
+ if(v=='A') return `<span class="iconfirm" role="group" aria-label="Confirm"><span class="iq">${q.prompt}</span><button class="btn small yes">${q.yes}</button><button class="btn small" data-cancel>Cancel</button></span>`;
+ if(v=='B') return `<span class="armed"><button class="btn yes">${q.yes}?</button><button class="btn x" aria-label="Cancel" data-cancel>✕</button></span>`;
+ return `<button class="btn ${cls}" aria-expanded="true">${q.label}</button>`}
+function panel(v,id,open){if(v!='C'||!open)return v=='B'&&open?`<span class="hint">Tap again to ${Q[id].label.toLowerCase()} · reverts in 5 s</span>`:'';const q=Q[id];
+ return `<div class="panel" role="group"><b>${q.prompt}</b><p>${q.detail}</p><div class="row"><button class="btn small yes">${q.yes}</button><button class="btn small" data-cancel>Cancel</button></div></div>`}
+function render(){const [v,st]=(location.hash.slice(1)||'A-idle').split('-');const ask=st=='ask';
+ document.body.className=(location.search.includes('shot')?'shot ':'')+v;
+ ttl.textContent='Inline confirm — variant '+v;sub.textContent={A:'Button swaps for “Question? Yes Cancel” in place (implemented).',B:'Button arms in place: label becomes “Delete?”, a ✕ appears; auto-reverts.',C:'Button opens a panel under the row that says what will happen.'}[v];
+ app.innerHTML=`<h2>Task page · Delete</h2><div class="card"><div class="meta">code · <b>k3Fv9a</b></div><h3>Add retry to uploader</h3>
+ <div class="actions"><button class="btn">Queue</button><button class="btn">Edit</button>${btn(v,'del','danger',ask&&1)}${panel(v,'del',ask)}</div></div>
+ <h2>Inbox card · PR review</h2><div class="card"><div class="meta"><span class="tag">◐ pull request</span>Retry uploads · #42</div><h3>Add retry to uploader</h3>
+ <div class="actions"><button class="btn">Request changes</button>${btn(v,'merge','primary',ask&&1)}${btn(v,'close','danger',false)}${ask?'':''}</div></div>`;
+ app.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{location.hash=`${v}-ask`});
+ app.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{location.hash=`${v}-idle`});
+ app.querySelectorAll('.yes').forEach(b=>b.onclick=()=>{b.textContent='Done ✓'});}
+addEventListener('hashchange',render);render();
+</script></body></html>

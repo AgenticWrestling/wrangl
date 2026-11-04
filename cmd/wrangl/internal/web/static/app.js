@@ -608,3 +608,62 @@ window.ghManifest = ghManifest;
     dlg.showModal();
   });
 })();
+
+// Inline confirm. Put data-confirm="Question?" on any button (optionally data-confirm-yes="Delete"
+// for the confirming button's label) and its click is held back: the button is replaced, in
+// place, by "Question? [Yes] [Cancel]". Yes re-fires the original click (so Datastar's
+// data-on:click, a form submit, or a link behave as if the first click had gone through);
+// Cancel, Esc, or focus leaving the group restores the button. Never uses window.confirm().
+(function () {
+  function ask(btn, prompt, yesLabel, onYes) {
+    const box = document.createElement('span');
+    box.className = 'iconfirm';
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', 'Confirm');
+    const q = document.createElement('span');
+    q.className = 'iq';
+    q.textContent = prompt;
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.className = 'btn small danger yes';
+    yes.textContent = yesLabel || 'Yes';
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'btn small no';
+    no.textContent = 'Cancel';
+    box.append(q, yes, no);
+    const prevHidden = btn.hidden;
+    btn.hidden = true;
+    btn.after(box);
+    const close = (refocus) => {
+      box.remove();
+      btn.hidden = prevHidden;
+      if (refocus) btn.focus();
+    };
+    yes.addEventListener('click', () => { close(false); onYes(); });
+    no.addEventListener('click', () => close(true));
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(true); }
+    });
+    box.addEventListener('focusout', (e) => {
+      if (!box.isConnected || (e.relatedTarget && box.contains(e.relatedTarget))) return;
+      // A tap elsewhere on a phone may not report relatedTarget; give a click on Yes/Cancel time to land.
+      setTimeout(() => { if (box.isConnected && !box.contains(document.activeElement)) close(false); }, 150);
+    });
+    no.focus(); // the safe choice has focus: Enter/Space cancel, Tab reaches Yes
+  }
+  window.wrConfirm = ask;
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('[data-confirm]');
+    if (!btn || btn.disabled) return;
+    if (btn.dataset.confirmed === '1') { delete btn.dataset.confirmed; return; }
+    e.preventDefault();
+    e.stopImmediatePropagation(); // before Datastar's handler on the button
+    ask(btn, btn.dataset.confirm, btn.dataset.confirmYes, () => {
+      btn.dataset.confirmed = '1';
+      btn.click();
+      delete btn.dataset.confirmed;
+    });
+  }, true);
+})();

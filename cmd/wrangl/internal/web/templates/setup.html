@@ -44,10 +44,10 @@
         <div class="actions wrap">
           <button class="btn small" data-on:click="@post('/ui/act/account-check?login={{.Login}}')">Check again</button>
           {{if .App}}<a class="btn small" href="{{.App.InstallURL}}" target="_blank" rel="noopener">Install on more repositories</a>
-          <form method="post" action="{{.NewAppURL .State}}" onsubmit="return confirm('Create a new App for {{.Login}}? It replaces this one here; the old one stays on GitHub until you delete it.') && ghManifest(this)">
+          <form method="post" action="{{.NewAppURL .State}}" onsubmit="return ghManifest(this)">
             <input type="hidden" class="gh-name" value="{{.AppName}}"><input type="hidden" class="gh-manifest" name="manifest" value="{{.Manifest}}">
-            <button class="btn small" type="submit" title="Replace the stored App with a freshly created one">Re-authorize…</button></form>{{end}}
-          <button class="btn small danger" data-on:click="confirm('Unlink {{.Login}}? Its repositories stop working until you add it again.') && @post('/ui/act/account-remove?login={{.Login}}')">Remove</button>
+            <button class="btn small" type="submit" data-confirm="Create a new App for {{.Login}}? It replaces this one here; the old one stays on GitHub until you delete it." data-confirm-yes="Re-authorize" title="Replace the stored App with a freshly created one">Re-authorize…</button></form>{{end}}
+          <button class="btn small danger" data-confirm="Unlink {{.Login}}? Its repositories stop working until you add it again." data-confirm-yes="Unlink" data-on:click="@post('/ui/act/account-remove?login={{.Login}}')">Remove</button>
         </div>
         <details class="adv"><summary>Advanced: reviewer App</summary>
           <p class="hint">Only needed if a repository <em>requires approving reviews</em> before merging (an App cannot approve its own pull request). Otherwise leave it: the App above merges for you. Alternatively add that App to the repository ruleset's bypass list.</p>

@@ -429,8 +429,8 @@
       refreshState();
     };
     if (tab.kind === 'shell' && !tab.ended) {
-      if (!window.confirm('Close ' + tab.title + '? Anything running in it will stop.')) return;
-      fetch(API + '/term/' + encodeURIComponent(tab.id), { method: 'DELETE', credentials: 'same-origin' }).then(go, go);
+      window.wrConfirm(tab.btn, 'Close ' + tab.title + '? Anything running in it will stop.', 'Close', () =>
+        fetch(API + '/term/' + encodeURIComponent(tab.id), { method: 'DELETE', credentials: 'same-origin' }).then(go, go));
     } else go();
   }
 

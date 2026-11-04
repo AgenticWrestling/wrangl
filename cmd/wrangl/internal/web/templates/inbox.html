@@ -10,7 +10,7 @@
   {{range .Details}}<details class="idetail"{{if .Open}} open{{end}}><summary>{{.Summary}}</summary>{{if .Pre}}<pre class="outline">{{.Pre}}</pre>{{end}}{{if .HTML}}<div class="prose">{{.HTML}}</div>{{end}}</details>{{end}}
   {{if .Chat}}<textarea data-bind="{{.Bind}}" data-show="{{sig "c" $k}}" style="display:none" rows="3" placeholder="{{.ChatHint}}"></textarea>{{end}}
   <div class="actions wrap">
-    {{range .Actions}}<button class="btn {{.Class}}"{{if .Tip}} title="{{.Tip}}"{{end}} data-indicator:b{{$k}} data-attr:disabled="{{sig "b" $k}}" data-on:click="{{if .NeedsText}}!({{sig "" $.Bind}} || '').trim() ? ({{sig "c" $k}} = true) : {{end}}{{if .Confirm}}confirm('{{.Confirm}}') && {{end}}@post('{{.URL}}')">{{if .Busy}}<span data-show="!{{sig "b" $k}}">{{.Label}}</span><span data-show="{{sig "b" $k}}" style="display:none"><span class="spin" aria-hidden="true"></span> {{.Busy}}</span>{{else}}{{.Label}}{{end}}</button>{{end}}
+    {{range .Actions}}<button class="btn {{.Class}}"{{if .Confirm}} data-confirm="{{.Confirm}}" data-confirm-yes="{{.Label}}"{{end}}{{if .Tip}} title="{{.Tip}}"{{end}} data-indicator:b{{$k}} data-attr:disabled="{{sig "b" $k}}" data-on:click="{{if .NeedsText}}!({{sig "" $.Bind}} || '').trim() ? ({{sig "c" $k}} = true) : {{end}}@post('{{.URL}}')">{{if .Busy}}<span data-show="!{{sig "b" $k}}">{{.Label}}</span><span data-show="{{sig "b" $k}}" style="display:none"><span class="spin" aria-hidden="true"></span> {{.Busy}}</span>{{else}}{{.Label}}{{end}}</button>{{end}}
     {{if .Chat}}<button type="button" class="chatbtn" aria-label="Add a comment" title="Comment" data-attr:aria-pressed="{{sig "c" $k}}" data-on:click="{{sig "c" $k}} = !{{sig "c" $k}}">{{faicon "comment"}}</button>{{end}}
   </div>
 </section>{{end}}
@@ -48,7 +48,7 @@
   <p class="hint">Lightweight agent CLIs that run on the controller itself to answer "Ask?" on a task. They can read the task tree and use the wrangl CLI, but are boxed in (no builds or tests), so the controller stays responsive.</p>
   {{range .CAgents}}<div class="row"><b>{{.Name}}</b>{{if eq .IsDefault 1}} <span class="pill">default</span>{{end}}{{if eq .Enabled 0}} <span class="pill">disabled</span>{{end}} <span class="dim">{{.Command}}{{if .Model}} · {{.Model}}{{end}} · {{if eq .Auth "secret"}}secret {{.AuthSecret}} → {{.AuthEnv}}{{else}}installed CLI login{{end}} · {{.MaxTurns}} turns · {{.TimeoutS}}s</span><span class="grow"></span>
     <button class="btn small" data-on:click="$agname={{json .Name}}; $agcmd={{json .Command}}; $agmodel={{json .Model}}; $agauth={{json .Auth}}; $agsecret={{json .AuthSecret}}; $agenv={{json .AuthEnv}}; $agturns='{{.MaxTurns}}'; $agtimeout='{{.TimeoutS}}'; $agdefault={{if eq .IsDefault 1}}true{{else}}false{{end}}">Edit</button>
-    <button class="btn small danger" data-on:click="confirm('Remove agent {{.Name}}?') && @post('/ui/act/agent-delete?name={{.Name}}')">Remove</button></div>{{end}}
+    <button class="btn small danger" data-confirm="Remove agent {{.Name}}?" data-confirm-yes="Remove" data-on:click="@post('/ui/act/agent-delete?name={{.Name}}')">Remove</button></div>{{end}}
   <details><summary>Add or edit an agent</summary>
     <label>Name<input data-bind="agname" autocomplete="off" autocapitalize="off"></label>
     <label>Command<input data-bind="agcmd" autocomplete="off" autocapitalize="off"></label>
@@ -68,7 +68,7 @@
   <h3>Runner templates</h3>
   {{range .Templates}}<div class="row"><b>{{.Name}}</b> <span class="dim">v{{.Version}} · ≥{{.MinVcpu}} vCPU · ≥{{.MinRamMib}} MiB · ≥{{.MinDiskGib}} GiB</span><span class="grow"></span>
     <a class="btn small" href="/settings/templates/{{.Name}}">Edit</a>
-    <button class="btn small" data-on:click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
+    <button class="btn small" data-confirm="Launch a {{.Name}} runner?" data-confirm-yes="Launch" data-on:click="@post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
   {{else}}<p class="empty">No templates. Create one with <code>wrangl template create</code>.</p>{{end}}
 </section>
 <div class="about"><img src="/static/logo.png" alt="wrangl, metaharness orchestrator" width="280" height="305"></div>

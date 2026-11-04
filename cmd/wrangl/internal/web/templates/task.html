@@ -24,9 +24,9 @@
     {{if .Agents}}<button class="btn" onclick="openSheet('sheet-ask')">{{faicon "ask"}}Ask?</button>{{end}}
     {{if or (eq $t.State "done") (eq $t.State "cancelled")}}<button class="btn" data-key="x" data-on:click="@post('/ui/act/task-reopen?sqid={{$t.Sqid.String}}')">{{faicon "reopen"}}Reopen</button>
     {{else}}{{if not .Kids}}<button class="btn" data-key="c" data-on:click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Complete</button>
-    {{else if and (eq (print $t.TaskType) "release") (eq $t.State "in_review")}}<button class="btn primary" data-key="c" data-on:click="confirm('All work in this release is done. Ship it?') && @post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Ship it</button>{{end}}
+    {{else if and (eq (print $t.TaskType) "release") (eq $t.State "in_review")}}<button class="btn primary" data-key="c" data-confirm="All work in this release is done. Ship it?" data-confirm-yes="Ship it" data-on:click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Ship it</button>{{end}}
     <button class="btn" data-key="x" data-on:click="@post('/ui/act/task-cancel?sqid={{$t.Sqid.String}}')">{{faicon "cancel"}}Cancel</button>{{end}}
-    <button class="btn danger" data-key="D" data-on:click="confirm('Delete this task and its subtasks?') && @post('/ui/act/task-delete?sqid={{$t.Sqid.String}}')">{{faicon "delete"}}Delete</button>
+    <button class="btn danger" data-key="D" data-confirm="Delete this task and its subtasks?" data-confirm-yes="Delete" data-on:click="@post('/ui/act/task-delete?sqid={{$t.Sqid.String}}')">{{faicon "delete"}}Delete</button>
   </div>
 </section>
 

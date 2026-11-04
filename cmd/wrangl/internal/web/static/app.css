@@ -475,3 +475,11 @@ section.card.k-running { border-left: 4px solid var(--prog); }
 .icard details.idetail { margin: 8px 0; }
 .icard details.idetail > summary { cursor: pointer; color: var(--dim); font-size: 0.88rem; }
 .icard details.idetail[open] > .prose { max-height: 28rem; overflow: auto; padding: 4px 12px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
+
+/* Inline confirm (app.js: [data-confirm]): the button is replaced in place by "Question? Yes Cancel". */
+.iconfirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; max-width: 100%; padding: 4px 6px 4px 12px; border: 1px solid color-mix(in srgb, var(--err) 45%, var(--line)); border-radius: 18px; background: color-mix(in srgb, var(--err) 8%, var(--card)); animation: iconfirm-in .12s ease-out; }
+.iconfirm .iq { font-size: 0.85rem; color: var(--ink2); flex: 1 1 auto; white-space: normal; }
+.iconfirm .btn.yes { background: var(--err); border-color: var(--err); color: #fff; }
+@keyframes iconfirm-in { from { opacity: 0; transform: scale(.96); } }
+@media (max-width: 700px) { .iconfirm .btn { min-height: 40px; padding: 8px 14px; } .iconfirm { padding-left: 12px; } .iconfirm .iq { flex-basis: 100%; } }
+@media (prefers-reduced-motion: reduce) { .iconfirm { animation: none; } }
