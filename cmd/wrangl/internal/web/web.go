@@ -76,6 +76,7 @@ func New(d api.Deps) (*Handler, error) {
 	h := &Handler{D: d, css: chromaCSS()}
 	t, err := template.New("").Funcs(template.FuncMap{
 		"glyph":  func(s string) string { return glyph[s] },
+		"dict":   func(k, v string) map[string]string { return map[string]string{k: v} },
 		"ago":    ago,
 		"md":     markdown,
 		"pct":    func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
@@ -312,18 +313,16 @@ func (h *Handler) taskPart(ctx context.Context, sqid, tmpl string) (template.HTM
 	return h.render(tmpl, data)
 }
 
-// attachDetail puts card on the node with the given sqid.
-func attachDetail(nodes []*node, sqid string, card template.HTML) bool {
+// attachDetail puts card on every node with the given sqid. A task can be listed more than once
+// (a leaf is in the backlog tree and in the "In progress" leaf view, a run's root in its run
+// entry), and only the one the page shows renders the card.
+func attachDetail(nodes []*node, sqid string, card template.HTML) {
 	for _, n := range nodes {
 		if n.Sqid == sqid {
 			n.Detail = card
-			return true
 		}
-		if attachDetail(n.Kids, sqid, card) {
-			return true
-		}
+		attachDetail(n.Kids, sqid, card)
 	}
-	return false
 }
 
 // detail serves a part of a task page as a fragment: part=card (default) or part=sheets. The
@@ -398,18 +397,25 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if sq := sess.get(); view == "tasks" && sq != "" {
-			if card, err := h.taskPart(r.Context(), sq, "main-task"); err == nil {
+			card, err := h.taskPart(r.Context(), sq, "main-task")
+			if err == nil {
+				// The card goes wherever the page lists the task: the backlog tree, a run entry
+				// (and its subtasks) in In progress / Queue, or the "In progress" leaf view.
+				var all []*node
 				if roots, ok := data["Roots"].([]*node); ok {
-					all := roots
-					for _, k := range []string{"Progress", "Queue"} {
-						if es, ok := data[k].([]*runEntry); ok {
-							for _, e := range es {
-								all = append(all, e.Node)
-							}
+					all = append(all, roots...)
+				}
+				if now, ok := data["Now"].([]*node); ok {
+					all = append(all, now...)
+				}
+				for _, k := range []string{"Progress", "Queue"} {
+					if es, ok := data[k].([]*runEntry); ok {
+						for _, e := range es {
+							all = append(all, e.Node)
 						}
 					}
-					attachDetail(all, sq, card)
 				}
+				attachDetail(all, sq, card)
 			}
 		}
 		main, err := h.render("main-"+view, data)
@@ -499,11 +505,15 @@ func toast(w http.ResponseWriter, msg string, isErr bool) {
 
 type node struct {
 	proto.TaskNode
-	Attention bool          // an open question, or its latest run failed / is blocked
-	Crumbs    []crumb       // "Now" view: ancestors, root first
-	Mockups   int           // deliverables (mockups, prototypes, reports) handed back on this task
-	Detail    template.HTML // the expanded task's card, when this page has it open
-	Kids      []*node
+	Attention                bool          // an open question, or its latest run failed / is blocked
+	AttnKind                 string        // "questions" or "failed" when Attention is set
+	Kind                     string        // the one state shown by colour + glyph + label (see stateKind)
+	Queueable                int           // open leaves in the subtree (or itself) that are neither queued nor running
+	RollRev, RollQ, RollFail int           // descendants awaiting review / answers / failed (containers)
+	Crumbs                   []crumb       // "Now" view: ancestors, root first
+	Mockups                  int           // deliverables (mockups, prototypes, reports) handed back on this task
+	Detail                   template.HTML // the expanded task's card, when this page has it open
+	Kids                     []*node
 }
 
 // crumb is one ancestor in a breadcrumb.
@@ -537,7 +547,7 @@ func nowLeaves(rows []dbgen.ProjectTreeRow, within int64) []*node {
 		if !inside {
 			continue
 		}
-		n := &node{TaskNode: proto.TaskNode{Sqid: r.Sqid, Title: r.Title, State: r.State, Type: string(r.TaskType), Depth: r.Depth, Children: r.Children}, Crumbs: up}
+		n := &node{TaskNode: proto.TaskNode{Sqid: r.Sqid, Title: r.Title, State: r.State, Type: string(r.TaskType), Depth: r.Depth, Children: r.Children}, Crumbs: up, Kind: "running"}
 		if len(up) > 0 {
 			n.Parent = up[len(up)-1].Sqid
 		}
@@ -563,7 +573,56 @@ type runEntry struct {
 type taskSections struct {
 	Progress, Queue []*runEntry
 	Backlog         []*node
-	Now             []*node // in-progress leaf tasks, with breadcrumbs
+	Now             []*node          // in-progress leaf tasks, with breadcrumbs
+	Index           map[string]*node // every node of the project by sqid (incl. those shown as runs)
+}
+
+// stateKind collapses a task's state, latest-run trouble and lock into the single state shown
+// to the owner. Failures outrank questions, which outrank review, then running, queued, done.
+func stateKind(state, attn, lock string) string {
+	switch {
+	case state == "done" || state == "cancelled":
+		return "done"
+	case attn == "failed":
+		return "failed"
+	case attn == "questions":
+		return "questions"
+	case state == "in_review":
+		return "review"
+	case state == "in_progress" || (lock != "" && lock != "queued"):
+		return "running"
+	case lock == "queued":
+		return "queued"
+	}
+	return "open"
+}
+
+// rollup fills the descendant counts of n and reports its subtree's totals including itself.
+func rollup(n *node) (rev, q, fail int) {
+	n.Queueable = 0
+	if n.Children == 0 && n.State == "open" && (n.Kind == "open" || n.Kind == "failed" || n.Kind == "questions") && n.LockedBy == "" {
+		n.Queueable = 1
+	}
+	for _, k := range n.Kids {
+		r, qq, f := rollup(k)
+		n.Queueable += k.Queueable
+		n.RollRev, n.RollQ, n.RollFail = n.RollRev+r, n.RollQ+qq, n.RollFail+f
+	}
+	rev, q, fail = n.RollRev, n.RollQ, n.RollFail
+	switch n.Kind {
+	case "review":
+		rev++
+	case "questions":
+		q++
+	case "failed":
+		fail++
+	}
+	return
+}
+
+// Awaits reports whether the task or a descendant waits for the owner.
+func (n *node) Awaits() bool {
+	return n.RollRev+n.RollQ+n.RollFail > 0 || n.Kind == "review" || n.Kind == "questions" || n.Kind == "failed"
 }
 
 func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[string]any, error) {
@@ -602,6 +661,16 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		p, _ := db.RQ.GetProject(ctx, t.ProjectID)
 		d["Task"], d["Project"], d["Title"] = t, p.Slug, t.Title
 		d["Attention"] = h.attention(ctx, p.Slug)[sqid] && t.State != "done" && t.State != "cancelled"
+		if secs, err := h.tree(ctx, p.Slug, false); err == nil {
+			if n := secs.Index[sqid]; n != nil {
+				d["TNode"] = n
+			}
+			kk := map[string]string{}
+			for sq, n := range secs.Index {
+				kk[sq] = n.Kind
+			}
+			d["KidKind"] = kk
+		}
 		d["Types"] = dbtypes.TaskTypes
 		if h.D.Deliverables != nil {
 			rows, _ := db.RQ.ListDeliverablesForTask(ctx, t.ID)
@@ -625,7 +694,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		// Queue is offered on every live task; if nothing is runnable the refusal says why (e.g.
 		// subtasks still in review).
-		d["CanQueue"] = t.State != "done" && t.State != "cancelled"
+		d["CanQueue"] = false
+		if n, ok := d["TNode"].(*node); ok {
+			d["CanQueue"] = n.Queueable > 0
+		}
 		if h.D.Agents != nil {
 			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
 		}
@@ -1007,7 +1079,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 		locks[r.Run.TaskID] = map[bool]string{true: r.RunnerName, false: "queued"}[r.RunnerName != ""]
 	}
 	secs.Now = nowLeaves(rows, 0)
-	attn := h.attention(ctx, slug)
+	attn := h.attentionKinds(ctx, slug)
 	mockups := map[int64]int{}
 	if cs, err := db.RQ.CountDeliverablesForTasks(ctx, p.ID); err == nil {
 		for _, c := range cs {
@@ -1021,7 +1093,11 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 	lockOf := map[int64]string{}
 	for _, t := range rows {
 		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
-			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled", Mockups: mockups[t.ID]}
+			Mockups: mockups[t.ID]}
+		if t.State != "done" && t.State != "cancelled" {
+			n.AttnKind = attn[t.Sqid]
+			n.Attention = n.AttnKind != ""
+		}
 		if t.TaskType.Planning() {
 			if full, err := db.RQ.GetTask(ctx, t.ID); err == nil {
 				n.Done, n.Total, n.Slip, _ = h.D.Stack.Rollup(ctx, full)
@@ -1032,6 +1108,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			lock = lockOf[t.ParentID.Int64]
 		}
 		lockOf[t.ID], n.LockedBy = lock, lock
+		n.Kind = stateKind(t.State, n.AttnKind, lock)
 		byID[t.ID] = n
 		bySqid[t.Sqid] = n
 		order[t.Sqid] = len(order)
@@ -1045,6 +1122,10 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			roots = append(roots, n)
 		}
 	}
+	for _, n := range roots {
+		rollup(n)
+	}
+	secs.Index = bySqid
 	// Active runs leave the backlog: queued ones go to Queue, assigned/running ones to In progress.
 	runs, _ := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: "active", Project: slug, Lim: 1000})
 	taken := map[*node]bool{}
@@ -1101,10 +1182,20 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 // or the task's most recent run failed, is blocked or waits for input.
 func (h *Handler) attention(ctx context.Context, project string) map[string]bool {
 	out := map[string]bool{}
+	for k := range h.attentionKinds(ctx, project) {
+		out[k] = true
+	}
+	return out
+}
+
+// attentionKinds maps task sqid to "failed" (latest run failed or blocked) or "questions"
+// (an open question, or the run waits for input). Failure wins when both hold.
+func (h *Handler) attentionKinds(ctx context.Context, project string) map[string]string {
+	out := map[string]string{}
 	if qs, err := h.D.Runs.Questions(ctx, false); err == nil {
 		for _, q := range qs {
 			if q.Project == project {
-				out[q.Task] = true
+				out[q.Task] = "questions"
 			}
 		}
 	}
@@ -1116,8 +1207,10 @@ func (h *Handler) attention(ctx context.Context, project string) map[string]bool
 		}
 		seen[r.TaskSqid] = true
 		switch r.Run.State {
-		case "failed", "blocked", "needs_input":
-			out[r.TaskSqid] = true
+		case "failed", "blocked":
+			out[r.TaskSqid] = "failed"
+		case "needs_input":
+			out[r.TaskSqid] = "questions"
 		}
 	}
 	return out

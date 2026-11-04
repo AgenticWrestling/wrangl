@@ -28,15 +28,14 @@
 <ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul></section>
 {{end}}{{end}}
 
-{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
+{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
   <div class="row">
     {{if not .Runner}}<span class="handle" aria-label="Drag to reorder the queue">⠿</span>{{end}}
     <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
     {{ticon $n.Type}}
     <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
     {{if $n.Mockups}}<a class="tag mock" href="/task/{{$n.Sqid}}#deliverables" title="{{$n.Mockups}} deliverable{{if gt $n.Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{$n.Mockups}}</a>{{end}}
-    {{if and (eq $n.State "in_review") (eq $n.Type "research")}}<span class="tag attn" title="the report waits for your review">awaiting review</span>{{end}}
-    {{if $n.Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
+    {{template "kindtag" $n}}{{template "rollchips" $n}}
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
@@ -44,12 +43,13 @@
     <code class="sqid">{{$n.Sqid}}</code>
   </div>
   {{if .CurrentTitle}}<div class="now small dim">working on <a href="/task/{{.Current}}">{{.CurrentTitle}}</a></div>{{end}}
+  {{if and $n.Awaits $n.Kids}}<div class="banner" role="note">{{template "bannertext" $n}}</div>{{end}}
   <div class="detail" id="d-{{$n.Sqid}}">{{$n.Detail}}</div>
   {{if $n.Kids}}<details class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
     <ul class="tasks" data-parent="{{$n.Sqid}}">{{template "tasklist" $n.Kids}}</ul></details>{{end}}
 </li>{{end}}
 
-{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} ty-{{.Type}}" data-sqid="{{.Sqid}}" role="treeitem" tabindex="-1"{{if .Kids}} aria-expanded="true"{{end}}>
+{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} k-{{.Kind}}{{if .Awaits}} awaits{{end}} ty-{{.Type}}" data-sqid="{{.Sqid}}" role="treeitem" tabindex="-1"{{if .Kids}} aria-expanded="true"{{end}}>
   <div class="row">
     <span class="handle" aria-label="Drag to reorder">⠿</span>
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
@@ -57,14 +57,14 @@
     <a class="title" href="/task/{{.Sqid}}" onclick="return toggleDetail('{{.Sqid}}', event)" aria-expanded="false">{{.Title}}</a>
     {{if .Crumbs}}<span class="crumbs dim small">{{range $i, $c := .Crumbs}}{{if $i}} › {{end}}<a href="/task/{{$c.Sqid}}">{{$c.Title}}</a>{{end}}</span><a class="tag" href="/task/{{.Parent}}" title="Go to the parent task">↑ parent</a>{{end}}
     {{if .Mockups}}<a class="tag mock" href="/task/{{.Sqid}}#deliverables" title="{{.Mockups}} deliverable{{if gt .Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{.Mockups}}</a>{{end}}
-    {{if and (eq .State "in_review") (eq .Type "research")}}<span class="tag attn" title="the report waits for your review">awaiting review</span>{{end}}
-    {{if .Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
-    {{if or (eq .State "in_progress") .LockedBy}}<span class="tag prog" title="{{if .LockedBy}}running on {{.LockedBy}}{{else}}in progress{{end}}">▶ {{if .LockedBy}}{{.LockedBy}}{{else}}in progress{{end}}</span>{{end}}
+    {{template "kindtag" .}}{{template "rollchips" .}}
+    {{if and (eq .Kind "running") .LockedBy}}<span class="dim small" title="running on {{.LockedBy}}">{{.LockedBy}}</span>{{end}}
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
     {{if .Total}}<span class="prog-bar" title="{{.Done}} of {{.Total}} done"><i style="width:{{pctof .Done .Total}}%"></i></span><span class="dim small">{{.Done}}/{{.Total}}</span>{{end}}
     {{if .Target}}<span class="tag target{{if .Slip}} slip-{{.Slip}}{{end}}" title="target date{{if .Slip}} ({{.Slip}}){{end}}">{{.Target}}{{if eq .Slip "late"}} · late{{else if .Slip}} · at risk{{end}}</span>{{end}}
     <code class="sqid">{{.Sqid}}</code>
   </div>
+  {{if and .Awaits .Kids}}<div class="banner" role="note">{{template "bannertext" .}}</div>{{end}}
   <div class="detail" id="d-{{.Sqid}}">{{.Detail}}</div>
   <ul class="tasks sortable" data-parent="{{.Sqid}}" role="group">{{template "tasklist" .Kids}}</ul>
 </li>{{end}}{{end}}
@@ -91,3 +91,9 @@
 {{define "typepick-edit"}}<fieldset class="types"><legend>Type</legend>
   {{$cur := .Cur}}{{range .Types}}<label class="typeopt"><input type="radio" name="etype" value="{{.}}" data-bind="etype"{{if eq (print .) $cur}} checked{{end}}>{{ticon .}}<span>{{.Label}}</span></label>{{end}}
 </fieldset>{{end}}
+
+{{define "kindtag"}}{{if eq .Kind "failed"}}<span class="tag k-failed" title="the latest run failed or is blocked">✕ failed</span>{{else if eq .Kind "questions"}}<span class="tag k-questions" title="blocked on open questions for you">? needs input</span>{{else if eq .Kind "review"}}<span class="tag k-review" title="waiting for your review">◐ in review</span>{{else if eq .Kind "running"}}<span class="tag k-running" title="running">▶ running</span>{{else if eq .Kind "queued"}}<span class="tag k-queued" title="queued">⧗ queued</span>{{end}}{{end}}
+
+{{define "rollchips"}}{{if .RollFail}}<span class="chip-roll k-failed" title="{{.RollFail}} failed below">✕ {{.RollFail}}</span>{{end}}{{if .RollQ}}<span class="chip-roll k-questions" title="{{.RollQ}} blocked on questions below">? {{.RollQ}}</span>{{end}}{{if .RollRev}}<span class="chip-roll k-review" title="{{.RollRev}} in review below">◐ {{.RollRev}}</span>{{end}}{{end}}
+
+{{define "bannertext"}}Awaiting you: {{if eq .Kind "failed"}}this task failed{{else if eq .Kind "questions"}}this task has open questions{{else if eq .Kind "review"}}this task is in review{{end}}{{if or .RollFail .RollQ .RollRev}}{{if or (eq .Kind "failed") (eq .Kind "questions") (eq .Kind "review")}}; {{end}}beneath it:{{if .RollFail}} {{.RollFail}} failed{{end}}{{if .RollQ}} {{.RollQ}} with questions{{end}}{{if .RollRev}} {{.RollRev}} in review{{end}}{{end}}{{end}}

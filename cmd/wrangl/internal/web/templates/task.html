@@ -1,11 +1,11 @@
 {{define "main-task"}}{{$t := .Task}}
-<section class="card">
+{{$tn := .TNode}}<section class="card{{if $tn}} k-{{$tn.Kind}}{{if $tn.Awaits}} awaits{{end}}{{end}}">
+  {{if and $tn $tn.Awaits}}<div class="banner" role="note">{{template "bannertext" $tn}}</div>{{end}}
   <div class="meta">
     <span class="pill st-{{$t.State}}">{{glyph $t.State}} {{$t.State}}</span>
+    {{if $tn}}{{template "kindtag" $tn}}{{template "rollchips" $tn}}{{end}}
     <span class="typechip">{{ticon $t.TaskType}} {{tlabel (print $t.TaskType)}}</span>
     {{if $t.TargetDate.Valid}}<span class="tag target" title="target date">{{$t.TargetDate.String}}</span>{{end}}
-    {{if .Attention}}<span class="tag attn">! needs attention</span>{{end}}
-    {{if eq $t.State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}
     <code class="sqid">{{$t.Sqid.String}}</code>
     <a href="/tasks?project={{.Project}}">{{.Project}}</a>
     {{with .Parent}}› <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{end}}
@@ -49,8 +49,8 @@
     <button class="btn small" data-key="s" onclick="openSheet('sheet-split')">{{faicon "split"}}Split</button>
     <button class="btn small" data-key="a" onclick="openSheet('sheet-sub')">{{faicon "subtask"}}Subtask</button></div>
   {{if not .Kids}}<p class="empty">No subtasks. Split this task, or add one.</p>{{end}}
-  <ul class="tasks sortable" data-parent="{{$t.Sqid.String}}">{{range .Kids}}<li class="task st-{{.State}}" data-sqid="{{.Sqid.String}}"><div class="row">
-  <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
+  <ul class="tasks sortable" data-parent="{{$t.Sqid.String}}">{{range .Kids}}<li class="task st-{{.State}} k-{{index $.KidKind .Sqid.String}}" data-sqid="{{.Sqid.String}}"><div class="row">
+  <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{template "kindtag" (dict "Kind" (index $.KidKind .Sqid.String))}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
 </section>
 
 {{if .Now}}<section class="card" id="now"><h3>Now <span class="dim small">{{len .Now}} in progress</span></h3>

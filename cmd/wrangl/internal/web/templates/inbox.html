@@ -1,7 +1,7 @@
 {{define "main-inbox"}}
 {{if and (not .Questions) (not .PRs)}}<p class="empty">Inbox zero. Questions from agents, plan proposals and PR reviews land here.</p>{{end}}
-{{range .Questions}}<section class="card q q-{{.Kind}}" id="q{{.ID}}">
-  <div class="meta"><span class="pill">{{.Kind}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}<span class="grow"></span><span class="dim">{{ago .CreatedAt}}</span></div>
+{{range .Questions}}<section class="card q q-{{.Kind}} k-questions" id="q{{.ID}}">
+  <div class="meta"><span class="tag k-questions">{{if eq .Kind "plan_review"}}◐ plan review{{else}}? needs input{{end}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}<span class="grow"></span><span class="dim">{{ago .CreatedAt}}</span></div>
   <h3>{{.Prompt}}</h3>
   {{if .DetailMD}}<div class="prose">{{md .DetailMD}}</div>{{end}}
   {{if eq .Kind "plan_review"}}<pre class="outline">{{outline .Payload}}</pre>{{end}}
@@ -12,8 +12,8 @@
   </div>
 </section>{{end}}
 {{if .PRs}}<h2 class="section">Open pull requests</h2>{{end}}
-{{range .PRs}}{{$p := .PullRequest}}<section class="card pr">
-  <div class="meta"><a href="{{$p.Url}}" target="_blank" rel="noopener">{{.Repo}}#{{$p.GhNumber}} ↗</a> <span class="pill">{{$p.State}}</span>{{if $p.Risk.Valid}}<span class="pill risk-{{$p.Risk.String}}">risk: {{$p.Risk.String}}</span>{{end}}{{if $p.Checks}}<span class="pill">checks: {{$p.Checks}}</span>{{end}}</div>
+{{range .PRs}}{{$p := .PullRequest}}<section class="card pr k-review">
+  <div class="meta"><span class="tag k-review">◐ in review</span> <a href="{{$p.Url}}" target="_blank" rel="noopener">{{.Repo}}#{{$p.GhNumber}} ↗</a> <span class="pill">{{$p.State}}</span>{{if $p.Risk.Valid}}<span class="pill risk-{{$p.Risk.String}}">risk: {{$p.Risk.String}}</span>{{end}}{{if $p.Checks}}<span class="pill">checks: {{$p.Checks}}</span>{{end}}</div>
   <h3><a href="/task/{{.TaskSqid}}">{{.TaskTitle}}</a></h3>
   <div class="row small"><a href="/run/{{$p.RunID}}/diff">diff</a> · <code>{{$p.HeadBranch}}</code></div>
   {{if $p.ReviewSummaryMd}}<details><summary>Review</summary><div class="prose">{{md $p.ReviewSummaryMd}}</div></details>{{end}}
