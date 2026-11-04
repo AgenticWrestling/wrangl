@@ -914,15 +914,23 @@ func (w *Worker) checkpointCommit(ctx context.Context, s *session, n *proto.Stac
 	return nil
 }
 
-// reportCheckpoint tells the controller which commit the task ended on (whether the runner or
-// the agent made it), so a done task can link to its changes. Best effort: a failure is logged,
+// reportCheckpoint pushes the run branch and tells the controller which commit the task ended on
+// (whether the runner or the agent made it), so a done task can link to its changes. Best effort: a failure is logged,
 // never fatal to the run.
 func (w *Worker) reportCheckpoint(ctx context.Context, s *session, n *proto.StackNext) {
+	if s.a.Kind == "review" || s.a.Kind == "plan" {
+		return // read-only runs never push, so a link to their HEAD would 404
+	}
 	out, err := gitAsAgent(ctx, s.id, s.dir, "rev-parse", "HEAD")
 	sha := strings.TrimSpace(out)
 	if err != nil || sha == "" {
 		s.logf("runner", "checkpoint: no HEAD to report for %s", n.Sqid)
 		return
+	}
+	// Push the run branch now so the commit exists on GitHub for the "what changed" link while
+	// the run is still going (and the work is backed up). The final push in finishRun repeats it.
+	if out, err := w.pushBranch(ctx, s.id, s.dir, s.a.GitToken, s.a.Branch); err != nil {
+		s.logf("runner", "checkpoint: push %s: %v: %s", s.a.Branch, err, strings.TrimSpace(out))
 	}
 	if _, err := w.stack(ctx, "checkpoint", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Commit: sha}); err != nil {
 		s.logf("runner", "checkpoint: report %s: %v", n.Sqid, err)

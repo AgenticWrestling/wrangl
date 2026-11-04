@@ -13,7 +13,7 @@ const latestTaskCheckpoint = `-- name: LatestTaskCheckpoint :one
 SELECT c.sha AS sha, c.run_id AS run_id, c.at AS at, r.owner AS owner, r.name AS repo, r.default_branch AS default_branch,
        CAST(COALESCE((SELECT p.sha FROM task_checkpoint p WHERE p.run_id = c.run_id AND p.id < c.id ORDER BY p.id DESC LIMIT 1), '') AS TEXT) AS prev_sha
 FROM task_checkpoint c JOIN run ru ON ru.id = c.run_id JOIN repo r ON r.id = ru.repo_id
-WHERE c.task_id = ? ORDER BY c.id DESC LIMIT 1
+WHERE c.task_id = ? AND (ru.pushed = 1 OR ru.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) ORDER BY c.id DESC LIMIT 1
 `
 
 type LatestTaskCheckpointRow struct {

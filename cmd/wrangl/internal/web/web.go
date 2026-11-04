@@ -587,7 +587,7 @@ func (h *Handler) changeLinks(ctx context.Context, projectID int64) map[string]c
 	r := h.D.Fleet.DB.R
 	rows, err := r.QueryContext(ctx, `SELECT t.sqid, c.sha, r.owner, r.name FROM task_checkpoint c
 		JOIN task t ON t.id = c.task_id JOIN run ru ON ru.id = c.run_id JOIN repo r ON r.id = ru.repo_id
-		WHERE c.id = (SELECT MAX(id) FROM task_checkpoint WHERE task_id = c.task_id) AND (?1 = 0 OR t.project_id = ?1)`, projectID)
+		WHERE c.id = (SELECT MAX(c2.id) FROM task_checkpoint c2 JOIN run r2 ON r2.id = c2.run_id WHERE c2.task_id = c.task_id AND (r2.pushed = 1 OR r2.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))) AND (?1 = 0 OR t.project_id = ?1)`, projectID)
 	if err == nil {
 		for rows.Next() {
 			var sqid, sha, owner, repo string
