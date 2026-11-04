@@ -1,0 +1,128 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sidebar recent projects — prototype</title>
+<style>
+@font-face{font-family:"Red Hat Display";font-weight:300 900;src:url(fonts/red-hat-display-latin.woff2)}
+@font-face{font-family:"IBM Plex Mono";src:url(fonts/ibm-plex-mono-latin.woff2)}
+:root{--c0:#0f1115;--c1:#171a21;--c2:#1f232b;--c3:#2c313c;--c4:#4b5261;--c5:#8a919e;--c6:#c5cad3;--c7:#eef0f3;--prog:#56b4e9;--ok:#009e73;--attn:#e69f00;--review:#cc79a7;--brand:#0072b2;--link:#a6d8f5}
+*{box-sizing:border-box;margin:0}
+body{background:var(--c0);color:var(--c7);font:300 15px "Red Hat Display",system-ui,sans-serif;height:100vh;overflow:hidden}
+b{font-weight:600}
+.app{display:grid;grid-template-columns:200px 1fr;height:100vh}
+.side{background:var(--c1);border-right:1px solid var(--c3);padding:14px 10px;display:flex;flex-direction:column;gap:2px;overflow:auto}
+.side-brand{display:flex;align-items:center;gap:8px;padding:2px 8px 14px;font-size:18px}
+.mark{width:26px;height:26px;border-radius:7px;background:var(--brand);display:grid;place-items:center;font-weight:700}
+.nav{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:9px;color:var(--c6);text-decoration:none;cursor:pointer}
+.nav.on{background:var(--c2);color:var(--c7)}
+.nav .badge{margin-left:auto;background:var(--attn);color:#000;border-radius:9px;font-size:11px;padding:0 6px;font-weight:600}
+/* recent list */
+.recent{margin:2px 0 8px 14px;padding-left:8px;border-left:1px solid var(--c3);display:flex;flex-direction:column;gap:1px;position:relative}
+.r{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;color:var(--c6);font-size:14px;cursor:pointer;min-height:32px;transition:transform .25s}
+.r:hover{background:var(--c2)}.r.on{background:var(--c2);color:var(--c7);box-shadow:inset 2px 0 var(--link)}
+.r .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.r .t{font:400 11px "IBM Plex Mono",monospace;color:var(--c5)}
+.r .why{display:block;font-size:11.5px;color:var(--c5);white-space:nowrap}
+.r.two{padding:7px 8px}.r.two .col{flex:1;min-width:0}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;border:1.5px solid var(--c4)}
+.dot.live{background:var(--prog);border-color:var(--prog);animation:p 1.6s infinite}
+@keyframes p{50%{box-shadow:0 0 0 4px #56b4e933}}
+@media(prefers-reduced-motion:reduce){.dot.live{animation:none}}
+.cnt{font:500 11px "IBM Plex Mono",monospace;color:var(--prog)}
+.pill{display:none;margin:4px 0 2px;padding:5px 9px;border-radius:99px;background:var(--c3);color:var(--link);font-size:12px;text-align:center;cursor:pointer;border:1px solid var(--c4)}
+.recent.held .pill{display:block}
+.recent.held{box-shadow:-1px 0 var(--attn)}
+.more{color:var(--c5);font-size:12.5px;padding:5px 8px;cursor:pointer}
+.sp{flex:1}
+/* main */
+.main{padding:24px 30px;overflow:auto}
+h2{font-size:22px;font-weight:600;margin-bottom:4px}.sub{color:var(--c5);margin-bottom:18px}
+.card{background:var(--c1);border:1px solid var(--c3);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;gap:10px;align-items:center}
+.card .t{margin-left:auto;font:400 12px "IBM Plex Mono",monospace;color:var(--c5)}
+.note{margin-top:18px;padding:12px 14px;border:1px dashed var(--c4);border-radius:10px;color:var(--c6);font-size:13.5px;line-height:1.5;max-width:560px}
+.tag{font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--c4);color:var(--c6)}
+/* phone */
+.top{display:none}.tabs{display:none}
+@media(max-width:700px){
+ .app{display:block}.side{display:none}
+ .top{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--c3);background:var(--c1)}
+ .top h1{font-size:17px;font-weight:600}
+ .main{padding:14px;height:calc(100vh - 53px - 62px)}
+ .tabs{display:flex;position:fixed;bottom:0;left:0;right:0;height:62px;background:var(--c1);border-top:1px solid var(--c3);justify-content:space-around;align-items:center;font-size:11.5px;color:var(--c5)}
+ .tabs div{text-align:center;position:relative}.tabs .on{color:var(--c7)}.tabs i{display:block;font-style:normal;font-size:18px}
+ .chips{display:flex;gap:8px;overflow-x:auto;margin:-2px -14px 14px;padding:2px 14px;scrollbar-width:none}
+ .chip{flex:none;display:flex;gap:7px;align-items:center;padding:7px 12px;border:1px solid var(--c3);border-radius:99px;background:var(--c1);font-size:14px;min-height:36px}
+ .chip.on{border-color:var(--link);}
+ .sheet{position:fixed;left:0;right:0;bottom:62px;background:var(--c2);border-top:1px solid var(--c4);border-radius:16px 16px 0 0;padding:10px 12px 12px;display:none}
+ body.sheet-open .sheet{display:block}
+ .sheet .r{min-height:44px;font-size:15px}
+ .grab{width:36px;height:4px;background:var(--c4);border-radius:3px;margin:0 auto 8px}
+}
+@media(min-width:701px){.chips,.sheet{display:none}}
+.only-A,.only-B,.only-C{display:none}
+body[data-v=A] .only-A,body[data-v=B] .only-B,body[data-v=C] .only-C{display:flex}
+body[data-v=A] .only-A.blk,body[data-v=B] .only-B.blk,body[data-v=C] .only-C.blk{display:block}
+</style></head><body data-v="A">
+<div class="app">
+<aside class="side">
+ <div class="side-brand"><div class="mark">w</div><b>wrangl</b></div>
+ <a class="nav on">Projects</a>
+ <div class="recent" id="recent" aria-label="Recent projects, newest activity first"></div>
+ <a class="nav">Runners</a><a class="nav">Logs</a>
+ <a class="nav">Inbox <span class="badge">3</span></a><div class="sp"></div><a class="nav">Settings</a>
+</aside>
+<div class="top"><div class="mark">w</div><h1>Projects</h1></div>
+<main class="main">
+ <div class="chips" id="chips"></div>
+ <h2>Projects</h2><p class="sub">Sorted by latest activity</p>
+ <div class="card"><span class="dot live"></span><b>wrangl</b><span class="tag">2 runs</span><span class="t">now</span></div>
+ <div class="card"><span class="dot"></span><b>docs-site</b><span class="tag">PR #41 merged</span><span class="t">12m</span></div>
+ <div class="card"><span class="dot live"></span><b>billing</b><span class="tag">1 run</span><span class="t">3m</span></div>
+ <div class="note" id="note"></div>
+</main>
+</div>
+<div class="sheet" id="sheet"><div class="grab"></div><div class="recent" id="sheetlist" style="margin:0;border:0;padding:0"></div></div>
+<nav class="tabs"><div class="on"><i>●</i>Projects</div><div><i>●</i>Runners</div><div><i>●</i>Logs</div><div><i>●</i>Inbox</div><div><i>●</i>Settings</div></nav>
+<script>
+const V=(location.hash.slice(1)||'A')[0], S=location.hash.slice(3); // e.g. #A, #A-held, #C-sheet
+document.body.dataset.v=V;
+let P=[ // activity, newest first once sorted
+ {n:'wrangl',m:0,live:2,why:'run started'},
+ {n:'billing',m:3,live:1,why:'run started'},
+ {n:'docs-site',m:12,live:0,why:'PR #41 merged'},
+ {n:'mobile-app',m:55,live:0,why:'moved to Review'},
+ {n:'infra',m:180,live:0,why:'run finished'}];
+let sel='wrangl',held=false,pending=null;
+const ago=m=>m<1?'now':m<60?m+'m':Math.round(m/60)+'h';
+const NOTE={A:'<b>A · Quiet list.</b> Name, live dot, age. Hover freezes order; a “↑ 1 moved” pill appears and the list re-sorts on pointer-leave or click. Hover a row, then press <b>Simulate activity</b>.',
+B:'<b>B · Why it moved.</b> Two lines: name plus the reason it is on top (“run started”). Live runs show a count. Same freeze rule, pill reads “Updated — show”.',
+C:'<b>C · Phone-first.</b> Desktop is the compact list; on phones the five projects become a chip strip above the page and a “Recent” bottom sheet (touch has no hover, so it re-sorts live while closed and freezes while open).'};
+function row(p){const two=V==='B';
+ return `<div class="r ${two?'two':''} ${p.n===sel?'on':''}" data-n="${p.n}">
+ <span class="dot ${p.live?'live':''}" title="${p.live?p.live+' run(s) in progress':'idle'}"></span>
+ ${two?`<span class="col"><span class="n" style="display:block">${p.n}</span><span class="why">${p.why}</span></span>`:`<span class="n">${p.n}</span>`}
+ ${p.live&&V!=='A'?`<span class="cnt">${p.live}</span>`:''}<span class="t">${ago(p.m)}</span></div>`}
+function render(){
+ const list=[...P].sort((a,b)=>a.m-b.m).slice(0,5);
+ const html=list.map(row).join('')+`<div class="pill" id="pill">${V==='B'?'Updated — show':'↑ order changed'}</div><div class="more">All projects</div>`;
+ for(const id of ['recent','sheetlist']){const e=document.getElementById(id);e.innerHTML=html;e.classList.toggle('held',held)}
+ document.getElementById('chips').innerHTML=list.map(p=>`<div class="chip ${p.n===sel?'on':''}"><span class="dot ${p.live?'live':''}"></span>${p.n}</div>`).join('');
+}
+function apply(){held=false;if(pending){P=pending;pending=null}render()}
+function activity(){ // an SSE event: docs-site gets a new run
+ const nx=P.map(p=>p.n==='docs-site'?{...p,m:0,live:1,why:'run started'}:{...p,m:p.m+1});
+ if(held)pending=nx;else{P=nx;render()}
+}
+// freeze while pointer is over the list
+for(const id of ['recent','sheetlist']){const e=document.getElementById(id);
+ e.addEventListener('pointerenter',ev=>{if(ev.pointerType==='mouse'){held=true;e.classList.add('held')}});
+ e.addEventListener('pointerleave',()=>apply());
+ e.addEventListener('click',ev=>{if(ev.target.closest('.pill'))apply();const r=ev.target.closest('.r');if(r){sel=r.dataset.n;render()}});}
+document.getElementById('note').innerHTML=NOTE[V]+'<br><br><button onclick="activity()" style="margin-top:4px;padding:6px 12px;border-radius:8px;border:1px solid var(--c4);background:var(--c2);color:var(--c7);font:inherit;cursor:pointer">Simulate activity</button>';
+document.querySelector('.sub').textContent='Sorted by latest activity';
+document.getElementById('chips').style.display=V==='C'?'':'none';
+if(V!=='C')document.getElementById('sheet').remove();
+else document.querySelector('.tabs div').onclick=()=>document.body.classList.toggle('sheet-open');
+render();
+if(S==='held'){held=true;activity();document.getElementById('recent').classList.add('held');render();}
+if(S==='sheet')document.body.classList.add('sheet-open');
+if(V==='C'&&S==='sheet'){}
+</script></body></html>
