@@ -47,13 +47,17 @@ type ghPR struct {
 	HTMLURL string `json:"html_url"`
 	State   string `json:"state"`
 	Merged  bool   `json:"merged"`
-	Head    struct {
+	// Mergeable is null while GitHub computes it.
+	Mergeable      *bool  `json:"mergeable"`
+	MergeableState string `json:"mergeable_state"`
+	Head           struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
 }
 
 func (p ghPR) pr() PR {
-	return PR{Number: p.Number, URL: p.HTMLURL, HeadSHA: p.Head.SHA, State: p.State, Merged: p.Merged}
+	return PR{Number: p.Number, URL: p.HTMLURL, HeadSHA: p.Head.SHA, State: p.State, Merged: p.Merged,
+		Mergeable: MergeableState(p.Mergeable, p.MergeableState)}
 }
 
 // CreatePR implements PRAPI.
@@ -68,15 +72,35 @@ func (c *Client) CreatePR(ctx context.Context, r Repo, head, base, title, body s
 	return out.pr(), err
 }
 
-// GetPR implements PRAPI.
+// mergeableRetries and mergeableWait bound how long GetPR waits for GitHub to compute
+// `mergeable` (it is computed lazily and is null on the first request after a push).
+var (
+	mergeableRetries = 4
+	mergeableWait    = 750 * time.Millisecond
+)
+
+// GetPR implements PRAPI. For an open PR it retries briefly while mergeable is still null;
+// if GitHub has not decided by then the PR's Mergeable is MergeUnknown.
 func (c *Client) GetPR(ctx context.Context, r Repo, n int64) (PR, error) {
 	tok, err := c.tokenFor(ctx, r)
 	if err != nil {
 		return PR{}, err
 	}
-	var out ghPR
-	_, err = c.do(ctx, http.MethodGet, fmt.Sprintf("%s/pulls/%d", repoPath(r), n), "token "+tok, nil, &out)
-	return out.pr(), err
+	for i := 0; ; i++ {
+		var out ghPR
+		if _, err = c.do(ctx, http.MethodGet, fmt.Sprintf("%s/pulls/%d", repoPath(r), n), "token "+tok, nil, &out); err != nil {
+			return PR{}, err
+		}
+		pr := out.pr()
+		if out.Mergeable != nil || out.State != "open" || i >= mergeableRetries {
+			return pr, nil
+		}
+		select {
+		case <-ctx.Done():
+			return pr, nil
+		case <-time.After(mergeableWait):
+		}
+	}
 }
 
 // PRFiles implements PRAPI.

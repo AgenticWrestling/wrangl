@@ -94,3 +94,6 @@ ORDER BY pr.id DESC LIMIT 1;
 
 -- name: ReposByName :many
 SELECT * FROM repo WHERE owner = ? AND name = ?;
+
+-- name: SetPRMergeable :exec
+UPDATE pull_request SET mergeable = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?;

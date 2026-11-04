@@ -99,7 +99,20 @@ func (f *Fake) GetPR(_ context.Context, _ Repo, n int64) (PR, error) {
 	if err != nil {
 		return PR{}, err
 	}
-	return p.PR, nil
+	pr := p.PR
+	if pr.Mergeable == "" {
+		pr.Mergeable = MergeClean
+	}
+	return pr, nil
+}
+
+// SetMergeable sets the mergeable state the fake reports for a PR (default clean).
+func (f *Fake) SetMergeable(n int64, state string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p := f.prs[n]; p != nil {
+		p.Mergeable = state
+	}
 }
 
 // PRFiles implements PRAPI (computed from the local bare repo).
