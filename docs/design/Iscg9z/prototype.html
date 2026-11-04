@@ -1,0 +1,151 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wrangl — Backlog filter and collapsed parents (Iscg9z)</title>
+<style>
+@font-face{font-family:"Red Hat Display";font-weight:300 900;src:url(fonts/red-hat-display-latin.woff2) format("woff2")}@font-face{font-family:"IBM Plex Mono";src:url(fonts/ibm-plex-mono-latin.woff2) format("woff2")}
+:root{--bg:#0f1115;--card:#171a21;--raised:#1f232b;--line:#2c313c;--faint:#4b5261;--dim:#8a919e;--ink2:#c5cad3;--ink:#eef0f3;--brand:#0072b2;--prog:#56b4e9;--ok:#009e73;--attn:#e69f00;--err:#d55e00;--review:#cc79a7;--link:#a6d8f5;--mono:"IBM Plex Mono",ui-monospace,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.45 "Red Hat Display",system-ui,sans-serif}
+button,input,select{font:inherit;color:inherit}
+.bar{position:sticky;top:0;z-index:20;background:#0a0c10;border-bottom:1px solid var(--line);padding:8px 16px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.8rem;color:var(--dim)}
+.bar button{color:var(--ink2);background:var(--raised);border:1px solid var(--line);border-radius:999px;padding:3px 11px;cursor:pointer}.bar button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+body.shot .bar{display:none}
+.wrap{max-width:860px;margin:0 auto;padding:12px 16px 40px}
+.dim{color:var(--dim)}.small{font-size:.8rem}.grow{flex:1}.mono,code{font-family:var(--mono);font-size:.82em}
+.sec{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.sec h3{margin:0;font-size:1rem}.row0{display:flex;align-items:center;gap:8px}
+.btn{background:var(--raised);border:1px solid var(--line);border-radius:8px;padding:4px 11px;font-size:.82rem;cursor:pointer;min-height:32px}
+.btn.on{border-color:var(--brand);background:#0b2a3f;color:var(--link)}
+/* filter controls */
+.fbar{display:flex;gap:8px;align-items:center;margin:10px 0 6px;flex-wrap:wrap}
+.search{position:relative;flex:1;min-width:150px}
+.search input{width:100%;background:#12151b;border:1px solid var(--line);border-radius:8px;padding:6px 30px 6px 30px;min-height:36px;font-size:.92rem}
+.search input:focus{outline:2px solid var(--prog);outline-offset:0}
+.search svg{position:absolute;left:9px;top:10px;width:16px;height:16px;stroke:var(--dim);fill:none;stroke-width:2}
+.search .x{position:absolute;right:4px;top:3px;border:0;background:none;color:var(--dim);width:30px;height:30px;cursor:pointer;font-size:1.1rem}
+.sel{background:#12151b;border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-height:36px;font-size:.88rem;cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap}
+.sel.on{border-color:var(--prog);color:var(--link)}
+.sw{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--ink2);cursor:pointer;white-space:nowrap;min-height:36px}
+.sw i{width:32px;height:18px;border-radius:9px;background:var(--faint);position:relative;transition:.15s}.sw i:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s}
+.sw.on i{background:var(--ok)}.sw.on i:after{left:16px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px}
+.tchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.8rem;color:var(--ink2);background:#12151b;cursor:pointer;min-height:30px}
+.tchip.on{border-color:var(--prog);background:#0b2a3f;color:var(--link)}.tchip b{font-weight:600;color:var(--dim);font-size:.75rem}.tchip.on b{color:var(--link)}
+.tchip svg{width:14px;height:14px}
+.menu{border:1px solid var(--line);background:var(--raised);border-radius:10px;padding:6px;margin:0 0 8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px;box-shadow:0 8px 24px #0008}
+.menu label{display:flex;gap:8px;align-items:center;padding:7px 8px;border-radius:6px;font-size:.88rem;cursor:pointer}.menu label.on{background:#0b2a3f;color:var(--link)}
+.menu .ck{width:16px;height:16px;border:1.5px solid var(--faint);border-radius:4px;display:grid;place-items:center;font-size:.7rem;line-height:1}.menu .on .ck{background:var(--prog);border-color:var(--prog);color:#06202f}
+.status{font-size:.8rem;color:var(--dim);margin:2px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.status a{color:var(--link);cursor:pointer;text-decoration:underline}
+.live{color:var(--ok)}
+/* tree */
+ul.tasks{list-style:none;margin:0;padding:0}ul.tasks ul.tasks{margin-left:22px;border-left:1px solid var(--line);padding-left:8px}
+li.task{margin:0}
+.row{display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:8px;min-height:40px;flex-wrap:wrap}.row:hover{background:#1b1f27}
+.handle{color:var(--faint);cursor:grab}
+.chev{width:26px;height:26px;border:0;background:none;color:var(--dim);cursor:pointer;display:grid;place-items:center;border-radius:6px;flex:none;padding:0}
+.chev:hover{background:var(--raised);color:var(--ink)}.chev svg{width:14px;height:14px;transition:transform .12s;stroke:currentColor;fill:none;stroke-width:2.4}.open>.row .chev svg{transform:rotate(90deg)}
+.chev.sp{visibility:hidden}
+.glyph{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--dim);flex:none}.st-done .glyph{border-color:var(--ok);background:var(--ok)}.st-done .title{color:var(--dim);text-decoration:line-through;text-decoration-color:var(--faint)}
+.ticon{width:16px;height:16px;stroke:var(--dim);fill:none;stroke-width:1.8;flex:none}
+.title{color:var(--ink);text-decoration:none;flex:0 1 auto;min-width:0;overflow-wrap:anywhere}.title mark{background:#e69f0040;color:var(--ink);border-radius:3px;padding:0 1px}
+.kids{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:0 9px;font-size:.76rem;color:var(--ink2);background:#12151b;cursor:pointer;min-height:24px}
+.kids:hover{border-color:var(--faint)}.kids em{font-style:normal;color:var(--dim)}
+.prog-bar{display:inline-block;width:44px;height:5px;background:var(--line);border-radius:3px;overflow:hidden}.prog-bar i{display:block;height:100%;background:var(--ok)}
+.tag{border:1px solid var(--line);border-radius:999px;padding:0 8px;font-size:.74rem;color:var(--dim)}
+.tag.k-failed{color:var(--err);border-color:var(--err)}.tag.k-q{color:var(--attn);border-color:var(--attn)}.tag.k-rev{color:var(--review);border-color:var(--review)}
+.sqid{color:#b4bac4;margin-left:auto}
+.dimrow>.row{opacity:.5}
+.empty{padding:18px;text-align:center;color:var(--dim);border:1px dashed var(--line);border-radius:10px;margin:8px 0}
+.empty button{margin-top:6px}
+.sticky{position:sticky;top:0;background:var(--card);z-index:3;margin:0 -14px;padding:0 14px}
+.toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:var(--raised);border:1px solid var(--line);padding:6px 12px;border-radius:8px;font-size:.82rem;display:none}
+@media(max-width:560px){.wrap{padding:8px 8px 30px}.sec{padding:10px 10px}.sqid,.handle,.prog-bar{display:none}.row{gap:6px;flex-wrap:nowrap}.row .tag{white-space:nowrap}.title{flex:1 1 0}.kids span.prog-bar{display:none}.kids:after{content:'';}ul.tasks ul.tasks{margin-left:14px}.hidephone{display:none}}
+</style>
+<div class="bar"><b style="color:var(--ink)">Iscg9z</b> variant
+<button data-v="A">A Toolbar</button><button data-v="B">B Type chips</button><button data-v="C">C Single field</button><span style="width:10px"></span>
+<button id="live">simulate live update</button><button id="reset">reset</button><span>filter lives in the URL hash; try reload</span></div>
+<div class="wrap"><div class="sec" id="card"></div></div><div class="toast" id="toast"></div>
+<script>
+const IC={code:'<path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/>',bug:'<circle cx="12" cy="14" r="5"/><path d="M12 9V5M7 12H3M21 12h-4M7 17l-3 2M17 17l3 2M9 5l3 2 3-2"/>',ux:'<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/>',docs:'<path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7"/>',research:'<circle cx="11" cy="11" r="6"/><path d="M16 16l5 5"/>',feature:'<path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/>',arch:'<path d="M3 20h18M5 20V9l7-5 7 5v11M10 20v-6h4v6"/>'};
+const TL={code:'Code',bug:'Bug',ux:'UX design',docs:'Docs',research:'Research',feature:'Feature',arch:'Architecture'};
+const ico=t=>`<svg class="ticon" viewBox="0 0 24 24" aria-label="${TL[t]}"><title>${TL[t]}</title>${IC[t]}</svg>`;
+let T=[
+ {id:'q7Rm2a',t:'Projects as the primary lens',ty:'feature',st:'open',k:[
+  {id:'k3Lp9x',t:'Project page: sections and header',ty:'ux',st:'done'},
+  {id:'w2Hs5c',t:'Projects list with roll-up counts',ty:'code',st:'done'},
+  {id:'b8Vn1d',t:'Project chat panel',ty:'code',st:'open',tag:['k-rev','◐ in review']},
+  {id:'n5Qe7f',t:'Backlog filter and collapsed parents',ty:'ux',st:'open'}]},
+ {id:'t4Ye6h',t:'Action state machine',ty:'architecture'==0?'':'arch',st:'open',k:[
+  {id:'g1Zu3j',t:'Failed and stale states for every action',ty:'code',st:'open',tag:['k-failed','✕ failed']},
+  {id:'p9Ax4k',t:'Timeout copy and retry affordance',ty:'ux',st:'open'},
+  {id:'r6Cd8m',t:'Fix double-submit on Queue all',ty:'bug',st:'done'}]},
+ {id:'h3Fj2n',t:'Runner: worktree takeover after a blocked run',ty:'bug',st:'open'},
+ {id:'s8Kw5p',t:'Transcript search in the run view',ty:'feature',st:'open',k:[
+  {id:'d4Mn7q',t:'Index run output',ty:'code',st:'open'},
+  {id:'y2Bt9r',t:'Search box and match navigation',ty:'ux',st:'open'},
+  {id:'u7Lc3s',t:'Docs: searching transcripts',ty:'docs',st:'open'},
+  {id:'e5Gv1t',t:'Bug: matches drift when output streams',ty:'bug',st:'open',tag:['k-q','? needs input']}]},
+ {id:'c1Xa8u',t:'Research: offline-first task capture on phones',ty:'research',st:'open'},
+ {id:'m6Rd4v',t:'Settings: runner templates documentation',ty:'docs',st:'done'},
+ {id:'j9Pq2w',t:'Release 0.9 checklist',ty:'feature',st:'open',k:[
+  {id:'a3Sk6x',t:'Changelog',ty:'docs',st:'open'},{id:'f8Ho1y',t:'Smoke test the install script',ty:'code',st:'open'}]},
+];
+const TYPES=['code','bug','ux','docs','research','feature','arch'];
+const S={v:'A',q:'',types:[],done:false,open:{},menu:false,live:0};
+const hashGet=()=>{const h=location.hash.slice(1);const p=new URLSearchParams(h.replace(/^[ABC]\??/,''));const v=(h.match(/^[ABC]/)||['A'])[0];S.v=v;S.q=p.get('q')||'';S.types=(p.get('type')||'').split(',').filter(Boolean);S.done=p.get('done')=='1';S.menu=p.get('menu')=='1'};
+const hashSet=()=>{const p=new URLSearchParams();if(S.q)p.set('q',S.q);if(S.types.length)p.set('type',S.types.join(','));if(S.done)p.set('done','1');if(S.menu)p.set('menu','1');const s=p.toString();history.replaceState(null,'','#'+S.v+(s?'?'+s:''))};
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const hl=t=>{if(!S.q)return esc(t);const i=t.toLowerCase().indexOf(S.q.toLowerCase());return i<0?esc(t):esc(t.slice(0,i))+'<mark>'+esc(t.slice(i,i+S.q.length))+'</mark>'+esc(t.slice(i+S.q.length))};
+const filtering=()=>S.q||S.types.length;
+const self=n=>(!S.q||n.t.toLowerCase().includes(S.q.toLowerCase())||n.id.toLowerCase().startsWith(S.q.toLowerCase()))&&(!S.types.length||S.types.includes(n.ty))&&(S.done||n.st!='done');
+// a node is shown if it matches, or any descendant matches; ancestors of matches stay as dimmed context
+function vis(n){const kids=(n.k||[]).map(vis).filter(Boolean);const m=self(n);if(!m&&!kids.length)return null;return {n,m,kids,all:n.k||[]}}
+function tree(){return T.map(vis).filter(Boolean)}
+const countAll=()=>{let c=0;const w=l=>l.forEach(n=>{c++;w(n.k||[])});w(T);return c};
+function typeCount(ty){let c=0;const w=l=>l.forEach(n=>{if(n.ty==ty&&(S.done||n.st!='done'))c++;w(n.k||[])});w(T);return c}
+function li(v,depth){const {n,m,kids,all}=v;const hasK=all.length;
+ const open=hasK&&(S.open[n.id]!==undefined?S.open[n.id]:(filtering()&&kids.length>0&&!!kids.length&&kids.some(k=>k.m||k.kids.length)));
+ const nd=all.filter(k=>k.st=='done').length;const hiddenDone=!S.done?nd:0;
+ const visK=all.length-hiddenDone;
+ const cnt=hasK?`<button class="kids" data-t="${n.id}" aria-expanded="${!!open}" title="${open?'Collapse':'Expand'} ${visK} subtasks"><span>${visK}</span><em>subtask${visK==1?'':'s'}</em>${nd&&S.done?`<span class="prog-bar"><i style="width:${100*nd/all.length}%"></i></span><em>${nd}/${all.length}</em>`:''}${!open&&filtering()&&kids.length&&kids.length<visK?`<em>· ${kids.length} match</em>`:''}</button>`:'';
+ const tag=n.tag?`<span class="tag ${n.tag[0]}">${n.tag[1]}</span>`:'';
+ return `<li class="task st-${n.st} ${open?'open':''} ${m?'':'dimrow'}"><div class="row"><span class="handle">⠿</span>
+ ${hasK?`<button class="chev" data-t="${n.id}" aria-label="${open?'Collapse':'Expand'}"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>`:'<span class="chev sp"></span>'}
+ <span class="glyph"></span>${ico(n.ty)}<a class="title">${hl(n.t)}</a>${cnt}${tag}<code class="sqid">${n.id}</code></div>
+ ${open?`<ul class="tasks">${kids.map(k=>li(k)).join('')}</ul>`:''}</li>`}
+const SEARCH=`<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16l5 5"/></svg><input id="q" value="" placeholder="Filter backlog…" aria-label="Filter backlog" autocomplete="off">${'${X}'}</div>`;
+const search=ph=>`<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16l5 5"/></svg><input id="q" value="${esc(S.q)}" placeholder="${ph||'Filter backlog…'}" aria-label="Filter backlog" autocomplete="off">${S.q?'<button class="x" id="qx" aria-label="Clear text">×</button>':''}</div>`;
+const sw=()=>`<label class="sw ${S.done?'on':''}" id="swd" role="switch" aria-checked="${S.done}" tabindex="0"><i></i>Show done</label>`;
+const tsel=()=>`<button class="sel ${S.types.length?'on':''}" id="tsel" aria-expanded="${S.menu}">Type${S.types.length?': '+(S.types.length==1?TL[S.types[0]]:S.types.length+' types'):': all'} <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:3"><path d="M6 9l6 6 6-6"/></svg></button>`;
+const menu=()=>S.menu?`<div class="menu" role="group" aria-label="Task type">${TYPES.map(t=>`<label class="${S.types.includes(t)?'on':''}" data-ty="${t}"><span class="ck">${S.types.includes(t)?'✓':''}</span>${ico(t)}${TL[t]}<span class="dim small" style="margin-left:auto">${typeCount(t)}</span></label>`).join('')}</div>`:'';
+const tchips=()=>`<div class="chips" role="group" aria-label="Task type">${TYPES.map(t=>`<button class="tchip ${S.types.includes(t)?'on':''}" data-ty="${t}" aria-pressed="${S.types.includes(t)}">${ico(t)}${TL[t]}<b>${typeCount(t)}</b></button>`).join('')}</div>`;
+function status(vs){const n=(function c(l){return l.reduce((a,v)=>a+(v.m?1:0)+c(v.kids),0)})(vs);
+ if(!filtering()&&!S.done)return '';
+ return `<div class="status">${filtering()?`<span><b style="color:var(--ink)">${n}</b> of ${countAll()} tasks match</span>`:''}${S.live?`<span class="live">● ${S.live} new since you filtered — list updated, filter kept</span>`:''}${filtering()?'<a id="clr">Clear filter</a>':''}</div>`}
+function body(vs){if(!vs.length)return `<div class="empty">Nothing in the backlog matches ${S.q?'“'+esc(S.q)+'”':'these types'}${!S.done?' <span class="dim">(done tasks are hidden)</span>':''}.<br><button class="btn" id="clr">Clear filter</button> ${!S.done?'<button class="btn" id="showd">Include done</button>':''}</div>`;
+ return `<ul class="tasks root">${vs.map(v=>li(v)).join('')}</ul>`}
+const head=()=>`<div class="row0"><h3>Backlog</h3><span class="dim small">${T.length} top-level</span><span class="grow"></span><button class="btn hidephone">Expand all</button><button class="btn">Queue all</button></div>`;
+function render(){const vs=tree();let h=head();
+ if(S.v=='A'){h+=`<div class="fbar">${search()}${tsel()}${sw()}</div>${menu()}`}
+ if(S.v=='B'){h+=`<div class="fbar">${search()}${sw()}</div>${tchips()}`}
+ if(S.v=='C'){h+=`<div class="fbar">${search('Filter — text, or type:bug')}<button class="sel ${S.types.length?'on':''}" id="tsel" aria-label="Task type"><svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>${S.types.length||''}</button><button class="sel ${S.done?'on':''}" id="swd" role="switch" aria-checked="${S.done}">${S.done?'✓ ':''}Done</button></div>${menu()}${S.types.length?`<div class="chips">${S.types.map(t=>`<button class="tchip on" data-ty="${t}">${ico(t)}${TL[t]} ×</button>`).join('')}</div>`:''}`}
+ h+=status(vs)+body(vs);
+ const f=document.activeElement&&document.activeElement.id=='q';const pos=f?document.activeElement.selectionStart:0;
+ document.getElementById('card').innerHTML=h;
+ document.querySelectorAll('[data-v]').forEach(b=>b.classList.toggle('on',b.dataset.v==S.v));
+ if(f){const i=document.getElementById('q');i.focus();i.setSelectionRange(pos,pos)}
+ hashSet()}
+document.addEventListener('input',e=>{if(e.target.id=='q'){S.q=e.target.value;S.open={};render()}});
+document.addEventListener('click',e=>{const c=e.target.closest('button,label,a,[id]');if(!c)return;
+ if(c.dataset.v){S.v=c.dataset.v;render()}
+ else if(c.id=='reset'){S.q='';S.types=[];S.done=false;S.open={};S.menu=false;S.live=0;render()}
+ else if(c.id=='live'){S.live++;T.splice(1,0,{id:'L'+Math.random().toString(36).slice(2,7),t:'New: '+['Bug: stale badge after retry','Docs: filter syntax'][S.live%2],ty:['bug','docs'][S.live%2],st:'open'});render()}
+ else if(c.id=='qx'){S.q='';render()} else if(c.id=='clr'){S.q='';S.types=[];S.open={};render()} else if(c.id=='showd'){S.done=true;render()}
+ else if(c.id=='swd'||c.closest('#swd')){S.done=!S.done;render()}
+ else if(c.id=='tsel'){S.menu=!S.menu;render()}
+ else if(c.dataset.ty){const t=c.dataset.ty;S.types=S.types.includes(t)?S.types.filter(x=>x!=t):[...S.types,t];render()}
+ else if(c.dataset.t){const id=c.dataset.t;const cur=c.closest('li').classList.contains('open');S.open[id]=!cur;render()}});
+document.addEventListener('keydown',e=>{if(e.target.id=='swd'&&(e.key==' '||e.key=='Enter')){e.preventDefault();S.done=!S.done;render()}});
+window.demo={set(o){Object.assign(S,o);render()}};
+hashGet();render();addEventListener('hashchange',()=>{hashGet();render()});
+if(location.search.includes('shot'))document.body.classList.add('shot');
+</script>
