@@ -657,6 +657,39 @@ CI results and merges done on GitHub arrive by webhook (step 10.4), with a recon
 
 `wrangl logs search 'panic OR timeout' --project web` searches every run's output.
 
+### Archiving a project
+
+When a project is finished (or abandoned), archive it instead of deleting it:
+
+```sh
+wrangl project archive web      # hide it and its tasks, stop all work on it
+wrangl project list --archived  # only archived projects (--all: active and archived)
+wrangl project restore web      # bring it back
+```
+
+- **Refused while runs are active.** Archiving never orphans a running run: if any run of the
+  project is assigned, preparing, running, waiting for input, pushing or cancelling, the command
+  fails and lists each one (run id, state, task, title). Let them finish or cancel them
+  (`wrangl run cancel`), then archive again. There is no cancel-and-archive option.
+- **Queued runs are cancelled** with the reason `project archived`. Restoring does not requeue
+  them; queue the tasks again.
+- **Hidden:** the project and its tasks disappear from `wrangl project list`, `task list`,
+  the Inbox (questions, task reviews, PRs), run lists, log search, the Tasks page and the left
+  panel, the Settings project list, and the project list the agents' MCP tools see. By-name
+  lookups (`project show`, `task show`, `/project/<slug>`, `/task/<sqid>`) still work.
+- **Inert:** the scheduler assigns no runs and launches no runners for it (`fleet.launch`
+  proposals are refused), auto-queue and auto-merge do nothing, new tasks are rejected (HTTP
+  409 "project ... is archived"), and no new task-review or failure questions are raised.
+  Nothing is lost: pull requests stay on record (a PR merged or closed on GitHub is still
+  marked so), issue sync keeps recording, and PRs are reviewed and adopted again after a restore.
+- **API:** `POST /api/v1/projects/{slug}/archive` (409 with `{"error", "runs": [{id, state,
+  task, title}]}` when refused; otherwise the project and `cancelled_runs`),
+  `POST /api/v1/projects/{slug}/restore`, and `GET /api/v1/projects?archived=active|archived|all`.
+  Project JSON carries `archived` and `archived_at`.
+- **Web app:** archived projects are listed by `wrangl project list --archived`; the web app has
+  no Archive or Restore buttons yet (a design is in `docs/design/3c6W9Q/`), so archive and
+  restore from the CLI or API.
+
 ## 10. Cloudflare Zero Trust, and the PWA
 
 This puts the controller's API on a hostname you can reach from anywhere, behind Cloudflare
