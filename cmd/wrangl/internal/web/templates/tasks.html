@@ -58,6 +58,7 @@
     <a class="title" href="/task/{{.Sqid}}" onclick="return toggleDetail('{{.Sqid}}', event)" aria-expanded="false">{{.Title}}</a>
     {{if .Crumbs}}<span class="crumbs dim small">{{range $i, $c := .Crumbs}}{{if $i}} › {{end}}<a href="/task/{{$c.Sqid}}">{{$c.Title}}</a>{{end}}</span><a class="tag" href="/task/{{.Parent}}" title="Go to the parent task">↑ parent</a>{{end}}
     {{if .Mockups}}<a class="tag mock" href="/task/{{.Sqid}}#deliverables" title="{{.Mockups}} deliverable{{if gt .Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{.Mockups}}</a>{{end}}
+    {{if .Change.URL}}<a class="tag commit" href="{{.Change.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Change.Title}}">{{faicon "edit"}}{{.Change.Label}}</a>{{end}}
     {{template "kindtag" .}}{{template "rollchips" .}}
     {{if and (eq .Kind "running") .LockedBy}}<span class="dim small" title="running on {{.LockedBy}}">{{.LockedBy}}</span>{{end}}
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}

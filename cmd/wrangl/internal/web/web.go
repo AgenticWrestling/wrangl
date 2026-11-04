@@ -513,7 +513,49 @@ type node struct {
 	Crumbs                   []crumb       // "Now" view: ancestors, root first
 	Mockups                  int           // deliverables (mockups, prototypes, reports) handed back on this task
 	Detail                   template.HTML // the expanded task's card, when this page has it open
+	Change                   changeLink    // where GitHub shows what this task changed (checkpoint commit, else its PR)
 	Kids                     []*node
+}
+
+// changeLink points at what changed on GitHub for a task: its checkpoint commit, or its PR.
+type changeLink struct{ URL, Label, Title string }
+
+// changeLinks maps task sqid to its change link, for every task of a project (projectID 0: all).
+// A task's newest checkpoint commit wins; a task with none falls back to its newest PR.
+func (h *Handler) changeLinks(ctx context.Context, projectID int64) map[string]changeLink {
+	out := map[string]changeLink{}
+	r := h.D.Fleet.DB.R
+	rows, err := r.QueryContext(ctx, `SELECT t.sqid, c.sha, r.owner, r.name FROM task_checkpoint c
+		JOIN task t ON t.id = c.task_id JOIN run ru ON ru.id = c.run_id JOIN repo r ON r.id = ru.repo_id
+		WHERE c.id = (SELECT MAX(id) FROM task_checkpoint WHERE task_id = c.task_id) AND (?1 = 0 OR t.project_id = ?1)`, projectID)
+	if err == nil {
+		for rows.Next() {
+			var sqid, sha, owner, repo string
+			if rows.Scan(&sqid, &sha, &owner, &repo) == nil {
+				short := sha
+				if len(short) > 7 {
+					short = short[:7]
+				}
+				out[sqid] = changeLink{"https://github.com/" + owner + "/" + repo + "/commit/" + sha, short, "What changed: commit " + short + " on GitHub"}
+			}
+		}
+		rows.Close()
+	}
+	rows, err = r.QueryContext(ctx, `SELECT t.sqid, p.url, p.gh_number FROM pull_request p JOIN task t ON t.id = p.task_id
+		WHERE p.id = (SELECT MAX(id) FROM pull_request WHERE task_id = p.task_id) AND (?1 = 0 OR t.project_id = ?1)`, projectID)
+	if err == nil {
+		for rows.Next() {
+			var sqid, url string
+			var n int64
+			if rows.Scan(&sqid, &url, &n) == nil && url != "" {
+				if _, ok := out[sqid]; !ok {
+					out[sqid] = changeLink{url, fmt.Sprintf("PR #%d", n), "What changed: pull request on GitHub"}
+				}
+			}
+		}
+		rows.Close()
+	}
+	return out
 }
 
 // crumb is one ancestor in a breadcrumb.
@@ -885,6 +927,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		prs, _ := db.RQ.ListPRs(ctx, "open")
 		d["Questions"], d["PRs"], d["Title"] = qs, prs, "Inbox"
+		d["Changes"] = h.changeLinks(ctx, 0)
 	case "project":
 		p, err := h.D.Projects.Project(ctx, reqValue(r, "slug"))
 		if err != nil {
@@ -1078,6 +1121,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 	}
 	secs.Now = nowLeaves(rows, 0)
 	attn := h.attentionKinds(ctx, slug)
+	changes := h.changeLinks(ctx, p.ID)
 	mockups := map[int64]int{}
 	if cs, err := db.RQ.CountDeliverablesForTasks(ctx, p.ID); err == nil {
 		for _, c := range cs {
@@ -1091,7 +1135,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 	lockOf := map[int64]string{}
 	for _, t := range rows {
 		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
-			Mockups: mockups[t.ID]}
+			Mockups: mockups[t.ID], Change: changes[t.Sqid]}
 		if t.State != "done" && t.State != "cancelled" {
 			n.AttnKind = attn[t.Sqid]
 			n.Attention = n.AttnKind != ""

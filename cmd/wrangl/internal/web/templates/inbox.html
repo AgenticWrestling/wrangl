@@ -1,7 +1,7 @@
 {{define "main-inbox"}}
 {{if and (not .Questions) (not .PRs)}}<p class="empty">Inbox zero. Questions from agents, plan proposals and PR reviews land here.</p>{{end}}
 {{range .Questions}}<section class="card q q-{{.Kind}} k-questions" id="q{{.ID}}" data-signals:qbusy{{.ID}}="false" data-class:busy="$qbusy{{.ID}}">
-  <div class="meta"><span class="tag k-questions">{{if eq .Kind "plan_review"}}◐ plan review{{else if eq .Kind "task_review"}}◐ task review{{else}}? needs input{{end}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}<span class="grow"></span><span class="dim">{{ago .CreatedAt}}</span></div>
+  <div class="meta"><span class="tag k-questions">{{if eq .Kind "plan_review"}}◐ plan review{{else if eq .Kind "task_review"}}◐ task review{{else}}? needs input{{end}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}{{with index $.Changes .Task}}{{if .URL}} · <a href="{{.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Title}}">{{faicon "edit"}}{{.Label}} ↗</a>{{end}}{{end}}<span class="grow"></span><span class="dim">{{ago .CreatedAt}}</span></div>
   <h3>{{.Prompt}}</h3>
   {{if .DetailMD}}<div class="prose">{{md .DetailMD}}</div>{{end}}
   {{if eq .Kind "plan_review"}}<pre class="outline">{{outline .Payload}}</pre>{{end}}
