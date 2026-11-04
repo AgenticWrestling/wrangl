@@ -43,6 +43,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/scheduler"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/taskreview"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
@@ -106,6 +107,7 @@ type Server struct {
 	Plans        *plans.Service
 	Agents       *agents.Service // controller agents ("Ask?" on a task)
 	Deliverables *deliverables.Service
+	TaskReview   *taskreview.Service
 	Costs        *costs.Service // nil without AWS
 	Push         *webpush.Service
 	Bus          *events.Bus
@@ -292,7 +294,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Push = &webpush.Service{DB: s.db, Keys: vapid, Subject: subject, Log: s.log}
 	s.Runs.OnQuestion = func(q dbgen.Question) {
 		title := map[string]string{"agent": "An agent has a question", "approval": "Approval needed", "pr_review": "PR waiting for review",
-			"plan_review": "Proposed split ready", "deliverable_review": "Deliverables ready for review", "system": "A run needs you"}[q.Kind]
+			"plan_review": "Proposed split ready", "deliverable_review": "Deliverables ready for review", "task_review": "A task needs your review", "system": "A run needs you"}[q.Kind]
 		s.Push.Notify(webpush.Notification{Title: title, Body: q.Prompt, URL: fmt.Sprintf("/inbox#q%d", q.ID), Tag: fmt.Sprintf("q%d", q.ID)})
 	}
 	s.Fleet.OnOffline = func(name string) {
@@ -328,6 +330,8 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Deliverables = &deliverables.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "deliverables"), Bus: s.Bus, Log: s.log}
 	s.Runs.ToolHandlers["submit_deliverable"] = s.Deliverables.Submit
 	s.Runs.AnswerHandlers["deliverable_review"] = s.Deliverables.Answer(s.review())
+	s.TaskReview = &taskreview.Service{DB: s.db, Runs: s.Runs, Stack: s.Stack, Bus: s.Bus, Log: s.log, Now: now}
+	s.Runs.AnswerHandlers["task_review"] = s.TaskReview.Answer
 	s.Plans = &plans.Service{DB: s.db, Stack: s.Stack, Runs: s.Runs, Log: s.log}
 	s.Agents = &agents.Service{DB: s.db, Stack: s.Stack, Bus: s.Bus, Log: s.log, Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
 	s.Agents.Recover(context.Background())
@@ -425,7 +429,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
 	}
-	loops.Add(6)
+	loops.Add(7)
 	go func() {
 		defer loops.Done()
 		s.PRs.Reconcile(loopCtx)
@@ -442,6 +446,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}()
 	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
 	go func() { defer loops.Done(); s.Deliverables.Loop(loopCtx) }()
+	go func() { defer loops.Done(); s.TaskReview.Loop(loopCtx, 30*time.Second) }()
 	go func() {
 		defer loops.Done()
 		if s.Costs == nil {

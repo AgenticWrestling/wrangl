@@ -141,6 +141,14 @@ type PR struct {
 	Merged  bool
 }
 
+// OpenPR is an open pull request as listed for a repository.
+type OpenPR struct {
+	PR
+	Title      string
+	HeadBranch string
+	Fork       bool // the head lives in another repository
+}
+
 // PRFile is one changed file.
 type PRFile struct {
 	Path                 string
@@ -166,4 +174,6 @@ type PRAPI interface {
 	Review(ctx context.Context, r Repo, number int64, event, body string) error // APPROVE | REQUEST_CHANGES | COMMENT
 	Merge(ctx context.Context, r Repo, number int64, title string) error        // squash
 	ClosePR(ctx context.Context, r Repo, number int64) error
+	// OpenPRs lists the repository's open pull requests (the first few hundred).
+	OpenPRs(ctx context.Context, r Repo) ([]OpenPR, error)
 }
