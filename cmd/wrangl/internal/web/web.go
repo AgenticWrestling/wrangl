@@ -309,18 +309,16 @@ func (h *Handler) taskPart(ctx context.Context, sqid, tmpl string) (template.HTM
 	return h.render(tmpl, data)
 }
 
-// attachDetail puts card on the node with the given sqid.
-func attachDetail(nodes []*node, sqid string, card template.HTML) bool {
+// attachDetail puts card on every node with the given sqid. A task can be listed more than once
+// (a leaf is in the backlog tree and in the "In progress" leaf view, a run's root in its run
+// entry), and only the one the page shows renders the card.
+func attachDetail(nodes []*node, sqid string, card template.HTML) {
 	for _, n := range nodes {
 		if n.Sqid == sqid {
 			n.Detail = card
-			return true
 		}
-		if attachDetail(n.Kids, sqid, card) {
-			return true
-		}
+		attachDetail(n.Kids, sqid, card)
 	}
-	return false
 }
 
 // detail serves a part of a task page as a fragment: part=card (default) or part=sheets. The
@@ -395,18 +393,25 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if sq := sess.get(); view == "tasks" && sq != "" {
-			if card, err := h.taskPart(r.Context(), sq, "main-task"); err == nil {
+			card, err := h.taskPart(r.Context(), sq, "main-task")
+			if err == nil {
+				// The card goes wherever the page lists the task: the backlog tree, a run entry
+				// (and its subtasks) in In progress / Queue, or the "In progress" leaf view.
+				var all []*node
 				if roots, ok := data["Roots"].([]*node); ok {
-					all := roots
-					for _, k := range []string{"Progress", "Queue"} {
-						if es, ok := data[k].([]*runEntry); ok {
-							for _, e := range es {
-								all = append(all, e.Node)
-							}
+					all = append(all, roots...)
+				}
+				if now, ok := data["Now"].([]*node); ok {
+					all = append(all, now...)
+				}
+				for _, k := range []string{"Progress", "Queue"} {
+					if es, ok := data[k].([]*runEntry); ok {
+						for _, e := range es {
+							all = append(all, e.Node)
 						}
 					}
-					attachDetail(all, sq, card)
 				}
+				attachDetail(all, sq, card)
 			}
 		}
 		main, err := h.render("main-"+view, data)
@@ -499,7 +504,7 @@ type node struct {
 	Attention                bool          // an open question, or its latest run failed / is blocked
 	AttnKind                 string        // "questions" or "failed" when Attention is set
 	Kind                     string        // the one state shown by colour + glyph + label (see stateKind)
-	Queueable int // open leaves in the subtree (or itself) that are neither queued nor running
+	Queueable                int           // open leaves in the subtree (or itself) that are neither queued nor running
 	RollRev, RollQ, RollFail int           // descendants awaiting review / answers / failed (containers)
 	Crumbs                   []crumb       // "Now" view: ancestors, root first
 	Mockups                  int           // deliverables (mockups, prototypes, reports) handed back on this task

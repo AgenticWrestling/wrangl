@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -182,6 +183,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		d.Q.UnbindRunTarget(context.WithoutCancel(ctx), r.ID)
 		d.Q.UnassignRun(context.WithoutCancel(ctx), r.ID)
 		d.Q.ReleaseRunner(context.WithoutCancel(ctx), dbgen.ReleaseRunnerParams{Now: nstr(s.Now().UTC().Format("2006-01-02T15:04:05.000Z")), ID: runner.ID})
+		s.Fleet.Bus.Publish("run", strconv.FormatInt(r.ID, 10)) // back to queued
 	}
 	session := runner.Name + ":" + r.TaskSqid
 	n, err := d.Q.AssignRun(ctx, dbgen.AssignRunParams{RunnerID: sql.NullInt64{Int64: runner.ID, Valid: true}, SessionName: session, ID: r.ID})
@@ -192,6 +194,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		return err
 	}
+	s.Fleet.Bus.Publish("run", strconv.FormatInt(r.ID, 10)) // queued -> assigned: live pages move it from Queue to In progress
 	if target != nil {
 		if err := d.Q.BindRunTarget(ctx, r.ID, targetRow.ID); err != nil {
 			release()
