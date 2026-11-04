@@ -22,6 +22,7 @@ func (h *Handler) viewInbox(ctx context.Context, view string, r *http.Request, d
 		return err
 	}
 	prs, _ := db.RQ.ListPRs(ctx, "open")
+	d["OpenQuestions"] = qs // reused for the sidebar badge
 	d["Title"] = "Inbox"
 	d["Items"] = h.inboxItems(ctx, qs, prs, h.changeLinks(ctx, 0))
 	return nil

@@ -18,6 +18,7 @@ const (
 	KindThread   = "thread"
 	KindRunner   = "runner"
 	KindLog      = "log"
+	KindDoc      = "doc" // a run's Markdown document finished loading (Inbox)
 )
 
 // Event is a change notice.
@@ -66,6 +67,9 @@ func (b *Bus) Thread(sqid string) { b.Publish(KindThread, sqid) }
 
 // Runner notes a change to a runner (by name).
 func (b *Bus) Runner(name string) { b.Publish(KindRunner, name) }
+
+// Doc notes that the Markdown document of a run (by id) is ready.
+func (b *Bus) Doc(runID int64) { b.Publish(KindDoc, strconv.FormatInt(runID, 10)) }
 
 // Log notes a new log entry (by subject).
 func (b *Bus) Log(subject string) { b.Publish(KindLog, subject) }

@@ -2,7 +2,6 @@ package web
 
 import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
-	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 
 	"context"
 	"database/sql"
@@ -173,7 +172,7 @@ func (h *Handler) runDoc(ctx context.Context, runID int64) *runDocT {
 		doc := h.fetchRunDoc(fctx, runID)
 		h.docs.Store(runID, &docEntry{doc: doc, at: time.Now()})
 		if doc != nil {
-			h.D.Bus.Publish(events.KindQuestion, "doc")
+			h.D.Bus.Doc(runID)
 		}
 	}()
 	return nil

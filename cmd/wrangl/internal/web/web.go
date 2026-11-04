@@ -7,6 +7,7 @@ package web
 
 import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 
 	"bytes"
 	"context"
@@ -383,7 +384,7 @@ func reqValue(r *http.Request, k string) string {
 // live is the page's Datastar stream: it re-renders #main on every change notice.
 func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	view := r.URL.Query().Get("view")
-	if _, ok := map[string]bool{"tasks": true, "task": true, "runners": true, "runner": true, "logs": true, "run": true, "inbox": true, "settings": true, "project": true}[view]; !ok {
+	if _, ok := liveKinds[view]; !ok {
 		w.WriteHeader(http.StatusNoContent) // static pages (diff, files) are not live
 		return
 	}
@@ -398,62 +399,88 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 	fl, _ := w.(http.Flusher)
-	push := func() {
-		data, err := h.data(r.Context(), view, r)
-		if err != nil {
-			return
-		}
-		if sq := sess.get(); view == "tasks" && sq != "" {
-			card, err := h.taskPart(r.Context(), sq, "main-task")
-			if err == nil {
-				// The card goes wherever the page lists the task: the backlog tree, a run entry
-				// (and its subtasks) in In progress / Queue, or the "In progress" leaf view.
-				var all []*node
-				if roots, ok := data["Roots"].([]*node); ok {
-					all = append(all, roots...)
-				}
-				if now, ok := data["Now"].([]*node); ok {
-					all = append(all, now...)
-				}
-				for _, k := range []string{"Progress", "Queue"} {
-					if es, ok := data[k].([]*runEntry); ok {
-						for _, e := range es {
-							all = append(all, e.Node)
+	push := func(wantMain, wantBadge bool) {
+		var open []proto.QuestionView
+		haveOpen := false
+		if wantMain {
+			data, err := h.data(r.Context(), view, r)
+			if err != nil {
+				return
+			}
+			open, haveOpen = data["OpenQuestions"].([]proto.QuestionView)
+			if sq := sess.get(); view == "tasks" && sq != "" {
+				card, err := h.taskPart(r.Context(), sq, "main-task")
+				if err == nil {
+					// The card goes wherever the page lists the task: the backlog tree, a run entry
+					// (and its subtasks) in In progress / Queue, or the "In progress" leaf view.
+					var all []*node
+					if roots, ok := data["Roots"].([]*node); ok {
+						all = append(all, roots...)
+					}
+					if now, ok := data["Now"].([]*node); ok {
+						all = append(all, now...)
+					}
+					for _, k := range []string{"Progress", "Queue"} {
+						if es, ok := data[k].([]*runEntry); ok {
+							for _, e := range es {
+								all = append(all, e.Node)
+							}
 						}
 					}
+					attachDetail(all, sq, card)
 				}
-				attachDetail(all, sq, card)
+			}
+			main, err := h.render("main-"+view, data)
+			if err != nil {
+				return
+			}
+			mergeFragments(w, `<main id="main">`+string(main)+`</main>`)
+			// The sidebar's recent projects change with the tasks, so they ride along with #main.
+			nav := map[string]any{}
+			if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context(), "active"); err == nil {
+				nav["NavProjects"], _ = recentProjects(ps, 5)
+			}
+			nav["Project"], _ = data["Project"].(string)
+			if html, err := h.render("subnav", nav); err == nil {
+				mergeFragments(w, string(html))
 			}
 		}
-		main, err := h.render("main-"+view, data)
-		if err != nil {
-			return
+		if wantBadge {
+			if !haveOpen { // the inbox view already asked; every other page asks once, here
+				open, _ = h.D.Runs.Questions(r.Context(), false)
+			}
+			mergeFragments(w, fmt.Sprintf(`<span id="inbox-badge" class="badge">%s</span>`, map[bool]string{true: strconv.Itoa(len(open)), false: ""}[len(open) > 0]))
 		}
-		open, _ := h.D.Runs.Questions(r.Context(), false)
-		badge := fmt.Sprintf(`<span id="inbox-badge" class="badge">%s</span>`, map[bool]string{true: strconv.Itoa(len(open)), false: ""}[len(open) > 0])
-		mergeFragments(w, `<main id="main">`+string(main)+`</main>`)
-		mergeFragments(w, badge)
 		if fl != nil {
 			fl.Flush()
 		}
 	}
-	push()
+	push(true, true)
 	keep := time.NewTicker(api.KeepAlive)
 	defer keep.Stop()
 	var debounce <-chan time.Time
+	var wantMain, wantBadge bool
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-sess.kick:
-			push()
-		case <-ch:
+			push(true, false)
+		case e := <-ch:
+			// Only events that change this page re-render it; a question or PR change also moves the
+			// Inbox badge, which every page shows.
+			m, b := liveRelevant(view, e.Kind)
+			if !m && !b {
+				continue
+			}
+			wantMain, wantBadge = wantMain || m, wantBadge || b
 			if debounce == nil {
 				debounce = time.After(250 * time.Millisecond)
 			}
 		case <-debounce:
 			debounce = nil
-			push()
+			push(wantMain, wantBadge)
+			wantMain, wantBadge = false, false
 		case <-keep.C:
 			io.WriteString(w, ": ping\n\n")
 			if fl != nil {
@@ -461,6 +488,32 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// liveKinds lists, per page, the bus event kinds that change what it shows. Anything else (a
+// runner heartbeat on the Settings page, say) leaves it alone.
+var liveKinds = map[string][]string{
+	"tasks":    {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindThread},
+	"task":     {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindThread},
+	"runners":  {events.KindRunner, events.KindRun},
+	"runner":   {events.KindRunner, events.KindRun},
+	"logs":     {events.KindLog, events.KindRun},
+	"run":      {events.KindRun, events.KindLog, events.KindTask},
+	"inbox":    {events.KindQuestion, events.KindPR, events.KindTask, events.KindRun, events.KindDoc},
+	"settings": {events.KindTask, events.KindLog},
+	"project":  {events.KindTask, events.KindPR, events.KindLog},
+}
+
+// liveRelevant says whether an event of this kind re-renders the page's #main, and whether it
+// moves the Inbox badge.
+func liveRelevant(view, kind string) (main, badge bool) {
+	for _, k := range liveKinds[view] {
+		if k == kind {
+			main = true
+		}
+	}
+	badge = kind == events.KindQuestion || kind == events.KindPR
+	return
 }
 
 // mergeFragments writes a Datastar patch-elements event (one data line per HTML line): the
