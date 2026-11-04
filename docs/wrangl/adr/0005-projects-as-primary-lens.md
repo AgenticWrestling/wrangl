@@ -96,3 +96,7 @@ UI: a "Comment" button next to "New task" opens the chat in a right-hand panel o
 5. Queue verbs: dequeue endpoint, Queue all, up/down, flash-on-act, Stop.
 6. Project chat: migration, `AskProject`, brief + chip, slash commands, panel UI, new proposal actions.
 7. e2e tests, SKILL.md, README text and screenshots (also updated incrementally per PR).
+
+## Addendum: how project chat was built (task i3Shwa)
+
+Decision 5 held (reuse the machinery) with one deviation in the storage: instead of making `task_thread.task_id` nullable (a table rebuild plus changes to the generated queries), project chat has its own table, `project_thread` (migration 35), with the same columns. Everything else is shared in `controller/agents`: the agent registry, the boxed execution (`Service.execute`, extracted from the task path so both use the same slot cap, secrets and timeout), session resume, `wrangl-proposals` parsing and `run`. Project-specific code is in `project.go`: `AskProject`, `projectBrief` (project, repos, live runs with the queue in rank order, open PRs, open tasks; 24 KiB cap, with the chip counts), `ApplyProject` (proposals expire when the project fingerprint changes), `/queue` and `/dequeue` handled before the model, and task ids in replies returned as structured `tasks` links. New proposal actions: `task.dequeue`, `queue.reorder`. API: `POST /api/v1/projects/{slug}/ask`, `GET /api/v1/projects/{slug}/thread` (messages plus `context` chip), `POST /api/v1/project-thread/{id}/apply/{n}`.

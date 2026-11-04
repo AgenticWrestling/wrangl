@@ -489,3 +489,20 @@ func (c *Client) Targets(ctx context.Context, all bool) ([]proto.TargetView, err
 func (c *Client) TerminateTarget(ctx context.Context, name string) error {
 	return c.json(ctx, http.MethodDelete, "/api/v1/targets/"+esc(name), nil, nil)
 }
+
+// AskProject asks a controller agent about a whole project (the project chat; "/queue x" and
+// "/dequeue x" are commands answered without the model).
+func (c *Client) AskProject(ctx context.Context, slug, agent, question string) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(slug)+"/ask", map[string]string{"agent": agent, "question": question}, nil)
+}
+
+// ProjectThread is the project chat as JSON: {"messages": [...], "context": {...}}.
+func (c *Client) ProjectThread(ctx context.Context, slug string) (json.RawMessage, error) {
+	var out json.RawMessage
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects/"+esc(slug)+"/thread", nil, &out)
+}
+
+// ApplyProjectProposal approves option n of a project chat message.
+func (c *Client) ApplyProjectProposal(ctx context.Context, msgID int64, n int) error {
+	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/project-thread/%d/apply/%d", msgID, n), nil, nil)
+}

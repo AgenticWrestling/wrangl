@@ -87,4 +87,42 @@ func registerAgents(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusOK, rows)
 	})
+	// Project chat (ADR 0005): ask about a whole project, read the thread, approve a proposal.
+	mux.HandleFunc("POST /api/v1/projects/{slug}/ask", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Agent    string `json:"agent"`
+			Question string `json:"question"`
+		}
+		if err := decode(r, &in); err != nil {
+			writeErr(w, err)
+			return
+		}
+		m, err := d.Agents.AskProject(r.Context(), r.PathValue("slug"), in.Agent, in.Question)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, m)
+	})
+	mux.HandleFunc("GET /api/v1/projects/{slug}/thread", func(w http.ResponseWriter, r *http.Request) {
+		msgs, chip, err := d.Agents.ProjectThread(r.Context(), r.PathValue("slug"))
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"messages": msgs, "context": chip})
+	})
+	mux.HandleFunc("POST /api/v1/project-thread/{id}/apply/{n}", func(w http.ResponseWriter, r *http.Request) {
+		id, e1 := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		n, e2 := strconv.Atoi(r.PathValue("n"))
+		if e1 != nil || e2 != nil {
+			writeErr(w, fmt.Errorf("%w: bad id", errs.Invalid))
+			return
+		}
+		if err := d.Agents.ApplyProject(r.Context(), id, n); err != nil {
+			writeErr(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 }

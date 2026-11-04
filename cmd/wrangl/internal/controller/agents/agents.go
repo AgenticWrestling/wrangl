@@ -62,6 +62,8 @@ type Service struct {
 	Launch func(ctx context.Context, project, template string, count int) ([]string, error)
 	// Queue queues work on a task (plans.QueueWork); needed for the task.queue proposal.
 	Queue func(ctx context.Context, sqid string) error
+	// Dequeue takes a task's queued run back out of the queue (runs.Dequeue); needed for task.dequeue and /dequeue.
+	Dequeue func(ctx context.Context, sqid string) error
 
 	sem chan struct{}
 }
@@ -80,7 +82,10 @@ func (s *Service) slots() chan struct{} {
 }
 
 // Recover marks asks interrupted by a restart as failed. Call once at startup.
-func (s *Service) Recover(ctx context.Context) { s.DB.Q.FailRunningThreadMessages(ctx) }
+func (s *Service) Recover(ctx context.Context) {
+	s.DB.Q.FailRunningThreadMessages(ctx)
+	s.DB.W.ExecContext(ctx, `UPDATE project_thread SET status = 'error', body = 'Interrupted by a restart; ask again.' WHERE status = 'running'`)
+}
 
 // Ask records the question and starts the agent in the background. agentName "" picks the default.
 func (s *Service) Ask(ctx context.Context, sqid, agentName, question string) (dbgen.TaskThread, error) {
@@ -132,23 +137,36 @@ func (s *Service) agent(ctx context.Context, name string) (dbgen.ControllerAgent
 
 func (s *Service) answer(ctx context.Context, sqid string, taskID, msgID int64, ag dbgen.ControllerAgent, session, prompt string) {
 	defer s.Bus.Publish("thread", sqid)
+	res, failBody, failed := s.execute(ctx, ag, session, prompt, systemPrompt+schemaHelp(), sqid)
+	if failed {
+		s.finish(ctx, msgID, failBody, "error", res.SessionID)
+		return
+	}
+	text, props := extractProposals(res.Text)
+	s.finish(ctx, msgID, text, "done", res.SessionID, props...)
+	if len(props) > 0 {
+		s.stamp(ctx, taskID, msgID)
+	}
+}
+
+// execute runs one agent turn on the controller: it waits for a slot (the cap is shared by task
+// and project asks), resolves the agent's secret and runs the CLI under the agent's time limit.
+// On failure failed is set and failBody is what to show the owner.
+func (s *Service) execute(ctx context.Context, ag dbgen.ControllerAgent, session, prompt, system, label string) (res Result, failBody string, failed bool) {
 	select { // wait for a slot, but not forever
 	case s.slots() <- struct{}{}:
 		defer func() { <-s.slots() }()
 	case <-time.After(2 * time.Minute):
-		s.finish(ctx, msgID, "Too many agents are busy on the controller; try again shortly.", "error", "")
-		return
+		return Result{}, "Too many agents are busy on the controller; try again shortly.", true
 	}
-	sp := Spec{Agent: ag, Prompt: prompt, System: systemPrompt + schemaHelp(), SessionID: session, Dir: s.dir()}
+	sp := Spec{Agent: ag, Prompt: prompt, System: system, SessionID: session, Dir: s.dir()}
 	if ag.Auth == "secret" {
 		if s.Secret == nil || ag.AuthSecret == "" {
-			s.finish(ctx, msgID, "This agent is set to use a secret but none is configured.", "error", "")
-			return
+			return Result{}, "This agent is set to use a secret but none is configured.", true
 		}
 		v, err := s.Secret(ag.AuthSecret)
 		if err != nil {
-			s.finish(ctx, msgID, "Reading the agent's secret failed: "+err.Error(), "error", "")
-			return
+			return Result{}, "Reading the agent's secret failed: " + err.Error(), true
 		}
 		sp.Env = append(sp.Env, ag.AuthEnv+"="+strings.TrimSpace(string(v)))
 	}
@@ -167,19 +185,14 @@ func (s *Service) answer(ctx context.Context, sqid string, taskID, msgID int64, 
 		if errors.Is(cctx.Err(), context.DeadlineExceeded) {
 			err = fmt.Errorf("timed out after %s", timeout)
 		}
-		s.Log.Warn("controller agent", "agent", ag.Name, "task", sqid, "err", err)
+		s.Log.Warn("controller agent", "agent", ag.Name, "scope", label, "err", err)
 		body := "The agent failed: " + err.Error()
 		if res.Text != "" {
 			body = res.Text + "\n\n_" + body + "_"
 		}
-		s.finish(ctx, msgID, body, "error", res.SessionID)
-		return
+		return res, body, true
 	}
-	text, props := extractProposals(res.Text)
-	s.finish(ctx, msgID, text, "done", res.SessionID, props...)
-	if len(props) > 0 {
-		s.stamp(ctx, taskID, msgID)
-	}
+	return res, "", false
 }
 
 func (s *Service) finish(ctx context.Context, id int64, body, status, session string, props ...Proposal) {

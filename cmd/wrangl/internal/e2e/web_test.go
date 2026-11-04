@@ -139,6 +139,14 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/projects/goalproj/settings", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
 	post("/ui/act/project-save?slug=goalproj", `{"pname":"Renamed","pgoals":"new **goals**","ptemplate":"","pautomerge":false,"pautoqueue":true}`)
 	get("/projects/goalproj/settings", "Renamed", "<strong>goals</strong>", "auto-queue")
+	// Project chat API: slash commands are answered without the model, and the thread carries the context chip.
+	if resp, err := hc.Post("http://x/api/v1/projects/web/ask", "application/json", strings.NewReader(`{"question":"/queue no-such-task-title"}`)); err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("project ask: %v %v", resp, err)
+	}
+	get("/api/v1/projects/web/thread", `"No open task matches`, `"context":{"tasks":`)
+	if resp, err := hc.Post("http://x/api/v1/projects/web/ask", "application/json", strings.NewReader(`{"question":"/nonsense"}`)); err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown slash command: %v %v", resp, err)
+	}
 	if page := get("/projects/goalproj"); strings.Contains(page, `id="needs-you"`) {
 		t.Fatal("a project with nothing waiting must not show the Needs you strip")
 	}
