@@ -452,6 +452,24 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusOK, proto.TaskRef{Sqid: t.Sqid.String, Title: t.Title, State: t.State})
 	})
+	// Reorder the Queue: ids are queued run ids in the wanted order. Only sets queue_rank on the
+	// runs; tasks are not reparented.
+	mux.HandleFunc("POST /api/v1/runs/queue-order", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Runs []int64 `json:"runs"`
+		}
+		if err := decode(r, &req); err != nil {
+			writeErr(w, err)
+			return
+		}
+		for i, id := range req.Runs {
+			if _, err := d.Fleet.DB.Q.SetRunQueueRank(r.Context(), dbgen.SetRunQueueRankParams{QueueRank: sql.NullFloat64{Float64: float64(i + 1), Valid: true}, ID: id}); err != nil {
+				writeErr(w, err)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /api/v1/tasks/{sqid}/needs/{pre}", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.Stack.NeedsAdd(r.Context(), r.PathValue("sqid"), r.PathValue("pre"), stack.User); err != nil {
 			writeErr(w, err)

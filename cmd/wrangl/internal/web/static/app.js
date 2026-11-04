@@ -87,6 +87,36 @@ function initSortables() {
   });
 }
 
+// The Queue list reorders runs only (queue_rank); it has its own group so nothing can be dropped
+// into the backlog, and it never calls the task move endpoint.
+function initQueueSort() {
+  if (!window.Sortable) return;
+  document.querySelectorAll('ul.queue-sort').forEach((el) => {
+    if (Sortable.get(el)) return;
+    Sortable.create(el, {
+      group: 'queue', handle: '.handle', animation: 150, forceFallback: true, fallbackOnBody: true,
+      delay: 120, delayOnTouchOnly: true,
+      onStart: () => { dragging = true; },
+      onEnd: async (evt) => {
+        dragging = false;
+        if (evt.oldIndex === evt.newIndex) return;
+        const runs = [...el.children].map((li) => Number(li.dataset.run)).filter(Boolean);
+        try {
+          const r = await fetch('/api/v1/runs/queue-order', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ runs }),
+          });
+          if (!r.ok) throw new Error(r.status);
+          toast('queue reordered');
+        } catch (e) {
+          toast('reorder failed: ' + e, true);
+          location.reload();
+        }
+      },
+    });
+  });
+}
+
 // --- terminal ----------------------------------------------------------------------------
 
 function b64bytes(s) {
@@ -436,6 +466,7 @@ document.addEventListener('click', (e) => {
 function boot() {
   markSections();
   initSortables();
+  initQueueSort();
   initTerminal();
   markFs();
   initTemplateEditor();
@@ -446,7 +477,7 @@ function boot() {
     let t;
     let rt;
     new MutationObserver((muts) => {
-      clearTimeout(t); t = setTimeout(() => { initSortables(); markFs(); markSections(); }, 50);
+      clearTimeout(t); t = setTimeout(() => { initSortables(); initQueueSort(); markFs(); markSections(); }, 50);
       if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
     }).observe(main, { childList: true, subtree: true });
   }

@@ -550,7 +550,8 @@ type runEntry struct {
 	Runner       string
 	Current      string // sqid of the leaf being worked
 	CurrentTitle string
-	Crumb        string // "parent > " for a queued task that is not a root
+	Rank         sql.NullFloat64 // owner-chosen queue_rank (Queue only)
+	Crumb        string          // "parent > " for a queued task that is not a root
 }
 
 // taskSections is what the Tasks page lists: running, queued and the rest.
@@ -1034,7 +1035,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			continue
 		}
 		taken[n] = true
-		e := &runEntry{Node: n, RunID: r.Run.ID, Kind: r.Run.Kind, State: r.Run.State, Runner: r.RunnerName, Current: r.CurrentSqid}
+		e := &runEntry{Node: n, RunID: r.Run.ID, Rank: r.Run.QueueRank, Kind: r.Run.Kind, State: r.Run.State, Runner: r.RunnerName, Current: r.CurrentSqid}
 		if c := bySqid[r.CurrentSqid]; c != nil {
 			e.CurrentTitle = c.Title
 		}
@@ -1049,7 +1050,15 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			secs.Progress = append(secs.Progress, e)
 		}
 	}
-	sort.SliceStable(secs.Queue, func(a, b int) bool { // tree order (project priority/rank), then FIFO
+	// Owner-ranked runs first (by queue_rank), then tree order (project priority/rank), then FIFO.
+	sort.SliceStable(secs.Queue, func(a, b int) bool {
+		ra, rb := secs.Queue[a].Rank, secs.Queue[b].Rank
+		if ra.Valid != rb.Valid {
+			return ra.Valid
+		}
+		if ra.Valid && ra.Float64 != rb.Float64 {
+			return ra.Float64 < rb.Float64
+		}
 		return order[secs.Queue[a].Node.Sqid] < order[secs.Queue[b].Node.Sqid]
 	})
 	var strip func(ns []*node) []*node

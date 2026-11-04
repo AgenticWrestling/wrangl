@@ -46,7 +46,7 @@ SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.at
        CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
 FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
 WHERE r.state = 'queued'
-ORDER BY p.priority DESC, t.rank, r.queued_at;
+ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at;
 
 -- name: ClaimIdleRunner :one
 -- A runner on the template with a free session slot, at the template's current version and not
@@ -184,3 +184,6 @@ WHERE r.state = 'running'
         COALESCE(r.started_at, r.queued_at)) <= sqlc.arg(cutoff)
   AND NOT EXISTS (SELECT 1 FROM question q WHERE q.run_id = r.id AND q.kind = 'approval'
                   AND json_extract(q.payload_json, '$.op') = 'cancel_run' AND q.created_at > sqlc.arg(cutoff));
+
+-- name: SetRunQueueRank :execrows
+UPDATE run SET queue_rank = sqlc.arg(queue_rank) WHERE id = sqlc.arg(id) AND state = 'queued';
