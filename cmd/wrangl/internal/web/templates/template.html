@@ -59,6 +59,9 @@
   <div id="tp-ami-box" hidden>
     <label>AMI id<input data-bind="tpami" id="tp-ami" class="mono" autocomplete="off" autocapitalize="off" placeholder="ami-…"></label>
     <div id="tp-ami-check" class="imgcheck"></div>
+    <div class="row"{{if not .HasAWS}} hidden{{end}}><button type="button" class="btn small" id="tp-ami-test" title="Launches one instance, checks it can bootstrap a runner, then terminates it">Test this image</button>
+      <span class="dim small">about 2 minutes, a few cents</span></div>
+    <ul id="tp-ami-test-out" class="imgcheck" aria-live="polite"></ul>
     <details class="market" id="tp-market"{{if not .HasAWS}} hidden{{end}}><summary>Search the AWS Marketplace</summary>
       <div class="row"><label class="grow">Product<input id="tp-mq" placeholder="e.g. genymotion" autocomplete="off"></label>
         <button type="button" class="btn" id="tp-msearch">Search</button></div>

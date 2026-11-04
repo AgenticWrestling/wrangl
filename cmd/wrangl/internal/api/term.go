@@ -248,9 +248,14 @@ func serveTerm(w http.ResponseWriter, r *http.Request, d Deps, hub *TermHub, rid
 	}
 	go func() {
 		defer cancel()
+		replaying := true
 		for ctx.Err() == nil {
 			msg, err := cons.Next(jetstream.FetchMaxWait(time.Second))
 			if err != nil {
+				if replaying { // caught up with an empty tail
+					replaying = false
+					sendJSON(termMsg{T: "live"})
+				}
 				// Caught up. A run's terminal ends with the run.
 				if n, perr := strconv.ParseInt(strings.TrimPrefix(id, "run-"), 10, 64); perr == nil && strings.HasPrefix(id, "run-") {
 					if cur, err := d.Fleet.DB.RQ.GetRun(ctx, n); err != nil || proto.Terminal(cur.State) {
@@ -269,6 +274,12 @@ func serveTerm(w http.ResponseWriter, r *http.Request, d Deps, hub *TermHub, rid
 			wc()
 			if err != nil {
 				return
+			}
+			if replaying {
+				if md, merr := msg.Metadata(); merr != nil || md.NumPending == 0 {
+					replaying = false
+					sendJSON(termMsg{T: "live"})
+				}
 			}
 		}
 	}()

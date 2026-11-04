@@ -17,7 +17,7 @@
 
   // --- engine adapter ---------------------------------------------------------------------
   // Everything wterm-specific lives here. To swap in xterm.js, return the same handle:
-  //   write(bytes) resize(cols, rows) fit() size() focus() setFont(px) lockHeight(bool) setPaused(bool) dispose()
+  //   appCursor() write(bytes) resize(cols, rows) fit() size() focus() setFont(px) lockHeight(bool) setPaused(bool) dispose()
   // and call o.onData(string) for typed input, o.onBytes(Uint8Array) for raw (mouse) bytes and
   // o.onResize(cols, rows) after the grid changes.
   const Engine = {
@@ -35,6 +35,8 @@
         fit: () => t.fit(),
         size: () => ({ cols: t.cols, rows: t.rows }),
         focus: () => t.focus(),
+        // DECCKM: the app wants ESC O A rather than ESC [ A for unmodified arrows/Home/End.
+        appCursor: () => !!(t.bridge && t.bridge.cursorKeysApp && t.bridge.cursorKeysApp()),
         setFont(px) {
           rowPx = Math.round(px * 1.2);
           el.style.setProperty('--term-font-size', px + 'px');
@@ -125,7 +127,7 @@
 
   // --- websocket ----------------------------------------------------------------------------
   // Server -> client: BINARY = PTY output (history replay, then live). TEXT JSON:
-  //   {t:'hello',cols,rows,live} first; {t:'size',cols,rows}; {t:'end'}; {t:'control',on}; {t:'error',msg}.
+  //   {t:'hello',cols,rows,live} first; {t:'live'} once the replay has caught up; {t:'size',cols,rows}; {t:'end'}; {t:'control',on}; {t:'error',msg}.
   // Client -> server: TEXT {t:'control',on}, {t:'size',cols,rows}; BINARY = keystrokes (dropped
   // by the server unless control is on).
   function connect(tab) {
@@ -135,6 +137,7 @@
     ws.binaryType = 'arraybuffer';
     tab.ws = ws;
     tab.helloSeen = false;
+    tab.gate.replay(); // history replays on every (re)connect; replies to it are dropped
     ws.onopen = () => {
       tab.everOpen = true;
       tab.backoff = 1000;
@@ -162,7 +165,7 @@
   function feed(tab, bytes) {
     const sc = tab.scroll;
     const stick = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
-    tab.h.write(bytes);
+    tab.gate.write(tab.h.write, bytes);
     if (stick && !tab.pane.classList.contains('ctl')) requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
   }
 
@@ -177,6 +180,9 @@
         tab.server = { cols: m.cols, rows: m.rows };
         if (m.live === false) markEnded(tab);
         layout(tab);
+        break;
+      case 'live':
+        tab.gate.live();
         break;
       case 'size':
         tab.server = { cols: m.cols, rows: m.rows };
@@ -243,7 +249,7 @@
     btn.setAttribute('aria-selected', 'false');
     btn.addEventListener('click', () => select(s.id));
 
-    tab = { id: s.id, kind: s.kind, title: s.title || s.id, pane, scroll, el, btn, pending: [], backoff: 1000, created: Date.now() };
+    tab = { id: s.id, kind: s.kind, title: s.title || s.id, pane, scroll, el, btn, pending: [], gate: window.wtermKeys.replyGate(), backoff: 1000, created: Date.now() };
     tabs.set(s.id, tab);
     renderTabLabel(tab);
     // run tabs first, shells after, each group in arrival order
@@ -253,7 +259,7 @@
 
     Engine.create(el, {
       cols: 80, rows: 24,
-      onData: (d) => sendTyped(tab, d),
+      onData: tab.gate.onData((d) => sendTyped(tab, d)),
       onBytes: (b) => { if (controlling && tab.id === active && tab.ws && tab.ws.readyState === WebSocket.OPEN) tab.ws.send(b); },
       onResize: () => { if (controlling && tab.id === active) sendSize(tab); },
     }).then((h) => {
@@ -387,7 +393,8 @@
 
   const csi = (final, num) => {
     const m = 1 + (mods.alt ? 2 : 0) + (mods.ctrl ? 4 : 0);
-    const out = m > 1 ? '\x1b[' + (num || 1) + ';' + m + final : '\x1b[' + (num || '') + final;
+    const t = tabs.get(active);
+    const out = window.wtermKeys.csi(final, num, m, !!(t && t.h && t.h.appCursor && t.h.appCursor()));
     clearMods();
     return out;
   };

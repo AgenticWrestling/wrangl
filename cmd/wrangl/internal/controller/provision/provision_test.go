@@ -243,3 +243,44 @@ func TestMarketplaceSearchAndLaunchCheck(t *testing.T) {
 		t.Fatal("a check must never launch anything")
 	}
 }
+
+func TestImageTestLaunchesReportsAndAlwaysTerminates(t *testing.T) {
+	ctx := context.Background()
+	run := func(rep *ProbeReport, werr error) (ImageTest, *Fake) {
+		f := NewFake()
+		p := &Provisioner{EC2: f, SSM: f, ControllerID: "c"}
+		ud, err := ProbeScript("http://10.0.1.5:4223", "tok123")
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := p.TestImage(ctx, Spec{Runner: "imagetest-x", Template: "imagetest", Arch: "arm64", DiskGiB: 20,
+			InstanceTypes: []string{"m7g.large"}, AMI: "ami-a", SubnetID: "subnet-1", SecurityGroupID: "sg-1", UserData: ud},
+			func(context.Context) (*ProbeReport, error) { return rep, werr })
+		return res, f
+	}
+
+	res, f := run(&ProbeReport{Systemd: "running", Curl: "/usr/bin/curl", HTTPS: "ok", Distro: "Ubuntu 24.04"}, nil)
+	if !res.OK || !res.Terminated || len(f.Terminated) != 1 || f.Terminated[0] != res.InstanceID {
+		t.Fatalf("good image: %+v terminated=%v", res, f.Terminated)
+	}
+
+	res, f = run(&ProbeReport{Systemd: "", Curl: "/usr/bin/curl", HTTPS: "curl: (6) Could not resolve host"}, nil)
+	failed := map[string]bool{}
+	for _, c := range res.Checks {
+		if !c.OK {
+			failed[c.Name] = true
+		}
+	}
+	if res.OK || !failed["systemd is running"] || !failed["outbound HTTPS works"] || failed["curl is installed"] || !res.Terminated {
+		t.Fatalf("bad image must name what failed and still terminate: %+v", res)
+	}
+
+	res, f = run(nil, context.DeadlineExceeded)
+	if res.OK || res.Error == "" || !res.Terminated || len(f.Terminated) != 1 {
+		t.Fatalf("an image that never reports is terminated and says why: %+v", res)
+	}
+
+	if _, err := ProbeScript("http://x;rm -rf /", "tok"); err == nil {
+		t.Fatal("unsafe enrol URL must be refused")
+	}
+}
