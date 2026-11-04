@@ -7,11 +7,11 @@ import (
 	"io"
 	"time"
 
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 const logGroup = "/aws/ssm/AWS-RunShellScript"

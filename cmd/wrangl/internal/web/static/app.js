@@ -1,5 +1,5 @@
 // wrangl PWA glue: sheets, drag-and-drop reordering, the read-only terminal, web push.
-// Live page updates are Datastar's job (data-on-load @get /ui/live in the layout).
+// Live page updates are Datastar's job (data-init @get /ui/live in the layout).
 'use strict';
 
 function openSheet(id) {
@@ -252,12 +252,175 @@ document.addEventListener('click', (e) => {
   markFs();
 });
 
+// --- adopt an instance (Runners) ----------------------------------------------------------------
+
+function openAdopt(region, id, arch, name) {
+  window.adoptRegion = region; window.adoptID = id;
+  const nm = document.getElementById('adopt-name'); if (nm) nm.textContent = name;
+  const sel = document.getElementById('adopt-tpl');
+  if (sel) {
+    let first = null;
+    [...sel.options].forEach((o) => { const ok = !arch || o.dataset.arch === arch; o.hidden = o.disabled = !ok; if (ok && !first) first = o; });
+    if (first) { sel.value = first.value; sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  }
+  const res = document.getElementById('adopt-result'); if (res) res.innerHTML = '';
+  openSheet('sheet-adopt');
+}
+window.openAdopt = openAdopt;
+
+// --- runner template editor ---------------------------------------------------------------------
+// The instance table, architecture toggle, minimums and image picker of /settings/templates/{name}.
+// Datastar holds the form values (hidden inputs are kept in step here); saving posts them.
+
+function initTemplateEditor() {
+  const root = document.getElementById('tpl');
+  if (!root || root.dataset.ready) return;
+  root.dataset.ready = '1';
+  const $ = (id) => document.getElementById(id);
+  const bound = (n) => root.querySelector('[data-bind="' + n + '"]');
+  const setVal = (el, v) => { if (!el) return; el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); };
+  const toMiB = (s, bare) => {
+    const m = /^\s*([\d.]+)\s*([A-Za-z]*)\s*$/.exec(s || '');
+    if (!m) return 0;
+    const mult = { mib: 1, m: 1, gib: 1024, g: 1024, tib: 1048576, t: 1048576 };
+    const u = m[2].toLowerCase();
+    return parseFloat(m[1]) * (u ? (mult[u] || 0) : bare);
+  };
+  const rows = [...root.querySelectorAll('#tp-types tbody tr')];
+  const usd = (v) => '$' + v.toFixed(4);
+  let arch = root.dataset.arch;
+
+  const minV = () => parseInt((bound('tpvcpu') || {}).value, 10) || 0;
+  const minM = () => toMiB((bound('tpram') || {}).value, 1);
+  const fits = (tr) => parseInt(tr.dataset.vcpu, 10) >= minV() && parseFloat(tr.dataset.mem) >= minM();
+
+  function refresh() {
+    const picked = [];
+    rows.forEach((tr) => {
+      const here = tr.dataset.arch === arch;
+      tr.hidden = !here;
+      const ok = fits(tr);
+      const cb = tr.querySelector('input[type=checkbox]');
+      tr.classList.toggle('nofit', !ok);
+      cb.disabled = !ok;
+      if (!here) cb.checked = false;
+      if (here && ok && cb.checked) picked.push(tr);
+    });
+    setVal($('tp-types-val'), picked.map((tr) => tr.dataset.type).join(','));
+    summary(picked);
+  }
+
+  function cheapest(picked) {
+    const pool = picked.length ? picked : rows.filter((tr) => tr.dataset.arch === arch && fits(tr));
+    return pool.filter((tr) => tr.dataset.known === '1').sort((a, b) => parseFloat(a.dataset.price) - parseFloat(b.dataset.price))[0];
+  }
+
+  function summary(picked) {
+    const el = $('tp-summary'), mc = $('tp-maxcost');
+    const c = cheapest(picked);
+    if (!el) return;
+    if (!c) { el.textContent = 'Nothing fits these minimums for ' + arch + '.'; if (mc) mc.textContent = ''; return; }
+    const p = parseFloat(c.dataset.price), max = parseInt((bound('tpmax') || {}).value, 10) || 0;
+    el.innerHTML = 'Would launch <b class="mono">' + c.dataset.type + '</b> at <b>' + usd(p) + '/h</b>' + (picked.length ? '' : ' (none ticked: the cheapest that fits)') +
+      (max > 1 ? '; all ' + max + ' runners busy <b>' + usd(p * max) + '/h</b>' : '') + '. <span class="dim">Plus the image\'s software fee, if any.</span>';
+    if (mc) mc.textContent = max ? 'at most ' + usd(p * max) + '/h at the cheapest pick' : '';
+  }
+
+  function setArch(a) {
+    arch = a;
+    root.querySelectorAll('#tp-arch button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.arch === a)));
+    setVal($('tp-arch-val'), a);
+    refresh();
+  }
+  root.querySelectorAll('#tp-arch button').forEach((b) => b.addEventListener('click', () => setArch(b.dataset.arch)));
+  rows.forEach((tr) => tr.querySelector('input[type=checkbox]').addEventListener('change', refresh));
+  ['tpvcpu', 'tpram', 'tpmax'].forEach((n) => { const el = bound(n); if (el) el.addEventListener('input', refresh); });
+  // Without a catalogue (no AWS) the types are a plain text field.
+  const tt = $('tp-types-text');
+  if (tt) tt.addEventListener('input', () => setVal($('tp-types-val'), tt.value));
+
+  // --- image ---
+  const imgVal = $('tp-img-val'), box = $('tp-ami-box');
+  function setImg(mode) {
+    root.querySelectorAll('input[name=tpimgr]').forEach((r) => { r.checked = r.value === mode; });
+    box.hidden = mode !== 'ami';
+    setVal(imgVal, mode);
+  }
+  root.querySelectorAll('input[name=tpimgr]').forEach((r) => r.addEventListener('change', () => setImg(r.value)));
+  const amiEl = $('tp-ami'), chk = $('tp-ami-check');
+  let ct;
+  async function checkAmi() {
+    const ami = (amiEl.value || '').trim();
+    chk.textContent = '';
+    if (!/^ami-[0-9a-f]+$/.test(ami)) return;
+    const c = cheapest(rows.filter((tr) => tr.dataset.arch === arch && tr.querySelector('input').checked)) || cheapest([]);
+    if (!c) return;
+    chk.textContent = 'Checking with EC2…';
+    try {
+      const r = await fetch('/api/v1/images/check?ami=' + encodeURIComponent(ami) + '&type=' + encodeURIComponent(c.dataset.type), { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) chk.innerHTML = '<span class="ok">✓ EC2 says it can launch this image on ' + c.dataset.type + '</span>';
+      else if (j.opt_in_required) chk.innerHTML = '<span class="warn">! Not subscribed.</span> Accept the vendor\'s terms in the AWS console first' + (j.subscribe_url ? ': <a href="' + j.subscribe_url.replace(/"/g, '') + '" target="_blank" rel="noopener">open the Marketplace page</a>' : '') + '.';
+      else chk.innerHTML = '<span class="warn">! ' + String(j.error || r.status).replace(/</g, '&lt;') + '</span>';
+    } catch (e) { chk.textContent = ''; }
+  }
+  if (amiEl) amiEl.addEventListener('input', () => { clearTimeout(ct); ct = setTimeout(checkAmi, 700); });
+  const ms = $('tp-msearch');
+  async function search() {
+    const out = $('tp-mres'), q = ($('tp-mq').value || '').trim();
+    out.textContent = 'Searching…';
+    try {
+      const r = await fetch('/api/v1/images?q=' + encodeURIComponent(q) + '&arch=' + encodeURIComponent(arch), { credentials: 'same-origin' });
+      const j = await r.json();
+      if (!r.ok) { out.textContent = j.error || r.status; return; }
+      out.innerHTML = '';
+      (j.images || []).forEach((im) => {
+        const row = document.createElement('div');
+        row.className = 'row mrow';
+        row.innerHTML = '<span class="grow"><b></b> <span class="dim small"></span></span><code class="mono small"></code><button type="button" class="btn small">Use</button>';
+        row.querySelector('b').textContent = im.name;
+        row.querySelector('.dim').textContent = im.arch;
+        row.querySelector('code').textContent = im.id;
+        row.querySelector('button').addEventListener('click', () => { setImg('ami'); setVal(amiEl, im.id); if (im.arch !== arch) setArch(im.arch); checkAmi(); });
+        out.appendChild(row);
+      });
+      if (!out.children.length) out.textContent = 'No Marketplace images for "' + q + '" on ' + arch + '.';
+    } catch (e) { out.textContent = 'Search failed.'; }
+  }
+  if (ms) { ms.addEventListener('click', search); $('tp-mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } }); }
+
+  setArch(arch);
+  setImg(root.dataset.img || 'al');
+  if ((amiEl.value || '').startsWith('ami-')) checkAmi();
+}
+
 // --- boot --------------------------------------------------------------------------------
 
+// Left panel (desktop): the Tasks sub-items jump to a section of the page. Sections that are
+// empty are not rendered, so their sub-items are hidden; clicking on the Tasks page scrolls
+// instead of reloading.
+function markSections() {
+  const onTasks = document.body.dataset.view === 'tasks';
+  document.querySelectorAll('.subnav a[data-sec]').forEach((a) => {
+    a.hidden = onTasks && !document.getElementById(a.dataset.sec);
+  });
+}
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('.subnav a[data-sec]');
+  if (!a || document.body.dataset.view !== 'tasks') return;
+  const el = document.getElementById(a.dataset.sec);
+  if (!el) return;
+  e.preventDefault();
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  history.replaceState(null, '', '#' + a.dataset.sec);
+});
+
 function boot() {
+  markSections();
   initSortables();
   initTerminal();
   markFs();
+  initTemplateEditor();
   pushState().catch(() => {});
   if (location.hash.length > 1) openSheet('sheet-' + location.hash.slice(1));
   const main = document.getElementById('main');
@@ -265,7 +428,7 @@ function boot() {
     let t;
     let rt;
     new MutationObserver((muts) => {
-      clearTimeout(t); t = setTimeout(() => { initSortables(); markFs(); }, 50);
+      clearTimeout(t); t = setTimeout(() => { initSortables(); markFs(); markSections(); }, 50);
       if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
     }).observe(main, { childList: true, subtree: true });
   }
@@ -284,9 +447,9 @@ document.addEventListener('keydown', (e) => {
 
 // Setup page: put the chosen App name into the manifest before it goes to GitHub.
 function ghManifest(form) {
-  const name = form.querySelector('#gh-name').value.trim();
+  const name = form.querySelector('.gh-name').value.trim();
   if (!name) return false;
-  const field = form.querySelector('#gh-manifest');
+  const field = form.querySelector('.gh-manifest');
   const m = JSON.parse(field.value);
   m.name = name;
   field.value = JSON.stringify(m);

@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Module path: `github.com/nreid/devhost`
+- Module path: `github.com/agenticwrestling/wrangl`
 - Binary output: `~/bin/ssm` via `go build -o ~/bin/ssm ./cmd/ssm`
 - CGO_ENABLED=0 (statically linked)
 - Target OS: darwin (local), linux (remote provisioning scripts only)
@@ -46,10 +46,10 @@ mkdir -p cmd/ssm/internal/ssh
 
 ```bash
 cd ~/code/devhost
-go mod init github.com/nreid/devhost
+go mod init github.com/agenticwrestling/wrangl
 ```
 
-Expected: `go.mod` created with `module github.com/nreid/devhost` and current Go version.
+Expected: `go.mod` created with `module github.com/agenticwrestling/wrangl` and current Go version.
 
 - [ ] **Step 3: Add dependencies**
 
@@ -142,7 +142,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 )
 
 func TestListProfiles(t *testing.T) {
@@ -274,7 +274,7 @@ import (
 	"context"
 	"testing"
 
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 )
 
 // Integration guard — skip if no AWS credentials available
@@ -486,7 +486,7 @@ import (
 	"fmt"
 
 	"github.com/ktr0731/go-fuzzyfinder"
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 )
 
 func PickProfile(profiles []string) (string, error) {
@@ -588,8 +588,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
-	"github.com/nreid/devhost/cmd/ssm/internal/ui"
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/ui"
 )
 
 func main() {

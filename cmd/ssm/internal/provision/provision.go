@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 const script = `#!/bin/bash

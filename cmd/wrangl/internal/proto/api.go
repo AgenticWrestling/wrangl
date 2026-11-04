@@ -48,6 +48,7 @@ type TemplateView struct {
 	InstanceTypes []string        `json:"instance_types"`
 	AMI           string          `json:"ami"`
 	MaxRunners    int64           `json:"max_runners"`
+	MaxSessions   int64           `json:"max_sessions"`
 	IdleTimeoutS  int64           `json:"idle_timeout_s"`
 	Version       int64           `json:"version"`
 	FailedVersion int64           `json:"failed_version,omitempty"`

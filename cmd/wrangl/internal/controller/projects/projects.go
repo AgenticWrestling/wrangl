@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 // Service manages projects, repos and issues.
@@ -178,8 +178,10 @@ func (s *Service) LinkRepo(ctx context.Context, slug, ref, branch string) (dbgen
 		return dbgen.Repo{}, err
 	}
 	r, err := s.GH.Repo(ctx, owner, name)
-	if errors.Is(err, gh.ErrNotInstalled) {
-		return dbgen.Repo{}, fmt.Errorf("%w: %v; install the wrangl author App on it", errs.Invalid, err)
+	var noApp *gh.NoAppError
+	if errors.Is(err, gh.ErrNotInstalled) || errors.As(err, &noApp) {
+		// %w twice keeps the typed error for the web app, which links to the fix
+		return dbgen.Repo{}, fmt.Errorf("%w: %w", errs.Invalid, err)
 	} else if err != nil {
 		return dbgen.Repo{}, err
 	}

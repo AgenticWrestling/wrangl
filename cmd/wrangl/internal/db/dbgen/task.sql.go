@@ -9,7 +9,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 )
 
 const addPrecursor = `-- name: AddPrecursor :exec
@@ -163,6 +163,24 @@ func (q *Queries) CompletedInRun(ctx context.Context, completedRunID sql.NullInt
 		return nil, err
 	}
 	return items, nil
+}
+
+const countInReviewLeaves = `-- name: CountInReviewLeaves :one
+WITH RECURSIVE sub (id) AS (
+    SELECT t.id FROM task t WHERE t.id = ?1
+    UNION ALL
+    SELECT c.id FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT CAST(COUNT(*) AS INTEGER) FROM sub JOIN task ON task.id = sub.id
+WHERE task.state = 'in_review'
+  AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled')
+`
+
+func (q *Queries) CountInReviewLeaves(ctx context.Context, rootID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countInReviewLeaves, rootID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const countOpenLeaves = `-- name: CountOpenLeaves :one

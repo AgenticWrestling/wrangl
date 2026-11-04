@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 func nstr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
@@ -33,7 +34,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		// Work runs need a leaf ready right now; review/revise/plan runs carry their prompt.
 		if r.Kind != "work" {
 			if err := s.assignOne(ctx, r); err != nil {
-				if !errors.Is(err, sql.ErrNoRows) {
+				if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, errWaitingForApp) {
 					errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
 				}
 				continue
@@ -53,7 +54,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 			continue
 		}
 		if err := s.assignOne(ctx, r); err != nil {
-			if !errors.Is(err, sql.ErrNoRows) { // no idle runner is normal
+			if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, errWaitingForApp) { // no idle runner is normal
 				errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
 			}
 			continue
@@ -126,6 +127,12 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	if s.GH != nil {
 		if token, _, err = s.GH.RepoToken(ctx, projects.GHRepo(repo)); err != nil {
 			release()
+			var noApp *gh.NoAppError
+			if errors.As(err, &noApp) || errors.Is(err, gh.ErrNotInstalled) {
+				// Not a failure: the run waits, visibly, until the owner sets the App up.
+				s.waitingForApp(ctx, r.ID, repo.Owner, repo.Name, err)
+				return errWaitingForApp
+			}
 			return fmt.Errorf("mint GitHub token for %s/%s: %w", repo.Owner, repo.Name, err)
 		}
 	}
@@ -149,4 +156,30 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	}
 	s.Log.Info("run assigned", "run", r.ID, "task", r.TaskSqid, "runner", runner.Name)
 	return nil
+}
+
+// errWaitingForApp marks a run held back because its repository's owner has no usable GitHub App.
+var errWaitingForApp = errors.New("waiting for a GitHub App")
+
+// waitingForApp shows on the run why it is waiting and, once per owner per hour, tells the owner
+// where to fix it (OnNeedApp: a push notification linking to the Settings flow).
+func (s *Scheduler) waitingForApp(ctx context.Context, runID int64, owner, name string, cause error) {
+	status := "waiting: " + cause.Error()
+	if len(status) > 300 {
+		status = status[:300]
+	}
+	s.Fleet.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: runID})
+	s.mu.Lock()
+	if s.askedApp == nil {
+		s.askedApp = map[string]time.Time{}
+	}
+	key := strings.ToLower(owner)
+	due := s.Now().Sub(s.askedApp[key]) > time.Hour
+	if due {
+		s.askedApp[key] = s.Now()
+	}
+	s.mu.Unlock()
+	if due && s.OnNeedApp != nil {
+		s.OnNeedApp(owner, name, cause)
+	}
 }

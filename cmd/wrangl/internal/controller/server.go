@@ -6,9 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	"github.com/aws/aws-sdk-go-v2/service/pricing"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,30 +27,30 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/api"
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/cfaccess"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/deliverables"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/plans"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/prs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/scheduler"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/webpush"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
-	"github.com/nreid/devhost/cmd/wrangl/internal/mcp"
-	"github.com/nreid/devhost/cmd/wrangl/internal/runner"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stacktools"
-	"github.com/nreid/devhost/cmd/wrangl/internal/web"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/cfaccess"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/deliverables"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/ghsetup"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/plans"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/scheduler"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/mcp"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stacktools"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/web"
 )
 
 // JetStream streams (spec §7).
@@ -69,9 +75,11 @@ type Server struct {
 
 	// Test hooks; production leaves them zero.
 	Provisioner         *provision.Provisioner // overrides the AWS-backed one
-	GH                  gh.API                 // overrides the GitHub App client built from config
-	Reviewer            gh.API                 // overrides the reviewer App client built from config
-	ReconcileInterval   time.Duration          // PR reconcile poll (default 15m)
+	GH                  gh.API                 // overrides the GitHub App client built from the accounts
+	Setup               *ghsetup.Service
+	multi               *gh.Multi
+	Reviewer            gh.API        // overrides the reviewer App client built from config
+	ReconcileInterval   time.Duration // PR reconcile poll (default 15m)
 	Now                 func() time.Time
 	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
 	SchedulerInterval   time.Duration // scale-up cadence (default 10s)
@@ -91,7 +99,9 @@ type Server struct {
 	Runs         *runs.Service
 	PRs          *prs.Service
 	Plans        *plans.Service
+	Agents       *agents.Service // controller agents ("Ask?" on a task)
 	Deliverables *deliverables.Service
+	Costs        *costs.Service // nil without AWS
 	Push         *webpush.Service
 	Bus          *events.Bus
 }
@@ -139,7 +149,32 @@ func (s *Server) awsProvisioner(ctx context.Context, controllerID string) (*prov
 	if err != nil {
 		return nil, fmt.Errorf("aws config: %w", err)
 	}
+	s.Costs = newCosts(ac, s.cfg.AWS.Region, s.log)
 	return &provision.Provisioner{EC2: ec2.NewFromConfig(ac), SSM: ssm.NewFromConfig(ac), ControllerID: controllerID}, nil
+}
+
+// newCosts builds the spend/inventory service from the same credentials. Cost Explorer and the
+// Pricing API are global services served from us-east-1; instances are read in every enabled
+// region.
+func newCosts(ac aws.Config, home string, log *slog.Logger) *costs.Service {
+	in := func(region string) aws.Config { c := ac.Copy(); c.Region = region; return c }
+	return &costs.Service{
+		Pricing: pricing.NewFromConfig(in("us-east-1")),
+		Cost:    costexplorer.NewFromConfig(in("us-east-1")),
+		EC2:     func(region string) costs.EC2API { return ec2.NewFromConfig(in(region)) },
+		Regions: func(ctx context.Context) ([]string, error) {
+			out, err := ec2.NewFromConfig(ac).DescribeRegions(ctx, &ec2.DescribeRegionsInput{})
+			if err != nil {
+				return nil, err
+			}
+			var rs []string
+			for _, r := range out.Regions {
+				rs = append(rs, aws.ToString(r.RegionName))
+			}
+			return rs, nil
+		},
+		Home: home, Log: log,
+	}
 }
 
 // Run starts everything, blocks until ctx is cancelled, then shuts down HTTP, NATS and
@@ -209,7 +244,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		BinDir: filepath.Join(s.cfg.DataDir, "bin"), Now: now, Log: s.log, AllowLoopbackEnroll: s.AllowLoopbackEnroll,
 	}
 
-	ghAPI, err := s.github()
+	ghAPI, err := s.github(ctx)
 	if err != nil {
 		return err
 	}
@@ -227,7 +262,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
 		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, Bus: s.Bus}
-	reviewer, err := s.reviewer()
+	reviewer, hasReviewer, err := s.reviewer()
 	if err != nil {
 		return err
 	}
@@ -239,14 +274,14 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			s.log.Warn("github webhook secret unreadable; webhooks disabled", "err", err)
 		}
 	}
-	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
+	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
 	vapid, err := webpush.EnsureKeys(SecretsDir(s.cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("VAPID keys: %w", err)
 	}
 	subject := "mailto:" + s.cfg.Cloudflare.OwnerEmail
 	if s.cfg.Cloudflare.OwnerEmail == "" {
-		subject = "https://github.com/nreid/devhost"
+		subject = "https://github.com/agenticwrestling/wrangl"
 	}
 	s.Push = &webpush.Service{DB: s.db, Keys: vapid, Subject: subject, Log: s.log}
 	s.Runs.OnQuestion = func(q dbgen.Question) {
@@ -277,6 +312,9 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Runs.ToolHandlers["submit_deliverable"] = s.Deliverables.Submit
 	s.Runs.AnswerHandlers["deliverable_review"] = s.Deliverables.Answer(s.review())
 	s.Plans = &plans.Service{DB: s.db, Stack: s.Stack, Runs: s.Runs, Log: s.log}
+	s.Agents = &agents.Service{DB: s.db, Stack: s.Stack, Bus: s.Bus, Log: s.log, Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	s.Agents.Recover(context.Background())
+	s.Agents.Queue = func(ctx context.Context, sqid string) error { _, err := s.Plans.QueueWork(ctx, sqid); return err }
 	s.Runs.ToolHandlers["propose_split"] = s.Plans.ProposeSplit
 	s.Runs.AnswerHandlers["plan_review"] = s.Plans.Answer
 	s.Runs.AnswerHandlers["pr_review"] = s.PRs.AnswerPR
@@ -352,13 +390,17 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if schedInterval == 0 {
 		schedInterval = 10 * time.Second
 	}
-	sched := &scheduler.Scheduler{Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
+	needApp := func(owner, repo string, cause error) {
+		s.Push.Notify(webpush.Notification{Title: "GitHub App needed for " + owner, Body: "Work on " + owner + "/" + repo + " is waiting: " + cause.Error(),
+			URL: "/setup?account=" + url.QueryEscape(owner) + "&repo=" + url.QueryEscape(owner+"/"+repo), Tag: "ghapp-" + strings.ToLower(owner)})
+	}
+	sched := &scheduler.Scheduler{OnNeedApp: needApp, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
 	reconcile := s.ReconcileInterval
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
 	}
-	loops.Add(5)
+	loops.Add(6)
 	go func() {
 		defer loops.Done()
 		s.PRs.Reconcile(loopCtx)
@@ -375,6 +417,13 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}()
 	go func() { defer loops.Done(); s.Fleet.Loop(loopCtx, interval) }()
 	go func() { defer loops.Done(); s.Deliverables.Loop(loopCtx) }()
+	go func() {
+		defer loops.Done()
+		if s.Costs == nil {
+			return
+		}
+		s.Costs.Loop(loopCtx, time.Minute)
+	}()
 	go func() { defer loops.Done(); sched.Loop(loopCtx, schedInterval) }()
 	go func() {
 		defer loops.Done()
@@ -477,9 +526,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables,
-		Setup: &ghsetup.Service{DataDir: s.cfg.DataDir, PublicURL: strings.TrimSuffix(s.cfg.Web.PublicURL, "/"),
-			AppName: appName(s.cfg.Cloudflare.OwnerEmail)}}
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
+		Setup: s.setupService()}
 	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	ui, err := web.New(deps)
@@ -497,43 +545,66 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
-// reviewer builds the reviewer App client from config (nil when not configured).
-func (s *Server) reviewer() (gh.API, error) {
+// reviewer builds the reviewer client. Reviewer Apps are per account (created from Settings);
+// an App set in controller.yaml (github.reviewer_app) serves owners with none of their own.
+// has reports whether an owner can be reviewed; it is nil when a test supplies its own client.
+func (s *Server) reviewer() (api gh.API, has func(owner string) bool, err error) {
 	if s.Reviewer != nil {
-		return s.Reviewer, nil
+		return s.Reviewer, nil, nil
 	}
 	app := s.cfg.GitHub.ReviewerApp
-	if app.ID == 0 {
-		s.log.Warn("github.reviewer_app not set: PRs are opened but not reviewed or merged by wrangl")
-		return nil, nil
+	legacy := func(string) (gh.AppRef, bool) { return gh.AppRef{}, false }
+	if app.ID != 0 {
+		keyPath := s.cfg.Path(app.PrivateKey)
+		if _, kerr := gh.LoadKey(keyPath); kerr != nil {
+			return nil, nil, fmt.Errorf("github reviewer app key: %w", kerr)
+		}
+		legacy = func(string) (gh.AppRef, bool) { return gh.AppRef{AppID: app.ID, KeyPath: keyPath}, true }
 	}
-	key, err := gh.LoadKey(s.cfg.Path(app.PrivateKey))
-	if err != nil {
-		return nil, fmt.Errorf("github reviewer app key: %w", err)
+	m := &gh.Multi{Role: "reviewer", Lookup: func(owner string) (gh.AppRef, bool) {
+		if ref, ok := s.Setup.LookupReviewer(owner); ok {
+			return ref, true
+		}
+		return legacy(owner)
+	}}
+	prev := s.Setup.Changed
+	s.Setup.Changed = func() {
+		if prev != nil {
+			prev()
+		}
+		m.Forget()
 	}
-	return &gh.Client{AppID: app.ID, Key: key}, nil
+	return m, m.Has, nil
 }
 
 // github builds the author App client from config (nil when not configured).
-func (s *Server) github() (gh.API, error) {
+func (s *Server) github(ctx context.Context) (gh.API, error) {
+	s.Setup = s.setupService()
 	if s.GH != nil {
 		return s.GH, nil
 	}
+	s.multi = &gh.Multi{Lookup: s.Setup.Lookup}
+	s.Setup.Changed = s.multi.Forget
+	// The single App of earlier versions (this Setup page's, or github.author_app in
+	// controller.yaml) becomes the account that owns it.
 	app := s.cfg.GitHub.AuthorApp
-	if app.ID == 0 { // not in controller.yaml: use the App the web Setup page created
-		if a, ok := ghsetup.Load(s.cfg.DataDir); ok {
-			app = config.GitHubApp{ID: a.ID, PrivateKey: ghsetup.KeyRel}
-		}
+	mctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if err := s.Setup.MigrateLegacy(mctx, app.ID, s.cfg.Path(app.PrivateKey)); err != nil {
+		s.log.Warn("could not adopt the existing GitHub App into an account; add the account in Settings", "err", err)
 	}
-	if app.ID == 0 {
-		s.log.Warn("github.author_app not set: repo linking, issue sync and pushes to GitHub are disabled")
-		return nil, nil
+	if accts, _ := s.Setup.Accounts(ctx); len(accts) == 0 {
+		s.log.Warn("no GitHub account is set up: add yours in Settings to link repositories and push")
 	}
-	key, err := gh.LoadKey(s.cfg.Path(app.PrivateKey))
-	if err != nil {
-		return nil, fmt.Errorf("github author app key: %w", err)
+	return s.multi, nil
+}
+
+// setupService is the GitHub account/App setup service (also used by the web Settings pages).
+func (s *Server) setupService() *ghsetup.Service {
+	if s.Setup != nil {
+		return s.Setup
 	}
-	return &gh.Client{AppID: app.ID, Key: key}, nil
+	return &ghsetup.Service{DB: s.db, DataDir: s.cfg.DataDir, PublicURL: strings.TrimSuffix(s.cfg.Web.PublicURL, "/")}
 }
 
 // consume runs handle for every message on a durable WR_EVT consumer: malformed or
@@ -579,21 +650,6 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(st)
-}
-
-// appName suggests a GitHub App name from the owner's email (App names are global).
-func appName(email string) string {
-	local, _, _ := strings.Cut(email, "@")
-	var b strings.Builder
-	for _, r := range strings.ToLower(local) {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		}
-	}
-	if b.Len() == 0 {
-		return "wrangl-author"
-	}
-	return "wrangl-author-" + b.String()
 }
 
 // review is what the deliverable-review flow needs.

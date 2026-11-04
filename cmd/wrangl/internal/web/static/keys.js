@@ -11,10 +11,11 @@
   let chordTimer;
 
   const $ = (s, r) => (r || document).querySelector(s);
-  const tree = () => $('ul.tasks.root');
+  const LISTS = 'ul.tasks.root, ul.tasks.runs';
+  const tree = () => $(LISTS);
   const li = (sq) => (sq ? $('li.task[data-sqid="' + sq + '"]') : null);
-  const visible = () => [...document.querySelectorAll('ul.tasks.root li.task')].filter((x) => x.offsetParent !== null);
-  const kids = (x) => [...x.querySelectorAll(':scope > ul.tasks > li.task')];
+  const visible = () => [...document.querySelectorAll('ul.tasks.root li.task, ul.tasks.runs li.task')].filter((x) => x.offsetParent !== null);
+  const kids = (x) => [...x.querySelectorAll(':scope > ul.tasks > li.task, :scope > details.sub > ul.tasks > li.task')];
 
   function paint() {
     document.querySelectorAll('li.task').forEach((x) => {
@@ -69,7 +70,7 @@
       d.innerHTML = '<h2>Keyboard shortcuts</h2><div class="g">' +
         '<h3>Move</h3>' + rows([['j k', 'Next / previous'], ['↓ ↑', 'Next / previous'], ['h', 'Collapse / to parent'], ['l', 'Expand / to child'], ['J K', 'Reorder down / up'], ['/', 'Filter']]) +
         '<h3>Selected task</h3>' + rows([['Enter o', 'Toggle details'], ['Esc', 'Collapse, then clear'], ['q', 'Queue'], ['e', 'Edit'], ['c', 'Complete'], ['s', 'Split'], ['a', 'Add subtask'], ['d', 'Needs…'], ['x', 'Cancel / reopen'], ['D', 'Delete (confirms)']]) +
-        '<h3>Go</h3>' + rows([['g b', 'Backlog'], ['g r', 'Runners'], ['g u', 'Runs'], ['g i', 'Inbox'], ['g m', 'Settings'], ['[ ]', 'Previous / next project'], ['1-9', 'Project n']]) +
+        '<h3>Go</h3>' + rows([['g t', 'Tasks'], ['g b', 'Backlog'], ['g q', 'Queue'], ['g p', 'In progress'], ['g r', 'Runners'], ['g l', 'Logs'], ['g i', 'Inbox'], ['g m', 'Settings'], ['[ ]', 'Previous / next project'], ['1-9', 'Project n']]) +
         '<h3>Global</h3>' + rows([['n', 'New task'], ['?', 'This help']]) + '</div>' +
         '<div class="actions"><button class="btn" onclick="this.closest(\'dialog\').close()">Close</button></div>';
       document.body.appendChild(d);
@@ -96,7 +97,7 @@
   }
 
   // --- projects & nav ---
-  function projectLinks() { return [...document.querySelectorAll('.projbar a[href^="/backlog?project="], .projbar .menu a')]; }
+  function projectLinks() { return [...document.querySelectorAll('.projbar a[href^="/tasks?project="], .projbar .menu a')]; }
   function goProject(i) { const l = projectLinks(); if (l[i]) location.href = l[i].href; }
   function stepProject(d) {
     const l = projectLinks(); if (!l.length) return;
@@ -104,10 +105,11 @@
     if (cur < 0) cur = 0;
     goProject((cur + d + l.length) % l.length);
   }
-  const GO = { b: '/backlog', r: '/runners', u: '/runs', i: '/inbox', m: '/settings' };
+  const GO = { t: '/tasks', b: '/tasks#backlog', q: '/tasks#queue', p: '/tasks#in-progress', r: '/runners', l: '/logs', i: '/inbox', m: '/settings' };
 
   // --- reorder ---
   async function reorder(x, dir) {
+    if (x.parentElement.classList.contains('runs')) return; // run entries are not reorderable
     const sibs = [...x.parentElement.children].filter((c) => c.dataset && c.dataset.sqid);
     const i = sibs.indexOf(x);
     const j = i + dir;
@@ -165,10 +167,14 @@
       else if (cur) select(null);
       else handled = false;
     } else if (k === 'l') {
-      if (cur && collapsed.has(sel)) toggleCollapse(cur, false);
+      const sub = cur && cur.querySelector(':scope > details.sub');
+      if (sub && !sub.open) sub.open = true;
+      else if (cur && collapsed.has(sel)) toggleCollapse(cur, false);
       else if (cur && kids(cur)[0]) select(kids(cur)[0]);
     } else if (k === 'h') {
-      if (cur && kids(cur).length && !collapsed.has(sel)) toggleCollapse(cur, true);
+      const sub = cur && cur.querySelector(':scope > details.sub');
+      if (sub && sub.open) sub.open = false;
+      else if (cur && kids(cur).length && !collapsed.has(sel)) toggleCollapse(cur, true);
       else if (cur) { const p = cur.parentElement.closest('li.task'); if (p) select(p); }
     } else if (cur && 'qecsadxD'.includes(k) && k.length === 1) {
       if (!detailOpen(sel)) { openDetailOf(sel); setTimeout(() => press(k), 400); } else press(k);

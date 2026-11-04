@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // ResendApplyAfter: a runner still provisioning, not applying and behind is re-sent the
@@ -32,13 +32,14 @@ func (s *Service) UpdateTemplate(ctx context.Context, name string, yamlBody []by
 	t, err := s.DB.Q.UpdateTemplate(ctx, dbgen.UpdateTemplateParams{
 		Description: p.Description, MiseToml: p.MiseToml, SetupScript: p.SetupScript, AgentJson: p.AgentJson,
 		MinVcpu: p.MinVcpu, MinRamMib: p.MinRamMib, MinDiskGib: p.MinDiskGib, Arch: p.Arch,
-		InstanceTypes: p.InstanceTypes, Ami: p.Ami, MaxRunners: p.MaxRunners, IdleTimeoutS: p.IdleTimeoutS, Name: name,
+		InstanceTypes: p.InstanceTypes, Ami: p.Ami, MaxRunners: p.MaxRunners, IdleTimeoutS: p.IdleTimeoutS, MaxSessions: p.MaxSessions, Name: name,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, fmt.Errorf("%w: template %q", ErrNotFound, name)
 	}
 	if err == nil {
 		s.Log.Info("template updated", "template", name, "version", t.Version)
+		s.note(ctx, "template", "info", name, fmt.Sprintf("Template updated to v%d", t.Version), "runners install the new mise config and setup script on their next heartbeat")
 	}
 	return t, err
 }
@@ -85,6 +86,7 @@ func (s *Service) reconcileTemplate(ctx context.Context, id int64, hb proto.Hear
 		return fmt.Errorf("%s declined template v%d: %s", r.Name, t.Version, ack.Reason)
 	}
 	s.Log.Info("template sent", "runner", r.Name, "template", t.Name, "version", t.Version)
+	s.note(ctx, "template", "info", r.Name, fmt.Sprintf("Installing %s v%d (mise config)", t.Name, t.Version), "")
 	return nil
 }
 
@@ -111,10 +113,12 @@ func (s *Service) TemplateResult(ctx context.Context, subject string, data []byt
 	now := nullStr(ts(s.now()))
 	if res.OK {
 		s.Log.Info("template applied", "runner", r.Name, "version", res.Version)
+		s.note(ctx, "template", "info", r.Name, fmt.Sprintf("Template v%d installed", res.Version), tail(res.Log))
 		return s.DB.Q.TemplateApplied(ctx, dbgen.TemplateAppliedParams{Version: res.Version, Log: res.Log, Now: now, ID: id})
 	}
 	s.Log.Error("template apply failed; runner cordoned and template version marked failed",
 		"runner", r.Name, "version", res.Version, "err", res.Error)
+	s.note(ctx, "template", "error", r.Name, fmt.Sprintf("Template v%d failed; runner cordoned", res.Version), res.Error+"\n"+tail(res.Log))
 	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
 		if err := q.TemplateFailed(ctx, dbgen.TemplateFailedParams{Error: res.Error, Log: res.Log, Now: now, ID: id}); err != nil {
 			return err
@@ -161,4 +165,13 @@ func (s *Service) SweepDrained(ctx context.Context) ([]string, error) {
 		done = append(done, c.Name)
 	}
 	return done, errors.Join(errs...)
+}
+
+// tail keeps the last lines of an install log for the Logs table.
+func tail(log string) string {
+	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
+	if len(lines) > 12 {
+		lines = lines[len(lines)-12:]
+	}
+	return strings.Join(lines, "\n")
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
+	sshpkg "github.com/agenticwrestling/wrangl/cmd/ssm/internal/ssh"
 )
 
 func TestUpsertHostBlock_creates(t *testing.T) {

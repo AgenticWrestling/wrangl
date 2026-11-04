@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
 )
 
 func TestFleetTeardown(t *testing.T) {

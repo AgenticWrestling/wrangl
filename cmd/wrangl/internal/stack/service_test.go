@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 func setup(t *testing.T) (*stack.Service, *db.DB) {
@@ -271,3 +271,35 @@ func TestQueueChecksAndAgentLoop(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestRecordCheckpoint(t *testing.T) {
+	s, d := setup(t)
+	ctx := context.Background()
+	epic := mk(t, s, "", "epic", stack.Position{})
+	kid := mk(t, s, epic.Sqid.String, "kid", stack.Position{})
+	other := mk(t, s, "", "elsewhere", stack.Position{})
+	d.W.Exec(`INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('t','','{}',1,1,1)`)
+	run, err := d.Q.QueueRun(ctx, dbgen.QueueRunParams{TaskID: epic.ID, Kind: "work", Attempt: 1, Branch: "b", SessionUuid: "u"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sha := "0123456789abcdef0123456789abcdef01234567"
+	if err := s.RecordCheckpoint(ctx, run.ID, kid.Sqid.String, sha); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordCheckpoint(ctx, run.ID, kid.Sqid.String, "fedcba9876543210fedcba9876543210fedcba98"); err != nil { // again: updates, not duplicates
+		t.Fatal(err)
+	}
+	var n int
+	var got string
+	d.R.QueryRow(`SELECT COUNT(*), MAX(sha) FROM task_checkpoint`).Scan(&n, &got)
+	if n != 1 || got != "fedcba9876543210fedcba9876543210fedcba98" {
+		t.Fatalf("rows %d sha %s", n, got)
+	}
+	if err := s.RecordCheckpoint(ctx, run.ID, kid.Sqid.String, "not a sha; rm -rf"); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("bad sha accepted: %v", err)
+	}
+	if err := s.RecordCheckpoint(ctx, run.ID, other.Sqid.String, sha); !errors.Is(err, errs.Forbidden) {
+		t.Fatalf("a run may only checkpoint tasks in its own subtree: %v", err)
+	}
+}

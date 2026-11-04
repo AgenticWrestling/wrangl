@@ -43,16 +43,17 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		return string(b)
 	}
 
-	get("/backlog?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `\/ui\/live?`, "datastar-1.0.0-beta.11.js")
+	get("/tasks?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
+	get("/tasks?project=web", `class="subnav"`, `data-sec="in-progress"`, `data-sec="queue"`, `data-sec="backlog"`, `id="backlog"`)
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
-	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals-outline=")
+	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals:outline=")
 	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)
 	get("/ui/detail?sqid="+big+"&part=sheets", "sheet-edit", `data-bind="etarget"`, "Target date")
 
 	// A page that expanded a task keeps it across live re-renders: the stream includes the card.
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=backlog&project=web&sid=testsid", nil)
+		req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=tasks&project=web&sid=testsid", nil)
 		resp, err := hc.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -88,23 +89,25 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	}
 	post("/ui/act/task-edit?sqid="+big, `{"etitle":"design it","eprompt":"do the whole thing","etype":"milestone","etarget":"2026-12-31"}`)
 	get("/task/"+big, "2026-12-31", "Milestone")
-	get("/backlog?project=web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
+	get("/tasks?project=web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
 	get("/static/app.css", ".ty-milestone > .row .title", "font-weight: 600")
 	get("/runners", runner, "tiny")
 	get("/runner/"+runner, "Cordon", "Recent runs")
-	get("/runner/"+runner+"/term", `id="termapp"`, `href="/runner/`+runner+`"`, "wrangl</a>", `/static/vendor/wterm-0.5.7.js`, `/static/term.js`, `/static/term.css`)
-	get("/static/vendor/wterm-0.5.7.js", "WTerm")
-	get("/static/vendor/wterm-0.5.7.css", ".wterm")
+	get("/runner/"+runner+"/term", `id="termapp"`, `href="/runner/`+runner+`"`, "wrangl</a>", `/static/vendor/wterm-0.5.8.js`, `/static/term.js`, `/static/term.css`)
+	get("/static/vendor/wterm-0.5.8.js", "WTerm")
+	get("/static/vendor/wterm-0.5.8.css", ".wterm")
 	get("/static/term.js", "Engine", "/term/")
 	get("/static/term.css", ".tkeys", "safe-area-inset")
-	get("/runs", "recent", "small feature")
+	get("/logs", "<table", "small feature")
+	get("/logs?kind=run", "small feature")
+	get("/runs", "/logs")
 	get("/run/1", `id="term"`, "xterm-6.0.0.js", "Branch")
 	get("/run/1/diff")
 	get("/run/1/files")
 	get("/inbox", "plan_review", "another big job", `pre class="outline"`)
 	get("/settings", "enablePush", "tiny", "sheet-project", "Appearance", `id="fs-seg"`, `data-fs="1.15"`)
 	get("/static/app.css", "calc(16px * var(--fs, 1))")
-	get("/backlog?project=web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/project/web")
+	get("/tasks?project=web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/project/web")
 	post("/ui/act/project-new", `{"slug":"goalproj","pname":"Goal project","pgoals":"## Done when\n- it ships"}`)
 	get("/project/goalproj", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
 	post("/ui/act/project-save?slug=goalproj", `{"pname":"Renamed","pgoals":"new **goals**","ptemplate":"","pautomerge":false,"pautoqueue":true}`)
@@ -113,7 +116,44 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/static/app.css", "Red Hat Display", "min-width: 900px")
 	get("/static/vendor/fonts/ibm-plex-mono-latin.woff2")
 	get("/static/app.css", "IBM Plex Mono", "--sqid")
-	get("/setup", "GitHub author App", "Reviewer App")
+	get("/setup", "GitHub accounts", "Add account")
+	// Accounts: a GitHub App lives in the account that owns the repositories, personal or org.
+	post("/ui/act/account-add", `{"acctlogin":"plank-pattern","acctkind":"org"}`)
+	post("/ui/act/account-add", `{"acctlogin":"@njreid","acctkind":"user"}`)
+	setup := get("/setup", "plank-pattern", "organisation", "njreid", "personal", "no App yet")
+	if !strings.Contains(setup, "https://github.com/organizations/plank-pattern/settings/apps/new?state=") ||
+		!strings.Contains(setup, "https://github.com/settings/apps/new?state=") {
+		t.Fatalf("the org and personal App forms must post to different GitHub URLs: %.1500s", setup)
+	}
+	get("/setup?account=somebody-else&repo=somebody-else/x&back=/project/web", "somebody-else is not set up yet", "somebody-else/x")
+	get("/settings", "GitHub accounts", "plank-pattern", "set up the App")
+	if out := post("/ui/act/repo-link?slug=web", `{"repoadd":"somebody-else/missing"}`); !strings.Contains(out, "/setup?account=") {
+		t.Fatalf("linking a repo the App cannot see must point at the fix: %s", out)
+	}
+	post("/ui/act/account-remove?login=plank-pattern", `{}`)
+
+	// The template editor: fields from the stored template, saved as a new version with the
+	// agent block untouched.
+	arch := ec2Arch()
+	if _, err := e.api.CreateTemplate(e.ctx, []byte("name: edme\narch: "+arch+"\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmax_runners: 0\nmise_toml: \"\"\nagent:\n  start: [\"/bin/true\", \"{{.Prompt}}\"]\n")); err != nil {
+		t.Fatal(err)
+	}
+	get("/settings", `href="/settings/templates/edme"`)
+	get("/settings/templates/edme", "Basics", "Machine", "Image", "Tools (mise)", "Setup script", "Save as v2", `data-signals:tpmax="&#34;0&#34;"`, `data-signals:tpsess="&#34;4&#34;"`, "Sessions per runner", "tp-img", "Search the AWS Marketplace", "runs /bin/true")
+	if out := post("/ui/act/template-save?name=edme", `{"tpdesc":"edited in the web","tpmax":"2","tpsess":"3","tpidle":"15m","tparch":"`+arch+`","tpvcpu":"2","tpram":"4GiB","tpdisk":"20GiB","tptypes":"m7g.large,m7g.xlarge","tpimg":"ami","tpami":"ami-0123456789abcdef0","tpmise":"[tools]\nnode = \"24\"\n","tpsetup":"echo hi"}`); !strings.Contains(out, "edme is now v2") {
+		t.Fatalf("saving the template: %s", out)
+	}
+	tv, err := e.api.Template(e.ctx, "edme")
+	if err != nil || tv.Version != 2 || tv.Description != "edited in the web" || tv.MaxRunners != 2 || tv.MaxSessions != 3 || tv.IdleTimeoutS != 900 || tv.AMI != "ami-0123456789abcdef0" ||
+		tv.MinVCPU != 2 || tv.MinRAMMiB != 4096 || strings.Join(tv.InstanceTypes, ",") != "m7g.large,m7g.xlarge" || !strings.Contains(tv.MiseTOML, "node") || !strings.Contains(string(tv.Agent), "/bin/true") {
+		t.Fatalf("saved template: %+v %v", tv, err)
+	}
+	if out := post("/ui/act/template-save?name=edme", `{"tpvcpu":"x"}`); strings.Contains(out, "is now v") || !strings.Contains(out, "not a number") {
+		t.Fatalf("a bad form must be refused with a reason: %s", out)
+	}
+	if out := post("/ui/act/template-save?name=edme", `{"tpvcpu":"2","tpmax":"1","tpimg":"ami","tpami":"nope"}`); !strings.Contains(out, "should look like ami-") {
+		t.Fatalf("a malformed AMI id must be refused: %s", out)
+	}
 	get("/setup/github/callback?code=x&state=bad", "expired or was already used")
 	get("/settings", `href="/setup"`)
 	get("/static/app.js", "moveTask")
@@ -127,7 +167,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	// The live stream opens with a morph of #main and the inbox badge.
 	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=backlog&project=web", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=tasks&project=web", nil)
 	resp, err := hc.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -142,12 +182,12 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		}
 	}
 	resp.Body.Close()
-	if s := live.String(); !strings.Contains(s, "event: datastar-merge-fragments") || !strings.Contains(s, `data: fragments <main id="main">`) || !strings.Contains(s, "big job") {
+	if s := live.String(); !strings.Contains(s, "event: datastar-patch-elements") || !strings.Contains(s, `data: elements <main id="main">`) || !strings.Contains(s, "big job") {
 		t.Fatalf("live stream: %.1500s", s)
 	}
 
 	// Actions: create (signals as JSON), split, and a failing action's error toast.
-	if out := post("/ui/act/task-new?project=web", `{"title":"from the phone","prompt":"tap tap","ttype":"docs"}`); !strings.Contains(out, "created ") || !strings.Contains(out, "datastar-merge-signals") {
+	if out := post("/ui/act/task-new?project=web", `{"title":"from the phone","prompt":"tap tap","ttype":"docs"}`); !strings.Contains(out, "created ") || !strings.Contains(out, "datastar-patch-signals") {
 		t.Fatalf("task-new: %s", out)
 	}
 	var sqid string
@@ -169,12 +209,23 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	if d := e.task(sqid); d.Type != "review" {
 		t.Fatalf("task-edit type: %q", d.Type)
 	}
-	get("/backlog?project=web", `id="ti-review"`, `class="ticon ti-review"`)
+	get("/tasks?project=web", `id="ti-review"`, `class="ticon ti-review"`)
 	if out := post("/ui/act/task-split?sqid="+sqid, `{"outline":"- one\n- two\n  - two.a","chain":true}`); !strings.Contains(out, "split into 2") {
 		t.Fatalf("split: %s", out)
 	}
 	if d := e.task(sqid); len(d.Children) != 2 || d.Children[1].Title != "two" {
 		t.Fatalf("split result: %+v", d.Children)
+	}
+	// Queueing moves the task into the Queue section and out of Backlog: shown once, as a run entry.
+	if out := post("/ui/act/task-queue?sqid="+sqid, `{}`); strings.Contains(out, "toast show err") {
+		t.Fatalf("task-queue: %s", out)
+	}
+	page := get("/tasks?project=web", `id="queue"`, `class="subnav"`, `class="task run `, "run #")
+	if n := strings.Count(page, `data-sqid="`+sqid+`"`); n != 1 {
+		t.Fatalf("a queued task is listed once (in Queue), found %d times", n)
+	}
+	if i, j := strings.Index(page, `id="queue"`), strings.Index(page, `id="backlog"`); i < 0 || j < i {
+		t.Fatalf("Queue must come before Backlog (%d, %d)", i, j)
 	}
 	if out := post("/ui/act/task-queue?sqid=nope", `{}`); !strings.Contains(out, "toast show err") {
 		t.Fatalf("error toast: %s", out)

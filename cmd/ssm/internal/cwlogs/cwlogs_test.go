@@ -4,7 +4,7 @@ package cwlogs_test
 import (
 	"testing"
 
-	"github.com/nreid/devhost/cmd/ssm/internal/cwlogs"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/cwlogs"
 )
 
 func TestLogStreamName(t *testing.T) {

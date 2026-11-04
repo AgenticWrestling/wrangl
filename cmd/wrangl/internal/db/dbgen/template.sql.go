@@ -12,9 +12,9 @@ import (
 const createTemplate = `-- name: CreateTemplate :one
 INSERT INTO runner_template (name, description, mise_toml, setup_script, agent_json,
                              min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami,
-                             max_runners, idle_timeout_s)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version
+                             max_runners, idle_timeout_s, max_sessions)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version, max_sessions
 `
 
 type CreateTemplateParams struct {
@@ -31,6 +31,7 @@ type CreateTemplateParams struct {
 	Ami           string `json:"ami"`
 	MaxRunners    int64  `json:"max_runners"`
 	IdleTimeoutS  int64  `json:"idle_timeout_s"`
+	MaxSessions   int64  `json:"max_sessions"`
 }
 
 func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) (RunnerTemplate, error) {
@@ -48,6 +49,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		arg.Ami,
 		arg.MaxRunners,
 		arg.IdleTimeoutS,
+		arg.MaxSessions,
 	)
 	var i RunnerTemplate
 	err := row.Scan(
@@ -69,6 +71,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FailedVersion,
+		&i.MaxSessions,
 	)
 	return i, err
 }
@@ -86,7 +89,7 @@ func (q *Queries) DeleteTemplate(ctx context.Context, name string) (int64, error
 }
 
 const getTemplateByName = `-- name: GetTemplateByName :one
-SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version FROM runner_template WHERE name = ?
+SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version, max_sessions FROM runner_template WHERE name = ?
 `
 
 func (q *Queries) GetTemplateByName(ctx context.Context, name string) (RunnerTemplate, error) {
@@ -111,12 +114,13 @@ func (q *Queries) GetTemplateByName(ctx context.Context, name string) (RunnerTem
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FailedVersion,
+		&i.MaxSessions,
 	)
 	return i, err
 }
 
 const listTemplates = `-- name: ListTemplates :many
-SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version FROM runner_template ORDER BY name
+SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version, max_sessions FROM runner_template ORDER BY name
 `
 
 func (q *Queries) ListTemplates(ctx context.Context) ([]RunnerTemplate, error) {
@@ -147,6 +151,7 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]RunnerTemplate, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.FailedVersion,
+			&i.MaxSessions,
 		); err != nil {
 			return nil, err
 		}
@@ -184,10 +189,11 @@ SET description = ?1, mise_toml = ?2,
     min_disk_gib = ?7, arch = ?8,
     instance_types = ?9, ami = ?10,
     max_runners = ?11, idle_timeout_s = ?12,
+    max_sessions = ?13,
     version = version + 1, failed_version = 0,
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE name = ?13
-RETURNING id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version
+WHERE name = ?14
+RETURNING id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version, max_sessions
 `
 
 type UpdateTemplateParams struct {
@@ -203,6 +209,7 @@ type UpdateTemplateParams struct {
 	Ami           string `json:"ami"`
 	MaxRunners    int64  `json:"max_runners"`
 	IdleTimeoutS  int64  `json:"idle_timeout_s"`
+	MaxSessions   int64  `json:"max_sessions"`
 	Name          string `json:"name"`
 }
 
@@ -221,6 +228,7 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		arg.Ami,
 		arg.MaxRunners,
 		arg.IdleTimeoutS,
+		arg.MaxSessions,
 		arg.Name,
 	)
 	var i RunnerTemplate
@@ -243,6 +251,7 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FailedVersion,
+		&i.MaxSessions,
 	)
 	return i, err
 }

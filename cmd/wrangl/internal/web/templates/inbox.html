@@ -7,8 +7,8 @@
   {{if eq .Kind "plan_review"}}<pre class="outline">{{outline .Payload}}</pre>{{end}}
   {{if .AllowFreeText}}<textarea data-bind="ans{{.ID}}" rows="3" placeholder="Reply / feedback"></textarea>{{end}}
   <div class="actions wrap">
-    {{$id := .ID}}{{range .Options}}<button class="btn{{if or (eq .Value "accept") (eq .Value "approve") (eq .Value "yes")}} primary{{end}}" title="{{.Description}}" data-on-click="@post('/ui/act/answer?id={{$id}}&amp;value={{.Value}}')">{{.Label}}</button>{{end}}
-    {{if and .AllowFreeText (not .Options)}}<button class="btn primary" data-on-click="@post('/ui/act/answer?id={{$id}}')">Send</button>{{end}}
+    {{$id := .ID}}{{range .Options}}<button class="btn{{if or (eq .Value "accept") (eq .Value "approve") (eq .Value "yes")}} primary{{end}}" title="{{.Description}}" data-on:click="@post('/ui/act/answer?id={{$id}}&amp;value={{.Value}}')">{{.Label}}</button>{{end}}
+    {{if and .AllowFreeText (not .Options)}}<button class="btn primary" data-on:click="@post('/ui/act/answer?id={{$id}}')">Send</button>{{end}}
   </div>
 </section>{{end}}
 {{if .PRs}}<h2 class="section">Open pull requests</h2>{{end}}
@@ -19,9 +19,9 @@
   {{if $p.ReviewSummaryMd}}<details><summary>Review</summary><div class="prose">{{md $p.ReviewSummaryMd}}</div></details>{{end}}
   <textarea data-bind="pr{{$p.ID}}" rows="2" placeholder="What should change? (for Request changes)"></textarea>
   <div class="actions wrap">
-    <button class="btn primary" data-on-click="confirm('Approve and merge?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=approve')">Approve &amp; merge</button>
-    <button class="btn" data-on-click="@post('/ui/act/pr?id={{$p.ID}}&amp;op=request-changes')">Request changes</button>
-    <button class="btn danger" data-on-click="confirm('Close without merging?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=close')">Close</button>
+    <button class="btn primary" data-on:click="confirm('Approve and merge?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=approve')">Approve &amp; merge</button>
+    <button class="btn" data-on:click="@post('/ui/act/pr?id={{$p.ID}}&amp;op=request-changes')">Request changes</button>
+    <button class="btn danger" data-on:click="confirm('Close without merging?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=close')">Close</button>
   </div>
 </section>{{end}}
 {{end}}
@@ -50,15 +50,39 @@
   {{range .Projects}}<a class="row link" href="/project/{{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}<p class="empty">No projects.</p>{{end}}
 </section>
 <section class="card">
-  <div class="row"><h3>Setup</h3><span class="grow"></span><a class="btn small" href="/setup">Open</a></div>
-  <p class="hint">Connect GitHub so wrangl can clone, push and open pull requests.</p>
+  <div class="row"><h3>GitHub accounts</h3><span class="grow"></span><a class="btn small" href="/setup">Manage</a></div>
+  {{range .GHAccounts}}<div class="row"><b>{{.Login}}</b> <span class="dim">{{if eq .Kind "org"}}organisation{{else}}personal{{end}}</span><span class="grow"></span>{{if .App}}<span class="tag ok">✓ App ready</span>{{else}}<a class="tag attn" href="/setup?account={{.Login}}">! set up the App</a>{{end}}</div>
+  {{else}}<p class="hint">Connect GitHub so wrangl can clone, push and open pull requests. Add your account (and any organisation) to begin.</p>{{end}}
+</section>
+<section class="card" data-signals:agname="''" data-signals:agcmd="'claude'" data-signals:agmodel="''" data-signals:agauth="'cli'" data-signals:agsecret="''" data-signals:agenv="'CLAUDE_CODE_OAUTH_TOKEN'" data-signals:agturns="'12'" data-signals:agtimeout="'300'" data-signals:agdefault="false">
+  <h3>Controller agents</h3>
+  <p class="hint">Lightweight agent CLIs that run on the controller itself to answer "Ask?" on a task. They can read the task tree and use the wrangl CLI, but are boxed in (no builds or tests), so the controller stays responsive.</p>
+  {{range .CAgents}}<div class="row"><b>{{.Name}}</b>{{if eq .IsDefault 1}} <span class="pill">default</span>{{end}}{{if eq .Enabled 0}} <span class="pill">disabled</span>{{end}} <span class="dim">{{.Command}}{{if .Model}} · {{.Model}}{{end}} · {{if eq .Auth "secret"}}secret {{.AuthSecret}} → {{.AuthEnv}}{{else}}installed CLI login{{end}} · {{.MaxTurns}} turns · {{.TimeoutS}}s</span><span class="grow"></span>
+    <button class="btn small" data-on:click="$agname={{json .Name}}; $agcmd={{json .Command}}; $agmodel={{json .Model}}; $agauth={{json .Auth}}; $agsecret={{json .AuthSecret}}; $agenv={{json .AuthEnv}}; $agturns='{{.MaxTurns}}'; $agtimeout='{{.TimeoutS}}'; $agdefault={{if eq .IsDefault 1}}true{{else}}false{{end}}">Edit</button>
+    <button class="btn small danger" data-on:click="confirm('Remove agent {{.Name}}?') && @post('/ui/act/agent-delete?name={{.Name}}')">Remove</button></div>{{end}}
+  <details><summary>Add or edit an agent</summary>
+    <label>Name<input data-bind="agname" autocomplete="off" autocapitalize="off"></label>
+    <label>Command<input data-bind="agcmd" autocomplete="off" autocapitalize="off"></label>
+    <label>Model <span class="dim">(blank = the CLI's default)</span><input data-bind="agmodel" autocomplete="off" autocapitalize="off"></label>
+    <label>Authentication<select data-bind="agauth"><option value="cli">Use the installed, logged-in CLI</option><option value="secret">A secret from the secrets store</option></select></label>
+    <div data-show="$agauth == 'secret'">
+      <label>Secret name<input data-bind="agsecret" autocomplete="off" autocapitalize="off"></label>
+      <label>Exported as<input data-bind="agenv" autocomplete="off" autocapitalize="off"></label>
+    </div>
+    <label>Max turns<input type="number" data-bind="agturns"></label>
+    <label>Timeout (seconds)<input type="number" data-bind="agtimeout"></label>
+    <label class="check"><input type="checkbox" data-bind="agdefault"> Default agent</label>
+    <div class="actions"><button class="btn primary" data-on:click="@post('/ui/act/agent-save')">Save</button></div>
+  </details>
 </section>
 <section class="card">
   <h3>Runner templates</h3>
   {{range .Templates}}<div class="row"><b>{{.Name}}</b> <span class="dim">v{{.Version}} · ≥{{.MinVcpu}} vCPU · ≥{{.MinRamMib}} MiB · ≥{{.MinDiskGib}} GiB</span><span class="grow"></span>
-    <button class="btn small" data-on-click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
+    <a class="btn small" href="/settings/templates/{{.Name}}">Edit</a>
+    <button class="btn small" data-on:click="confirm('Launch a {{.Name}} runner?') && @post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
   {{else}}<p class="empty">No templates. Create one with <code>wrangl template create</code>.</p>{{end}}
 </section>
+<div class="about"><img src="/static/logo.png" alt="wrangl, metaharness orchestrator" width="280" height="305"></div>
 <p class="dim small center">wrangl · <a href="/api/v1/events">event stream</a></p>
 {{end}}
 

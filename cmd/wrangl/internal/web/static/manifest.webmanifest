@@ -2,15 +2,14 @@
   "name": "wrangl",
   "short_name": "wrangl",
   "description": "Agent fleet backlog, runners and review inbox",
-  "start_url": "/backlog",
+  "start_url": "/tasks",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0f1115",
   "theme_color": "#0f1115",
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
     { "src": "/icons/192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icons/512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icons/512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
 )
 
 // clientConfigPath resolves the client config file: --config > WRANGL_CONFIG > default.

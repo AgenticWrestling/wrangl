@@ -7,7 +7,7 @@ vars:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   # -s -w drops the symbol table and DWARF (runners download this binary at boot and on
   # every self-upgrade); -trimpath keeps build paths out of it.
-  WRANGL_LDFLAGS: -s -w -X github.com/nreid/devhost/cmd/wrangl/internal/runner.Version={{.WRANGL_VERSION}}
+  WRANGL_LDFLAGS: -s -w -X github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner.Version={{.WRANGL_VERSION}}
 
 tasks:
   default:

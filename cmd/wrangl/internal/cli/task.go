@@ -1,14 +1,17 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 var stateGlyph = map[string]string{"open": "○", "in_progress": "▶", "in_review": "◐", "done": "✓", "cancelled": "✗"}
@@ -375,6 +378,91 @@ func taskCmd(g *Global) *cobra.Command {
 			return nil
 		},
 	}
+	ask := &cobra.Command{
+		Use: "ask <sqid> <question>", Short: "Ask a controller agent about a task and its subtree", Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			agent, _ := cmd.Flags().GetString("agent")
+			wait, _ := cmd.Flags().GetBool("wait")
+			if err := c.AskTask(cmd.Context(), args[0], agent, args[1]); err != nil {
+				return err
+			}
+			if !wait {
+				fmt.Fprintln(cmd.OutOrStdout(), "asked; read the answer with `wrangl task thread "+args[0]+"` or on the task page")
+				return nil
+			}
+			for {
+				select {
+				case <-cmd.Context().Done():
+					return cmd.Context().Err()
+				case <-time.After(2 * time.Second):
+				}
+				msgs, err := c.TaskThread(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				if n := len(msgs); n > 0 && msgs[n-1].Role == "agent" && msgs[n-1].Status != "running" {
+					fmt.Fprintln(cmd.OutOrStdout(), msgs[n-1].Body)
+					return nil
+				}
+			}
+		},
+	}
+	ask.Flags().String("agent", "", "controller agent name (default: the default agent)")
+	ask.Flags().Bool("wait", false, "wait for and print the answer")
+	thread := &cobra.Command{
+		Use: "thread <sqid>", Short: "Show a task's conversation with controller agents", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			msgs, err := c.TaskThread(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			for _, m := range msgs {
+				body := m.Body
+				if m.Status == "running" {
+					body = "(thinking…)"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s (message %d):\n%s\n", m.At, m.Role, m.ID, body)
+				var props []struct{ Label, Action, State, Result string }
+				json.Unmarshal([]byte(m.Proposals), &props)
+				for i, p := range props {
+					st := "approve with: wrangl task apply " + fmt.Sprint(m.ID, " ", i)
+					if p.State != "" {
+						st = p.State + ": " + p.Result
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  [%d] %s (%s) - %s\n", i, p.Label, p.Action, st)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+			return nil
+		},
+	}
+	apply := &cobra.Command{
+		Use: "apply <message-id> <n>", Short: "Approve proposal n (0-based) from `task thread`", Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			id, e1 := strconv.ParseInt(args[0], 10, 64)
+			n, e2 := strconv.Atoi(args[1])
+			if e1 != nil || e2 != nil {
+				return fmt.Errorf("message id and n must be numbers")
+			}
+			if err := c.ApplyProposal(cmd.Context(), id, n); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "applied")
+			return nil
+		},
+	}
 	action := func(op, short string) *cobra.Command {
 		c := &cobra.Command{Use: op + " <sqid>", Short: short, Args: cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -401,7 +489,7 @@ func taskCmd(g *Global) *cobra.Command {
 		},
 	}
 	return group("task", "Manage the hierarchical work stack",
-		create, tree, list, show, edit, move, needs, split, queue,
+		create, tree, list, show, edit, move, needs, split, queue, ask, thread, apply,
 		action("complete", "Mark a leaf done (finished and merged)"),
 		action("reopen", "Reopen a leaf"),
 		action("cancel", "Cancel a task and its unfinished subtasks"),

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // execAgent behaves like `codex exec --json`: a new session prints its thread id first;

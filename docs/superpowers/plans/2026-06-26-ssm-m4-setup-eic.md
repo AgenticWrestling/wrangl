@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Module path: `github.com/nreid/devhost`
+- Module path: `github.com/agenticwrestling/wrangl`
 - CGO_ENABLED=0
 - M1 must be complete before starting M4
 - Login user on instances: `ec2-user`
@@ -53,7 +53,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
+	sshpkg "github.com/agenticwrestling/wrangl/cmd/ssm/internal/ssh"
 )
 
 func TestEnsureKeyPair_creates(t *testing.T) {
@@ -174,7 +174,7 @@ import (
 	"strings"
 	"testing"
 
-	sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
+	sshpkg "github.com/agenticwrestling/wrangl/cmd/ssm/internal/ssh"
 )
 
 func TestUpsertHostBlock_creates(t *testing.T) {
@@ -587,9 +587,9 @@ git commit -m "feat: VPC security group SSH ingress helper"
 
 Add imports:
 ```go
-"github.com/nreid/devhost/cmd/ssm/internal/eic"
-"github.com/nreid/devhost/cmd/ssm/internal/vpc"
-sshpkg "github.com/nreid/devhost/cmd/ssm/internal/ssh"
+"github.com/agenticwrestling/wrangl/cmd/ssm/internal/eic"
+"github.com/agenticwrestling/wrangl/cmd/ssm/internal/vpc"
+sshpkg "github.com/agenticwrestling/wrangl/cmd/ssm/internal/ssh"
 ```
 
 Replace `setupCmd()`:

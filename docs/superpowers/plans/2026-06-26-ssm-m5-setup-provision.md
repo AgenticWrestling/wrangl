@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Module path: `github.com/nreid/devhost`
+- Module path: `github.com/agenticwrestling/wrangl`
 - CGO_ENABLED=0
 - M1 and M4 must be complete before starting M5
 - Login user on instances: `ec2-user`
@@ -50,7 +50,7 @@ package cwlogs_test
 
 import (
 	"testing"
-	"github.com/nreid/devhost/cmd/ssm/internal/cwlogs"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/cwlogs"
 )
 
 func TestLogStreamName(t *testing.T) {
@@ -407,8 +407,8 @@ git commit -m "feat: remote provisioning script via SSM send-command"
 Add imports:
 ```go
 "os"
-"github.com/nreid/devhost/cmd/ssm/internal/cwlogs"
-"github.com/nreid/devhost/cmd/ssm/internal/provision"
+"github.com/agenticwrestling/wrangl/cmd/ssm/internal/cwlogs"
+"github.com/agenticwrestling/wrangl/cmd/ssm/internal/provision"
 ```
 
 Append to the `RunE` function in `setupCmd`, after `"// Phase 2 (provisioning) added in M5."` and before `return nil`:

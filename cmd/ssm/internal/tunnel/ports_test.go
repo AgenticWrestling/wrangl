@@ -3,7 +3,7 @@ package tunnel_test
 import (
 	"testing"
 
-	"github.com/nreid/devhost/cmd/ssm/internal/tunnel"
+	"github.com/agenticwrestling/wrangl/cmd/ssm/internal/tunnel"
 )
 
 func TestParsePortSpec(t *testing.T) {

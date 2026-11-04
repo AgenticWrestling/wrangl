@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	wcli "github.com/nreid/devhost/cmd/wrangl/internal/cli"
+	wcli "github.com/agenticwrestling/wrangl/cmd/wrangl/internal/cli"
 )
 
 // Every `wrangl <command> [subcommand]` the skill names must exist, so the skill cannot drift

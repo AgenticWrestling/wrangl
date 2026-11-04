@@ -7,8 +7,23 @@ package dbgen
 import (
 	"database/sql"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 )
+
+type ControllerAgent struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Command    string `json:"command"`
+	Model      string `json:"model"`
+	Auth       string `json:"auth"`
+	AuthSecret string `json:"auth_secret"`
+	AuthEnv    string `json:"auth_env"`
+	MaxTurns   int64  `json:"max_turns"`
+	TimeoutS   int64  `json:"timeout_s"`
+	IsDefault  int64  `json:"is_default"`
+	Enabled    int64  `json:"enabled"`
+}
 
 type Deliverable struct {
 	ID        int64         `json:"id"`
@@ -39,6 +54,22 @@ type GhDelivery struct {
 	ReceivedAt string `json:"received_at"`
 }
 
+type GithubAccount struct {
+	ID               int64         `json:"id"`
+	Login            string        `json:"login"`
+	Kind             string        `json:"kind"`
+	AppID            sql.NullInt64 `json:"app_id"`
+	Slug             string        `json:"slug"`
+	HtmlUrl          string        `json:"html_url"`
+	KeyFile          string        `json:"key_file"`
+	CreatedAt        string        `json:"created_at"`
+	ReviewerAppID    sql.NullInt64 `json:"reviewer_app_id"`
+	ReviewerSlug     string        `json:"reviewer_slug"`
+	ReviewerHtmlUrl  string        `json:"reviewer_html_url"`
+	ReviewerKeyFile  string        `json:"reviewer_key_file"`
+	ReviewerHookFile string        `json:"reviewer_hook_file"`
+}
+
 type HookEvent struct {
 	ID          int64  `json:"id"`
 	RunID       int64  `json:"run_id"`
@@ -57,6 +88,16 @@ type Issue struct {
 	State    string `json:"state"`
 	Url      string `json:"url"`
 	SyncedAt string `json:"synced_at"`
+}
+
+type LogEntry struct {
+	ID      int64  `json:"id"`
+	At      string `json:"at"`
+	Kind    string `json:"kind"`
+	Level   string `json:"level"`
+	Subject string `json:"subject"`
+	Title   string `json:"title"`
+	Detail  string `json:"detail"`
 }
 
 type LogLine struct {
@@ -244,6 +285,7 @@ type RunnerTemplate struct {
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 	FailedVersion int64  `json:"failed_version"`
+	MaxSessions   int64  `json:"max_sessions"`
 }
 
 type Task struct {
@@ -268,6 +310,14 @@ type Task struct {
 	TargetDate        sql.NullString   `json:"target_date"`
 }
 
+type TaskCheckpoint struct {
+	ID     int64  `json:"id"`
+	TaskID int64  `json:"task_id"`
+	RunID  int64  `json:"run_id"`
+	Sha    string `json:"sha"`
+	At     string `json:"at"`
+}
+
 type TaskDependency struct {
 	TaskID      int64  `json:"task_id"`
 	DependsOnID int64  `json:"depends_on_id"`
@@ -283,4 +333,17 @@ type TaskEvent struct {
 	Op       string        `json:"op"`
 	DiffJson string        `json:"diff_json"`
 	Ts       string        `json:"ts"`
+}
+
+type TaskThread struct {
+	ID        int64         `json:"id"`
+	TaskID    int64         `json:"task_id"`
+	At        string        `json:"at"`
+	Role      string        `json:"role"`
+	Body      string        `json:"body"`
+	AgentID   sql.NullInt64 `json:"agent_id"`
+	Status    string        `json:"status"`
+	SessionID string        `json:"session_id"`
+	Proposals string        `json:"proposals"`
+	Rev       string        `json:"rev"`
 }

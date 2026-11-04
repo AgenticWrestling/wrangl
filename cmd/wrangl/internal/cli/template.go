@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 func templateCmd(g *Global) *cobra.Command {
@@ -136,7 +136,7 @@ func TemplateYAML(t proto.TemplateView) []byte {
 	doc := map[string]any{
 		"name": t.Name, "arch": t.Arch,
 		"min":            map[string]any{"vcpu": t.MinVCPU, "ram": mib(t.MinRAMMiB), "disk": fmt.Sprintf("%dGiB", t.MinDiskGiB)},
-		"instance_types": t.InstanceTypes, "ami": t.AMI, "max_runners": t.MaxRunners,
+		"instance_types": t.InstanceTypes, "ami": t.AMI, "max_runners": t.MaxRunners, "max_sessions": t.MaxSessions,
 		"idle_timeout": (time.Duration(t.IdleTimeoutS) * time.Second).String(),
 		"mise_toml":    t.MiseTOML,
 	}

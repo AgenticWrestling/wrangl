@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 )
 
 // Integration guard — skip if no AWS credentials available

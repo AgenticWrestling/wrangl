@@ -17,8 +17,8 @@ import (
 	"github.com/creack/pty"
 	"github.com/nats-io/nats.go"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // termSession is one PTY the owner can watch (and, once they take control, type into).

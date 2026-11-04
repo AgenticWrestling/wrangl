@@ -13,19 +13,21 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/deliverables"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/fleet"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/ghsetup"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/plans"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/projects"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/prs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/runs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/webpush"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/deliverables"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/ghsetup"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/plans"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -74,9 +76,13 @@ type Deps struct {
 	JS       jetstream.JetStream
 	Bus      *events.Bus
 	Setup    *ghsetup.Service
+	// Costs reports spend and the account's other instances (nil = no AWS access).
+	Costs *costs.Service
 	// Deliverables stores mockups, prototype links and reports handed back by runs.
 	Deliverables *deliverables.Service
 	Term         *TermHub
+	// Agents runs controller agents ("Ask?" on a task).
+	Agents *agents.Service
 }
 
 // Register mounts /api/v1 on mux.
@@ -84,6 +90,8 @@ func Register(mux *http.ServeMux, d Deps) {
 	f := d.Fleet
 	registerWork(mux, d)
 	registerTerm(mux, d)
+	registerCosts(mux, d)
+	registerAgents(mux, d)
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { streamEvents(w, r, d.Bus) })
 	mux.HandleFunc("GET /api/v1/push/key", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"public_key": d.Push.Keys.Public})
@@ -301,7 +309,7 @@ func runnerView(r dbgen.Runner, template string, idleTimeout int64) proto.Runner
 func templateView(t dbgen.RunnerTemplate) proto.TemplateView {
 	v := proto.TemplateView{
 		Name: t.Name, Description: t.Description, Arch: t.Arch, MinVCPU: t.MinVcpu, MinRAMMiB: t.MinRamMib,
-		MinDiskGiB: t.MinDiskGib, AMI: t.Ami, MaxRunners: t.MaxRunners, IdleTimeoutS: t.IdleTimeoutS,
+		MinDiskGiB: t.MinDiskGib, AMI: t.Ami, MaxRunners: t.MaxRunners, MaxSessions: t.MaxSessions, IdleTimeoutS: t.IdleTimeoutS,
 		Version: t.Version, FailedVersion: t.FailedVersion, MiseTOML: t.MiseToml, SetupScript: t.SetupScript, Agent: json.RawMessage(t.AgentJson),
 	}
 	json.Unmarshal([]byte(t.InstanceTypes), &v.InstanceTypes)

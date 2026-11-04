@@ -104,6 +104,10 @@ SELECT * FROM run
 WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
 ORDER BY id DESC LIMIT 1;
 
+-- name: CountActiveRunsForRunner :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM run
+WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling');
+
 -- name: RunsOnLostRunners :many
 -- Active runs whose runner is terminated, or offline since before the cutoff.
 SELECT r.id, r.runner_id, r.current_task_id FROM run r JOIN runner n ON n.id = r.runner_id

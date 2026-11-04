@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	wcli "github.com/nreid/devhost/cmd/wrangl/internal/cli"
-	"github.com/nreid/devhost/cmd/wrangl/internal/client"
-	"github.com/nreid/devhost/cmd/wrangl/internal/config"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/gh"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	wcli "github.com/agenticwrestling/wrangl/cmd/wrangl/internal/cli"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // TestRemoteMCP drives the controller's /mcp endpoint (M10) the way the owner's own agent

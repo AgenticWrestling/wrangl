@@ -158,6 +158,7 @@ type StackRequest struct {
 	RunID   int64  `json:"run_id"`
 	Sqid    string `json:"sqid,omitempty"`
 	Summary string `json:"summary,omitempty"`
+	Commit  string `json:"commit,omitempty"` // checkpoint: the commit checked out after the task's checkpoint
 }
 
 // StackNext describes the next leaf (or that there is none).

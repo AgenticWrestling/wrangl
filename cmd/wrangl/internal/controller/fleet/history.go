@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // HistoryLen is how many heartbeats per runner are kept in memory for sparklines

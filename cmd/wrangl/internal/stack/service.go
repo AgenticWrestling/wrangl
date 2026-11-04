@@ -8,15 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbtypes"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 )
 
 // Actor identifies who changed the work stack: "user" or "agent:<run id>".
@@ -823,6 +824,9 @@ func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
 			return err
 		}
 		if open == 0 {
+			if n, _ := q.CountInReviewLeaves(ctx, t.ID); n > 0 {
+				return conflict("%s has no open work: %d subtask(s) are in review. Merge or request changes on their PRs (or reopen a subtask) to run more", sqid, n)
+			}
 			return conflict("%s has no open work", sqid)
 		}
 		if t.TaskType.Planning() {
@@ -1008,6 +1012,34 @@ func composePrompt(ctx context.Context, q *dbgen.Queries, t dbgen.Task, runID in
 		"(if you have that tool), then end your turn.\n", t.Sqid.String)
 	return b.String(), nil
 }
+
+// RecordCheckpoint remembers the commit a runner had checked out when it checkpointed a task of
+// its run, so the task can link to its changes. sha must look like a git object id.
+func (s *Service) RecordCheckpoint(ctx context.Context, runID int64, sqid, sha string) error {
+	if !validSha.MatchString(sha) {
+		return invalid("not a commit id: %q", sha)
+	}
+	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+		run, err := q.GetRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		t, err := s.Task(ctx, q, sqid)
+		if err != nil {
+			return err
+		}
+		in, err := q.IsAncestorOrSelf(ctx, dbgen.IsAncestorOrSelfParams{NodeID: t.ID, AncestorID: run.TaskID})
+		if err != nil {
+			return err
+		}
+		if in != 1 {
+			return fmt.Errorf("%w: %s is outside run %d's subtree", errs.Forbidden, sqid, runID)
+		}
+		return q.UpsertTaskCheckpoint(ctx, dbgen.UpsertTaskCheckpointParams{TaskID: t.ID, RunID: runID, Sha: sha})
+	})
+}
+
+var validSha = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
 // AgentComplete records that the agent finished a leaf in its run (-> in_review).
 func (s *Service) AgentComplete(ctx context.Context, runID int64, sqid, summary string) error {

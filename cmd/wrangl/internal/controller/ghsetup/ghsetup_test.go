@@ -2,49 +2,202 @@ package ghsetup
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 )
 
-func TestExchange(t *testing.T) {
-	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" || r.URL.Path != "/app-manifests/abc/conversions" {
-			http.Error(w, "no", 404)
-			return
+func newSvc(t *testing.T, api string) *Service {
+	t.Helper()
+	d, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return &Service{DB: d, DataDir: t.TempDir(), PublicURL: "https://ctrl.example.com", API: api}
+}
+
+func pemKey(t *testing.T) string {
+	t.Helper()
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}))
+}
+
+func TestAccountsAndAppURLs(t *testing.T) {
+	s := newSvc(t, "")
+	ctx := context.Background()
+	for _, bad := range []string{"", "has space", "-lead", "a/b", strings.Repeat("x", 40)} {
+		if _, err := s.AddAccount(ctx, bad, "org"); err == nil {
+			t.Errorf("accepted %q", bad)
 		}
-		w.Write([]byte(`{"id":42,"slug":"wrangl-author-x","html_url":"https://github.com/apps/wrangl-author-x","pem":"-----BEGIN RSA PRIVATE KEY-----\nk\n"}`))
+	}
+	if _, err := s.AddAccount(ctx, "acme", "team"); err == nil {
+		t.Error("accepted kind team")
+	}
+	me, _ := s.AddAccount(ctx, "njreid", "user")
+	org, _ := s.AddAccount(ctx, "@plank-pattern", "org")
+	if org.Login != "plank-pattern" {
+		t.Fatalf("login %q", org.Login)
+	}
+	if u := me.NewAppURL("st"); u != "https://github.com/settings/apps/new?state=st" {
+		t.Fatal(u)
+	}
+	if u := org.NewAppURL("st"); u != "https://github.com/organizations/plank-pattern/settings/apps/new?state=st" {
+		t.Fatal(u)
+	}
+	if got, _ := s.Accounts(ctx); len(got) != 2 || got[0].Login != "njreid" {
+		t.Fatalf("users first: %+v", got)
+	}
+	if a, ok := s.Account(ctx, "PLANK-pattern"); !ok || a.Kind != "org" {
+		t.Fatal("login lookup is case-insensitive")
+	}
+	if _, ok := s.Lookup("njreid"); ok {
+		t.Fatal("no App yet, so nothing to look up")
+	}
+}
+
+func TestExchangeRecordsTheAppOnItsAccount(t *testing.T) {
+	var gotCode string
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCode = strings.TrimPrefix(strings.TrimSuffix(r.URL.Path, "/conversions"), "/app-manifests/")
+		fmt.Fprintf(w, `{"id":42,"slug":"wrangl-plank-pattern","html_url":"https://github.com/apps/wrangl-plank-pattern","owner":{"login":"Plank-Pattern"},"pem":%q}`, pemKey(t))
 	}))
 	defer gh.Close()
-	dir := t.TempDir()
-	s := &Service{DataDir: dir, PublicURL: "https://ctrl.example.com", API: gh.URL}
+	s := newSvc(t, gh.URL)
+	ctx := context.Background()
+	s.AddAccount(ctx, "plank-pattern", "org")
+	changed := 0
+	s.Changed = func() { changed++ }
 
-	if _, err := s.Exchange(context.Background(), "abc", "bogus"); err == nil {
+	if _, err := s.Exchange(ctx, "abc", "bogus"); err == nil {
 		t.Fatal("unknown state accepted")
 	}
-	st := s.NewState()
-	app, err := s.Exchange(context.Background(), "abc", st)
-	if err != nil || app.ID != 42 || app.Slug != "wrangl-author-x" {
-		t.Fatalf("exchange: %+v %v", app, err)
+	st := s.NewState("plank-pattern", "/project/pnp")
+	res, err := s.Exchange(ctx, "abc", st)
+	if err != nil || res.App.ID != 42 || res.Login != "plank-pattern" || res.Back != "/project/pnp" || gotCode != "abc" {
+		t.Fatalf("exchange: %+v %v", res, err)
 	}
-	if _, err := s.Exchange(context.Background(), "abc", st); err == nil {
+	if _, err := s.Exchange(ctx, "abc", st); err == nil {
 		t.Fatal("state reused")
 	}
-	fi, err := os.Stat(filepath.Join(dir, KeyRel))
+	fi, err := os.Stat(filepath.Join(s.DataDir, "secrets/gh-plank-pattern.pem"))
 	if err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("key file: %v %v", fi, err)
 	}
-	if got, ok := Load(dir); !ok || got.ID != 42 {
-		t.Fatalf("load: %+v %v", got, ok)
+	if ref, ok := s.Lookup("plank-pattern"); !ok || ref.AppID != 42 || !strings.HasSuffix(ref.KeyPath, "gh-plank-pattern.pem") {
+		t.Fatalf("lookup: %+v %v", ref, ok)
 	}
-	if !strings.HasSuffix(app.InstallURL(), "/wrangl-author-x/installations/new") {
-		t.Fatal(app.InstallURL())
+	a, _ := s.Account(ctx, "plank-pattern")
+	if a.App == nil {
+		t.Fatal("app not recorded")
 	}
+	if !strings.HasSuffix(a.App.InstallURL(), "/wrangl-plank-pattern/installations/new") || a.InstallationsURL() != "https://github.com/organizations/plank-pattern/settings/installations" {
+		t.Fatalf("%s %s", a.App.InstallURL(), a.InstallationsURL())
+	}
+	if changed == 0 {
+		t.Fatal("Changed not called")
+	}
+}
+
+func TestManifestAndNames(t *testing.T) {
+	s := newSvc(t, "")
 	m, err := s.Manifest("n")
 	if err != nil || !strings.Contains(string(m), "https://ctrl.example.com/setup/github/callback") {
 		t.Fatalf("manifest: %s %v", m, err)
+	}
+	if n := AppName("Plank-Pattern"); n != "wrangl-plank-pattern" {
+		t.Fatal(n)
+	}
+	if n := AppName(strings.Repeat("x", 39)); len(n) > 34 {
+		t.Fatal(n)
+	}
+}
+
+func TestMigrateLegacyAdoptsTheOldApp(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/app" {
+			http.Error(w, "no", 404)
+			return
+		}
+		w.Write([]byte(`{"slug":"wrangl-author-njreid","owner":{"login":"njreid","type":"User"}}`))
+	}))
+	defer gh.Close()
+	s := newSvc(t, gh.URL)
+	ctx := context.Background()
+	if err := s.MigrateLegacy(ctx, 0, ""); err != nil {
+		t.Fatalf("nothing to migrate must be fine: %v", err)
+	}
+	os.MkdirAll(filepath.Join(s.DataDir, "secrets"), 0o750)
+	os.WriteFile(filepath.Join(s.DataDir, KeyRel), []byte(pemKey(t)), 0o600)
+	os.WriteFile(filepath.Join(s.DataDir, metaFile), []byte(`{"id":5587772,"slug":"wrangl-author-njreid","html_url":"https://github.com/apps/wrangl-author-njreid"}`), 0o600)
+	if err := s.MigrateLegacy(ctx, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	a, ok := s.Account(ctx, "njreid")
+	if !ok || a.Kind != "user" || a.App == nil || a.App.ID != 5587772 {
+		t.Fatalf("migrated: %+v %v", a, ok)
+	}
+	if ref, ok := s.Lookup("njreid"); !ok || ref.KeyPath != filepath.Join(s.DataDir, KeyRel) {
+		t.Fatalf("the legacy key stays where it is: %+v", ref)
+	}
+	if err := s.MigrateLegacy(ctx, 0, ""); err != nil {
+		t.Fatal("running it again must be a no-op:", err)
+	}
+}
+
+func TestSafeBack(t *testing.T) {
+	for in, want := range map[string]string{"/project/pnp": "/project/pnp", "//evil.example": "", "https://evil.example": "", "": "", "/a\\b": "", "/ok?x=1": "/ok?x=1"} {
+		if got := SafeBack(in); got != want {
+			t.Errorf("SafeBack(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestReviewerAppFlow(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"id":77,"slug":"wrangl-reviewer-njreid","html_url":"https://github.com/apps/wrangl-reviewer-njreid","owner":{"login":"njreid"},"webhook_secret":"s3cret","pem":%q}`, pemKey(t))
+	}))
+	defer gh.Close()
+	s := newSvc(t, gh.URL)
+	ctx := context.Background()
+	s.AddAccount(ctx, "njreid", "user")
+	if _, ok := s.LookupReviewer("njreid"); ok {
+		t.Fatal("reviewer before creation")
+	}
+	m, _ := s.ManifestFor(ReviewerName("njreid"), "reviewer")
+	for _, want := range []string{`"active":true`, `"checks":"read"`, "pull_request_review", "/gh/webhook"} {
+		if !strings.Contains(string(m), want) {
+			t.Errorf("manifest lacks %s: %s", want, m)
+		}
+	}
+	res, err := s.Exchange(ctx, "c", s.NewRoleState("njreid", "/inbox", "reviewer"))
+	if err != nil || res.Role != "reviewer" || res.Back != "/inbox" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	a, _ := s.Account(ctx, "njreid")
+	if a.Reviewer == nil || a.Reviewer.ID != 77 || a.App != nil {
+		t.Fatalf("reviewer must be recorded apart from the author App: %+v", a)
+	}
+	if ref, ok := s.LookupReviewer("njreid"); !ok || ref.AppID != 77 {
+		t.Fatalf("%+v %v", ref, ok)
+	}
+	if _, ok := s.Lookup("njreid"); ok {
+		t.Fatal("the reviewer App must not serve as the author App")
+	}
+	if sec := s.WebhookSecrets(); len(sec) != 1 || string(sec[0]) != "s3cret" {
+		t.Fatalf("%q", sec)
 	}
 }

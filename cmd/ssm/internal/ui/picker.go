@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	ssmaws "github.com/agenticwrestling/wrangl/cmd/ssm/internal/aws"
 	"github.com/ktr0731/go-fuzzyfinder"
-	ssmaws "github.com/nreid/devhost/cmd/ssm/internal/aws"
 )
 
 func PickProfile(ctx context.Context, profiles []string) (string, error) {

@@ -1,5 +1,7 @@
 # Installing wrangl
 
+*wrangl: **W**ork, **R**un, **A**sk, **N**udge, **G**ate, **L**and.*
+
 This guide takes you from an empty AWS account to a runner finishing a task and pushing a
 branch to GitHub. Do the steps in order. Each step ends with a check.
 
@@ -74,7 +76,7 @@ export AWS_REGION=us-west-2
 ## 2. Build the binaries
 
 ```sh
-git clone https://github.com/njreid/devhost && cd devhost
+git clone https://github.com/AgenticWrestling/wrangl && cd wrangl
 task build-wrangl
 ls build/
 # wrangl  wrangl-linux-aarch64  wrangl-linux-x86_64
@@ -389,7 +391,7 @@ script), how big the machine must be, and how to start the agent. Save this as
 name: go-claude
 arch: arm64
 min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
-instance_types: [m7g.large, m7g.xlarge]     # optional; omit to pick the smallest shape that fits (no local-NVMe types: im4gn costs ~3x m7g)
+instance_types: [m7g.large, m7g.xlarge]     # optional; omit to pick the smallest shape that fits (no local-NVMe types: im4gn costs ~2x m7g)
 max_runners: 2
 idle_timeout: 30m                           # terminated after this long idle (default 30m)
 setup_script: |                             # runs as root, only when it changes

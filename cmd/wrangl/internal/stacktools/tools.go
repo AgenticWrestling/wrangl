@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/mcp"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/mcp"
 )
 
 var position = `"position": {"type": "object", "description": "where among siblings (default last)", "properties": {"first": {"type": "boolean"}, "after": {"type": "string", "description": "sibling sqid"}, "before": {"type": "string", "description": "sibling sqid"}}}`

@@ -15,13 +15,13 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/stack"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 // LostAfter: an active run fails once its runner has been offline this long (spec §13).
@@ -254,6 +254,12 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 		reply(proto.StackReply{OK: true, Next: &proto.StackNext{Done: n.Done, Blocked: n.Blocked, Sqid: n.Sqid, Title: n.Title, Prompt: n.Prompt}})
 	case "complete":
 		if err := s.Stack.AgentComplete(ctx, req.RunID, req.Sqid, req.Summary); err != nil {
+			fail(err)
+			return
+		}
+		reply(proto.StackReply{OK: true})
+	case "checkpoint":
+		if err := s.Stack.RecordCheckpoint(ctx, req.RunID, req.Sqid, req.Commit); err != nil {
 			fail(err)
 			return
 		}

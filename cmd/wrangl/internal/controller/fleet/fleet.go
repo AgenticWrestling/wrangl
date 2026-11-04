@@ -26,13 +26,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/provision"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/errs"
-	"github.com/nreid/devhost/cmd/wrangl/internal/events"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // Errors the API maps to HTTP status codes.
@@ -79,6 +79,21 @@ type Service struct {
 }
 
 func (s *Service) now() time.Time { return s.Now().UTC() }
+
+// note appends to the Logs page. Failures are logged, never returned: a missing log line
+// must not fail the operation it describes.
+func (s *Service) note(ctx context.Context, kind, level, subject, title, detail string) {
+	err := s.DB.Q.AddLogEntry(context.WithoutCancel(ctx), dbgen.AddLogEntryParams{
+		At: ts(s.now()), Kind: kind, Level: level, Subject: subject, Title: title, Detail: detail,
+	})
+	if err != nil {
+		s.Log.Error("log entry", "err", err)
+		return
+	}
+	if s.Bus != nil {
+		s.Bus.Publish("log", subject)
+	}
+}
 
 func ts(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
 
@@ -133,12 +148,6 @@ func newToken() (plain string, hash []byte) {
 	plain = "wre_" + base64.RawURLEncoding.EncodeToString(b)
 	h := sha256.Sum256([]byte(plain))
 	return plain, h[:]
-}
-
-func newName(template string) string {
-	b := make([]byte, 3)
-	io.ReadFull(rand.Reader, b)
-	return template + "-" + hex.EncodeToString(b)
 }
 
 // MintToken creates a one-time token for adopting a box the controller did not launch.
@@ -240,7 +249,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 	var types []string
 	json.Unmarshal([]byte(t.InstanceTypes), &types)
 
-	name := newName(t.Name)
+	name := s.newName(ctx)
 	plain, hash := newToken()
 	tokID, err := s.DB.Q.CreateEnrollmentToken(ctx, dbgen.CreateEnrollmentTokenParams{
 		TokenHash: hash, TemplateID: t.ID, RunnerName: name, ExpiresAt: ts(s.now().Add(EnrollDeadline)),
@@ -282,6 +291,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 		return zero, err
 	}
 	s.Log.Info("launched runner", "runner", name, "instance", inst.ID, "type", inst.Type)
+	s.note(ctx, "runner", "info", name, "Runner launched", fmt.Sprintf("%s · %s · template %s", inst.Type, inst.ID, t.Name))
 	s.Bus.Publish("runner", name)
 	return r, nil
 }
@@ -311,6 +321,7 @@ func (s *Service) terminate(ctx context.Context, id int64, name, instanceID, rea
 		return err
 	}
 	s.Log.Info("terminated runner", "runner", name, "instance", instanceID, "reason", reason)
+	s.note(ctx, "runner", "info", name, "Runner terminated", reason+" · "+instanceID)
 	defer s.Bus.Publish("runner", name)
 	return s.DB.Q.MarkTerminated(ctx, dbgen.MarkTerminatedParams{TerminatedAt: nullStr(ts(s.now())), ID: id})
 }
@@ -376,7 +387,7 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 		} else {
 			name := tok.RunnerName
 			if name == "" {
-				name = newName(t.Name)
+				name = s.newName(ctx)
 			}
 			var err error
 			if r, err = q.CreateAdoptedRunner(ctx, dbgen.CreateAdoptedRunnerParams{Name: name, TemplateID: t.ID}); err != nil {
@@ -410,6 +421,7 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 		return nil, err
 	}
 	s.Log.Info("runner enrolled", "runner", resp.Name, "id", resp.RunnerID, "from", remoteIP)
+	s.note(ctx, "runner", "info", resp.Name, "Runner enrolled", "from "+remoteIP)
 	return &resp, nil
 }
 
@@ -460,6 +472,7 @@ func (s *Service) SweepOffline(ctx context.Context) error {
 	})
 	for _, r := range rows {
 		s.Log.Warn("runner offline", "runner", r.Name)
+		s.note(ctx, "runner", "warn", r.Name, "Runner offline", "no heartbeat")
 		s.Bus.Publish("runner", r.Name)
 		if s.OnOffline != nil {
 			s.OnOffline(r.Name)

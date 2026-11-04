@@ -1,0 +1,86 @@
+{{define "main-template"}}{{$t := .T}}
+<div class="crumbs dim small"><a href="/settings">Settings</a> › Runner templates › {{$t.Name}}</div>
+<div id="tpl" class="tpl" data-name="{{$t.Name}}" data-arch="{{$t.Arch}}" data-img="{{.ImgMode}}"
+  data-signals:tpdesc="{{json $t.Description}}" data-signals:tpmax="{{json .MaxStr}}" data-signals:tpsess="{{json .SessStr}}" data-signals:tpidle="{{json .IdleStr}}"
+  data-signals:tparch="{{json $t.Arch}}" data-signals:tpvcpu="{{json .VcpuStr}}" data-signals:tpram="{{json .RamStr}}" data-signals:tpdisk="{{json .DiskStr}}"
+  data-signals:tptypes="{{json .TypesCSV}}" data-signals:tpimg="{{json .ImgMode}}" data-signals:tpami="{{json .AmiStr}}"
+  data-signals:tpmise="{{json $t.MiseToml}}" data-signals:tpsetup="{{json $t.SetupScript}}">
+<div class="row tplhead"><h2 class="grow">{{$t.Name}} <span class="pill">v{{$t.Version}}</span></h2>
+  <span class="dim small">saving makes v{{add (int $t.Version) 1}}; idle runners re-apply it, busy ones when they finish</span>
+  <a class="btn" href="/settings">Cancel</a>
+  <button class="btn primary" data-on:click="@post('/ui/act/template-save?name={{$t.Name}}')">Save as v{{add (int $t.Version) 1}}</button></div>
+
+<section class="card">
+  <h3>Basics</h3>
+  <div class="grid3">
+    <label>Description<input data-bind="tpdesc" autocomplete="off"></label>
+    <label>Max runners<input data-bind="tpmax" inputmode="numeric" autocomplete="off"><span class="hint" id="tp-maxcost"></span></label>
+    <label>Sessions per runner<input data-bind="tpsess" inputmode="numeric" autocomplete="off"><span class="hint">concurrent agent sessions on one runner, each in its own git worktree (default 4)</span></label>
+    <label>Idle timeout<input data-bind="tpidle" autocomplete="off"><span class="hint">terminated after this long idle (e.g. 30m)</span></label>
+  </div>
+</section>
+
+<section class="card">
+  <div class="row"><h3 class="grow">Machine</h3>
+    <div class="seg" role="radiogroup" aria-label="Architecture" id="tp-arch">
+      <button type="button" role="radio" data-arch="arm64" aria-checked="false">arm64 (Graviton)</button>
+      <button type="button" role="radio" data-arch="x86_64" aria-checked="false">x86_64</button></div></div>
+  <div class="grid3">
+    <label>Min vCPU<input data-bind="tpvcpu" inputmode="numeric" autocomplete="off"></label>
+    <label>Min memory<input data-bind="tpram" autocomplete="off" placeholder="8GiB"></label>
+    <label>Min disk<input data-bind="tpdisk" autocomplete="off" placeholder="40GiB"></label>
+  </div>
+  <h4>Instance types</h4>
+  {{if .Catalogue}}
+  <p class="hint">Tick the types this template may launch; wrangl takes the cheapest ticked type that fits. None ticked: it picks the cheapest fit itself.</p>
+  <div class="tablewrap"><table class="types" id="tp-types">
+    <thead><tr><th><span class="sr">Use</span></th><th>Type</th><th>vCPU</th><th>Memory</th><th>Storage / GPU</th><th class="num">$ / hour</th><th>Notes</th></tr></thead>
+    <tbody>{{range .Catalogue}}<tr data-type="{{.Type}}" data-arch="{{.Arch}}" data-vcpu="{{.VCPU}}" data-mem="{{.MemoryMiB}}" data-price="{{.HourlyUSD}}" data-known="{{if .PriceKnown}}1{{end}}">
+      <td><input type="checkbox" aria-label="Use {{.Type}}"{{if index $.Ticked .Type}} checked{{end}}></td>
+      <td class="mono">{{.Type}}</td><td>{{.VCPU}}</td><td>{{memgib .MemoryMiB}}</td><td>{{.Extra}}</td>
+      <td class="num mono">{{if .PriceKnown}}${{printf "%.4f" .HourlyUSD}}{{if .Indicative}}<span class="dim" title="indicative: the Pricing API did not answer"> ~</span>{{end}}{{else}}<span class="dim">no rate</span>{{end}}</td>
+      <td class="note dim small">{{.Note}}</td></tr>{{end}}</tbody></table></div>
+  <p class="hint">On-demand Linux rates for {{.Region}}, from the AWS Pricing API (cached a day). Rows below your minimums are greyed. Spot is not used.</p>
+  <div class="summary" id="tp-summary"></div>
+  {{else}}
+  <label>Instance types (comma separated, optional)<input id="tp-types-text" autocomplete="off" value="{{range $i, $x := .TypesList}}{{if $i}}, {{end}}{{$x}}{{end}}"></label>
+  <p class="hint warn">{{if .CatalogueErr}}Could not read the instance catalogue: {{.CatalogueErr}}{{else}}AWS is not configured, so there is no catalogue.{{end}}</p>
+  {{end}}
+  <input type="hidden" data-bind="tptypes" id="tp-types-val"><input type="hidden" data-bind="tparch" id="tp-arch-val">
+</section>
+
+<section class="card">
+  <h3>Image</h3>
+  <p class="hint">What the machine boots. The runner enrols through the image's user-data, so the image needs cloud-init.</p>
+  <div role="radiogroup" aria-label="Image source" class="imgopts" id="tp-img">
+    <label class="opt"><input type="radio" name="tpimgr" value="al"><span><b>Amazon Linux 2023</b> <span class="dim">the default; resolved for the architecture</span></span></label>
+    <label class="opt"><input type="radio" name="tpimgr" value="ami"><span><b>An AMI id</b> <span class="dim">your own, or one picked from the Marketplace below</span></span></label>
+  </div>
+  <div id="tp-ami-box" hidden>
+    <label>AMI id<input data-bind="tpami" id="tp-ami" class="mono" autocomplete="off" autocapitalize="off" placeholder="ami-…"></label>
+    <div id="tp-ami-check" class="imgcheck"></div>
+    <details class="market" id="tp-market"{{if not .HasAWS}} hidden{{end}}><summary>Search the AWS Marketplace</summary>
+      <div class="row"><label class="grow">Product<input id="tp-mq" placeholder="e.g. genymotion" autocomplete="off"></label>
+        <button type="button" class="btn" id="tp-msearch">Search</button></div>
+      <p class="hint">Marketplace products usually bill a software fee on top of EC2, set by the vendor, and need their terms accepted once in the AWS console. wrangl cannot accept them for you; it shows the link.</p>
+      <div id="tp-mres" class="mres"></div></details>
+  </div>
+  <input type="hidden" data-bind="tpimg" id="tp-img-val">
+</section>
+
+<section class="card">
+  <h3>Tools (mise)</h3><p class="hint">Installed for the unprivileged <code>agent</code> user. Saving applies it with <code>mise install</code> on each runner.</p>
+  <textarea data-bind="tpmise" rows="9" class="mono" spellcheck="false"></textarea>
+</section>
+<section class="card">
+  <h3>Setup script</h3><p class="hint">Runs as root, only when it changes.</p>
+  <textarea data-bind="tpsetup" rows="6" class="mono" spellcheck="false"></textarea>
+</section>
+<section class="card">
+  <div class="row"><h3 class="grow">Agent</h3><span class="dim">{{.AgentSummary}}</span></div>
+  <p class="hint">Kept as it is when you save. To change it, use <code>wrangl template edit {{$t.Name}}</code>.</p>
+</section>
+</div>
+{{end}}
+
+{{define "post-template"}}{{end}}

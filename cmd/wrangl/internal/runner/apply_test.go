@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
-	"github.com/nreid/devhost/cmd/wrangl/internal/runner/runnertest"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner/runnertest"
 )
 
 func newApplier(t *testing.T) (*Applier, *Config, *int, string) {

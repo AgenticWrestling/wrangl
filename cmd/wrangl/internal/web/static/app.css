@@ -71,6 +71,7 @@ nav.tabs {
 nav.tabs a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: var(--tabs-h); color: var(--dim); font-size: 0.72rem; position: relative; }
 nav.tabs a span:first-child { font-size: 1.2rem; line-height: 1.2; }
 nav.tabs a.on { color: var(--prog); font-weight: 600; }
+nav.tabs a.side-brand { display: none; } /* desktop only: see the min-width:900px block */
 .badge:empty { display: none; }
 .badge { position: absolute; top: 6px; left: calc(50% + 6px); background: var(--attn); color: var(--c0); font-weight: 600; border-radius: 9px; font-size: 0.68rem; min-width: 18px; padding: 0 5px; text-align: center; }
 
@@ -238,7 +239,10 @@ label.check { font-size: 0.95rem; }
     inset: 0 auto 0 0; width: var(--side-w); flex-direction: column; justify-content: flex-start; gap: 2px;
     border-top: 0; border-right: 1px solid var(--line); padding: calc(env(safe-area-inset-top) + 16px) 10px 16px;
   }
-  nav.tabs::before { content: "wrangl"; color: var(--ink); font-size: 1.25rem; padding: 4px 12px 16px; letter-spacing: 0.02em; }
+  nav.tabs a.side-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; margin-bottom: 6px; border-radius: 0; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 1.25rem; letter-spacing: 0.02em; }
+  nav.tabs a.side-brand:hover { background: none; color: var(--ink); }
+  nav.tabs a.side-brand img { display: block; flex: none; padding: 2px; border-radius: 9px; background: #0f1115; }
+  header.top .brand { display: none; }
   nav.tabs a { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; height: auto; padding: 10px 12px; border-radius: 10px; font-size: 0.98rem; }
   nav.tabs a:hover { background: var(--raised); color: var(--ink2); }
   nav.tabs a.on { background: color-mix(in srgb, var(--prog) 14%, transparent); }
@@ -267,3 +271,107 @@ li.task.kfiltered { display: none; }
 .khelp h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
 .khelp .g div { display: flex; justify-content: space-between; gap: 8px; }
 .khelp kbd { font: 500 0.74rem var(--mono); border: 1px solid var(--faint); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; margin-left: 4px; }
+
+/* Runners: spend summary and the account's other instances. */
+.spendgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 20px; }
+.spend .big { font-size: 1.6rem; font-weight: 600; line-height: 1.2; }
+.row.other { align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.row.other .otherid { min-width: 0; flex: 1 1 220px; }
+.row.other .cost { font-family: var(--mono); font-size: 0.86rem; min-width: 84px; text-align: right; }
+.adopt-result pre { white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: var(--mono); font-size: 0.82rem; }
+.adopt-result .warn { color: var(--attn); }
+
+/* Runner template editor. */
+.tpl { display: flex; flex-direction: column; gap: 14px; }
+.tplhead { flex-wrap: wrap; align-items: center; gap: 10px; }
+.tpl .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 16px; }
+.tpl label { display: flex; flex-direction: column; gap: 5px; font-size: 0.9rem; color: var(--ink2); }
+.tpl h4 { margin: 14px 0 4px; font-size: 0.95rem; }
+.tpl textarea { width: 100%; }
+.tpl input[type=radio], .tpl input[type=checkbox] { width: auto; flex: none; }
+.tpl .mono, .tpl code { font-family: var(--mono); font-size: 0.86em; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table.types { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 0.9rem; }
+table.types th { text-align: left; color: var(--dim); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 9px 12px; }
+table.types td { padding: 8px 12px; border-top: 1px solid var(--line); }
+table.types .num { text-align: right; }
+table.types tr.nofit { opacity: 0.5; }
+table.types input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--brand); }
+.sr { position: absolute; left: -9999px; }
+.summary { padding: 11px 14px; background: var(--raised); border-radius: 10px; font-size: 0.92rem; }
+.imgopts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.imgopts .opt { flex-direction: row; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.imgcheck { min-height: 1.4em; font-size: 0.88rem; margin: 6px 0; }
+.imgcheck .ok { color: var(--ok); }
+.imgcheck .warn, .hint.warn { color: var(--attn); }
+.market { margin-top: 8px; }
+.mres .mrow { align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+
+/* Logs: a full-width table, not the 760px column. */
+body[data-view="logs"] main { max-width: none; }
+.logbar { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+.logbar .pill.on { border-color: var(--link); color: var(--ink); font-weight: 600; }
+.logwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+table.logs { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+table.logs th { text-align: left; font-weight: 600; color: var(--dim); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: var(--card); }
+table.logs td { padding: 7px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+table.logs tr:first-child td { border-top: 0; }
+table.logs td.nowrap { white-space: nowrap; }
+table.logs td.mono { font-family: var(--mono, ui-monospace, monospace); font-size: 0.82rem; }
+table.logs .logdetail { white-space: pre-wrap; word-break: break-word; max-width: 46ch; }
+table.logs tr.lv-error td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
+table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
+.rank { width: 1.6em; text-align: right; }
+
+#topcosts .row.other { flex-wrap: wrap; }
+#topcosts ul.parts { flex-basis: 100%; list-style: none; margin: 2px 0 6px 2.4em; padding: 0; font-size: 0.85rem; }
+#topcosts ul.parts li { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; border-top: 1px dotted var(--line); }
+
+/* controller-agent conversation on a task */
+.thread .msg{padding:.5rem 0;border-top:1px solid var(--line, rgba(128,128,128,.25))}
+.thread .msg:first-of-type{border-top:0}
+.thread .msg .who{font-size:.8rem;font-weight:600;margin-bottom:.15rem}
+.thread .msg.user .who{opacity:.75}
+.thread .msg.agent{border-left:3px solid var(--accent, #4a7)}
+.thread .msg.agent,.thread .msg.user{padding-left:.6rem}
+.thread .msg.err{border-left-color:var(--danger, #c44)}
+.thread .props{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem;align-items:center}
+.thread .prop.done{opacity:.6}
+.thread .prop.error{border-color:var(--danger,#c44)}
+.thread .reply{display:flex;gap:.5rem;align-items:flex-end;margin-top:.6rem}
+.thread .reply textarea{flex:1;min-width:0}
+
+/* brand mark: always on the dark tile it was drawn for, so it reads in the light theme too */
+.brand { display: inline-flex; flex: none; padding: 2px; border-radius: 8px; background: #0f1115; line-height: 0; }
+.brand img { display: block; }
+.about { text-align: center; padding: 8px 0 0; }
+.about img { width: min(280px, 70%); height: auto; background: #0f1115; border-radius: 16px; padding: 12px 12px 4px; }
+
+/* Tasks page: In progress / Queue / Backlog sections */
+.tsec { margin: 0 0 18px; }
+.tsec > h3 { margin: 6px 0 8px; font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.tasks.runs > li.run { border-left: 3px solid var(--prog); }
+#queue .tasks.runs > li.run { border-left-color: var(--line); }
+.crumb { color: var(--dim); font-weight: 400; }
+.now { padding: 2px 0 2px 2.2rem; }
+details.sub { padding: 2px 0 2px 1.6rem; }
+details.sub > summary { cursor: pointer; color: var(--dim); font-size: 0.85rem; padding: 2px 0; }
+
+/* Left panel (desktop only): section links under Tasks. */
+.subnav { display: none; }
+@media (min-width: 900px) {
+  .subnav { display: flex; flex-direction: column; gap: 1px; margin: 0 0 4px 34px; }
+  nav.tabs .subnav a { flex: none; flex-direction: row; height: auto; padding: 4px 10px; border-radius: 8px; font-size: 0.86rem; color: var(--dim); }
+  nav.tabs .subnav a:hover { background: var(--raised); color: var(--ink2); }
+  nav.tabs .subnav a[hidden] { display: none; }
+}
+html { scroll-padding-top: 64px; }
+
+/* Focus: while a task is expanded, dim the rest of the tree so the open card pops. The rows
+   inside the card itself (its own subtask list) stay at full strength. */
+li.task > .row, li.task > .now { transition: opacity .15s ease; }
+#main:has(.detail:not(:empty)) li.task > .row,
+#main:has(.detail:not(:empty)) li.task > .now { opacity: .5; }
+#main:has(.detail:not(:empty)) li.task:has(> .detail:not(:empty)) > .row { opacity: 1; }
+#main:has(.detail:not(:empty)) li.task > .row:hover { opacity: .85; }
+#main .detail li.task > .row, #main .detail li.task > .now { opacity: 1 !important; }

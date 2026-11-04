@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/db/dbgen"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // ResendUpgradeAfter is how long the controller waits for an upgraded heartbeat before
@@ -41,6 +41,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 	if hb.BinarySHA == want {
 		if r.UpgradeSha != "" {
 			s.Log.Info("runner upgraded", "runner", r.Name, "sha256", short(want))
+			s.note(ctx, "upgrade", "info", r.Name, "Runner binary upgraded", short(want))
 			s.Bus.Publish("runner", r.Name)
 			return s.DB.Q.ClearUpgrade(ctx, id)
 		}
@@ -71,6 +72,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 		return fmt.Errorf("%s declined the upgrade: %s", r.Name, ack.Reason)
 	}
 	s.Log.Info("upgrade sent", "runner", r.Name, "sha256", short(want))
+	s.note(ctx, "upgrade", "info", r.Name, "Runner binary upgrade sent", short(hb.BinarySHA)+" → "+short(want))
 	return nil
 }
 

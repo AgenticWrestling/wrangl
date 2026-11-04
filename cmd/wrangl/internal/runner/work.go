@@ -23,8 +23,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/nreid/devhost/cmd/wrangl/internal/controller/natsd"
-	"github.com/nreid/devhost/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // Defaults for agent turns.
@@ -745,6 +745,14 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 
 // checkpoint commits anything the agent left uncommitted, as the agent.
 func (w *Worker) checkpoint(ctx context.Context, s *session, n *proto.StackNext) error {
+	if err := w.checkpointCommit(ctx, s, n); err != nil {
+		return err
+	}
+	w.reportCheckpoint(ctx, s, n)
+	return nil
+}
+
+func (w *Worker) checkpointCommit(ctx context.Context, s *session, n *proto.StackNext) error {
 	if out, err := gitAsAgent(ctx, s.id, s.dir, "add", "-A"); err != nil {
 		return fmt.Errorf("git add: %w: %s", err, out)
 	}
@@ -757,6 +765,21 @@ func (w *Worker) checkpoint(ctx context.Context, s *session, n *proto.StackNext)
 	}
 	s.logf("runner", "checkpoint commit: %s", msg)
 	return nil
+}
+
+// reportCheckpoint tells the controller which commit the task ended on (whether the runner or
+// the agent made it), so a done task can link to its changes. Best effort: a failure is logged,
+// never fatal to the run.
+func (w *Worker) reportCheckpoint(ctx context.Context, s *session, n *proto.StackNext) {
+	out, err := gitAsAgent(ctx, s.id, s.dir, "rev-parse", "HEAD")
+	sha := strings.TrimSpace(out)
+	if err != nil || sha == "" {
+		s.logf("runner", "checkpoint: no HEAD to report for %s", n.Sqid)
+		return
+	}
+	if _, err := w.stack(ctx, "checkpoint", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Commit: sha}); err != nil {
+		s.logf("runner", "checkpoint: report %s: %v", n.Sqid, err)
+	}
 }
 
 // Inspect answers cmd.diff / cmd.tree / cmd.file for a run's workspace.
