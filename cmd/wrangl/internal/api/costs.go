@@ -103,6 +103,20 @@ func registerCosts(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusOK, d.Fleet.Prov.CheckLaunch(r.Context(), q.Get("ami"), q.Get("type"), d.Fleet.SubnetID, d.Fleet.SecurityGroupID))
 	})
+	// The full test: launches one instance (about two minutes, a few cents) and terminates it.
+	mux.HandleFunc("POST /api/v1/images/test", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if !strings.HasPrefix(q.Get("ami"), "ami-") || q.Get("type") == "" || (q.Get("arch") != "arm64" && q.Get("arch") != "x86_64") {
+			writeErr(w, fmt.Errorf("%w: ami, type and arch (arm64|x86_64) are required", errs.Invalid))
+			return
+		}
+		res, err := d.Fleet.TestImage(r.Context(), q.Get("ami"), q.Get("type"), q.Get("arch"))
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
 	mux.HandleFunc("DELETE /api/v1/instances/{region}/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := TerminateOther(r.Context(), d, r.PathValue("region"), r.PathValue("id")); err != nil {
 			writeErr(w, err)

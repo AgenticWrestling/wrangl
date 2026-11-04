@@ -20,6 +20,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/ghsetup"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/plans"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
@@ -341,6 +342,16 @@ func EnrollHandler(f *fleet.Service) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)
+	})
+	// A test instance (Settings > Runner templates > Test this image) reports what it found.
+	mux.HandleFunc("POST /imagecheck/{token}", func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+		rep, perr := provision.ParseProbeReport(b)
+		if err != nil || perr != nil || !f.SubmitProbe(r.PathValue("token"), rep) {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /dl/{file}", func(w http.ResponseWriter, r *http.Request) {
 		var arch string

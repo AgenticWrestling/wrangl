@@ -365,6 +365,24 @@ function initTemplateEditor() {
     } catch (e) { chk.textContent = ''; }
   }
   if (amiEl) amiEl.addEventListener('input', () => { clearTimeout(ct); ct = setTimeout(checkAmi, 700); });
+  // The full test: launch one instance, check what a runner bootstrap needs, terminate it.
+  const tb = $('tp-ami-test'), tout = $('tp-ami-test-out');
+  if (tb) tb.addEventListener('click', async () => {
+    const ami = (amiEl.value || '').trim();
+    if (!/^ami-[0-9a-f]+$/.test(ami)) { tout.textContent = 'Enter an AMI id first.'; return; }
+    const c = cheapest(rows.filter((tr) => tr.dataset.arch === arch && tr.querySelector('input').checked)) || cheapest([]);
+    if (!c) { tout.textContent = 'Pick an instance type first.'; return; }
+    tb.disabled = true;
+    tout.textContent = 'Launching ' + c.dataset.type + ' and waiting for it to report (about 2 minutes)…';
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+    try {
+      const r = await fetch('/api/v1/images/test?ami=' + encodeURIComponent(ami) + '&type=' + encodeURIComponent(c.dataset.type) + '&arch=' + encodeURIComponent(arch), { method: 'POST', credentials: 'same-origin' });
+      const j = await r.json();
+      if (!r.ok) { tout.textContent = j.error || r.status; return; }
+      tout.innerHTML = (j.checks || []).map((k) => '<li><span class="' + (k.ok ? 'ok">✓' : 'warn">✗') + '</span> ' + esc(k.name) + (k.detail ? ' <span class="dim small">' + esc(k.detail) + '</span>' : '') + '</li>').join('') +
+        '<li class="dim small">' + (j.terminated ? 'Test instance terminated.' : 'Could not terminate the test instance ' + esc(j.instance_id) + '; the reaper will remove it.') + '</li>';
+    } catch (e) { tout.textContent = 'Test failed: ' + e; } finally { tb.disabled = false; }
+  });
   const ms = $('tp-msearch');
   async function search() {
     const out = $('tp-mres'), q = ($('tp-mq').value || '').trim();
