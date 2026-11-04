@@ -91,8 +91,10 @@ type ProjectView struct {
 	PlanTemplate string `json:"plan_template,omitempty"`
 	AutoMerge    bool   `json:"auto_merge"`
 	AutoQueue    bool   `json:"auto_queue"`
-	Priority     int64  `json:"priority"`
-	NotesRepo    string `json:"notes_repo,omitempty"`
+	// AutoResolve: auto-merge queues Smart Merge for a conflicted PR (otherwise it asks the owner).
+	AutoResolve bool   `json:"auto_resolve"`
+	Priority    int64  `json:"priority"`
+	NotesRepo   string `json:"notes_repo,omitempty"`
 	// Limits are the runner instances this project's demand may cause, per template.
 	Limits []ProjectLimit `json:"limits,omitempty"`
 	Agent  string         `json:"agent,omitempty"` // default agent definition
@@ -141,6 +143,7 @@ type ProjectRequest struct {
 	PlanTemplate *string `json:"plan_template,omitempty"`
 	AutoMerge    *bool   `json:"auto_merge,omitempty"`
 	AutoQueue    *bool   `json:"auto_queue,omitempty"`
+	AutoResolve  *bool   `json:"auto_resolve,omitempty"`
 	Priority     *int64  `json:"priority,omitempty"`
 	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
 	// Limits sets instance caps by template name; templates not listed keep theirs.

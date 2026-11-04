@@ -26,6 +26,7 @@ type Fake struct {
 	writes    []FakeWrite
 	writeErr  error
 	tick      int
+	updates   []int64 // update-branch calls
 }
 
 // NewFake returns an empty fake.

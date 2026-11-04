@@ -339,7 +339,7 @@ func (c *Client) PR(ctx context.Context, id int64) (proto.PRView, error) {
 	return out, c.json(ctx, http.MethodGet, fmt.Sprintf("/api/v1/prs/%d", id), nil, &out)
 }
 
-// PRAction posts approve | request-changes | close.
+// PRAction posts approve | request-changes | resolve | close.
 func (c *Client) PRAction(ctx context.Context, id int64, op, message string) error {
 	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/prs/%d/%s", id, op), proto.MessageRequest{Message: message}, nil)
 }

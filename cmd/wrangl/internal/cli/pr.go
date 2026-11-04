@@ -89,6 +89,7 @@ func prCmd(g *Global) *cobra.Command {
 		list, show,
 		action("approve", "Approve and merge (reviewer App)", false),
 		action("request-changes", "Request changes (queues a revise run on the branch)", true),
+		action("resolve", "Smart Merge: queue an agent run that merges the base branch in and resolves conflicts", false),
 		action("close", "Close without merging (its tasks reopen)", false),
 	)
 }

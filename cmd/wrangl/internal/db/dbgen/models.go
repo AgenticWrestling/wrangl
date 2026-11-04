@@ -177,6 +177,7 @@ type PullRequest struct {
 	HeadSha         string         `json:"head_sha"`
 	Checks          string         `json:"checks"`
 	ReviewedSha     string         `json:"reviewed_sha"`
+	Mergeable       string         `json:"mergeable"`
 }
 
 type PushSubscription struct {

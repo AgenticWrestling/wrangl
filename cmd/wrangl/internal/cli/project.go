@@ -36,6 +36,7 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 	r.AutoMerge, r.AutoQueue = boolean("auto-merge"), boolean("auto-queue")
 	r.NotesRepo, r.Agent = str("notes-repo"), str("agent")
 	r.CitationAudit = boolean("citation-audit")
+	r.AutoResolve = boolean("auto-resolve")
 	if f.Changed("limit") {
 		vals, _ := f.GetStringSlice("limit")
 		r.Limits = map[string]int64{}
@@ -63,6 +64,7 @@ func projectFlags(c *cobra.Command) {
 	f.String("template", "", "default runner template")
 	f.String("plan-template", "", "runner template for plan runs (default: --template)")
 	f.Bool("auto-merge", false, "auto-merge PRs that pass every gate and review as low risk")
+	f.Bool("auto-resolve", false, "auto-merge queues Smart Merge (an agent merges the base branch in) for a conflicted PR instead of asking you")
 	f.Bool("auto-queue", false, "queue new top-level tasks automatically")
 	f.String("notes-repo", "", "linked repo (owner/name) that holds research reports under research/; empty clears")
 	f.Bool("citation-audit", false, "research PRs get an audit run that re-fetches every cited URL; unverified citations block auto-merge")
@@ -76,6 +78,9 @@ func printProject(w io.Writer, p proto.ProjectView) {
 		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
 	if p.Archived {
 		fmt.Fprintf(w, "archived\t%s\n", p.ArchivedAt)
+	}
+	if p.AutoResolve {
+		fmt.Fprintf(w, "auto-resolve\ton\n")
 	}
 	if p.CitationAudit {
 		fmt.Fprintf(w, "citation audit\ton\n")

@@ -49,9 +49,13 @@ type Service struct {
 	Now         func() time.Time
 	Log         *slog.Logger
 	Bus         *events.Bus
+	// QueueResolve overrides how auto-merge queues Smart Merge for a conflicted PR (tests).
+	// Nil: autoResolve. It must be idempotent (one resolve run per PR at a time).
+	QueueResolve func(ctx context.Context, pr dbgen.PullRequest) error
 
 	mu       sync.Mutex
 	reviewed map[int64]string // pr id -> head sha a review run was queued for
+	resolved map[int64]string // PR id -> head sha an automatic resolve run was queued for (guarded by mu)
 	audited  map[int64]string // PR id -> head sha a citation audit was queued for (guarded by mu)
 }
 
@@ -108,13 +112,16 @@ func (s *Service) onRunFinished(ctx context.Context, runID int64) error {
 	if err != nil {
 		return err
 	}
+	if run.Kind == "resolve" {
+		s.recordResolveOutcome(ctx, run)
+	}
 	switch run.Kind {
 	case "review":
 		if run.PrID.Valid {
 			return s.Evaluate(ctx, run.PrID.Int64)
 		}
 		return nil
-	case "work", "revise":
+	case "work", "revise", "resolve":
 	default:
 		return nil
 	}
@@ -271,6 +278,7 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 		s.DB.Q.SetPRHeadSHA(ctx, dbgen.SetPRHeadSHAParams{HeadSha: live.HeadSHA, ID: pr.ID})
 		pr.HeadSha = live.HeadSHA
 	}
+	s.storeMergeable(ctx, &pr, live.Mergeable)
 	proj, err := s.projectFor(ctx, pr)
 	if err != nil {
 		return err
@@ -350,10 +358,63 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	if t, err := s.DB.RQ.GetTask(ctx, pr.TaskID); err == nil {
 		ownerGate = t.TaskType.OwnerGate()
 	}
-	if proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && (!auditing || audit.OK()) && s.autoMergeable(ctx, pr) {
+	wouldAutoMerge := proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && (!auditing || audit.OK()) && s.autoMergeable(ctx, pr)
+	if wouldAutoMerge && pr.Mergeable == gh.MergeConflicted {
+		// Never attempt a conflicted PR. With auto-resolve on, queue Smart Merge (the re-evaluation
+		// after its push brings the PR back here); otherwise the owner gets an Inbox item.
+		if ar, _ := s.DB.RQ.GetProjectAutoResolve(ctx, proj.ID); ar == 1 {
+			queue := s.QueueResolve
+			if queue == nil {
+				queue = s.autoResolve
+			}
+			if err := queue(ctx, pr); err == nil {
+				return nil
+			} else {
+				s.Log.Warn("auto-resolve", "pr", pr.Url, "err", err)
+			}
+		}
+		return s.askOwner(ctx, pr, g, auditing, audit, audited)
+	}
+	if wouldAutoMerge {
 		return s.merge(ctx, pr, "auto_merged", "Auto-merged by wrangl: gates passed and the review rated it low risk.")
 	}
 	return s.askOwner(ctx, pr, g, auditing, audit, audited)
+}
+
+// storeMergeable records GitHub's mergeable state on the PR (empty = not reported, keep the old one).
+func (s *Service) storeMergeable(ctx context.Context, pr *dbgen.PullRequest, state string) {
+	if state == "" || state == pr.Mergeable {
+		return
+	}
+	if err := s.DB.Q.SetPRMergeable(ctx, dbgen.SetPRMergeableParams{Mergeable: state, ID: pr.ID}); err != nil {
+		s.Log.Warn("store mergeable", "pr", pr.Url, "err", err)
+		return
+	}
+	pr.Mergeable = state
+}
+
+// RefreshMergeable re-reads only the mergeable state of an open PR (a push to its base
+// branch can make it conflict) and publishes the change.
+func (s *Service) RefreshMergeable(ctx context.Context, prID int64) error {
+	pr, err := s.DB.RQ.GetPR(ctx, prID)
+	if err != nil || pr.State != "open" {
+		return err
+	}
+	_, ghr, err := s.repo(ctx, pr.RepoID)
+	if err != nil {
+		return err
+	}
+	live, err := s.gh(ghr).GetPR(ctx, ghr, pr.GhNumber)
+	if err != nil {
+		return err
+	}
+	if before := pr.Mergeable; live.State == "open" {
+		s.storeMergeable(ctx, &pr, live.Mergeable)
+		if pr.Mergeable != before {
+			s.Bus.Publish("pr", fmt.Sprint(pr.ID))
+		}
+	}
+	return nil
 }
 
 // autoMergeable: the App that opened the PR can merge it, so auto-merge needs no reviewer App.
@@ -479,6 +540,9 @@ func (s *Service) askOwner(ctx context.Context, pr dbgen.PullRequest, g Gates, a
 	fmt.Fprintf(&d, "%s\n\n**Risk:** %s  \n**CI:** %s  \n**Changed lines:** %d (auto-merge limit %d)\n", pr.Url, risk, g.Checks, g.Lines, g.MaxLines)
 	if len(g.Protected) > 0 {
 		fmt.Fprintf(&d, "**Protected paths:** %s\n", strings.Join(g.Protected, ", "))
+	}
+	if pr.Mergeable == gh.MergeConflicted {
+		d.WriteString("**Merge conflicts:** this PR conflicts with its base branch and cannot be merged until they are resolved.\n")
 	}
 	if pr.ReviewSummaryMd != "" {
 		fmt.Fprintf(&d, "\n### Review\n\n%s\n", pr.ReviewSummaryMd)
@@ -770,6 +834,7 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		CheckRun struct {
 			HeadSHA string `json:"head_sha"`
 		} `json:"check_run"`
+		Ref         string `json:"ref"`
 		PullRequest struct {
 			Number int64 `json:"number"`
 		} `json:"pull_request"`
@@ -827,6 +892,35 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 			return err
 		}
 		return s.Evaluate(ctx, pr.ID)
+	case "push":
+		// A push to a base branch can make other open PRs conflict: refresh them all. The PR
+		// whose own head moved gets a full evaluation.
+		branch := strings.TrimPrefix(p.Ref, "refs/heads/")
+		repos, err := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name})
+		if err != nil {
+			return err
+		}
+		ids := map[int64]bool{}
+		for _, r := range repos {
+			ids[r.ID] = true
+		}
+		open, err := s.DB.RQ.OpenPRs(ctx)
+		if err != nil {
+			return err
+		}
+		for _, pr := range open {
+			if !ids[pr.RepoID] {
+				continue
+			}
+			if pr.HeadBranch == branch {
+				err = s.Evaluate(ctx, pr.ID)
+			} else {
+				err = s.RefreshMergeable(ctx, pr.ID)
+			}
+			if err != nil {
+				s.Log.Warn("push webhook PR", "pr", pr.Url, "err", err)
+			}
+		}
 	case "issues":
 		repos, err := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name})
 		if err != nil {
@@ -876,4 +970,152 @@ func (s *Service) Reconcile(ctx context.Context) {
 			s.Log.Warn("reconcile PR", "pr", pr.Url, "err", err)
 		}
 	}
+}
+
+// --- Smart Merge (resolve runs) ---------------------------------------------------------
+
+// logPR records an event for a PR on the Logs page (the PR timeline).
+func (s *Service) logPR(ctx context.Context, pr dbgen.PullRequest, level, title, detail string) {
+	if err := s.DB.Q.AddLogEntry(context.WithoutCancel(ctx), dbgen.AddLogEntryParams{
+		Kind: "pr", Level: level, Subject: pr.Url, Title: title, Detail: detail}); err != nil {
+		s.Log.Warn("log PR event", "pr", pr.Url, "err", err)
+	}
+}
+
+// ResolveConflicts is the owner's "Smart Merge" action: it queues a resolve run for a PR whose
+// branch conflicts with its base. It refreshes the mergeable state first and refuses when there
+// is nothing to resolve or a resolve run is already active.
+func (s *Service) ResolveConflicts(ctx context.Context, prID int64) error {
+	pr, err := s.openPR(ctx, prID)
+	if err != nil {
+		return err
+	}
+	if err := s.RefreshMergeable(ctx, pr.ID); err != nil {
+		return err
+	}
+	if pr, err = s.openPR(ctx, prID); err != nil {
+		return err
+	}
+	if pr.Mergeable != gh.MergeConflicted {
+		// The base moved but nothing conflicts: GitHub merges it in; no agent needed.
+		return s.updateBranch(ctx, pr)
+	}
+	_, queued, err := s.queueResolve(ctx, pr)
+	if err != nil {
+		return err
+	}
+	if !queued {
+		return fmt.Errorf("%w: a Smart Merge run is already in progress for PR %d", errs.Conflict, pr.ID)
+	}
+	return nil
+}
+
+// autoResolve is what auto-merge calls for a conflicted PR. It queues at most one resolve run
+// per head commit, so a resolve run that ends without fixing the PR falls back to the owner
+// instead of looping.
+func (s *Service) autoResolve(ctx context.Context, pr dbgen.PullRequest) error {
+	s.mu.Lock()
+	if s.resolved == nil {
+		s.resolved = map[int64]string{}
+	}
+	last, ran := s.resolved[pr.ID]
+	tried := ran && last == pr.HeadSha
+	s.mu.Unlock()
+	if tried {
+		return fmt.Errorf("an automatic Smart Merge already ran for %s", pr.HeadSha)
+	}
+	_, _, err := s.queueResolve(ctx, pr)
+	if err == nil {
+		s.mu.Lock()
+		s.resolved[pr.ID] = pr.HeadSha
+		s.mu.Unlock()
+	}
+	return err
+}
+
+// queueResolve queues a resolve run unless one is already active for the PR.
+func (s *Service) queueResolve(ctx context.Context, pr dbgen.PullRequest) (run dbgen.Run, queued bool, err error) {
+	repo, _, err := s.repo(ctx, pr.RepoID)
+	if err != nil {
+		return run, false, err
+	}
+	task, err := s.DB.RQ.GetTask(ctx, pr.TaskID)
+	if err != nil {
+		return run, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: nint(pr.ID), Kind: "resolve"})
+	if err != nil || active > 0 {
+		return run, false, err
+	}
+	run, err = s.special(ctx, pr, "resolve", resolvePrompt(pr, repo.DefaultBranch, task))
+	if err != nil {
+		return run, false, err
+	}
+	s.logPR(ctx, pr, "info", fmt.Sprintf("Smart Merge queued for PR #%d", pr.GhNumber),
+		fmt.Sprintf("%s conflicts with %s; run %d will merge the base branch in and resolve the conflicts.", pr.Url, repo.DefaultBranch, run.ID))
+	s.Log.Info("resolve queued", "pr", pr.Url, "run", run.ID)
+	return run, true, nil
+}
+
+// resolvePrompt is the agent's brief for a Smart Merge.
+func resolvePrompt(pr dbgen.PullRequest, base string, task dbgen.Task) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `Smart Merge: pull request #%d (%s) conflicts with its base branch %q. The PR branch (%s) is checked out.
+This PR implements task %s %q:
+
+%s
+
+Resolve the conflicts by merging the base branch into the PR branch:
+
+1. git fetch origin %s, then git merge origin/%s. Use a merge, never a rebase, so the push is a plain fast-forward. NEVER force-push (no --force, no --force-with-lease) and never rewrite history.
+2. List the conflicted files (git diff --name-only --diff-filter=U). For every conflict work out what BOTH sides were trying to do before editing: read the commit messages of the base side (git log --merge, git log origin/%s) and of this branch, and the task prompts of both sides (commit subjects start with the task sqid in brackets: use the task_get tool on it). Combine both intents; do not just pick one side and do not drop either side's change.
+3. If a conflict genuinely cannot be resolved without a product decision, STOP: do not guess. Run git merge --abort, then ask the owner with the question tool: give both options as the answer choices and name the file and the conflicting hunks. Continue only with the answer.
+4. Touch only the conflicted files, except to fix breakage the merge itself introduced. Do not reformat or refactor anything else.
+5. Run ./check.sh if the repo has one, otherwise the project's own test command (mise.toml, Makefile, README), and fix any breakage caused by the merge.
+6. Commit the merge (git merge's default message is fine) and git push origin HEAD. Then end your turn.
+
+Before ending, call report_status with a summary that lists each conflicted file and how you resolved it, and repeat that list in your final message.
+`, pr.GhNumber, pr.Url, base, pr.HeadBranch, task.Sqid.String, task.Title, task.Prompt, base, base, base)
+	return b.String()
+}
+
+// recordResolveOutcome writes what a finished resolve run did to the PR timeline.
+func (s *Service) recordResolveOutcome(ctx context.Context, run dbgen.Run) {
+	if !run.PrID.Valid {
+		return
+	}
+	pr, err := s.DB.RQ.GetPR(ctx, run.PrID.Int64)
+	if err != nil {
+		return
+	}
+	summary := strings.TrimSpace(run.StatusText)
+	switch {
+	case run.State == "succeeded" && run.Pushed == 1:
+		s.logPR(ctx, pr, "info", fmt.Sprintf("Smart Merge resolved PR #%d", pr.GhNumber), summary)
+	case run.State == "succeeded":
+		s.logPR(ctx, pr, "warn", fmt.Sprintf("Smart Merge made no push on PR #%d", pr.GhNumber), summary)
+	default:
+		s.logPR(ctx, pr, "error", fmt.Sprintf("Smart Merge %s on PR #%d", run.State, pr.GhNumber), strings.TrimSpace(summary+" "+run.Error))
+	}
+}
+
+// updateBranch is the clean path of Smart Merge: GitHub merges the base branch into the PR
+// branch (update-branch), then the PR is re-evaluated at its new head so checks and review run
+// again.
+func (s *Service) updateBranch(ctx context.Context, pr dbgen.PullRequest) error {
+	_, ghr, err := s.repo(ctx, pr.RepoID)
+	if err != nil {
+		return err
+	}
+	if err := s.gh(ghr).UpdateBranch(ctx, ghr, pr.GhNumber); err != nil {
+		s.logPR(ctx, pr, "error", fmt.Sprintf("Update branch failed on PR #%d", pr.GhNumber), err.Error())
+		return fmt.Errorf("update branch of PR #%d: %w", pr.GhNumber, err)
+	}
+	s.logPR(ctx, pr, "info", fmt.Sprintf("Branch of PR #%d updated from its base", pr.GhNumber),
+		"The base moved without conflicts; GitHub merged it into the PR branch (no agent run).")
+	s.Log.Info("branch updated", "pr", pr.Url)
+	s.DB.Q.CancelPRQuestions(ctx, pr.ID) // the head changed: the old review card is stale
+	return s.Evaluate(ctx, pr.ID)
 }

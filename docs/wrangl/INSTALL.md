@@ -652,6 +652,44 @@ show ◐ (in review) until it merges. What happens next:
 4. **Merged:** the subtasks become ✓ done, and blocked work waiting on them is queued again
    automatically.
 
+### Merge conflicts and Smart Merge
+
+wrangl reads GitHub's `mergeable` / `mergeable_state` for every open PR and stores it as
+`unknown`, `clean`, `conflicted` (GitHub's "dirty") or `blocked`. It is refreshed whenever the
+PR is evaluated, on the `pull_request` webhook, on the `push` webhook (a push to the base branch
+re-checks every other open PR in that repo, since it may now conflict) and by the reconcile
+poll. GitHub computes the value lazily, so wrangl retries a few times while it is still null
+and otherwise shows `unknown` until the next refresh. Apps created before this feature need the
+**Push** event enabled in their GitHub App settings, or the push refresh waits for the poll.
+
+A conflicted PR shows a **conflicts** pill on its Inbox card, and **Smart Merge** becomes the
+first action on it. Auto-merge never attempts a conflicted PR: it either queues Smart Merge
+(project setting `--auto-resolve`, default off) or, with the setting off, leaves the usual
+`pr_review` question, which notes the conflicts.
+
+```sh
+wrangl project edit web --auto-resolve      # auto-merge may queue Smart Merge by itself
+wrangl pr resolve <id>                      # Smart Merge now (also: Inbox button, /ui/act/pr-resolve)
+```
+
+What `pr resolve` does depends on the refreshed state:
+
+- **Conflicted:** queues a `resolve` run on the PR branch. The agent fetches the base branch and
+  *merges* it in (never a rebase), reads both sides' commit messages and task prompts to resolve
+  each conflict by intent rather than picking a side, runs `./check.sh` (or the project's own test
+  command), fixes breakage the merge caused, commits and pushes. If a conflict needs a product
+  decision it stops and asks you with both options and the file and hunks.
+- **Not conflicted** (the base moved, no textual conflict): no agent. wrangl calls GitHub's
+  `PUT /pulls/{n}/update-branch`, then re-evaluates the PR.
+
+Guard rails: the push is a fast-forward of the existing branch (never a force-push); the agent
+touches only conflicted files except to fix breakage from the merge; at most one resolve run is
+active per PR (a second request is refused), and auto-merge queues at most one per head commit,
+falling back to the Inbox question if the PR is still conflicted afterwards. The outcome (queued,
+resolved, no push, failed, or branch updated) is recorded on the Logs page as a `pr` entry for
+that PR, and the run's status summary lists the conflicted files and how each was resolved. After a push the PR has a new head, so the old
+review is stale and the normal gates and review run again; a low-risk PR still auto-merges.
+
 CI results and merges done on GitHub arrive by webhook (step 10.4), with a reconcile poll every
 15 minutes as a backstop.
 
