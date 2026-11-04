@@ -154,6 +154,9 @@ func (s *Service) rankFor(ctx context.Context, q *dbgen.Queries, projectID, pare
 
 // newTask inserts a task, assigns its sqid and records the create event.
 func (s *Service) newTask(ctx context.Context, q *dbgen.Queries, p dbgen.CreateTaskParams, actor Actor) (dbgen.Task, error) {
+	if proj, err := q.GetProject(ctx, p.ProjectID); err == nil && proj.ArchivedAt.Valid {
+		return dbgen.Task{}, conflict("project %q is archived; restore it to add tasks", proj.Slug)
+	}
 	p.CreatedBy = string(actor)
 	if p.TaskType == "" {
 		p.TaskType = dbtypes.TaskCode

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
@@ -136,7 +137,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 	}
 	switch tool {
 	case "project_list":
-		ps, err := s.DB.RQ.ListProjects(ctx)
+		ps, err := s.DB.RQ.ListProjects(ctx, db.ProjectsActive)
 		if err != nil {
 			return nil, err
 		}

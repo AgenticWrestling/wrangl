@@ -22,7 +22,8 @@ SELECT * FROM pull_request WHERE state = 'open' ORDER BY id;
 SELECT sqlc.embed(pr), CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(r.owner || '/' || r.name AS TEXT) AS repo
 FROM pull_request pr JOIN task t ON t.id = pr.task_id JOIN repo r ON r.id = pr.repo_id
-WHERE CAST(sqlc.arg(state) AS TEXT) = 'all' OR pr.state = CAST(sqlc.arg(state) AS TEXT)
+JOIN project p ON p.id = t.project_id
+WHERE p.archived_at IS NULL AND (CAST(sqlc.arg(state) AS TEXT) = 'all' OR pr.state = CAST(sqlc.arg(state) AS TEXT))
 ORDER BY pr.id DESC LIMIT 200;
 
 -- name: UpdatePRHead :exec

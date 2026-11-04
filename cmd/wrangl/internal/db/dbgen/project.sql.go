@@ -13,7 +13,7 @@ import (
 const createProject = `-- name: CreateProject :one
 INSERT INTO project (slug, name, description, default_template_id)
 VALUES (?, ?, ?, ?)
-RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
 `
 
 type CreateProjectParams struct {
@@ -45,6 +45,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AutoQueue,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -166,7 +167,7 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue FROM project WHERE id = ?
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at FROM project WHERE id = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
@@ -186,12 +187,13 @@ func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AutoQueue,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
 
 const getProjectBySlug = `-- name: GetProjectBySlug :one
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue FROM project WHERE slug = ?
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at FROM project WHERE slug = ?
 `
 
 func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (Project, error) {
@@ -211,6 +213,7 @@ func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (Project, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AutoQueue,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -320,11 +323,16 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue FROM project ORDER BY slug
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at FROM project
+WHERE CAST(?1 AS TEXT) = 'all'
+   OR (CAST(?1 AS TEXT) = 'archived' AND archived_at IS NOT NULL)
+   OR (CAST(?1 AS TEXT) NOT IN ('all', 'archived') AND archived_at IS NULL)
+ORDER BY slug
 `
 
-func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
-	rows, err := q.db.QueryContext(ctx, listProjects)
+// archived: 'active' (default for every caller), 'archived' or 'all'.
+func (q *Queries) ListProjects(ctx context.Context, archived string) ([]Project, error) {
+	rows, err := q.db.QueryContext(ctx, listProjects, archived)
 	if err != nil {
 		return nil, err
 	}
@@ -346,6 +354,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AutoQueue,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -412,7 +421,7 @@ SET name = ?1, description = ?2,
     auto_merge = ?5, auto_queue = ?6, priority = ?7,
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE id = ?8
-RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
 `
 
 type UpdateProjectParams struct {
@@ -452,6 +461,7 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AutoQueue,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -531,4 +541,65 @@ DELETE FROM project_notes_repo WHERE project_id = ?
 func (q *Queries) ClearNotesRepo(ctx context.Context, projectID int64) error {
 	_, err := q.db.ExecContext(ctx, clearNotesRepo, projectID)
 	return err
+}
+
+const archiveProject = `-- name: ArchiveProject :one
+UPDATE project SET archived_at = ?1, updated_at = ?1
+WHERE id = ?2 AND archived_at IS NULL
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
+`
+
+type ArchiveProjectParams struct {
+	Now sql.NullString `json:"now"`
+	ID  int64          `json:"id"`
+}
+
+func (q *Queries) ArchiveProject(ctx context.Context, arg ArchiveProjectParams) (Project, error) {
+	row := q.db.QueryRowContext(ctx, archiveProject, arg.Now, arg.ID)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.DefaultTemplateID,
+		&i.PlanTemplateID,
+		&i.AutoMerge,
+		&i.ProtectedPaths,
+		&i.MaxAutoMergeLines,
+		&i.Priority,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AutoQueue,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
+const restoreProject = `-- name: RestoreProject :one
+UPDATE project SET archived_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ? AND archived_at IS NOT NULL
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
+`
+
+func (q *Queries) RestoreProject(ctx context.Context, id int64) (Project, error) {
+	row := q.db.QueryRowContext(ctx, restoreProject, id)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.DefaultTemplateID,
+		&i.PlanTemplateID,
+		&i.AutoMerge,
+		&i.ProtectedPaths,
+		&i.MaxAutoMergeLines,
+		&i.Priority,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AutoQueue,
+		&i.ArchivedAt,
+	)
+	return i, err
 }

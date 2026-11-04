@@ -196,7 +196,8 @@ const listPRs = `-- name: ListPRs :many
 SELECT pr.id, pr.task_id, pr.repo_id, pr.run_id, pr.gh_number, pr.url, pr.head_branch, pr.state, pr.risk, pr.review_summary_md, pr.gates_json, pr.decision, pr.created_at, pr.updated_at, pr.head_sha, pr.checks, pr.reviewed_sha, pr.mergeable, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(r.owner || '/' || r.name AS TEXT) AS repo
 FROM pull_request pr JOIN task t ON t.id = pr.task_id JOIN repo r ON r.id = pr.repo_id
-WHERE CAST(?1 AS TEXT) = 'all' OR pr.state = CAST(?1 AS TEXT)
+JOIN project p ON p.id = t.project_id
+WHERE p.archived_at IS NULL AND (CAST(?1 AS TEXT) = 'all' OR pr.state = CAST(?1 AS TEXT))
 ORDER BY pr.id DESC LIMIT 200
 `
 

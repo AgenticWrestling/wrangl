@@ -289,6 +289,9 @@ func (s *Scheduler) LaunchFor(ctx context.Context, project, template string, cou
 	if err != nil {
 		return nil, fmt.Errorf("%w: project %q", errs.NotFound, project)
 	}
+	if p.ArchivedAt.Valid {
+		return nil, fmt.Errorf("%w: project %q is archived", errs.Conflict, project)
+	}
 	t, err := s.Fleet.Template(ctx, template)
 	if err != nil {
 		return nil, err

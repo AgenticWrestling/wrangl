@@ -151,7 +151,7 @@ JOIN run r ON r.id = l.run_id
 JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
-WHERE f.message MATCH ?1
+WHERE f.message MATCH ?1 AND p.archived_at IS NULL
   AND (CAST(?2 AS TEXT) = '' OR p.slug = CAST(?2 AS TEXT))
   AND (CAST(?3 AS TEXT) = '' OR rn.name = CAST(?3 AS TEXT))
   AND (CAST(?4 AS TEXT) = '' OR l.ts >= CAST(?4 AS TEXT))

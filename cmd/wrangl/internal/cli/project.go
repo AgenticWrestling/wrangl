@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
@@ -74,6 +76,9 @@ func projectFlags(c *cobra.Command) {
 func printProject(w io.Writer, p proto.ProjectView) {
 	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\nnotes repo\t%s\n",
 		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
+	if p.Archived {
+		fmt.Fprintf(w, "archived\t%s\n", p.ArchivedAt)
+	}
 	if p.AutoResolve {
 		fmt.Fprintf(w, "auto-resolve\ton\n")
 	}
@@ -135,16 +140,73 @@ func projectCmd(g *Global) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ps, err := c.Projects(cmd.Context())
+			onlyArchived, _ := cmd.Flags().GetBool("archived")
+			all, _ := cmd.Flags().GetBool("all")
+			if onlyArchived && all {
+				return fmt.Errorf("--archived and --all are mutually exclusive")
+			}
+			filter := map[bool]string{true: "archived", false: "active"}[onlyArchived]
+			if all {
+				filter = "all"
+			}
+			ps, err := c.ProjectsFiltered(cmd.Context(), filter)
 			if err != nil {
 				return err
 			}
 			return emit(cmd, g, ps, func(w io.Writer) {
-				fmt.Fprintln(w, "SLUG\tNAME\tTEMPLATE\tPRIORITY\tAUTO-MERGE\tAUTO-QUEUE")
+				fmt.Fprintln(w, "SLUG\tNAME\tTEMPLATE\tPRIORITY\tAUTO-MERGE\tAUTO-QUEUE\tSTATUS")
 				for _, p := range ps {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%v\t%v\n", p.Slug, p.Name, dash(p.Template), p.Priority, p.AutoMerge, p.AutoQueue)
+					status := "active"
+					if p.Archived {
+						status = "archived"
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%v\t%v\t%s\n", p.Slug, p.Name, dash(p.Template), p.Priority, p.AutoMerge, p.AutoQueue, status)
 				}
 			})
+		},
+	}
+	list.Flags().Bool("archived", false, "show only archived projects")
+	list.Flags().Bool("all", false, "show active and archived projects")
+	archive := &cobra.Command{
+		Use: "archive <slug>", Short: "Archive a project: hide it and its tasks everywhere and stop all work on it (restorable)",
+		Long: "Archived projects and their tasks are hidden from lists, the Inbox and search, and nothing runs for them.\n" +
+			"Queued runs are cancelled ('project archived'). Archiving is refused while the project has active runs.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			res, err := c.ArchiveProject(cmd.Context(), args[0])
+			var ref *client.ArchiveRefusedError
+			if errors.As(err, &ref) {
+				w := cmd.ErrOrStderr()
+				fmt.Fprintf(w, "cannot archive %s: it has %d active run(s); let them finish or cancel them first:\n", args[0], len(ref.Runs))
+				for _, r := range ref.Runs {
+					fmt.Fprintf(w, "  run %d  %s  task %s  %s\n", r.ID, r.State, r.Task, r.Title)
+				}
+				return fmt.Errorf("project %s has active runs", args[0])
+			}
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, res, func(w io.Writer) {
+				fmt.Fprintf(w, "archived %s (%d queued run(s) cancelled); restore with: wrangl project restore %s\n", res.Project.Slug, len(res.CancelledRuns), res.Project.Slug)
+			})
+		},
+	}
+	restore := &cobra.Command{
+		Use: "restore <slug>", Short: "Restore an archived project", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			p, err := c.RestoreProject(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, p, func(w io.Writer) { fmt.Fprintf(w, "restored %s\n", p.Slug) })
 		},
 	}
 	show := &cobra.Command{
@@ -171,5 +233,5 @@ func projectCmd(g *Global) *cobra.Command {
 			return c.DeleteProject(cmd.Context(), args[0])
 		},
 	}
-	return group("project", "Manage projects", create, list, show, edit, del)
+	return group("project", "Manage projects", create, list, show, edit, archive, restore, del)
 }

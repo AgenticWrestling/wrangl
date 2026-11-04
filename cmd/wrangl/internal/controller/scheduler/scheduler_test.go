@@ -413,3 +413,23 @@ func TestLaunchForMacTargetWarnsAndRespectsCap(t *testing.T) {
 		t.Fatalf("second Mac over the cap: %v", err)
 	}
 }
+
+func TestArchivedProjectIsInert(t *testing.T) {
+	s, fake, _, d := setup(t, 3)
+	ctx := context.Background()
+	queue(t, d, 2)
+	d.W.Exec(`UPDATE project SET archived_at = '2026-10-31T11:00:00.000Z' WHERE id = 1`)
+	if got, err := s.Tick(ctx); err != nil || len(got) != 0 || len(fake.Runs) != 0 {
+		t.Fatalf("launched for an archived project: %v %v runs=%d", got, err, len(fake.Runs))
+	}
+	if qs, _ := d.RQ.QueuedRunsForAssignment(ctx); len(qs) != 0 {
+		t.Fatalf("archived project's runs offered for assignment: %d", len(qs))
+	}
+	if _, err := s.LaunchFor(ctx, "p", "go", 1); err == nil {
+		t.Fatal("LaunchFor accepted an archived project")
+	}
+	d.W.Exec(`UPDATE project SET archived_at = NULL WHERE id = 1`)
+	if got, _ := s.Tick(ctx); got["go"] == 0 {
+		t.Fatalf("restored project not served: %v", got)
+	}
+}

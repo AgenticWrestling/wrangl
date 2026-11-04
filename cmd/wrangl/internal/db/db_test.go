@@ -97,7 +97,7 @@ func TestTxRollsBack(t *testing.T) {
 	if !errors.Is(err, boom) {
 		t.Fatalf("got %v", err)
 	}
-	if ps, _ := d.RQ.ListProjects(ctx); len(ps) != 0 {
+	if ps, _ := d.RQ.ListProjects(ctx, db.ProjectsActive); len(ps) != 0 {
 		t.Fatal("rolled-back insert is visible")
 	}
 	if err := d.Tx(ctx, func(q *dbgen.Queries) error {
@@ -106,7 +106,7 @@ func TestTxRollsBack(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if ps, _ := d.RQ.ListProjects(ctx); len(ps) != 1 {
+	if ps, _ := d.RQ.ListProjects(ctx, db.ProjectsActive); len(ps) != 1 {
 		t.Fatal("committed insert not visible to reader")
 	}
 }

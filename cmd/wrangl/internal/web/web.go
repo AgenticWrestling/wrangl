@@ -216,7 +216,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request, view string) {
 	open, _ := h.D.Runs.Questions(r.Context(), false)
 	page := map[string]any{"View": view, "Title": data["Title"], "Main": main, "LiveURL": "/ui/live?" + q.Encode(), "SID": sid,
 		"Inbox": len(open), "Data": data}
-	if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context()); err == nil { // left panel: the five most recently updated
+	if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context(), "active"); err == nil { // left panel: the five most recently updated
 		page["NavProjects"], _ = recentProjects(ps, 5)
 	}
 	page["Project"], _ = data["Project"].(string)
@@ -683,7 +683,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 	d := map[string]any{}
 	switch view {
 	case "tasks":
-		projects, err := db.RQ.ListProjects(ctx)
+		projects, err := db.RQ.ListProjects(ctx, "active")
 		if err != nil {
 			return nil, err
 		}
@@ -695,6 +695,12 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			slug = projects[0].Slug
 		}
 		d["Project"], d["Title"] = slug, "Tasks"
+		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
+		if slug != "" { // a direct link to an archived project still works, with its actions disabled
+			if cur, err := db.RQ.GetProjectBySlug(ctx, slug); err == nil {
+				d["Archived"] = cur.ArchivedAt.Valid
+			}
+		}
 		d["Types"] = dbtypes.TaskTypes
 		d["All"] = r.URL.Query().Get("all") == "1"
 		if slug != "" {
@@ -713,6 +719,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		p, _ := db.RQ.GetProject(ctx, t.ProjectID)
 		d["Task"], d["Project"], d["Title"] = t, p.Slug, t.Title
+		d["Archived"] = p.ArchivedAt.Valid
 		d["Attention"] = h.attention(ctx, p.Slug)[sqid] && t.State != "done" && t.State != "cancelled"
 		if secs, err := h.tree(ctx, p.Slug, false); err == nil {
 			if n := secs.Index[sqid]; n != nil {
@@ -1036,7 +1043,8 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 	case "settings":
 		d["GHAccounts"], _ = h.D.Setup.Accounts(ctx)
-		d["Projects"], _ = db.RQ.ListProjects(ctx)
+		d["Projects"], _ = db.RQ.ListProjects(ctx, "active")
+		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["CAgents"], _ = db.RQ.ListControllerAgents(ctx)
 		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"

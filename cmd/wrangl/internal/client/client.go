@@ -50,6 +50,7 @@ func New(controller string, cf *config.CFServiceToken) (*Client, error) {
 type Error struct {
 	Status  int
 	Message string
+	Body    []byte // the raw response body, for callers that need more than the message
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("controller: %s (HTTP %d)", e.Message, e.Status) }
@@ -77,7 +78,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, co
 		if json.Unmarshal(b, &e) != nil || e.Error == "" {
 			e.Error = strings.TrimSpace(string(b))
 		}
-		return &Error{Status: resp.StatusCode, Message: e.Error}
+		return &Error{Status: resp.StatusCode, Message: e.Error, Body: b}
 	}
 	if out == nil {
 		return nil
