@@ -398,3 +398,15 @@ table.accts tfoot input { width: 100%; }
 .stat.st-badcreds, .stat.st-error { color: var(--err); }
 details.adv { margin-top: 10px; }
 details.adv > summary { cursor: pointer; color: var(--dim); font-size: 0.86rem; }
+
+.tag.mock { display: inline-flex; align-items: center; gap: 3px; text-decoration: none; }
+.tag.mock svg { width: 12px; height: 12px; }
+.gallery .shot { cursor: zoom-in; }
+.protoframe { width: 100%; height: min(70vh, 640px); border: 1px solid var(--line); border-radius: 8px; background: #fff; margin-top: 6px; }
+details.proto { margin: 6px 0; }
+dialog.lightbox { border: 0; padding: 0; background: transparent; max-width: 100vw; max-height: 100vh; width: 100vw; height: 100vh; }
+dialog.lightbox::backdrop { background: rgba(0, 0, 0, 0.88); }
+dialog.lightbox .lb { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; padding: 12px; box-sizing: border-box; }
+dialog.lightbox img { max-width: 100%; max-height: calc(100% - 44px); object-fit: contain; border-radius: 6px; }
+dialog.lightbox .cap { color: #eee; font-size: 0.9rem; display: flex; gap: 12px; align-items: center; }
+dialog.lightbox button { background: #222; color: #eee; border: 1px solid #555; border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; min-height: 40px; }

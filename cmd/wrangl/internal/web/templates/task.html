@@ -50,12 +50,7 @@
   <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
 </section>
 
-{{if .Deliverables}}<section class="card" id="deliverables"><h3>Deliverables</h3>
-  <div class="gallery">{{range .Deliverables}}{{if eq .Kind "image"}}<a class="shot" href="/deliverable/{{.ID}}" target="_blank" rel="noopener"><img src="/deliverable/{{.ID}}" alt="{{.Title}}" loading="lazy"><span>{{.Title}}</span></a>{{end}}{{end}}</div>
-  {{range .Deliverables}}{{if eq .Kind "artifact_url"}}<div class="row"><a class="btn primary small" href="{{.Url}}" target="_blank" rel="noopener noreferrer">Open prototype</a> <span>{{.Title}}</span></div>
-  {{else if eq .Kind "link"}}<div class="row"><a href="{{.Url}}" target="_blank" rel="noopener noreferrer">{{if .Title}}{{.Title}}{{else}}{{.Url}}{{end}}</a></div>
-  {{else if eq .Kind "report_md"}}<details class="report" open><summary>{{if .Title}}{{.Title}}{{else}}Report{{end}}</summary><div class="md">{{.Report}}</div></details>{{end}}{{end}}
-</section>{{end}}
+{{if .Deliverables}}<section class="card" id="deliverables"><h3>Deliverables</h3>{{template "gallery" .Deliverables}}</section>{{end}}
 {{if or .Pre .Dep}}<section class="card"><h3>Dependencies</h3>
   {{range .Pre}}<div class="row">needs <span class="glyph">{{glyph .State}}</span><a href="/task/{{.Sqid}}">{{.Title}}</a> <code class="sqid">{{.Sqid}}</code></div>{{end}}
   {{range .Dep}}<div class="row">blocks <span class="glyph">{{glyph .State}}</span><a href="/task/{{.Sqid}}">{{.Title}}</a> <code class="sqid">{{.Sqid}}</code></div>{{end}}
@@ -133,3 +128,11 @@
   </div>
 </dialog>
 {{end}}
+
+{{define "gallery"}}<div class="gallery">{{range .}}{{if eq .Kind "image"}}<a class="shot" href="/deliverable/{{.ID}}" data-lightbox><img src="/deliverable/{{.ID}}" alt="{{.Title}}" loading="lazy"><span>{{.Title}}</span></a>{{end}}{{end}}</div>
+  {{range .}}{{if eq .Kind "artifact_url"}}<div class="row"><a class="btn primary small" href="{{.Url}}" target="_blank" rel="noopener noreferrer">Open prototype</a> <span>{{.Title}}</span></div>
+  {{else if eq .Kind "prototype_html"}}<details class="proto"><summary>Prototype: {{if .Title}}{{.Title}}{{else}}static HTML{{end}}</summary>
+    <div class="row small"><a href="/deliverable/{{.ID}}/proto" target="_blank" rel="noopener">Open full page ↗</a> <a href="/deliverable/{{.ID}}">Source</a></div>
+    <iframe class="protoframe" src="/deliverable/{{.ID}}/proto" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" title="{{.Title}}"></iframe></details>
+  {{else if eq .Kind "link"}}<div class="row"><a href="{{.Url}}" target="_blank" rel="noopener noreferrer">{{if .Title}}{{.Title}}{{else}}{{.Url}}{{end}}</a></div>
+  {{else if eq .Kind "report_md"}}<details class="report" open><summary>{{if .Title}}{{.Title}}{{else}}Report{{end}}</summary><div class="md">{{.Report}}</div></details>{{end}}{{end}}{{end}}

@@ -172,6 +172,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/detail", h.detail)
 	mux.HandleFunc("POST /ui/expand", h.expand)
 	mux.HandleFunc("GET /deliverable/{id}", h.deliverable)
+	mux.HandleFunc("GET /deliverable/{id}/proto", h.deliverable)
 	mux.HandleFunc("POST /ui/act/{action}", h.act)
 }
 
@@ -253,8 +254,39 @@ func (h *Handler) deliverable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", d.Mime)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
+	if d.Kind == "prototype_html" {
+		if strings.HasSuffix(r.URL.Path, "/proto") {
+			// A committed static prototype: it may run its own inline script and style, but it
+			// has an opaque origin (sandbox without allow-same-origin), no network, no forms,
+			// no popups, no navigation of the app, and can only load data: images and fonts.
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+		} else { // the plain URL shows the source, never runs it
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
+	} else if strings.HasSuffix(r.URL.Path, "/proto") {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	io.Copy(w, f)
+}
+
+// deliverableViews loads deliverables for the task or run page, rendering reports.
+func (h *Handler) deliverableViews(ctx context.Context, rows []dbgen.Deliverable) []deliverableView {
+	var dv []deliverableView
+	for _, x := range rows {
+		v := deliverableView{Deliverable: x}
+		if x.Kind == "report_md" {
+			if _, path, err := h.D.Deliverables.Open(ctx, x.ID); err == nil && path != "" {
+				if b, err := os.ReadFile(path); err == nil {
+					v.Report = markdown(string(b))
+				}
+			}
+		}
+		dv = append(dv, v)
+	}
+	return dv
 }
 
 // deliverableView is a deliverable ready for the task page.
@@ -462,6 +494,7 @@ func toast(w http.ResponseWriter, msg string, isErr bool) {
 type node struct {
 	proto.TaskNode
 	Attention bool          // an open question, or its latest run failed / is blocked
+	Mockups   int           // deliverables (mockups, prototypes, reports) handed back on this task
 	Detail    template.HTML // the expanded task's card, when this page has it open
 	Kids      []*node
 }
@@ -522,18 +555,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["Types"] = dbtypes.TaskTypes
 		if h.D.Deliverables != nil {
 			rows, _ := db.RQ.ListDeliverablesForTask(ctx, t.ID)
-			var dv []deliverableView
-			for _, x := range rows {
-				v := deliverableView{Deliverable: x}
-				if x.Kind == "report_md" {
-					if _, path, err := h.D.Deliverables.Open(ctx, x.ID); err == nil && path != "" {
-						if b, err := os.ReadFile(path); err == nil {
-							v.Report = markdown(string(b))
-						}
-					}
-				}
-				dv = append(dv, v)
-			}
+			dv := h.deliverableViews(ctx, rows)
 			d["Deliverables"] = dv
 		}
 		if t.ParentID.Valid {
@@ -682,6 +704,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			}
 			d["Logs"], d["Q"], d["Stream"] = logs, q.Get("q"), q.Get("stream")
 			d["Hooks"], _ = db.RQ.RunHookEvents(ctx, id)
+			if h.D.Deliverables != nil {
+				rows, _ := db.RQ.ListDeliverablesForRun(ctx, sql.NullInt64{Int64: id, Valid: true})
+				d["Deliverables"] = h.deliverableViews(ctx, rows)
+			}
 		case "diff":
 			out, err := h.D.Runs.Inspect(ctx, id, "diff", "", false)
 			d["Err"] = errString(err)
@@ -910,6 +936,12 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 		locks[r.Run.TaskID] = map[bool]string{true: r.RunnerName, false: "queued"}[r.RunnerName != ""]
 	}
 	attn := h.attention(ctx, slug)
+	mockups := map[int64]int{}
+	if cs, err := db.RQ.CountDeliverablesForTasks(ctx, p.ID); err == nil {
+		for _, c := range cs {
+			mockups[c.TaskID] = int(c.N)
+		}
+	}
 	byID := map[int64]*node{}
 	bySqid := map[string]*node{}
 	order := map[string]int{} // tree position, for ordering the queue
@@ -917,7 +949,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 	lockOf := map[int64]string{}
 	for _, t := range rows {
 		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
-			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled"}
+			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled", Mockups: mockups[t.ID]}
 		if t.TaskType.Planning() {
 			if full, err := db.RQ.GetTask(ctx, t.ID); err == nil {
 				n.Done, n.Total, n.Slip, _ = h.D.Stack.Rollup(ctx, full)

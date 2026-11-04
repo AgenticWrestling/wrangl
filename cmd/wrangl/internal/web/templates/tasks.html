@@ -28,6 +28,7 @@
     <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
     {{ticon $n.Type}}
     <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
+    {{if $n.Mockups}}<a class="tag mock" href="/task/{{$n.Sqid}}#deliverables" title="{{$n.Mockups}} deliverable{{if gt $n.Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{$n.Mockups}}</a>{{end}}
     {{if $n.Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
@@ -47,6 +48,7 @@
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
     {{ticon .Type}}
     <a class="title" href="/task/{{.Sqid}}" onclick="return toggleDetail('{{.Sqid}}', event)" aria-expanded="false">{{.Title}}</a>
+    {{if .Mockups}}<a class="tag mock" href="/task/{{.Sqid}}#deliverables" title="{{.Mockups}} deliverable{{if gt .Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{.Mockups}}</a>{{end}}
     {{if .Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
     {{if or (eq .State "in_progress") .LockedBy}}<span class="tag prog" title="{{if .LockedBy}}running on {{.LockedBy}}{{else}}in progress{{end}}">▶ {{if .LockedBy}}{{.LockedBy}}{{else}}in progress{{end}}</span>{{end}}
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}

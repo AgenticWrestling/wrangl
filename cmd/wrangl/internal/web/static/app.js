@@ -474,3 +474,44 @@ function ghManifest(form) {
   return true;
 }
 window.ghManifest = ghManifest;
+
+// Lightbox for deliverable images: click a thumbnail (a[data-lightbox]) to view it full size;
+// arrows / swipe-free buttons step through the page's images, Esc closes.
+(function () {
+  let dlg, imgs = [], at = 0;
+  function build() {
+    dlg = document.createElement('dialog');
+    dlg.className = 'lightbox';
+    dlg.setAttribute('aria-label', 'Image viewer');
+    dlg.innerHTML = '<div class="lb"><img alt=""><div class="cap"><button type="button" data-lb="prev" aria-label="Previous">‹</button><span></span><button type="button" data-lb="next" aria-label="Next">›</button><button type="button" data-lb="close">Close</button></div></div>';
+    dlg.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-lb]');
+      if (b && b.dataset.lb === 'prev') show(at - 1);
+      else if (b && b.dataset.lb === 'next') show(at + 1);
+      else if (!b && e.target.tagName !== 'IMG' || (b && b.dataset.lb === 'close')) dlg.close();
+    });
+    dlg.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') show(at - 1);
+      else if (e.key === 'ArrowRight') show(at + 1);
+    });
+    document.body.appendChild(dlg);
+  }
+  function show(i) {
+    if (!imgs.length) return;
+    at = (i + imgs.length) % imgs.length;
+    const a = imgs[at];
+    dlg.querySelector('img').src = a.href;
+    dlg.querySelector('img').alt = a.textContent.trim();
+    dlg.querySelector('.cap span').textContent = a.textContent.trim() + (imgs.length > 1 ? '  (' + (at + 1) + '/' + imgs.length + ')' : '');
+    dlg.querySelectorAll('[data-lb=prev],[data-lb=next]').forEach((b) => { b.hidden = imgs.length < 2; });
+  }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[data-lightbox]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || typeof HTMLDialogElement === 'undefined') return;
+    e.preventDefault();
+    if (!dlg) build();
+    imgs = Array.from(a.closest('.gallery').querySelectorAll('a[data-lightbox]'));
+    show(imgs.indexOf(a));
+    dlg.showModal();
+  });
+})();

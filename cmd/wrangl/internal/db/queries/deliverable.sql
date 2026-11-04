@@ -9,6 +9,9 @@ SELECT * FROM deliverable WHERE id = ?;
 -- name: ListDeliverablesForTask :many
 SELECT * FROM deliverable WHERE task_id = ? ORDER BY id;
 
+-- name: ListDeliverablesForRun :many
+SELECT * FROM deliverable WHERE run_id = ? ORDER BY id;
+
 -- name: CountDeliverablesForTasks :many
 -- Deliverable counts for every task in a project, for the backlog badge.
 SELECT d.task_id, CAST(COUNT(*) AS INTEGER) AS n

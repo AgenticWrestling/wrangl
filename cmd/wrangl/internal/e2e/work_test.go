@@ -44,6 +44,10 @@ case "$1" in *CANCELOTHER*)
     echo "cancel attempt: $(tool task_cancel "{\"sqid\":\"$target\",\"reason\":\"redundant\"}")"
   done;;
 esac
+case "$1" in *DELIVER*)
+  echo "deliver: $(tool submit_deliverable '{"kind":"image","title":"home, phone","image_base64":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}')"
+  echo "deliver: $(tool submit_deliverable '{"kind":"prototype_html","title":"static proto","content_html":"<!doctype html><title>p</title><h1>proto</h1>"}')";;
+esac
 case "$1" in *FORGET*) echo "forgot to complete"; exit 0;; esac
 curl -s --unix-socket "$WRANGL_SOCK" -d '{"event":"PostToolUse","payload":{"tool_name":"Edit"}}' http://x/hook >/dev/null
 tool task_complete "{\"sqid\":\"$WRANGL_TASK\",\"summary\":\"did $WRANGL_TASK\"}" >/dev/null
@@ -318,6 +322,25 @@ agent:
 	run3, _, _ := api.QueueTask(ctx, issueTask.Sqid)
 	if v := e.waitRun(run3, "succeeded", "failed"); v.State != "succeeded" {
 		t.Fatalf("issue run: %+v", v)
+	}
+
+	// A fake agent hands back a mockup and a static prototype with submit_deliverable.
+	deliver := e.mk(proto.TaskCreateRequest{Title: "design it", Prompt: "DELIVER"})
+	runD, _, _ := api.QueueTask(ctx, deliver)
+	e.waitRun(runD, "succeeded", "failed")
+	var kinds []string
+	rows, err := srv.Fleet.DB.R.QueryContext(ctx, `SELECT d.kind FROM deliverable d JOIN task t ON t.id = d.task_id WHERE t.sqid = ? AND d.run_id = ? ORDER BY d.id`, deliver, runD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var k string
+		rows.Scan(&k)
+		kinds = append(kinds, k)
+	}
+	rows.Close()
+	if strings.Join(kinds, ",") != "image,prototype_html" {
+		t.Fatalf("deliverables from the fake agent: %v", kinds)
 	}
 
 	// Cancel a slow run: the agent is killed and the leaf goes back to open.
