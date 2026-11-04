@@ -140,6 +140,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		RunID: r.ID, Kind: r.Kind, Continue: r.ContinueBranch == 1, TaskSqid: r.TaskSqid, Repo: repo.Owner + "/" + repo.Name,
 		CloneURL: repo.CloneUrl, BaseBranch: repo.DefaultBranch, Branch: r.Branch, GitToken: token,
 		SessionName: session, SessionUUID: r.SessionUuid, Agent: spec, Env: env, SecretFiles: files,
+		MaxSessions: int(tmpl.MaxSessions),
 	}
 	b, _ := json.Marshal(a)
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)

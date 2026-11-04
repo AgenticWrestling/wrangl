@@ -23,6 +23,7 @@ func SocketPath() string {
 func post(ctx context.Context, path, url string, body []byte) ([]byte, int, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://wrangl"+url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	setRun(req)
 	resp, err := SocketClient(path).Do(req)
 	if err != nil {
 		return nil, 0, err
@@ -105,6 +106,7 @@ func CallTool(ctx context.Context, name string, args []byte) ([]byte, error) {
 func ServeMCP(ctx context.Context, in io.Reader, out io.Writer, version string) error {
 	tools := []mcp.Tool{}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://wrangl/tools", nil)
+	setRun(req)
 	if resp, err := SocketClient(SocketPath()).Do(req); err == nil {
 		json.NewDecoder(resp.Body).Decode(&tools)
 		resp.Body.Close()
@@ -118,4 +120,12 @@ func ServeMCP(ctx context.Context, in io.Reader, out io.Writer, version string) 
 			return string(b), nil
 		}}
 	return srv.Serve(ctx, in, out)
+}
+
+// setRun names this agent's run to the daemon, so a runner hosting several sessions routes the
+// call to the right one. Outside a run (no WRANGL_RUN_ID) the header is omitted.
+func setRun(req *http.Request) {
+	if id := os.Getenv("WRANGL_RUN_ID"); id != "" {
+		req.Header.Set(RunHeader, id)
+	}
 }

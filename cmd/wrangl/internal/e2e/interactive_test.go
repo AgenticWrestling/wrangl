@@ -156,6 +156,7 @@ func TestInteractiveDrive(t *testing.T) {
 	h := newAgentHarness(t, sessionAgent, `name: sess
 arch: %s
 min: {vcpu: 1, ram: 256MiB, disk: 1GiB}
+max_sessions: 1
 mise_toml: ""
 agent:
   drive: interactive
@@ -166,7 +167,7 @@ agent:
     - {path: "{{.Home}}/.fake/creds.json", secret: fake_login}
 `, map[string]string{"fake_login": `{"login":"full"}`})
 	ctx, api, e, dir, bare, rcfg := h.ctx, h.api, h.workEnv, h.dir, h.bare, h.rcfg
-	bad := "name: bad\narch: arm64\nmin: {vcpu: 1, ram: 1GiB, disk: 1GiB}\nagent:\n  drive: sideways\n  start: [x]\n"
+	bad := "name: bad\narch: arm64\nmin: {vcpu: 1, ram: 1GiB, disk: 1GiB}\nmax_sessions: 1\nagent:\n  drive: sideways\n  start: [x]\n"
 	if _, err := api.CreateTemplate(ctx, []byte(bad)); err == nil || !strings.Contains(err.Error(), "agent.drive") {
 		t.Fatalf("bad drive accepted: %v", err)
 	}

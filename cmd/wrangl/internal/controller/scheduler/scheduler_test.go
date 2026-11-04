@@ -79,6 +79,7 @@ func queue(t *testing.T, d *db.DB, n int) {
 
 func TestScaleUpToDemandWithinMax(t *testing.T) {
 	s, fake, _, d := setup(t, 3)
+	d.W.Exec(`UPDATE runner_template SET max_sessions = 1`) // one run per runner: demand maps 1:1 to hosts
 	ctx := context.Background()
 	if got, _ := s.Tick(ctx); len(got) != 0 {
 		t.Fatalf("launched with no demand: %v", got)
@@ -152,5 +153,25 @@ func TestBackoffAfterLaunchFailure(t *testing.T) {
 	clk.Advance(61 * time.Second)
 	if got, _ := s.Tick(ctx); got["go"] != 1 {
 		t.Fatalf("not retried after doubled backoff: %v", got)
+	}
+}
+
+// With several sessions per runner, demand is met in hosts of max_sessions slots: five queued
+// runs on a 4-slot template need two runners, not five, and launching runners count as supply.
+func TestScaleUpCountsSessionSlots(t *testing.T) {
+	s, fake, _, d := setup(t, 5)
+	d.W.Exec(`UPDATE runner_template SET max_sessions = 4`)
+	ctx := context.Background()
+	queue(t, d, 3)
+	if got, err := s.Tick(ctx); err != nil || got["go"] != 1 || len(fake.Runs) != 1 {
+		t.Fatalf("3 runs fit one 4-slot host: %v %v runs=%d", got, err, len(fake.Runs))
+	}
+	queue(t, d, 1) // demand 4, supply 4: still no new host
+	if got, _ := s.Tick(ctx); len(got) != 0 {
+		t.Fatalf("the fourth run fits the first host: %v", got)
+	}
+	queue(t, d, 1) // demand 5, supply 4: one more host
+	if got, _ := s.Tick(ctx); got["go"] != 1 || len(fake.Runs) != 2 {
+		t.Fatalf("the fifth run needs a second host: %v runs=%d", got, len(fake.Runs))
 	}
 }

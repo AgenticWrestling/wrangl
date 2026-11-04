@@ -216,16 +216,21 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	if d := e.task(sqid); len(d.Children) != 2 || d.Children[1].Title != "two" {
 		t.Fatalf("split result: %+v", d.Children)
 	}
-	// Queueing moves the task into the Queue section and out of Backlog: shown once, as a run entry.
+	// Queueing takes the task out of Backlog: it shows once, as a run entry, in Queue (waiting) or
+	// In progress (a runner with a free session slot took it straight away), ahead of Backlog.
 	if out := post("/ui/act/task-queue?sqid="+sqid, `{}`); strings.Contains(out, "toast show err") {
 		t.Fatalf("task-queue: %s", out)
 	}
-	page := get("/tasks?project=web", `id="queue"`, `class="subnav"`, `class="task run `, "run #")
+	page := get("/tasks?project=web", `class="subnav"`, `class="task run `, "run #")
 	if n := strings.Count(page, `data-sqid="`+sqid+`"`); n != 1 {
-		t.Fatalf("a queued task is listed once (in Queue), found %d times", n)
+		t.Fatalf("a queued task is listed once (as a run entry), found %d times", n)
 	}
-	if i, j := strings.Index(page, `id="queue"`), strings.Index(page, `id="backlog"`); i < 0 || j < i {
-		t.Fatalf("Queue must come before Backlog (%d, %d)", i, j)
+	sec := strings.Index(page, `id="queue"`)
+	if p := strings.Index(page, `id="in-progress"`); sec < 0 || (p >= 0 && p < sec) {
+		sec = p
+	}
+	if sec < 0 || strings.Index(page, `id="backlog"`) < sec {
+		t.Fatalf("a Queue or In progress section must come before Backlog (%d)", sec)
 	}
 	if out := post("/ui/act/task-queue?sqid=nope", `{}`); !strings.Contains(out, "toast show err") {
 		t.Fatalf("error toast: %s", out)

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,18 +25,19 @@ type peerKey struct{}
 
 // waiters holds questions the agent is blocked on.
 type waiters struct {
-	mu sync.Mutex
-	m  map[int64]chan proto.Answer
+	mu  sync.Mutex
+	m   map[int64]chan proto.Answer
+	run map[int64]int64 // question id -> the run that asked it
 }
 
-func (w *waiters) add(id int64) chan proto.Answer {
+func (w *waiters) add(id, run int64) chan proto.Answer {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.m == nil {
-		w.m = map[int64]chan proto.Answer{}
+		w.m, w.run = map[int64]chan proto.Answer{}, map[int64]int64{}
 	}
 	ch := make(chan proto.Answer, 1)
-	w.m[id] = ch
+	w.m[id], w.run[id] = ch, run
 	return ch
 }
 
@@ -46,26 +48,38 @@ func (w *waiters) deliver(a proto.Answer) bool {
 	if ok {
 		ch <- a
 		delete(w.m, a.QuestionID)
+		delete(w.run, a.QuestionID)
 	}
 	return ok
 }
 
-func (w *waiters) cancelAll() {
+// cancelRun cancels the questions one run is blocked on (it ended); other runs' stay.
+func (w *waiters) cancelRun(run int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for id, ch := range w.m {
+		if w.run[id] != run {
+			continue
+		}
 		ch <- proto.Answer{QuestionID: id, Cancelled: true}
 		delete(w.m, id)
+		delete(w.run, id)
 	}
 }
 
 // Tool relays a work-stack tool call for the run in progress. ask_question (and the
 // runner's own system question) block until the owner answers.
 func (w *Worker) Tool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
-	runID := w.Busy()
-	if runID == 0 {
-		return nil, errors.New("no run in progress")
+	return w.ToolFor(ctx, 0, name, args)
+}
+
+// ToolFor is Tool for a named run (0 = the only one running).
+func (w *Worker) ToolFor(ctx context.Context, runID int64, name string, args json.RawMessage) (json.RawMessage, error) {
+	rs, err := w.target(runID)
+	if err != nil {
+		return nil, err
 	}
+	runID = rs.id
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
@@ -90,7 +104,7 @@ func (w *Worker) Tool(ctx context.Context, name string, args json.RawMessage) (j
 		QuestionID int64 `json:"question_id"`
 	}
 	json.Unmarshal(r.Result, &q)
-	ch := w.answers.add(q.QuestionID)
+	ch := w.answers.add(q.QuestionID, runID)
 	select {
 	case a := <-ch:
 		if a.Cancelled {
@@ -104,13 +118,19 @@ func (w *Worker) Tool(ctx context.Context, name string, args json.RawMessage) (j
 
 // Hook publishes an agent hook event for the run in progress (fire and forget).
 func (w *Worker) Hook(event string, payload json.RawMessage) error {
-	runID := w.Busy()
-	if runID == 0 {
+	return w.HookFor(0, event, payload)
+}
+
+// HookFor is Hook for a named run (0 = the only one running).
+func (w *Worker) HookFor(runID int64, event string, payload json.RawMessage) error {
+	rs, err := w.target(runID)
+	if err != nil {
 		return nil // hooks outside a run (e.g. a manual session) are ignored
 	}
+	runID = rs.id
 	w.mu.Lock()
-	w.hookSeq++
-	seq := w.hookSeq
+	rs.hookSeq++
+	seq := rs.hookSeq
 	w.mu.Unlock()
 	if !json.Valid(payload) {
 		payload, _ = json.Marshal(string(payload))
@@ -121,14 +141,14 @@ func (w *Worker) Hook(event string, payload json.RawMessage) error {
 	}
 	if json.Unmarshal(payload, &ids) == nil {
 		w.mu.Lock()
-		sess := w.sess
+		sess := rs.sess
 		w.mu.Unlock()
 		if sess != nil {
 			sess.noteSession(ids.SessionID+ids.ConversationID, false)
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"seq": seq, "ts": time.Now().UTC(), "event": event, "payload": payload})
-	_, err := w.JS.PublishAsync(natsd.RunHookSubject(w.Cfg.RunnerID, runID), b)
+	_, err = w.JS.PublishAsync(natsd.RunHookSubject(w.Cfg.RunnerID, runID), b)
 	return err
 }
 
@@ -170,18 +190,23 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 			reply(rw, 400, map[string]string{"error": "want {event, payload}"})
 			return
 		}
-		if err := w.Hook(h.Event, h.Payload); err != nil {
+		runID := runOf(r)
+		if err := w.HookFor(runID, h.Event, h.Payload); err != nil {
 			reply(rw, 500, map[string]string{"error": err.Error()})
 			return
 		}
 		if strings.EqualFold(h.Event, "Stop") && r.URL.Query().Get("continue") != "" {
-			reply(rw, 200, w.continuation(r.Context()))
+			reply(rw, 200, w.continuation(r.Context(), runID))
 			return
 		}
 		reply(rw, 200, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /tools", func(rw http.ResponseWriter, r *http.Request) {
-		reply(rw, 200, stacktools.For(w.Kind()))
+		kind := w.Kind()
+		if rs, err := w.target(runOf(r)); err == nil {
+			kind = rs.kind
+		}
+		reply(rw, 200, stacktools.For(kind))
 	})
 	known := map[string]bool{}
 	for _, t := range stacktools.All {
@@ -194,7 +219,7 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 			return
 		}
 		args, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-		out, err := w.Tool(r.Context(), name, args)
+		out, err := w.ToolFor(r.Context(), runOf(r), name, args)
 		if err != nil {
 			reply(rw, 422, map[string]string{"error": err.Error()})
 			return
@@ -235,10 +260,13 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 
 // continuation answers a Stop hook in interactive drive (M9): the agent-specific
 // "keep going" response with the next task's prompt, or permission to stop.
-func (w *Worker) continuation(ctx context.Context) map[string]any {
-	w.mu.Lock()
-	next := w.continueFn
-	w.mu.Unlock()
+func (w *Worker) continuation(ctx context.Context, runID int64) map[string]any {
+	var next func(ctx context.Context) (string, bool)
+	if rs, err := w.target(runID); err == nil {
+		w.mu.Lock()
+		next = rs.continueFn
+		w.mu.Unlock()
+	}
 	if next == nil {
 		return map[string]any{"continue": false}
 	}
@@ -254,4 +282,13 @@ func SocketClient(path string) *http.Client {
 	return &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", path)
 	}}}
+}
+
+// RunHeader is how an agent process tells the daemon which run it belongs to (its WRANGL_RUN_ID).
+const RunHeader = "X-Wrangl-Run"
+
+// runOf reads the run a request is for: 0 when the agent did not say (single-session runners).
+func runOf(r *http.Request) int64 {
+	id, _ := strconv.ParseInt(r.Header.Get(RunHeader), 10, 64)
+	return id
 }

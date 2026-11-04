@@ -34,6 +34,7 @@ func TestAgentSessionResume(t *testing.T) {
 	h := newAgentHarness(t, execAgent, `name: execy
 arch: %s
 min: {vcpu: 1, ram: 256MiB, disk: 1GiB}
+max_sessions: 1
 mise_toml: ""
 agent:
   start:  [%[2]q, "new", "{{.Prompt}}"]

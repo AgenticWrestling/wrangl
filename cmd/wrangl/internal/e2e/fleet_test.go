@@ -90,7 +90,7 @@ func TestLaunchEnrolHeartbeatIdleReap(t *testing.T) {
 		t.Fatal(err)
 	}
 	tmplFor := func(mise string) []byte {
-		return []byte(fmt.Sprintf("name: tiny\narch: %s\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmax_runners: 2\nmise_toml: %q\n", ec2Arch(), mise))
+		return []byte(fmt.Sprintf("name: tiny\narch: %s\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmax_runners: 2\nmax_sessions: 1\nmise_toml: %q\n", ec2Arch(), mise))
 	}
 	tmpl := tmplFor("[tools]\ngo = \"1.26\"\n")
 	if _, err := api.CreateTemplate(ctx, []byte(tmpl)); err != nil {

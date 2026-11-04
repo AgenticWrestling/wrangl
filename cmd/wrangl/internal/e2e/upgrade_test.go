@@ -38,6 +38,7 @@ curl -s --unix-socket "$WRANGL_SOCK" -d "{\"sqid\":\"$sqid\",\"summary\":\"ok\"}
 `, `name: up
 arch: %s
 min: {vcpu: 1, ram: 256MiB, disk: 1GiB}
+max_sessions: 1
 mise_toml: ""
 agent:
   start: [%q, "{{.Prompt}}"]

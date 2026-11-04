@@ -56,9 +56,11 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 	launched := map[string]int{}
 	var errs []error
 	for _, t := range rows {
-		need := t.Demand - t.Supply
+		need := t.Demand - t.Supply // sessions still without a slot
+		perHost := max(t.MaxSessions, 1)
+		hosts := (need + perHost - 1) / perHost // each new runner brings max_sessions slots
 		room := t.MaxRunners - t.Live
-		n := min(need, room)
+		n := min(hosts, room)
 		if n <= 0 {
 			continue
 		}

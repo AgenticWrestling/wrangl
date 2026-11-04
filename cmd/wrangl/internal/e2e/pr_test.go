@@ -83,7 +83,7 @@ func TestPRFlowEndToEnd(t *testing.T) {
 	kinds := map[string]int{}
 	go api.Events(ctx, func(ev client.Event) { kindsMu.Lock(); kinds[ev.Kind]++; kindsMu.Unlock() })
 
-	tmpl := fmt.Sprintf("name: tiny\narch: %s\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmise_toml: \"\"\nagent:\n  start: [%q, \"{{.Prompt}}\"]\n", ec2Arch(), agentPath)
+	tmpl := fmt.Sprintf("name: tiny\narch: %s\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmax_sessions: 1\nmise_toml: \"\"\nagent:\n  start: [%q, \"{{.Prompt}}\"]\n", ec2Arch(), agentPath)
 	if _, err := api.CreateTemplate(ctx, []byte(tmpl)); err != nil {
 		t.Fatal(err)
 	}

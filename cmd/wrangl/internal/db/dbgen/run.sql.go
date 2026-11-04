@@ -91,9 +91,12 @@ const claimIdleRunner = `-- name: ClaimIdleRunner :one
 UPDATE runner SET state = 'busy', idle_since = NULL
 WHERE id = (
     SELECT n.id FROM runner n JOIN runner_template t ON t.id = n.template_id
-    WHERE n.template_id = ?1 AND n.state = 'idle' AND n.cordoned = 0
+    WHERE n.template_id = ?1 AND n.state IN ('idle', 'busy') AND n.cordoned = 0
+      AND n.drain_requested = 0
       AND n.template_version = t.version AND n.upgrade_sha = ''
-    ORDER BY n.idle_since
+      AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
+           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
+    ORDER BY (n.state = 'busy') DESC, n.idle_since
     LIMIT 1)
 RETURNING id, name
 `
@@ -103,7 +106,10 @@ type ClaimIdleRunnerRow struct {
 	Name string `json:"name"`
 }
 
-// Oldest-idle runner on the template at its current version; claimed atomically.
+// A runner on the template with a free session slot, at the template's current version and not
+// cordoned, draining or upgrading. Busy runners with room are packed first (fewer instances, so
+// less cost), then the longest-idle one. The slot is not counted until AssignRun marks the run
+// assigned, which the scheduler does right after (it assigns one run at a time).
 func (q *Queries) ClaimIdleRunner(ctx context.Context, templateID int64) (ClaimIdleRunnerRow, error) {
 	row := q.db.QueryRowContext(ctx, claimIdleRunner, templateID)
 	var i ClaimIdleRunnerRow
@@ -567,7 +573,9 @@ func (q *Queries) ReassertNeedsInput(ctx context.Context, id int64) error {
 
 const releaseRunner = `-- name: ReleaseRunner :exec
 UPDATE runner SET state = 'idle', idle_since = ?1
-WHERE id = ?2 AND state IN ('busy', 'offline')
+WHERE runner.id = ?2 AND runner.state IN ('busy', 'offline')
+  AND NOT EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                  AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
 `
 
 type ReleaseRunnerParams struct {
@@ -575,7 +583,8 @@ type ReleaseRunnerParams struct {
 	ID  int64          `json:"id"`
 }
 
-// Back to idle (with a fresh idle clock) unless terminated.
+// Back to idle (with a fresh idle clock) unless terminated, and only when no other session is
+// still running on it.
 func (q *Queries) ReleaseRunner(ctx context.Context, arg ReleaseRunnerParams) error {
 	_, err := q.db.ExecContext(ctx, releaseRunner, arg.Now, arg.ID)
 	return err

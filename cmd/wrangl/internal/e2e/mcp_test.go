@@ -43,7 +43,7 @@ func TestRemoteMCP(t *testing.T) {
 	go func() { srvDone <- srv.Run(ctx) }()
 	<-srv.Ready()
 	api, _ := client.New("unix://"+cfg.Listen.Unix, nil)
-	if _, err := api.CreateTemplate(ctx, []byte("name: tiny\narch: arm64\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nagent:\n  start: [x]\n")); err != nil {
+	if _, err := api.CreateTemplate(ctx, []byte("name: tiny\narch: arm64\nmin: {vcpu: 1, ram: 256MiB, disk: 1GiB}\nmax_sessions: 1\nagent:\n  start: [x]\n")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := api.CreateProject(ctx, proto.ProjectRequest{Slug: "web", Template: ptr("tiny")}); err != nil {

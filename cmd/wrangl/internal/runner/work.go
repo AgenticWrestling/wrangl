@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,74 +34,178 @@ const (
 	killGrace          = 15 * time.Second
 )
 
-// Worker runs assignments on this runner, one at a time.
+// Worker runs assignments on this runner: up to the template's max_sessions at once, each in
+// its own workspace, with its own hook sequence, interactive drive and pending questions.
 type Worker struct {
 	Cfg *Config
 	NC  *nats.Conn
 	JS  jetstream.JetStream
 	Log *slog.Logger
 
-	mu         sync.Mutex
-	runID      int64
+	mu      sync.Mutex
+	runs    map[int64]*runState
+	answers waiters
+	terms   terms // PTYs the owner can watch from the web terminal
+	// secretRefs counts the sessions using each secret file written to a shared path, so the
+	// last one out removes it (a template's secrets are the same for every session).
+	secretRefs map[string]int
+}
+
+// runState is one run in progress on this runner.
+type runState struct {
+	id         int64
 	kind       string
 	cancel     context.CancelFunc
 	done       chan struct{}
 	hookSeq    int64
-	answers    waiters
 	continueFn func(ctx context.Context) (string, bool) // interactive drive (M9)
-	sess       *session                                 // the run in progress (hooks report its agent session id)
-	terms      terms                                    // PTYs the owner can watch from the web terminal
+	sess       *session                                 // hooks report its agent session id
 }
 
-// Kind is the kind of the run in progress.
-func (w *Worker) Kind() string { w.mu.Lock(); defer w.mu.Unlock(); return w.kind }
+// Active lists the runs in progress, lowest id first.
+func (w *Worker) Active() []int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	ids := make([]int64, 0, len(w.runs))
+	for id := range w.runs {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+// Busy reports a run in progress (the lowest id), 0 = idle. Callers that only ask "is anything
+// running?" (template apply, self-upgrade, the heartbeat) keep working with several sessions.
+func (w *Worker) Busy() int64 {
+	if ids := w.Active(); len(ids) > 0 {
+		return ids[0]
+	}
+	return 0
+}
+
+// Kind is the kind of the sole run in progress ("" when none or several).
+func (w *Worker) Kind() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.runs) != 1 {
+		return ""
+	}
+	for _, r := range w.runs {
+		return r.kind
+	}
+	return ""
+}
+
+// errNoRun: no run matches.
+var errNoRun = errors.New("no run in progress")
+
+// target picks the run a request is about: the one named (the agent's WRANGL_RUN_ID), else
+// the only one running. With several running and none named it refuses rather than guess.
+func (w *Worker) target(runID int64) (*runState, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if runID != 0 {
+		if r := w.runs[runID]; r != nil {
+			return r, nil
+		}
+		return nil, fmt.Errorf("run %d is not running on this runner", runID)
+	}
+	switch len(w.runs) {
+	case 0:
+		return nil, errNoRun
+	case 1:
+		for _, r := range w.runs {
+			return r, nil
+		}
+	}
+	return nil, errors.New("several runs are active: the caller must say which (WRANGL_RUN_ID)")
+}
 
 // DeliverAnswer hands an owner's answer to the agent waiting on it.
 func (w *Worker) DeliverAnswer(a proto.Answer) bool { return w.answers.deliver(a) }
 
-// Busy reports the run in progress (0 = idle).
-func (w *Worker) Busy() int64 { w.mu.Lock(); defer w.mu.Unlock(); return w.runID }
-
-// Start begins an assignment in the background; it fails if one is already running.
+// Start begins an assignment in the background; it fails if the runner has no free session
+// (a.MaxSessions, default 1) or already has that run.
 func (w *Worker) Start(parent context.Context, a proto.Assignment) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.runID != 0 {
-		return fmt.Errorf("busy with run %d", w.runID)
+	if w.runs[a.RunID] != nil {
+		return fmt.Errorf("run %d is already running here", a.RunID)
+	}
+	limit := a.MaxSessions
+	if limit < 1 {
+		limit = 1
+	}
+	if len(w.runs) >= limit {
+		return fmt.Errorf("busy: %d of %d sessions in use", len(w.runs), limit)
 	}
 	ctx, cancel := context.WithCancel(parent)
-	w.runID, w.kind, w.cancel, w.done, w.hookSeq = a.RunID, a.Kind, cancel, make(chan struct{}), 0
-	done := w.done
+	rs := &runState{id: a.RunID, kind: a.Kind, cancel: cancel, done: make(chan struct{})}
+	if w.runs == nil {
+		w.runs = map[int64]*runState{}
+	}
+	w.runs[a.RunID] = rs
 	go func() {
-		defer close(done)
+		defer close(rs.done)
 		defer cancel()
-		w.run(ctx, a)
-		w.answers.cancelAll()
+		w.run(ctx, a, rs)
+		w.answers.cancelRun(a.RunID)
 		w.mu.Lock()
-		w.runID, w.kind, w.cancel, w.continueFn = 0, "", nil, nil
+		delete(w.runs, a.RunID)
 		w.mu.Unlock()
 	}()
 	return nil
 }
 
-// Cancel stops run runID if it is the one in progress.
+// Cancel stops run runID if it is in progress here.
 func (w *Worker) Cancel(runID int64) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.runID != runID || w.cancel == nil {
+	r := w.runs[runID]
+	if r == nil || r.cancel == nil {
 		return false
 	}
-	w.cancel()
+	r.cancel()
 	return true
 }
 
-// Wait blocks until the current run (if any) has finished.
+// Wait blocks until every run in progress has finished.
 func (w *Worker) Wait() {
 	w.mu.Lock()
-	d := w.done
+	var ds []chan struct{}
+	for _, r := range w.runs {
+		ds = append(ds, r.done)
+	}
 	w.mu.Unlock()
-	if d != nil {
+	for _, d := range ds {
 		<-d
+	}
+}
+
+// holdSecret records that a session uses the secret file at path; it reports whether the file
+// is already in place (another session wrote it), in which case the caller must not rewrite it.
+func (w *Worker) holdSecret(path string) (already bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.secretRefs == nil {
+		w.secretRefs = map[string]int{}
+	}
+	already = w.secretRefs[path] > 0
+	w.secretRefs[path]++
+	return already
+}
+
+// dropSecret releases a session's hold; the file is removed with the last one.
+func (w *Worker) dropSecret(path string) {
+	w.mu.Lock()
+	w.secretRefs[path]--
+	last := w.secretRefs[path] <= 0
+	if last {
+		delete(w.secretRefs, path)
+	}
+	w.mu.Unlock()
+	if last {
+		os.Remove(path)
 	}
 }
 
@@ -252,16 +357,16 @@ func (w *Worker) stack(ctx context.Context, op string, req proto.StackRequest) (
 }
 
 // run executes one assignment end to end and always reports a terminal state.
-func (w *Worker) run(ctx context.Context, a proto.Assignment) {
+func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	// Final states must be published even after a cancel.
 	pubCtx := context.WithoutCancel(ctx)
 	dir, id, err := w.workdir(a.RunID)
 	s := &session{w: w, a: a, id: id, dir: dir, interactive: a.Agent.Drive == proto.DriveInteractive && a.Kind == "work"}
 	defer s.removeSecrets()
 	w.mu.Lock()
-	w.sess = s
+	rs.sess = s
 	w.mu.Unlock()
-	defer func() { w.mu.Lock(); w.sess = nil; w.mu.Unlock() }()
+	defer func() { w.mu.Lock(); rs.sess = nil; w.mu.Unlock() }()
 	fail := func(err error) {
 		s.logf("runner", "run failed: %v", err)
 		s.flush()
@@ -522,9 +627,14 @@ func (s *session) writeSecret(f proto.SecretFile, vars map[string]string) error 
 	if s.id.drop {
 		os.Lchown(filepath.Dir(path), s.id.uid, s.id.gid)
 	}
+	if s.w.holdSecret(path) { // another session on this runner already wrote it (same template, same content)
+		s.secretPaths = append(s.secretPaths, path)
+		return nil
+	}
 	os.Remove(path) // never write through a symlink the agent planted
 	fh, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
+		s.w.dropSecret(path)
 		return fmt.Errorf("secret file %s: %w", path, err)
 	}
 	if s.id.drop {
@@ -535,6 +645,7 @@ func (s *session) writeSecret(f proto.SecretFile, vars map[string]string) error 
 		err = cerr
 	}
 	if err != nil {
+		s.w.dropSecret(path)
 		return fmt.Errorf("secret file %s: %w", path, err)
 	}
 	s.secretPaths = append(s.secretPaths, path)
@@ -544,7 +655,7 @@ func (s *session) writeSecret(f proto.SecretFile, vars map[string]string) error 
 
 func (s *session) removeSecrets() {
 	for _, p := range s.secretPaths {
-		os.Remove(p)
+		s.w.dropSecret(p)
 	}
 }
 
@@ -624,7 +735,15 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 		var once sync.Once
 		onStop := s.onStop
 		w.mu.Lock()
-		w.continueFn = func(hctx context.Context) (string, bool) {
+		rs := w.runs[s.a.RunID]
+		if rs == nil { // not started through Start (tests)
+			rs = &runState{id: s.a.RunID}
+			if w.runs == nil {
+				w.runs = map[int64]*runState{}
+			}
+			w.runs[s.a.RunID] = rs
+		}
+		rs.continueFn = func(hctx context.Context) (string, bool) {
 			if onStop != nil {
 				if p, ok := onStop(hctx); ok {
 					return p, true
@@ -634,7 +753,7 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 			return "", false
 		}
 		w.mu.Unlock()
-		defer func() { w.mu.Lock(); w.continueFn = nil; w.mu.Unlock() }()
+		defer func() { w.mu.Lock(); rs.continueFn = nil; w.mu.Unlock() }()
 	}
 	rules := make([]expectRule, 0, len(s.a.Agent.Expect))
 	for _, e := range s.a.Agent.Expect {
@@ -894,7 +1013,7 @@ func (w *Worker) chainNext(ctx context.Context, s *session, ch *chain) (string, 
 			return "", false
 		}
 	}
-	st, err := w.leafState(ctx, n.Sqid)
+	st, err := w.leafState(ctx, s.a.RunID, n.Sqid)
 	if err != nil {
 		s.logf("runner", "stop hook: %v", err)
 		return "", false
@@ -926,9 +1045,9 @@ func nudgePrompt(n *proto.StackNext) string {
 }
 
 // leafState asks the controller for a task's state.
-func (w *Worker) leafState(ctx context.Context, sqid string) (string, error) {
+func (w *Worker) leafState(ctx context.Context, runID int64, sqid string) (string, error) {
 	args, _ := json.Marshal(map[string]string{"sqid": sqid})
-	out, err := w.Tool(ctx, "task_get", args)
+	out, err := w.ToolFor(ctx, runID, "task_get", args)
 	if err != nil {
 		return "", err
 	}
@@ -944,7 +1063,7 @@ func (w *Worker) leafState(ctx context.Context, sqid string) (string, error) {
 // once, then ask the owner (retry / mark complete / fail).
 func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackNext, turns *int, timeout time.Duration) error {
 	if s.a.Agent.Completion == "exit" {
-		if st, err := w.leafState(ctx, n.Sqid); err == nil && finished(st) {
+		if st, err := w.leafState(ctx, s.a.RunID, n.Sqid); err == nil && finished(st) {
 			return nil // an interactive session's Stop already completed it
 		}
 		_, err := w.stack(ctx, "complete", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Summary: s.summary()})
@@ -953,7 +1072,7 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 	resume := s.resumeArgv()
 	nudged := false
 	for {
-		st, err := w.leafState(ctx, n.Sqid)
+		st, err := w.leafState(ctx, s.a.RunID, n.Sqid)
 		if err != nil {
 			return err
 		}
@@ -988,7 +1107,7 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 				{"label": "Fail the run", "value": "fail"},
 			},
 		})
-		out, err := w.Tool(ctx, "_system_question", args)
+		out, err := w.ToolFor(ctx, s.a.RunID, "_system_question", args)
 		if err != nil {
 			return err
 		}

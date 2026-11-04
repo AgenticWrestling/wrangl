@@ -165,6 +165,7 @@ func TestWorkLoopEndToEnd(t *testing.T) {
 	tmpl := fmt.Sprintf(`name: tiny
 arch: %s
 min: {vcpu: 1, ram: 256MiB, disk: 1GiB}
+max_sessions: 1
 mise_toml: ""
 agent:
   start: [%q, "{{.Prompt}}"]

@@ -122,16 +122,19 @@ WHERE drain_requested = 1 AND launched = 1 AND instance_id IS NOT NULL
   AND state IN ('idle', 'offline', 'enrolling', 'provisioning');
 
 -- name: TemplateDemand :many
--- Per template: queued runs (demand), uncordoned runners that are or will be idle
--- (supply), and live runners (counted against max_runners).
-SELECT t.id, t.name, t.version, t.failed_version, t.max_runners,
+-- Per template: queued runs (demand), free session slots on uncordoned runners that are or will
+-- be available (supply; a runner still coming up counts all its slots), and live runners
+-- (counted against max_runners).
+SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
        CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
              JOIN project p ON p.id = k.project_id
              WHERE r.state = 'queued'
                AND COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
-       CAST((SELECT COUNT(*) FROM runner n
-             WHERE n.template_id = t.id AND n.cordoned = 0
-               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle')) AS INTEGER) AS supply,
+       CAST((SELECT COALESCE(SUM(MAX(t.max_sessions - (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
+                          AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0)
+             FROM runner n
+             WHERE n.template_id = t.id AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
+               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')) AS INTEGER) AS supply,
        CAST((SELECT COUNT(*) FROM runner n
              WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
 FROM runner_template t

@@ -107,8 +107,11 @@ func ParseAgentSpec(raw string) (AgentSpec, error) {
 
 // Assignment is the cmd.assign payload.
 type Assignment struct {
-	RunID       int64             `json:"run_id"`
-	Kind        string            `json:"kind"`
+	RunID int64  `json:"run_id"`
+	Kind  string `json:"kind"`
+	// MaxSessions is how many runs the runner may host at once (the template's max_sessions);
+	// 0 means one, for controllers that predate sessions.
+	MaxSessions int               `json:"max_sessions,omitempty"`
 	TaskSqid    string            `json:"task_sqid"`
 	Repo        string            `json:"repo"` // owner/name
 	CloneURL    string            `json:"clone_url"`
