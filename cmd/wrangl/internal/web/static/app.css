@@ -475,3 +475,6 @@ section.card.k-running { border-left: 4px solid var(--prog); }
 .icard details.idetail { margin: 8px 0; }
 .icard details.idetail > summary { cursor: pointer; color: var(--dim); font-size: 0.88rem; }
 .icard details.idetail[open] > .prose { max-height: 28rem; overflow: auto; padding: 4px 12px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
+
+/* the parent-task jump tag on In progress rows: long titles are elided */
+.tag.ptag { display: inline-block; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }

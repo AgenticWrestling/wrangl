@@ -35,8 +35,8 @@
     {{ticon $n.Type}}
     <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
     {{if $n.Mockups}}<a class="tag mock" href="/task/{{$n.Sqid}}#deliverables" title="{{$n.Mockups}} deliverable{{if gt $n.Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{$n.Mockups}}</a>{{end}}
-    {{template "kindtag" $n}}{{template "rollchips" $n}}
-    {{if .ParentSqid}}<a class="tag" href="/task/{{.ParentSqid}}" title="Go to the parent task: {{.ParentTitle}}">↑ {{.ParentTitle}}</a>{{end}}
+    {{if ne $n.Kind "running"}}{{template "kindtag" $n}}{{end}}{{template "rollchips" $n}}
+    {{if .ParentSqid}}<a class="tag ptag" href="/task/{{.ParentSqid}}" title="Go to the parent task: {{.ParentTitle}}">↑ {{.ParentTitle}}</a>{{end}}
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
