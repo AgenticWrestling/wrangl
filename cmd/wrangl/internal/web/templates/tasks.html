@@ -11,19 +11,19 @@
   <a class="chip" href="/tasks?project={{.Project}}{{if not .All}}&amp;all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
   <a class="chip" href="/project/{{.Project}}">Project goals &amp; repos</a>
   <span class="grow"></span>
-  <button class="btn primary" onclick="openSheet('sheet-new')">＋ New task</button>
+  <button class="btn primary" data-key="n" onclick="openSheet('sheet-new')">＋ New task</button>
 </div>{{end}}
 {{if not .Projects}}<p class="empty">No projects yet. Tap ＋ above to create one.</p>
 {{else if and (not .Roots) (not .Progress) (not .Queue)}}<p class="empty">Nothing open in {{.Project}}. Tap ＋ New to add a task.</p>{{end}}
 {{if .Progress}}<section class="tsec" id="in-progress"><h3>In progress <span class="dim small">{{len .Progress}}</span></h3>
-  <ul class="tasks runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
+  <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
-  <ul class="tasks runs">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
+  <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 <section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
-<ul class="tasks sortable root" data-parent="">{{template "tasklist" .Roots}}</ul></section>
+<ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul></section>
 {{end}}
 
-{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}">
+{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
   <div class="row">
     <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
     {{ticon $n.Type}}
@@ -41,7 +41,7 @@
     <ul class="tasks" data-parent="{{$n.Sqid}}">{{template "tasklist" $n.Kids}}</ul></details>{{end}}
 </li>{{end}}
 
-{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} ty-{{.Type}}" data-sqid="{{.Sqid}}">
+{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} ty-{{.Type}}" data-sqid="{{.Sqid}}" role="treeitem" tabindex="-1"{{if .Kids}} aria-expanded="true"{{end}}>
   <div class="row">
     <span class="handle" aria-label="Drag to reorder">⠿</span>
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
@@ -55,7 +55,7 @@
     <code class="sqid">{{.Sqid}}</code>
   </div>
   <div class="detail" id="d-{{.Sqid}}">{{.Detail}}</div>
-  <ul class="tasks sortable" data-parent="{{.Sqid}}">{{template "tasklist" .Kids}}</ul>
+  <ul class="tasks sortable" data-parent="{{.Sqid}}" role="group">{{template "tasklist" .Kids}}</ul>
 </li>{{end}}{{end}}
 
 {{define "post-tasks"}}{{template "sheet-project" .}}{{if .Project}}

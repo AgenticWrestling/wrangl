@@ -15,15 +15,15 @@
   {{if $t.CompletionSummary}}<h3>Completion summary</h3><div class="prose">{{md $t.CompletionSummary}}</div>{{end}}
   {{with .Checkpoint}}<p class="changes"><a class="btn small" href="{{.Commit}}" target="_blank" rel="noopener noreferrer" title="the checkpoint commit for this task">{{faicon "edit"}}Changes <code>{{.Short}}</code></a> <a class="btn small" href="{{.Compare}}" target="_blank" rel="noopener noreferrer" title="compare with the previous task's checkpoint (or the base branch)">Compare</a></p>{{end}}
   <div class="actions wrap">
-    {{if .CanQueue}}<button class="btn primary" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
-    <button class="btn" onclick="openSheet('sheet-edit')">{{faicon "edit"}}Edit</button>
-    <button class="btn" onclick="openSheet('sheet-needs')">{{faicon "needs"}}Needs…</button>
+    {{if .CanQueue}}<button class="btn primary" data-key="q" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
+    <button class="btn" data-key="e" onclick="openSheet('sheet-edit')">{{faicon "edit"}}Edit</button>
+    <button class="btn" data-key="d" onclick="openSheet('sheet-needs')">{{faicon "needs"}}Needs…</button>
     {{if .Agents}}<button class="btn" onclick="openSheet('sheet-ask')">{{faicon "ask"}}Ask?</button>{{end}}
-    {{if or (eq $t.State "done") (eq $t.State "cancelled")}}<button class="btn" data-on:click="@post('/ui/act/task-reopen?sqid={{$t.Sqid.String}}')">{{faicon "reopen"}}Reopen</button>
-    {{else}}{{if not .Kids}}<button class="btn" data-on:click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Complete</button>
-    {{else if and (eq (print $t.TaskType) "release") (eq $t.State "in_review")}}<button class="btn primary" data-on:click="confirm('All work in this release is done. Ship it?') && @post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Ship it</button>{{end}}
-    <button class="btn" data-on:click="@post('/ui/act/task-cancel?sqid={{$t.Sqid.String}}')">{{faicon "cancel"}}Cancel</button>{{end}}
-    <button class="btn danger" data-on:click="confirm('Delete this task and its subtasks?') && @post('/ui/act/task-delete?sqid={{$t.Sqid.String}}')">{{faicon "delete"}}Delete</button>
+    {{if or (eq $t.State "done") (eq $t.State "cancelled")}}<button class="btn" data-key="x" data-on:click="@post('/ui/act/task-reopen?sqid={{$t.Sqid.String}}')">{{faicon "reopen"}}Reopen</button>
+    {{else}}{{if not .Kids}}<button class="btn" data-key="c" data-on:click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Complete</button>
+    {{else if and (eq (print $t.TaskType) "release") (eq $t.State "in_review")}}<button class="btn primary" data-key="c" data-on:click="confirm('All work in this release is done. Ship it?') && @post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Ship it</button>{{end}}
+    <button class="btn" data-key="x" data-on:click="@post('/ui/act/task-cancel?sqid={{$t.Sqid.String}}')">{{faicon "cancel"}}Cancel</button>{{end}}
+    <button class="btn danger" data-key="D" data-on:click="confirm('Delete this task and its subtasks?') && @post('/ui/act/task-delete?sqid={{$t.Sqid.String}}')">{{faicon "delete"}}Delete</button>
   </div>
 </section>
 
@@ -43,8 +43,8 @@
 
 <section class="card" id="subtasks">
   <div class="row"><h3>Subtasks</h3><span class="grow"></span>
-    <button class="btn small" onclick="openSheet('sheet-split')">{{faicon "split"}}Split</button>
-    <button class="btn small" onclick="openSheet('sheet-sub')">{{faicon "subtask"}}Subtask</button></div>
+    <button class="btn small" data-key="s" onclick="openSheet('sheet-split')">{{faicon "split"}}Split</button>
+    <button class="btn small" data-key="a" onclick="openSheet('sheet-sub')">{{faicon "subtask"}}Subtask</button></div>
   {{if not .Kids}}<p class="empty">No subtasks. Split this task, or add one.</p>{{end}}
   <ul class="tasks sortable" data-parent="{{$t.Sqid.String}}">{{range .Kids}}<li class="task st-{{.State}}" data-sqid="{{.Sqid.String}}"><div class="row">
   <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>

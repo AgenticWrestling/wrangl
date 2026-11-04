@@ -1,3 +1,5 @@
 build/
 .task/
 .cloudflare/
+.claude/settings.local.json
+.mcp.json
