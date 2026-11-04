@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
@@ -151,4 +152,53 @@ func SetTemplateAgents(ctx context.Context, q *dbgen.Queries, templateID int64, 
 		}
 	}
 	return nil
+}
+
+// Credential is one secret an agent needs, with how to collect it and whether it is stored.
+type Credential struct {
+	Agent   string
+	Secret  string
+	Command string // how to collect it ("claude setup-token"), when known
+	Note    string
+	Present bool
+}
+
+// builtinAuth covers agents defined before the auth section existed.
+var builtinAuth = map[string]proto.AuthSpec{
+	"CLAUDE_CODE_OAUTH_TOKEN": {Command: "claude setup-token", Note: "a year-long inference token for Pro/Max/Team/Enterprise plans"},
+}
+
+// Credentials lists every secret the agents need (env secrets and secret files) and whether the
+// controller has it, in agent order. has reports whether a secret is stored.
+func Credentials(agents []dbgen.Agent, has func(name string) bool) []Credential {
+	var out []Credential
+	for _, a := range agents {
+		spec, err := proto.ParseAgentSpec(a.SpecJson)
+		if err != nil {
+			continue
+		}
+		add := func(secret, builtin string) {
+			c := Credential{Agent: a.Name, Secret: secret, Present: has(secret)}
+			if b, ok := builtinAuth[builtin]; ok {
+				c.Command, c.Note = b.Command, b.Note
+			}
+			if spec.Auth != nil && spec.Auth.Secret == secret {
+				if spec.Auth.Command != "" {
+					c.Command = spec.Auth.Command
+				}
+				if spec.Auth.Note != "" {
+					c.Note = spec.Auth.Note
+				}
+			}
+			out = append(out, c)
+		}
+		for env, secret := range spec.Secrets {
+			add(secret, env)
+		}
+		for _, f := range spec.SecretFiles {
+			add(f.Secret, "")
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Agent < out[j].Agent })
+	return out
 }

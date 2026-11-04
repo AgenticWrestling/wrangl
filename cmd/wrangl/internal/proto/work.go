@@ -27,6 +27,16 @@ type AgentSpec struct {
 	// Expect answers prompts in the PTY (interactive drive): when the ANSI-stripped output
 	// matches, Send is typed. Each rule fires once unless Repeat is set.
 	Expect []ExpectRule `json:"expect,omitempty"`
+	// Auth documents how the owner collects the credential this agent needs (shown on the Setup
+	// page and by `wrangl agent auth NAME`). It is metadata only: the runner never sees it.
+	Auth *AuthSpec `json:"auth,omitempty"`
+}
+
+// AuthSpec describes collecting one agent credential.
+type AuthSpec struct {
+	Secret  string `json:"secret"`            // controller secret the credential is stored as
+	Command string `json:"command,omitempty"` // run it where the agent is logged in; it prints the token
+	Note    string `json:"note,omitempty"`    // one line of context (lifetime, plan, what not to do)
 }
 
 // Drive modes.
@@ -72,6 +82,9 @@ func (a AgentSpec) Validate() error {
 		if _, err := regexp.Compile(e.Match); err != nil {
 			return fmt.Errorf("agent.expect %q: %w", e.Match, err)
 		}
+	}
+	if a.Auth != nil && a.Auth.Secret == "" {
+		return fmt.Errorf("agent.auth: secret is required")
 	}
 	for _, f := range a.SecretFiles {
 		if f.Path == "" || f.Secret == "" {

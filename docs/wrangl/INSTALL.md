@@ -408,6 +408,7 @@ agent:
   start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  auth: { secret: claude_oauth_token, command: claude setup-token }   # how you collect it (see below)
   turn_timeout: 2h
   files:                                    # written into the worktree before the first turn
     - path: .mcp.json                       # the work-stack tools (task_complete, ask_question, ...)
@@ -479,6 +480,19 @@ queue, naming what is allowed. Editing an agent does not bump the template versi
 reinstalls anything. The agent's binary is still installed by the template (`mise_toml` /
 `setup_script`), so allow an agent only on templates that install it. Secrets belong to the agent:
 a missing one is reported as `agent NAME needs secret ...`.
+
+**Collecting the Claude token.** The token is owned by the agent, not stored by hand. On any
+machine where `claude` is logged in to your plan, run `claude setup-token`, then:
+
+```
+claude setup-token | wrangl agent auth claude      # shows the step, stores the last line as claude_oauth_token
+# or, equivalently:  claude setup-token | wrangl secret set claude_oauth_token
+```
+
+(`wrangl controller secret set` still works on the controller host.) **Settings -> Setup ->
+Agent credentials** lists every secret each agent needs with `✓ set` or `! missing` and the
+command to fix it; a missing secret also holds the run with `agent claude needs secret ...`.
+Other agents declare the same `auth:` section (`secret`, `command`, `note`) in their spec.
 
 ### 8.1 Other agents, interactive sessions and Remote Control (experimental)
 

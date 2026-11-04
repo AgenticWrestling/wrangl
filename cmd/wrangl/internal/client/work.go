@@ -397,3 +397,15 @@ func (c *Client) AllowAgent(ctx context.Context, agent, template string, allow b
 	}
 	return c.json(ctx, m, "/api/v1/agent-defs/"+esc(agent)+"/templates/"+esc(template), nil, nil)
 }
+
+// --- secrets (names only; values are write-only) ---
+
+func (c *Client) Secrets(ctx context.Context) ([]string, error) {
+	var out []string
+	return out, c.json(ctx, http.MethodGet, "/api/v1/secrets", nil, &out)
+}
+
+// SetSecret stores a secret on the controller.
+func (c *Client) SetSecret(ctx context.Context, name, value string) error {
+	return c.do(ctx, http.MethodPut, "/api/v1/secrets/"+esc(name), strings.NewReader(value), "text/plain", nil)
+}

@@ -106,3 +106,22 @@ func TestResolve(t *testing.T) {
 }
 
 func ctxOf(c context.Context) context.Context { return c }
+
+func TestCredentialsStatusAndHints(t *testing.T) {
+	agents := []dbgen.Agent{
+		{Name: "claude", SpecJson: `{"start":["claude"],"secrets":{"CLAUDE_CODE_OAUTH_TOKEN":"claude_oauth_token"}}`},
+		{Name: "codex", SpecJson: `{"start":["codex"],"secrets":{"CODEX_API_KEY":"codex_key"},"auth":{"secret":"codex_key","command":"codex login --api-key","note":"API billing"}}`},
+		{Name: "plain", SpecJson: `{"start":["x"]}`},
+	}
+	got := Credentials(agents, func(n string) bool { return n == "codex_key" })
+	if len(got) != 2 {
+		t.Fatalf("creds: %+v", got)
+	}
+	c, x := got[0], got[1]
+	if c.Agent != "claude" || c.Present || c.Command != "claude setup-token" {
+		t.Errorf("claude: %+v", c)
+	}
+	if x.Agent != "codex" || !x.Present || x.Command != "codex login --api-key" || x.Note != "API billing" {
+		t.Errorf("codex: %+v", x)
+	}
+}

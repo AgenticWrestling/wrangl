@@ -140,5 +140,111 @@ func agentDefCmd(g *Global) *cobra.Command {
 		c.MarkFlagRequired("template")
 		return c
 	}
-	return group("agent", "Manage named agent definitions (claude, codex, …) and where they may run", list, show, create, edit, del, allow(true), allow(false))
+	return group("agent", "Manage named agent definitions (claude, codex, …) and where they may run", list, show, create, edit, del, allow(true), allow(false), agentAuthCmd(g))
+}
+
+// lastLine returns the last non-empty line of s, trimmed: `claude setup-token` prints some prose
+// and then the token.
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+func secretCmd(g *Global) *cobra.Command {
+	set := &cobra.Command{
+		Use: "set <name>", Short: "Store a secret on the controller, read from stdin (e.g. `claude setup-token | wrangl secret set claude_oauth_token`)", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 64<<10))
+			if err != nil {
+				return err
+			}
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			if err := c.SetSecret(cmd.Context(), args[0], strings.TrimSpace(string(b))); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "stored secret %s\n", args[0])
+			return nil
+		},
+	}
+	list := &cobra.Command{
+		Use: "list", Short: "List secret names (never values)", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			names, err := c.Secrets(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, names, func(w io.Writer) {
+				for _, n := range names {
+					fmt.Fprintln(w, n)
+				}
+			})
+		},
+	}
+	return group("secret", "Manage controller secrets over the API (values are write-only)", set, list)
+}
+
+// agentAuthCmd walks through collecting an agent's credential.
+func agentAuthCmd(g *Global) *cobra.Command {
+	return &cobra.Command{
+		Use:   "auth <agent>",
+		Short: "Collect an agent's credential: shows the command to run, then reads the token (last line of stdin) and stores it",
+		Long: "Shows how the agent's credential is collected (its `auth` section; for Claude: `claude setup-token`), then reads the\n" +
+			"token from stdin and stores it as the agent's secret. Pipe the command in, or paste at the prompt:\n\n" +
+			"    claude setup-token | wrangl agent auth claude",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			a, err := c.AgentDef(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			var spec proto.AgentSpec
+			json.Unmarshal(a.Spec, &spec)
+			secret, command, note := "", "", ""
+			if spec.Auth != nil {
+				secret, command, note = spec.Auth.Secret, spec.Auth.Command, spec.Auth.Note
+			}
+			if secret == "" {
+				for env, s := range spec.Secrets {
+					if env == "CLAUDE_CODE_OAUTH_TOKEN" {
+						secret, command = s, "claude setup-token"
+					}
+				}
+			}
+			if secret == "" {
+				return fmt.Errorf("agent %s documents no credential to collect (add an `auth:` section to its spec)", a.Name)
+			}
+			errw := cmd.ErrOrStderr()
+			if command != "" {
+				fmt.Fprintf(errw, "Run this where %s is installed and logged in:\n    %s\n", a.Name, command)
+			}
+			if note != "" {
+				fmt.Fprintf(errw, "(%s)\n", note)
+			}
+			fmt.Fprintf(errw, "Paste the token, then Ctrl-D (stored as secret %q): ", secret)
+			b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 64<<10))
+			if err != nil {
+				return err
+			}
+			tok := lastLine(string(b))
+			if tok == "" {
+				return fmt.Errorf("no token read")
+			}
+			if err := c.SetSecret(cmd.Context(), secret, tok); err != nil {
+				return err
+			}
+			fmt.Fprintf(errw, "\nstored secret %s for agent %s\n", secret, a.Name)
+			return nil
+		},
+	}
 }

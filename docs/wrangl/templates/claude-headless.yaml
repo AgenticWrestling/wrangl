@@ -23,6 +23,10 @@ agent:
   start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  auth:                                     # how the owner collects it; shown on Setup and by `wrangl agent auth claude`
+    secret: claude_oauth_token
+    command: claude setup-token
+    note: a year-long inference token for Pro/Max/Team/Enterprise plans
   turn_timeout: 2h
   files:
     - path: .mcp.json

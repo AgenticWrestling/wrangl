@@ -2,6 +2,18 @@
 {{if .Created}}<section class="card"><p><b>{{if eq .CreatedRole "reviewer"}}Reviewer App{{else}}App{{end}} created for {{.Created}}.</b> Now install it on the repositories wrangl may work on.{{if .Back}} <a href="{{.Back}}">Carry on where you were</a>.{{end}}</p></section>{{end}}
 {{if .Error}}<section class="card"><p class="err">{{.Error}}</p></section>{{end}}
 
+{{if .Creds}}<section class="card" id="creds">
+  <h3>Agent credentials</h3>
+  <p class="hint">Each agent's secrets are stored on the controller and sent to a runner only inside that agent's runs.</p>
+  <div class="tablewrap"><table class="accts">
+    <thead><tr><th>Agent</th><th>Secret</th><th>Status</th></tr></thead>
+    {{range .Creds}}<tr><td><b>{{.Agent}}</b></td><td><code>{{.Secret}}</code></td>
+      <td>{{if .Present}}<span class="stat st-ok">✓ set</span>{{else}}<span class="stat st-badcreds">! missing</span>
+        {{if .Command}} <span class="small">Run <code>{{.Command}}</code> and pipe it to <code>wrangl secret set {{.Secret}}</code> (or use <code>wrangl agent auth {{.Agent}}</code>).</span>{{else}} <span class="small"><code>wrangl secret set {{.Secret}}</code></span>{{end}}
+        {{if .Note}}<span class="dim small">{{.Note}}</span>{{end}}{{end}}</td></tr>{{end}}
+  </table></div>
+</section>
+{{end}}
 <section class="card">
   <h3>GitHub accounts</h3>
   <p class="hint">wrangl needs one App per account (yours, and any organisation) to open and merge pull requests.</p>

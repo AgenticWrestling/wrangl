@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
@@ -858,6 +859,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			v.Focus = strings.EqualFold(qv.Get("account"), ac.Login)
 			seen = seen || v.Focus
 			views = append(views, v)
+		}
+		if h.D.Secrets != nil {
+			defs, _ := db.RQ.ListAgentDefs(ctx)
+			d["Creds"] = agentdef.Credentials(defs, h.D.Secrets.Has)
 		}
 		d["Accounts"], d["Created"], d["Error"] = views, qv.Get("created"), qv.Get("error")
 		d["CreatedRole"] = qv.Get("role")

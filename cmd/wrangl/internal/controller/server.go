@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -534,7 +535,11 @@ func (s *Server) routes() http.Handler {
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
 	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
-		Setup: s.setupService()}
+		Setup: s.setupService(), Secrets: &api.SecretStore{
+			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
+			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },
+			Has:  func(name string) bool { _, err := SecretGet(s.cfg.DataDir, name); return err == nil },
+		}}
 	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	ui, err := web.New(deps)
