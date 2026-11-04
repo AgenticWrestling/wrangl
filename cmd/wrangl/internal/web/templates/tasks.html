@@ -42,7 +42,7 @@
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
   <ul class="tasks runs queue-sort" role="tree" aria-label="Queue">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
-<section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
+<section class="tsec" id="backlog"><div class="row"><h3>Backlog</h3><span class="grow"></span>{{if .Roots}}{{if not .Archived}}<button class="btn small" data-confirm="Queue every open top-level task in {{.Project}}?" data-confirm-yes="Queue all" data-on:click="@post('/ui/act/queue-all?project={{.Project}}')">Queue all</button>{{end}}{{end}}</div>
 <ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul>
 <p class="showdone"><a class="chip" href="/projects/{{.Project}}{{if not .All}}?all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a></p></section>
 {{end}}{{end}}
@@ -101,6 +101,7 @@
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
+    <span class="vact">{{if .Runner}}<button class="btn small danger" data-confirm="Stop run #{{.RunID}} on {{.Runner}}? The agent is cancelled." data-confirm-yes="Stop" data-on:click="@post('/ui/act/run-cancel?id={{.RunID}}')">Stop</button>{{else}}<button class="btn small" aria-label="Move up" title="Move up" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=up&amp;sqid={{$n.Sqid}}')">↑</button><button class="btn small" aria-label="Move down" title="Move down" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=down&amp;sqid={{$n.Sqid}}')">↓</button><button class="btn small" title="Take it out of the queue" data-on:click="@post('/ui/act/task-dequeue?sqid={{$n.Sqid}}')">Dequeue</button>{{end}}</span>
     <a class="dim small" href="/run/{{.RunID}}">run #{{.RunID}}</a>
     <code class="sqid">{{$n.Sqid}}</code>
   </div>
@@ -125,6 +126,7 @@
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
     {{if .Total}}<span class="prog-bar" title="{{.Done}} of {{.Total}} done"><i style="width:{{pctof .Done .Total}}%"></i></span><span class="dim small">{{.Done}}/{{.Total}}</span>{{end}}
     {{if .Target}}<span class="tag target{{if .Slip}} slip-{{.Slip}}{{end}}" title="target date{{if .Slip}} ({{.Slip}}){{end}}">{{.Target}}{{if eq .Slip "late"}} · late{{else if .Slip}} · at risk{{end}}</span>{{end}}
+    {{if and (eq .State "open") (not .Parent)}}<button class="btn small vact" title="Add to the queue" data-on:click="@post('/ui/act/task-queue?sqid={{.Sqid}}')">Queue</button>{{end}}
     <code class="sqid">{{.Sqid}}</code>
   </div>
   {{if and .Awaits .Kids}}<div class="banner" role="note">{{template "bannertext" .}}</div>{{end}}

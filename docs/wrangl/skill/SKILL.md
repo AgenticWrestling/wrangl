@@ -27,6 +27,7 @@ for exact flags; this skill is the map.
 - `wrangl task needs add|rm SQID PRECURSOR` - ordering dependencies between tasks.
 - `wrangl task ask SQID "question" [--agent NAME] [--wait]` - ask a controller agent (a light Claude on the controller host, with this skill) about a task and its subtree; answers collect in a thread on the task (`wrangl task thread SQID`, or the "Ask?" button); the agent may attach up to 5 proposed actions, approve one with `wrangl task apply MSGID N` (N is 0-based, as listed by `task thread`). Agents are registered in Settings > Controller agents.
 - `wrangl task queue SQID [--agent NAME]` - queue a work run for that subtree (nothing runs until queued, unless the project has auto-queue). Works on any live task at any depth; if nothing is runnable it refuses and says why (e.g. "N subtask(s) are in review"). Overlapping subtrees are refused.
+- `wrangl task dequeue SQID` - take that task's queued run back out of the queue (it stays open, in the backlog). Refused when nothing is queued (already running or never queued); a running run is stopped with `wrangl run cancel`. The project page offers the same as Queue / Dequeue / up-down / Stop / Queue all buttons.
 - `wrangl task complete SQID [-m MSG]` (leaves only; parents complete when their subtasks do), `task reopen`, `task cancel` (with unfinished subtasks), `task delete` (whole subtree - confirm with the user first).
 
 ## Task types

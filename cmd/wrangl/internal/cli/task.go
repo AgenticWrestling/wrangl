@@ -380,6 +380,20 @@ func taskCmd(g *Global) *cobra.Command {
 		},
 	}
 	queue.Flags().StringVar(&agentFlag, "agent", "", "run with this agent definition instead of the project's default (see `wrangl agent list`)")
+	dequeue := &cobra.Command{
+		Use: "dequeue <sqid>", Short: "Take a task's queued run back out of the queue", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if err := c.DequeueTask(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "dequeued %s\n", args[0])
+			return nil
+		},
+	}
 	ask := &cobra.Command{
 		Use: "ask <sqid> <question>", Short: "Ask a controller agent about a task and its subtree", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -491,7 +505,7 @@ func taskCmd(g *Global) *cobra.Command {
 		},
 	}
 	return group("task", "Manage the hierarchical work stack",
-		create, tree, list, show, edit, move, needs, split, queue, ask, thread, apply,
+		create, tree, list, show, edit, move, needs, split, queue, dequeue, ask, thread, apply,
 		action("complete", "Mark a leaf done (finished and merged)"),
 		action("reopen", "Reopen a leaf"),
 		action("cancel", "Cancel a task and its unfinished subtasks"),

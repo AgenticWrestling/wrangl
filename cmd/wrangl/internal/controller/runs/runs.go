@@ -293,6 +293,35 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 	}
 }
 
+// Dequeue takes a task's queued run(s) back out of the queue (the task stays open, in the backlog).
+// It only touches runs that have not been assigned; a running run is stopped with Cancel instead.
+func (s *Service) Dequeue(ctx context.Context, sqid string) (int64, error) {
+	t, err := s.Stack.Task(ctx, s.DB.RQ, sqid)
+	if err != nil {
+		return 0, err
+	}
+	rs, err := s.DB.RQ.RunsForTask(ctx, t.ID)
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, r := range rs {
+		if r.State != "queued" {
+			continue
+		}
+		c, err := s.DB.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: nstr(s.ts()), ID: r.ID})
+		if err != nil {
+			return n, err
+		}
+		n += c
+		s.Bus.Publish("run", strconv.FormatInt(r.ID, 10))
+	}
+	if n == 0 {
+		return 0, fmt.Errorf("%w: %s has no queued run to remove (already started, or never queued)", errs.Conflict, sqid)
+	}
+	return n, nil
+}
+
 // Cancel cancels a run: a queued run directly, an active one via its runner.
 func (s *Service) Cancel(ctx context.Context, runID int64) error {
 	n, err := s.DB.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: nstr(s.ts()), ID: runID})

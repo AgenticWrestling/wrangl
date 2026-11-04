@@ -586,6 +586,14 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusCreated, out)
 	})
+	mux.HandleFunc("POST /api/v1/tasks/{sqid}/dequeue", func(w http.ResponseWriter, r *http.Request) {
+		n, err := d.Runs.Dequeue(r.Context(), r.PathValue("sqid"))
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"dequeued": n})
+	})
 	mux.HandleFunc("POST /api/v1/tasks/{sqid}/queue", func(w http.ResponseWriter, r *http.Request) {
 		var req proto.QueueRequest
 		if r.ContentLength > 0 {

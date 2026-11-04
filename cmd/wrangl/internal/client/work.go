@@ -204,6 +204,16 @@ func (c *Client) QueueTaskWith(ctx context.Context, sqid, agent string) (int64, 
 	return out.RunID, out.Branch, c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/queue", proto.QueueRequest{Agent: agent}, &out)
 }
 
+// DequeueTask removes a task's queued run from the queue; it errors (409) when there is none.
+func (c *Client) DequeueTask(ctx context.Context, sqid string) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/dequeue", nil, nil)
+}
+
+// SetQueueOrder ranks the queued runs in the given order (run ids).
+func (c *Client) SetQueueOrder(ctx context.Context, runs []int64) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/runs/queue-order", map[string]any{"runs": runs}, nil)
+}
+
 // TaskAction posts complete | reopen | cancel.
 func (c *Client) TaskAction(ctx context.Context, sqid, op, message string) error {
 	return c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/"+op, proto.MessageRequest{Message: message}, nil)

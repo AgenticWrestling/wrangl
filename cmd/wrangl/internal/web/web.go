@@ -1365,7 +1365,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(q.Get("id"), 10, 64)
 	var msg string
 	var err error
-	nav, dropEl := "", ""
+	nav, dropEl, flash := "", "", ""
 	var reset map[string]any // signals to clear on success
 	switch r.PathValue("action") {
 	case "task-new":
@@ -1454,7 +1454,67 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		}
 	case "task-queue":
 		_, err = h.D.Plans.QueueWork(ctx, sqid)
-		msg = "queued"
+		msg, flash = "queued", sqid
+	case "task-dequeue":
+		_, err = h.D.Runs.Dequeue(ctx, sqid)
+		msg, flash = "back in the backlog", sqid
+	case "queue-move": // up/down on a queued row: swap its rank with the neighbour's
+		run, rerr := h.D.Fleet.DB.RQ.GetRun(ctx, id)
+		if rerr != nil {
+			err = rerr
+			break
+		}
+		task, _ := h.D.Fleet.DB.RQ.GetTask(ctx, run.TaskID)
+		proj, _ := h.D.Fleet.DB.RQ.GetProject(ctx, task.ProjectID)
+		secs, terr := h.tree(ctx, proj.Slug, false)
+		if terr != nil {
+			err = terr
+			break
+		}
+		var ids []int64
+		at := -1
+		for i, e := range secs.Queue {
+			ids = append(ids, e.RunID)
+			if e.RunID == id {
+				at = i
+			}
+		}
+		to := at - 1
+		if q.Get("dir") == "down" {
+			to = at + 1
+		}
+		if at < 0 || to < 0 || to >= len(ids) {
+			err = fmt.Errorf("%w: nothing to move", errs.Conflict)
+			break
+		}
+		ids[at], ids[to] = ids[to], ids[at]
+		for i, rid := range ids { // persist the whole order so ties (unranked runs) stay put
+			if _, err = h.D.Fleet.DB.Q.SetRunQueueRank(ctx, dbgen.SetRunQueueRankParams{QueueRank: sql.NullFloat64{Float64: float64(i + 1), Valid: true}, ID: rid}); err != nil {
+				break
+			}
+		}
+		msg, flash = "moved "+q.Get("dir"), sqid
+	case "queue-all": // every open top-level task of the project that is not already queued or running
+		secs, terr := h.tree(ctx, q.Get("project"), false)
+		if terr != nil {
+			err = terr
+			break
+		}
+		n, skipped := 0, 0
+		for _, nd := range secs.Backlog {
+			if nd.State != "open" {
+				continue
+			}
+			if _, qerr := h.D.Plans.QueueWork(ctx, nd.Sqid); qerr != nil {
+				skipped++
+				continue
+			}
+			n++
+		}
+		msg = fmt.Sprintf("queued %d", n)
+		if skipped > 0 {
+			msg += fmt.Sprintf(" (%d skipped: locked or not queueable)", skipped)
+		}
 	case "task-complete", "task-reopen", "task-cancel":
 		op := strings.TrimPrefix(r.PathValue("action"), "task-")
 		switch op {
@@ -1632,6 +1692,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	}
 	if dropEl != "" {
 		executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", dropEl))
+	}
+	if flash != "" { // the row that was acted on lights up once the live patch has re-rendered it
+		executeScript(w, fmt.Sprintf("window.wrFlash&&wrFlash(%q)", flash))
 	}
 	if nav != "" {
 		executeScript(w, fmt.Sprintf("window.location.assign(%q)", nav))

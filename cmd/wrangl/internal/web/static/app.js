@@ -667,3 +667,26 @@ window.ghManifest = ghManifest;
     });
   }, true);
 })();
+
+// Flash the row of the task that was just acted on (queue, dequeue, move). The act's response asks
+// for it; the row may only appear once the live patch has re-rendered #main, so it is applied
+// when it shows up (for a few seconds at most).
+(function () {
+  let want = null;
+  function apply() {
+    if (!want) return;
+    if (Date.now() > want.until) { want = null; return; }
+    const li = document.querySelector('li.task[data-sqid="' + want.sqid + '"]');
+    if (!li) return;
+    want = null;
+    li.classList.remove('flash');
+    void li.offsetWidth; // restart the animation
+    li.classList.add('flash');
+    li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  window.wrFlash = (sqid) => {
+    want = { sqid, until: Date.now() + 5000 };
+    setTimeout(apply, 0);
+  };
+  new MutationObserver(apply).observe(document.documentElement, { childList: true, subtree: true });
+})();
