@@ -687,11 +687,6 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
 		d["Kids"] = kids
-		if len(kids) > 0 { // a container: what is being worked on beneath it right now
-			if rows, err := db.RQ.ProjectTree(ctx, t.ProjectID); err == nil {
-				d["Now"] = nowLeaves(rows, t.ID)
-			}
-		}
 		if cp, err := db.RQ.LatestTaskCheckpoint(ctx, t.ID); err == nil {
 			d["Checkpoint"] = checkpointLinks(cp)
 		}

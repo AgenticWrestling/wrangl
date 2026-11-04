@@ -217,7 +217,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		t.Fatalf("split result: %+v", d.Children)
 	}
 	// The "In progress" view lists only leaf tasks in progress, with ancestors and a parent link;
-	// a container's page has a Now card; in_review tasks are not shown.
+	// a container's page has no separate Now card; in_review tasks are not shown.
 	{
 		kids := e.task(sqid).Children
 		leaf, review := kids[0].Sqid, kids[1].Sqid // "one" (leaf) and "two" (has two.a)
@@ -228,7 +228,9 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		if strings.Contains(page, `data-sqid="`+review+`"`) {
 			t.Fatal("a task with subtasks is not a leaf and must not be listed in the In progress view")
 		}
-		get("/task/"+sqid, `id="now"`, `data-sqid="`+leaf+`"`)
+		if page := get("/task/"+sqid, `data-sqid="`+leaf+`"`); strings.Contains(page, `id="now"`) {
+			t.Fatal("the task page lists in-progress children among its subtasks, not in a separate Now card")
+		}
 		if _, err := e.db.W.Exec(`UPDATE task SET state='in_review' WHERE sqid = ?`, leaf); err != nil {
 			t.Fatal(err)
 		}
