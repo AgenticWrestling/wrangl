@@ -305,3 +305,29 @@ func TestProjectCapLimitsLaunches(t *testing.T) {
 	d.W.Exec(`UPDATE project_template_limit SET max_instances = 0`)
 	_ = fake
 }
+
+// LaunchFor (the controller agent's fleet.launch) respects the project's cap and names it when refusing.
+func TestLaunchForRespectsCap(t *testing.T) {
+	s, _, _, d := setup(t, 5)
+	ctx := context.Background()
+	d.W.Exec(`DELETE FROM project_template_limit`) // default rule: 1 for the default template
+	if _, err := s.LaunchFor(ctx, "p", "go", 2); err == nil || !strings.Contains(err.Error(), "at most 1 instance(s) of template go") {
+		t.Fatalf("over cap: %v", err)
+	}
+	names, err := s.LaunchFor(ctx, "p", "go", 1)
+	if err != nil || len(names) != 1 {
+		t.Fatalf("within cap: %v %v", names, err)
+	}
+	var forProject int64
+	d.W.QueryRow(`SELECT launched_for_project FROM runner`).Scan(&forProject)
+	if forProject != 1 {
+		t.Fatalf("launched_for_project = %d", forProject)
+	}
+	if _, err := s.LaunchFor(ctx, "p", "go", 1); err == nil || !strings.Contains(err.Error(), "has 1") {
+		t.Fatalf("second: %v", err)
+	}
+	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 1, 0)`)
+	if _, err := s.LaunchFor(ctx, "p", "go", 1); err == nil || !strings.Contains(err.Error(), "project limit 0") {
+		t.Fatalf("zero cap: %v", err)
+	}
+}

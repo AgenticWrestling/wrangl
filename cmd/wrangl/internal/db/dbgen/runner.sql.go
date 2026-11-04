@@ -891,3 +891,21 @@ func (q *Queries) ProjectTemplateDemand(ctx context.Context) ([]ProjectTemplateD
 	}
 	return items, rows.Err()
 }
+
+const countProjectRunners = `-- name: CountProjectRunners :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner
+WHERE launched_for_project = ?1 AND template_id = ?2 AND state <> 'terminated'
+`
+
+type CountProjectRunnersParams struct {
+	ProjectID  sql.NullInt64 `json:"project_id"`
+	TemplateID int64         `json:"template_id"`
+}
+
+// Live (not terminated) runners launched for a project on a template.
+func (q *Queries) CountProjectRunners(ctx context.Context, arg CountProjectRunnersParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countProjectRunners, arg.ProjectID, arg.TemplateID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}

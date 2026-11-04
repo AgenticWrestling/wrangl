@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 )
 
 // Backoff after a failed launch, per template: doubles from MinBackoff to MaxBackoff.
@@ -191,6 +193,56 @@ func PlanLaunches(need, perHost, maxHosts int64, projs []ProjectDemand) []Launch
 		out = append(out, Launch{Project: p.Project, Hosts: hosts})
 	}
 	return out
+}
+
+// LaunchFor starts count runners of a template on behalf of a project (the controller agent's
+// fleet.launch), but only within the project's cap for that template: min(project cap, template
+// max_runners) less the runners already launched for the project. Otherwise nothing is started and
+// the error states the cap. It returns the new runners' names.
+func (s *Scheduler) LaunchFor(ctx context.Context, project, template string, count int) ([]string, error) {
+	if count < 1 || count > 5 {
+		return nil, fmt.Errorf("%w: count must be 1 to 5", errs.Invalid)
+	}
+	db := s.Fleet.DB
+	p, err := db.RQ.GetProjectBySlug(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("%w: project %q", errs.NotFound, project)
+	}
+	t, err := s.Fleet.Template(ctx, template)
+	if err != nil {
+		return nil, err
+	}
+	limits, err := db.RQ.ListProjectTemplateLimits(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	var stored sql.NullInt64
+	isDefault := false
+	for _, l := range limits {
+		if l.TemplateID == t.ID {
+			stored, isDefault = l.Stored, l.IsDefault == 1
+		}
+	}
+	projectCap := EffectiveCap(stored, isDefault, 1<<30)
+	eff := EffectiveCap(stored, isDefault, t.MaxRunners)
+	live, err := db.RQ.CountProjectRunners(ctx, dbgen.CountProjectRunnersParams{ProjectID: sql.NullInt64{Int64: p.ID, Valid: true}, TemplateID: t.ID})
+	if err != nil {
+		return nil, err
+	}
+	if live+int64(count) > eff {
+		return nil, fmt.Errorf("%w: project %s may run at most %d instance(s) of template %s (project limit %d, template max_runners %d) and has %d, so %d more is not allowed; raise it with `wrangl project edit %s --limit %s=N`",
+			errs.Conflict, project, eff, t.Name, projectCap, t.MaxRunners, live, count, project, t.Name)
+	}
+	var names []string
+	for i := 0; i < count; i++ {
+		r, err := s.Fleet.Launch(ctx, t.Name)
+		if err != nil {
+			return names, err
+		}
+		db.Q.SetRunnerLaunchedForProject(ctx, dbgen.SetRunnerLaunchedForProjectParams{ProjectID: sql.NullInt64{Int64: p.ID, Valid: true}, ID: r.ID})
+		names = append(names, r.Name)
+	}
+	return names, nil
 }
 
 // Loop ticks every interval until ctx ends.

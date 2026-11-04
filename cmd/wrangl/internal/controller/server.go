@@ -401,6 +401,9 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	if s.Agents != nil {
+		s.Agents.Launch = sched.LaunchFor
+	}
 	reconcile := s.ReconcileInterval
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute

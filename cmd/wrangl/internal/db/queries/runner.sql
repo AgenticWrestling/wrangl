@@ -199,3 +199,8 @@ LEFT JOIN project_template_limit l ON l.project_id = p.id
 WHERE r.state = 'queued' AND COALESCE(r.template_id, k.template_id, p.default_template_id) IS NOT NULL
 GROUP BY p.id, COALESCE(r.template_id, k.template_id, p.default_template_id)
 ORDER BY p.priority DESC, p.id;
+
+-- name: CountProjectRunners :one
+-- Live (not terminated) runners launched for a project on a template.
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner
+WHERE launched_for_project = sqlc.arg(project_id) AND template_id = sqlc.arg(template_id) AND state <> 'terminated';
