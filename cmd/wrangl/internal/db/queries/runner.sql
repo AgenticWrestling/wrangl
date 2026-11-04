@@ -134,7 +134,7 @@ WHERE drain_requested = 1 AND launched = 1 AND instance_id IS NOT NULL
 SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
        CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
              JOIN project p ON p.id = k.project_id
-             WHERE r.state = 'queued'
+             WHERE r.state = 'queued' AND p.archived_at IS NULL
                AND (COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id
                     OR COALESCE(r.template_id, k.template_id, p.default_template_id) IN
                        (SELECT c.template_id FROM template_connection c WHERE c.mode = 'remote' AND c.driver_template_id = t.id))) AS INTEGER) AS demand,
@@ -198,7 +198,7 @@ SELECT p.id AS project_id, CAST(COALESCE(r.template_id, k.template_id, p.default
 FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
 LEFT JOIN project_template_limit l ON l.project_id = p.id
      AND l.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
-WHERE r.state = 'queued' AND COALESCE(r.template_id, k.template_id, p.default_template_id) IS NOT NULL
+WHERE r.state = 'queued' AND p.archived_at IS NULL AND COALESCE(r.template_id, k.template_id, p.default_template_id) IS NOT NULL
 GROUP BY p.id, COALESCE(r.template_id, k.template_id, p.default_template_id)
 ORDER BY p.priority DESC, p.id;
 

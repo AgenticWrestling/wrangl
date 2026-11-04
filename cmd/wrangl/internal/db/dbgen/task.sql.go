@@ -558,7 +558,8 @@ func (q *Queries) ListRootTasks(ctx context.Context, projectID int64) ([]Task, e
 
 const listTasks = `-- name: ListTasks :many
 SELECT t.id, t.sqid, t.project_id, t.parent_id, t.rank, t.repo_id, t.issue_id, t.template_id, t.title, t.prompt, t.state, t.created_by, t.completion_summary, t.completed_run_id, t.created_at, t.updated_at, t.completed_at, t.task_type, t.target_date, CAST(p.slug AS TEXT) AS project_slug FROM task t JOIN project p ON p.id = t.project_id
-WHERE (CAST(?1 AS TEXT) = '' OR p.slug = CAST(?1 AS TEXT))
+WHERE p.archived_at IS NULL
+  AND (CAST(?1 AS TEXT) = '' OR p.slug = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR t.state = CAST(?2 AS TEXT))
   AND (CAST(?3 AS INTEGER) = 0 OR t.parent_id = CAST(?3 AS INTEGER))
 ORDER BY p.slug, t.id

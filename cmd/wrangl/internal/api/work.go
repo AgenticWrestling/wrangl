@@ -63,7 +63,7 @@ func registerWork(mux *http.ServeMux, d Deps) {
 
 	// --- projects ---
 	mux.HandleFunc("GET /api/v1/projects", func(w http.ResponseWriter, r *http.Request) {
-		ps, err := db.RQ.ListProjects(r.Context())
+		ps, err := db.RQ.ListProjects(r.Context(), "active")
 		if err != nil {
 			writeErr(w, err)
 			return

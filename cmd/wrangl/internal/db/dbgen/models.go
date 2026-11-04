@@ -143,19 +143,20 @@ type Meta struct {
 }
 
 type Project struct {
-	ID                int64         `json:"id"`
-	Slug              string        `json:"slug"`
-	Name              string        `json:"name"`
-	Description       string        `json:"description"`
-	DefaultTemplateID sql.NullInt64 `json:"default_template_id"`
-	PlanTemplateID    sql.NullInt64 `json:"plan_template_id"`
-	AutoMerge         int64         `json:"auto_merge"`
-	ProtectedPaths    string        `json:"protected_paths"`
-	MaxAutoMergeLines int64         `json:"max_auto_merge_lines"`
-	Priority          int64         `json:"priority"`
-	CreatedAt         string        `json:"created_at"`
-	UpdatedAt         string        `json:"updated_at"`
-	AutoQueue         int64         `json:"auto_queue"`
+	ID                int64          `json:"id"`
+	Slug              string         `json:"slug"`
+	Name              string         `json:"name"`
+	Description       string         `json:"description"`
+	DefaultTemplateID sql.NullInt64  `json:"default_template_id"`
+	PlanTemplateID    sql.NullInt64  `json:"plan_template_id"`
+	AutoMerge         int64          `json:"auto_merge"`
+	ProtectedPaths    string         `json:"protected_paths"`
+	MaxAutoMergeLines int64          `json:"max_auto_merge_lines"`
+	Priority          int64          `json:"priority"`
+	CreatedAt         string         `json:"created_at"`
+	UpdatedAt         string         `json:"updated_at"`
+	AutoQueue         int64          `json:"auto_queue"`
+	ArchivedAt        sql.NullString `json:"archived_at"`
 }
 
 type PullRequest struct {

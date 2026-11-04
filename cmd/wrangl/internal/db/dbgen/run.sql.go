@@ -310,7 +310,7 @@ FROM run r
 JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
-WHERE r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
+WHERE p.archived_at IS NULL AND r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
 ORDER BY p.priority DESC, r.queued_at
 `
 
@@ -368,7 +368,8 @@ JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
 LEFT JOIN task ct ON ct.id = r.current_task_id
-WHERE (CAST(?1 AS TEXT) = '' OR r.state = CAST(?1 AS TEXT)
+WHERE p.archived_at IS NULL
+  AND (CAST(?1 AS TEXT) = '' OR r.state = CAST(?1 AS TEXT)
        OR (CAST(?1 AS TEXT) = 'active' AND r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')))
   AND (CAST(?2 AS TEXT) = '' OR rn.name = CAST(?2 AS TEXT))
   AND (CAST(?3 AS TEXT) = '' OR p.slug = CAST(?3 AS TEXT))
@@ -531,7 +532,7 @@ const queuedRunsForAssignment = `-- name: QueuedRunsForAssignment :many
 SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt, r.kind, r.continue_branch,
        CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
 FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
-WHERE r.state = 'queued'
+WHERE r.state = 'queued' AND p.archived_at IS NULL
 ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at
 `
 
@@ -910,4 +911,90 @@ func (q *Queries) SetRunQueueRank(ctx context.Context, arg SetRunQueueRankParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const activeRunsOfProject = `-- name: ActiveRunsOfProject :many
+SELECT r.id, r.state, r.kind, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title
+FROM run r JOIN task t ON t.id = r.task_id
+WHERE t.project_id = ? AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+ORDER BY r.id
+`
+
+type ActiveRunsOfProjectRow struct {
+	ID        int64  `json:"id"`
+	State     string `json:"state"`
+	Kind      string `json:"kind"`
+	TaskSqid  string `json:"task_sqid"`
+	TaskTitle string `json:"task_title"`
+}
+
+// Runs of a project that are past the queue (assigned or running in any way); queued runs are
+// handled separately (CancelQueuedRunsOfProject).
+func (q *Queries) ActiveRunsOfProject(ctx context.Context, projectID int64) ([]ActiveRunsOfProjectRow, error) {
+	rows, err := q.db.QueryContext(ctx, activeRunsOfProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ActiveRunsOfProjectRow{}
+	for rows.Next() {
+		var i ActiveRunsOfProjectRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.State,
+			&i.Kind,
+			&i.TaskSqid,
+			&i.TaskTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cancelQueuedRunsOfProject = `-- name: CancelQueuedRunsOfProject :many
+UPDATE run SET state = 'cancelled', finished_at = ?1, error = ?2
+WHERE state = 'queued' AND task_id IN (SELECT t.id FROM task t WHERE t.project_id = ?3)
+RETURNING id, task_id
+`
+
+type CancelQueuedRunsOfProjectParams struct {
+	Now       sql.NullString `json:"now"`
+	Reason    string         `json:"reason"`
+	ProjectID int64          `json:"project_id"`
+}
+
+type CancelQueuedRunsOfProjectRow struct {
+	ID     int64 `json:"id"`
+	TaskID int64 `json:"task_id"`
+}
+
+func (q *Queries) CancelQueuedRunsOfProject(ctx context.Context, arg CancelQueuedRunsOfProjectParams) ([]CancelQueuedRunsOfProjectRow, error) {
+	rows, err := q.db.QueryContext(ctx, cancelQueuedRunsOfProject, arg.Now, arg.Reason, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CancelQueuedRunsOfProjectRow{}
+	for rows.Next() {
+		var i CancelQueuedRunsOfProjectRow
+		if err := rows.Scan(&i.ID, &i.TaskID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

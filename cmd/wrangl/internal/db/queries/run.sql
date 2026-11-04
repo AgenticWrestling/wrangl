@@ -5,7 +5,7 @@ FROM run r
 JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
-WHERE r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
+WHERE p.archived_at IS NULL AND r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')
 ORDER BY p.priority DESC, r.queued_at;
 
 -- name: CreateRun :one
@@ -34,7 +34,8 @@ JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
 LEFT JOIN task ct ON ct.id = r.current_task_id
-WHERE (CAST(sqlc.arg(state) AS TEXT) = '' OR r.state = CAST(sqlc.arg(state) AS TEXT)
+WHERE p.archived_at IS NULL
+  AND (CAST(sqlc.arg(state) AS TEXT) = '' OR r.state = CAST(sqlc.arg(state) AS TEXT)
        OR (CAST(sqlc.arg(state) AS TEXT) = 'active' AND r.state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled')))
   AND (CAST(sqlc.arg(runner) AS TEXT) = '' OR rn.name = CAST(sqlc.arg(runner) AS TEXT))
   AND (CAST(sqlc.arg(project) AS TEXT) = '' OR p.slug = CAST(sqlc.arg(project) AS TEXT))
@@ -45,7 +46,7 @@ LIMIT sqlc.arg(lim);
 SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt, r.kind, r.continue_branch,
        CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
 FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
-WHERE r.state = 'queued'
+WHERE r.state = 'queued' AND p.archived_at IS NULL
 ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at;
 
 -- name: ClaimIdleRunner :one
@@ -107,6 +108,19 @@ SET state = sqlc.arg(state), finished_at = sqlc.arg(now), exit_code = sqlc.narg(
     head_sha = CASE WHEN CAST(sqlc.arg(head_sha) AS TEXT) <> '' THEN CAST(sqlc.arg(head_sha) AS TEXT) ELSE head_sha END,
     current_task_id = NULL
 WHERE id = sqlc.arg(id) AND state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled');
+
+-- name: ActiveRunsOfProject :many
+-- Runs of a project that are past the queue (assigned or running in any way); queued runs are
+-- handled separately (CancelQueuedRunsOfProject).
+SELECT r.id, r.state, r.kind, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title
+FROM run r JOIN task t ON t.id = r.task_id
+WHERE t.project_id = ? AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+ORDER BY r.id;
+
+-- name: CancelQueuedRunsOfProject :many
+UPDATE run SET state = 'cancelled', finished_at = sqlc.arg(now), error = sqlc.arg(reason)
+WHERE state = 'queued' AND task_id IN (SELECT t.id FROM task t WHERE t.project_id = sqlc.arg(project_id))
+RETURNING id, task_id;
 
 -- name: CancelQueuedRun :execrows
 UPDATE run SET state = 'cancelled', finished_at = sqlc.arg(now), error = 'cancelled before assignment'

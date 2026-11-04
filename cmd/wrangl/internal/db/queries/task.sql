@@ -240,7 +240,8 @@ SELECT CAST(COUNT(*) AS INTEGER) AS n, CAST(COALESCE(MIN(id), 0) AS INTEGER) AS 
 
 -- name: ListTasks :many
 SELECT sqlc.embed(t), CAST(p.slug AS TEXT) AS project_slug FROM task t JOIN project p ON p.id = t.project_id
-WHERE (CAST(sqlc.arg(project) AS TEXT) = '' OR p.slug = CAST(sqlc.arg(project) AS TEXT))
+WHERE p.archived_at IS NULL
+  AND (CAST(sqlc.arg(project) AS TEXT) = '' OR p.slug = CAST(sqlc.arg(project) AS TEXT))
   AND (CAST(sqlc.arg(state) AS TEXT) = '' OR t.state = CAST(sqlc.arg(state) AS TEXT))
   AND (CAST(sqlc.arg(parent_id) AS INTEGER) = 0 OR t.parent_id = CAST(sqlc.arg(parent_id) AS INTEGER))
 ORDER BY p.slug, t.id

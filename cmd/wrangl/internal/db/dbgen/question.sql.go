@@ -228,7 +228,7 @@ const listQuestions = `-- name: ListQuestions :many
 SELECT q.id, q.task_id, q.run_id, q.kind, q.prompt, q.detail_md, q.allow_free_text, q.payload_json, q.state, q.answer_option_id, q.answer_text, q.created_at, q.answered_at, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(p.slug AS TEXT) AS project_slug
 FROM question q JOIN task t ON t.id = q.task_id JOIN project p ON p.id = t.project_id
-WHERE CAST(?1 AS INTEGER) = 0 OR q.state = 'open'
+WHERE p.archived_at IS NULL AND (CAST(?1 AS INTEGER) = 0 OR q.state = 'open')
 ORDER BY q.id DESC LIMIT 200
 `
 

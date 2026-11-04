@@ -216,7 +216,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request, view string) {
 	open, _ := h.D.Runs.Questions(r.Context(), false)
 	page := map[string]any{"View": view, "Title": data["Title"], "Main": main, "LiveURL": "/ui/live?" + q.Encode(), "SID": sid,
 		"Inbox": len(open), "Data": data}
-	if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context()); err == nil { // left panel: the five most recently updated
+	if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context(), "active"); err == nil { // left panel: the five most recently updated
 		page["NavProjects"], _ = recentProjects(ps, 5)
 	}
 	page["Project"], _ = data["Project"].(string)
@@ -683,7 +683,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 	d := map[string]any{}
 	switch view {
 	case "tasks":
-		projects, err := db.RQ.ListProjects(ctx)
+		projects, err := db.RQ.ListProjects(ctx, "active")
 		if err != nil {
 			return nil, err
 		}
@@ -1032,7 +1032,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 	case "settings":
 		d["GHAccounts"], _ = h.D.Setup.Accounts(ctx)
-		d["Projects"], _ = db.RQ.ListProjects(ctx)
+		d["Projects"], _ = db.RQ.ListProjects(ctx, "active")
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["CAgents"], _ = db.RQ.ListControllerAgents(ctx)
 		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"

@@ -17,7 +17,7 @@ SELECT * FROM question WHERE id = ?;
 SELECT sqlc.embed(q), CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(p.slug AS TEXT) AS project_slug
 FROM question q JOIN task t ON t.id = q.task_id JOIN project p ON p.id = t.project_id
-WHERE CAST(sqlc.arg(open_only) AS INTEGER) = 0 OR q.state = 'open'
+WHERE p.archived_at IS NULL AND (CAST(sqlc.arg(open_only) AS INTEGER) = 0 OR q.state = 'open')
 ORDER BY q.id DESC LIMIT 200;
 
 -- name: ListQuestionOptions :many

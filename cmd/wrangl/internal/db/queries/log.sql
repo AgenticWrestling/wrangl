@@ -16,7 +16,7 @@ JOIN run r ON r.id = l.run_id
 JOIN task t ON t.id = r.task_id
 JOIN project p ON p.id = t.project_id
 LEFT JOIN runner rn ON rn.id = r.runner_id
-WHERE f.message MATCH sqlc.arg(query)
+WHERE f.message MATCH sqlc.arg(query) AND p.archived_at IS NULL
   AND (CAST(sqlc.arg(project) AS TEXT) = '' OR p.slug = CAST(sqlc.arg(project) AS TEXT))
   AND (CAST(sqlc.arg(runner) AS TEXT) = '' OR rn.name = CAST(sqlc.arg(runner) AS TEXT))
   AND (CAST(sqlc.arg(since) AS TEXT) = '' OR l.ts >= CAST(sqlc.arg(since) AS TEXT))

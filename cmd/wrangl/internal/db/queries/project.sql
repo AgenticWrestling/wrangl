@@ -4,7 +4,22 @@ VALUES (?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListProjects :many
-SELECT * FROM project ORDER BY slug;
+-- archived: 'active' (default for every caller), 'archived' or 'all'.
+SELECT * FROM project
+WHERE CAST(sqlc.arg(archived) AS TEXT) = 'all'
+   OR (CAST(sqlc.arg(archived) AS TEXT) = 'archived' AND archived_at IS NOT NULL)
+   OR (CAST(sqlc.arg(archived) AS TEXT) NOT IN ('all', 'archived') AND archived_at IS NULL)
+ORDER BY slug;
+
+-- name: ArchiveProject :one
+UPDATE project SET archived_at = sqlc.arg(now), updated_at = sqlc.arg(now)
+WHERE id = sqlc.arg(id) AND archived_at IS NULL
+RETURNING *;
+
+-- name: RestoreProject :one
+UPDATE project SET archived_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ? AND archived_at IS NOT NULL
+RETURNING *;
 
 -- name: GetProjectBySlug :one
 SELECT * FROM project WHERE slug = ?;
