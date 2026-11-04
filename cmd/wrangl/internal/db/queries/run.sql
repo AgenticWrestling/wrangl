@@ -65,6 +65,17 @@ WHERE id = (
     LIMIT 1)
 RETURNING id, name;
 
+-- name: FreeRunnerSlot :one
+-- 1 when ClaimIdleRunner would find a runner for the template (the same conditions).
+SELECT CAST(EXISTS (
+    SELECT 1 FROM runner n JOIN runner_template t ON t.id = n.template_id
+    WHERE n.template_id = sqlc.arg(template_id) AND n.state IN ('idle', 'busy') AND n.cordoned = 0
+      AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
+           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
+) AS INTEGER) AS free;
+
 -- name: AssignRun :execrows
 UPDATE run SET state = 'assigned', runner_id = sqlc.arg(runner_id), session_name = sqlc.arg(session_name)
 WHERE id = sqlc.arg(id) AND state = 'queued';

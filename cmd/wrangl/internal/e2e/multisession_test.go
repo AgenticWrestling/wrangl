@@ -1,10 +1,12 @@
 package e2e
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +33,7 @@ i=0
 while [ "$(ls "$BARRIER" | grep -c '^started\.')" -lt 2 ] && [ $i -lt 150 ]; do sleep 0.1; i=$((i+1)); done
 [ "$(ls "$BARRIER" | grep -c '^started\.')" -ge 2 ] && touch "$BARRIER/saw-both.$WRANGL_RUN_ID"
 pwd > "$BARRIER/dir.$WRANGL_RUN_ID"
+i=0; while [ ! -e "$BARRIER/release" ] && [ $i -lt 150 ]; do sleep 0.1; i=$((i+1)); done
 printf 'work for %s\n' "$WRANGL_TASK" >> NOTES.md
 curl -s --unix-socket "$WRANGL_SOCK" -H "X-Wrangl-Run: $WRANGL_RUN_ID" \
   -d '{"event":"PostToolUse","payload":{"tool_name":"Edit"}}' http://x/hook >/dev/null
@@ -115,6 +118,85 @@ agent:
 	if err != nil {
 		t.Fatal(err)
 	}
+	// While both are mid-run (held by the agent), the Tasks page lists them under In progress with
+	// their runner, not under Queue or Backlog.
+	waitFor(t, "both sessions running", 20*time.Second, func() (bool, string) {
+		ents, _ := os.ReadDir(barrier)
+		n := 0
+		for _, f := range ents {
+			if strings.HasPrefix(f.Name(), "dir.") {
+				n++
+			}
+		}
+		return n == 2, fmt.Sprintf("%d of 2 started", n)
+	})
+	hc := runner.SocketClient(cfg.Listen.Unix)
+	resp, err := hc.Get("http://x/tasks?project=web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	page := string(pb)
+	if !strings.Contains(page, `id="in-progress"`) {
+		t.Fatalf("running runs must be listed under In progress; page had sections: queue=%v backlog=%v",
+			strings.Contains(page, `id="queue"`), strings.Contains(page, `id="backlog"`))
+	}
+	if strings.Count(page, `class="task run `) != 2 || strings.Contains(page, `id="queue"`) || !strings.Contains(page, "▶ ") {
+		t.Fatalf("want two run entries with a runner tag and nothing queued:\n%.1500s", page)
+	}
+	// A third task has no free slot (one runner at its max): it waits in Queue.
+	c := e.mk(proto.TaskCreateRequest{Title: "third independent task", Prompt: "do c"})
+	runC, _, err := api.QueueTask(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "task C in Queue", 10*time.Second, func() (bool, string) {
+		r, _ := hc.Get("http://x/tasks?project=web")
+		b, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		return strings.Contains(string(b), `id="queue"`), "not queued yet"
+	})
+	// An expanded run entry's card survives live re-renders, for a running one (A) and a queued
+	// one (C) alike.
+	for _, sq := range []string{a, c} {
+		lctx, lcancel := context.WithTimeout(ctx, 10*time.Second)
+		req, _ := http.NewRequestWithContext(lctx, "GET", "http://x/ui/live?view=tasks&project=web&sid=runsid-"+sq, nil)
+		lresp, err := hc.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rd := bufio.NewReader(lresp.Body)
+		frame := func() string {
+			var b strings.Builder
+			for {
+				line, err := rd.ReadString('\n')
+				if err != nil || (line == "\n" && b.Len() > 0) {
+					return b.String()
+				}
+				b.WriteString(line)
+			}
+		}
+		if first := frame(); !strings.Contains(first, `id="in-progress"`) { // what an open page is sent
+			t.Fatalf("the live stream's render lacks the In progress section: %.600s", first)
+		}
+		xr, err := hc.Post("http://x/ui/expand?sid=runsid-"+sq+"&sqid="+sq, "text/plain", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		xr.Body.Close()
+		var got string
+		for i := 0; i < 4 && !strings.Contains(got, `id="subtasks"`); i++ {
+			got = frame()
+		}
+		if !strings.Contains(got, `id="subtasks"`) || !strings.Contains(got, `id="d-`+sq+`"`) {
+			t.Fatalf("the live re-render drops the expanded run entry's card for %s: %.600s", sq, got)
+		}
+		lcancel()
+		lresp.Body.Close()
+	}
+	os.WriteFile(filepath.Join(barrier, "release"), nil, 0o644)
+	_ = runC
 	va := e.waitRun(runA, "succeeded", "failed", "blocked")
 	vb := e.waitRun(runB, "succeeded", "failed", "blocked")
 	if va.State != "succeeded" || vb.State != "succeeded" {

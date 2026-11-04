@@ -219,6 +219,25 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
 	return err
 }
 
+const freeRunnerSlot = `-- name: FreeRunnerSlot :one
+SELECT CAST(EXISTS (
+    SELECT 1 FROM runner n JOIN runner_template t ON t.id = n.template_id
+    WHERE n.template_id = ?1 AND n.state IN ('idle', 'busy') AND n.cordoned = 0
+      AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
+           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
+) AS INTEGER) AS free
+`
+
+// 1 when ClaimIdleRunner would find a runner for the template (the same conditions).
+func (q *Queries) FreeRunnerSlot(ctx context.Context, templateID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, freeRunnerSlot, templateID)
+	var free int64
+	err := row.Scan(&free)
+	return free, err
+}
+
 const getRun = `-- name: GetRun :one
 SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance FROM run WHERE id = ?
 `

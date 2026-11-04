@@ -106,6 +106,24 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	}
 	spec.SecretFiles = nil
 
+	if free, err := d.RQ.FreeRunnerSlot(ctx, r.TemplateID.Int64); err == nil && free == 0 {
+		return sql.ErrNoRows // no runner has a free session: nothing to mint a token for yet
+	}
+	// Mint the repo token before claiming a runner: a failure here must not touch the runner (a claim
+	// and release every tick would keep resetting its idle clock and it would never be reaped).
+	token := ""
+	if s.GH != nil {
+		var err error
+		if token, _, err = s.GH.RepoToken(ctx, projects.GHRepo(repo)); err != nil {
+			var noApp *gh.NoAppError
+			if errors.As(err, &noApp) || errors.Is(err, gh.ErrNotInstalled) {
+				// Not a failure: the run waits, visibly, until the owner sets the App up.
+				s.waitingForApp(ctx, r.ID, repo.Owner, repo.Name, err)
+				return errWaitingForApp
+			}
+			return fmt.Errorf("mint GitHub token for %s/%s: %w", repo.Owner, repo.Name, err)
+		}
+	}
 	runner, err := d.Q.ClaimIdleRunner(ctx, r.TemplateID.Int64)
 	if err != nil {
 		return err // sql.ErrNoRows: no idle runner
@@ -122,19 +140,6 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 			err = fmt.Errorf("run %d is no longer queued", r.ID)
 		}
 		return err
-	}
-	token := ""
-	if s.GH != nil {
-		if token, _, err = s.GH.RepoToken(ctx, projects.GHRepo(repo)); err != nil {
-			release()
-			var noApp *gh.NoAppError
-			if errors.As(err, &noApp) || errors.Is(err, gh.ErrNotInstalled) {
-				// Not a failure: the run waits, visibly, until the owner sets the App up.
-				s.waitingForApp(ctx, r.ID, repo.Owner, repo.Name, err)
-				return errWaitingForApp
-			}
-			return fmt.Errorf("mint GitHub token for %s/%s: %w", repo.Owner, repo.Name, err)
-		}
 	}
 	a := proto.Assignment{
 		RunID: r.ID, Kind: r.Kind, Continue: r.ContinueBranch == 1, TaskSqid: r.TaskSqid, Repo: repo.Owner + "/" + repo.Name,

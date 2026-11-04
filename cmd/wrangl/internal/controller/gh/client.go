@@ -188,6 +188,12 @@ func (c *Client) RepoToken(ctx context.Context, r Repo) (string, time.Time, erro
 		"permissions":  map[string]string{"contents": "write", "pull_requests": "write"},
 	}
 	if _, err := c.do(ctx, http.MethodPost, fmt.Sprintf("/app/installations/%d/access_tokens", r.InstallationID), auth, body, &out); err != nil {
+		// 404/401/403/422 mean the installation is gone or no longer covers this repository (it was
+		// uninstalled, or the repo moved to another owner): the owner must (re)install the App.
+		var he *HTTPError
+		if errors.As(err, &he) && (he.Status == 404 || he.Status == 401 || he.Status == 403 || he.Status == 422) {
+			return "", time.Time{}, &NotInstalledError{Owner: r.Owner, Name: r.Name}
+		}
 		return "", time.Time{}, err
 	}
 	return out.Token, out.ExpiresAt, nil

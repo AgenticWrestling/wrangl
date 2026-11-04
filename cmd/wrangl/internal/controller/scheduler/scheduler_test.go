@@ -3,10 +3,12 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -174,4 +176,38 @@ func TestScaleUpCountsSessionSlots(t *testing.T) {
 	if got, _ := s.Tick(ctx); got["go"] != 1 || len(fake.Runs) != 2 {
 		t.Fatalf("the fifth run needs a second host: %v runs=%d", got, len(fake.Runs))
 	}
+}
+
+// A run whose repository the GitHub App cannot reach waits visibly (status text) and never
+// touches the runner: it is not claimed and released every tick (which would reset its idle clock).
+func TestUnreachableRepoWaitsWithoutTouchingRunner(t *testing.T) {
+	s, _, _, d := setup(t, 1)
+	ctx := context.Background()
+	d.W.Exec(`UPDATE runner_template SET agent_json = '{"start":["true"]}'`)
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, idle_since, template_version) VALUES ('r1', 1, 'idle', '2026-01-01T00:00:00.000Z', 1)`)
+	d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, gh_installation_id, clone_url) VALUES (1, 'o', 'n', 'main', 5, 'file:///x')`)
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1, repo_id = 1`)
+	s.GH = failingGH{}
+	for i := 0; i < 3; i++ {
+		if _, err := s.Assign(ctx); err != nil {
+			t.Fatalf("a missing App is a wait, not an error: %v", err)
+		}
+	}
+	var state, idleSince, status string
+	d.R.QueryRow(`SELECT state, idle_since FROM runner WHERE name = 'r1'`).Scan(&state, &idleSince)
+	d.R.QueryRow(`SELECT status_text FROM run`).Scan(&status)
+	if state != "idle" || idleSince != "2026-01-01T00:00:00.000Z" {
+		t.Fatalf("the runner was touched: %s %s", state, idleSince)
+	}
+	if !strings.Contains(status, "not installed") {
+		t.Fatalf("the run should say why it waits: %q", status)
+	}
+}
+
+// failingGH is a GitHub whose installation cannot reach any repository.
+type failingGH struct{ gh.API }
+
+func (failingGH) RepoToken(_ context.Context, r gh.Repo) (string, time.Time, error) {
+	return "", time.Time{}, &gh.NotInstalledError{Owner: r.Owner, Name: r.Name}
 }
