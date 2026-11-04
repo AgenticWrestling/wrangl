@@ -1,16 +1,33 @@
 # EXPERIMENTAL: a remote runner for an Android emulator host, driven with adb through an SSM
-# port-forward (see remote-mac.yaml and docs/wrangl/adr/0002). The agent runs on the driver and
-# uses target_exec ("adb shell ..." is run for it) and target_put (adb push).
+# port-forward. Read docs/wrangl/android.md first (KVM and cost, baking the AMI, the smoke test) and
+# docs/wrangl/adr/0002-remote-runners.md.
+#
+# The agent does NOT run on this machine. It runs on a driver session of connection.driver_template,
+# builds the app there (the driver needs the Android SDK/JDK) and uses the tools target_put (adb push
+# of a file from the checkout) and target_exec (an `adb shell` command on the emulator).
+#
+# COST: the emulator needs KVM, so the instance is a bare-metal type (below) or a type that supports
+# nested virtualisation. Either is expensive per hour and is billed while it runs, including idle
+# time. The project cap for this template is 0 unless it is the project's default template: opt in
+# with  wrangl project edit PROJ --limit android=1
 name: android
 arch: x86_64
+# KVM-capable. Metal always works; nested virtualisation is available on some newer Intel families
+# (check the current EC2 docs before listing one). With no instance_types, wrangl picks the cheapest
+# type that fits `min`, which is NOT guaranteed to have KVM, so always list them here.
+instance_types: [c5.metal]
 min: { vcpu: 8, ram: 32GiB, disk: 100GiB }
+# Your AMI with the Android SDK, a system image, an AVD and a boot service for the emulator already
+# baked in (wrangl launches the instance with no user-data, so nothing is installed or started at
+# launch). It must also run the SSM agent.
+ami: ami-REPLACE-WITH-YOUR-EMULATOR-AMI
 max_runners: 1
-max_sessions: 1           # an emulator is usually one session at a time
-idle_timeout: 20m
+max_sessions: 1           # one emulator, one session at a time
+idle_timeout: 20m         # billed until it is reaped; shorter saves money, longer reuses a booted emulator
 mode: remote
 connection:
-  driver_template: go-claude
+  driver_template: go-claude   # needs the aws CLI + Session Manager plugin, adb, and the Android SDK/JDK
   protocol: adb
-  port: 5555
-  via: ssm
+  port: 5555                   # the emulator's adb port on the target (loopback there; SSM reaches it)
+  via: ssm                     # prefer ssm: adb has no authentication, so don't open it with via: direct
 agents: [claude]

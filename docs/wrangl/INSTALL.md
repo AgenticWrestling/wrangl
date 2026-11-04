@@ -514,6 +514,9 @@ every loop, marks it `offline` after three failed probes, reaps it after `idle_t
 runs on it as `target lost` if it is gone or unreachable for two minutes. `wrangl target list` shows
 targets and their sessions; `wrangl target terminate NAME` stops one now.
 
+**Android emulator:** see [`android.md`](android.md) (KVM-capable instance and its cost, the AMI, adb
+access and a build-and-install smoke test).
+
 **EC2 Mac (`templates/remote-mac.yaml`).** A Mac instance runs on a Dedicated Host with a
 **24-hour minimum allocation**: one short run bills a full day and stopping early saves nothing. So
 a project's cap on the Mac template stays 0 (opt in with `wrangl project edit PROJ --limit mac=1`),
