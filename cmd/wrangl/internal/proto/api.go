@@ -98,6 +98,29 @@ type ProjectView struct {
 	Agent  string         `json:"agent,omitempty"` // default agent definition
 	// CitationAudit: research PRs get an audit run that re-fetches every cited URL before merge.
 	CitationAudit bool `json:"citation_audit"`
+	// Archived is set when the project is archived (hidden and inert); ArchivedAt is when.
+	Archived   bool   `json:"archived,omitempty"`
+	ArchivedAt string `json:"archived_at,omitempty"`
+}
+
+// ProjectArchiveRefusal is the 409 body when a project cannot be archived: runs are active.
+type ProjectArchiveRefusal struct {
+	Error string                  `json:"error"`
+	Runs  []ProjectArchiveRunView `json:"runs"`
+}
+
+// ProjectArchiveRunView is an active run that blocks archiving.
+type ProjectArchiveRunView struct {
+	ID    int64  `json:"id"`
+	State string `json:"state"`
+	Task  string `json:"task"`
+	Title string `json:"title"`
+}
+
+// ProjectArchiveResult is the answer to archiving a project.
+type ProjectArchiveResult struct {
+	Project       ProjectView `json:"project"`
+	CancelledRuns []int64     `json:"cancelled_runs"` // queued runs cancelled with 'project archived'
 }
 
 // ProjectLimit is a project's instance cap on one template. Ceiling is the template's own

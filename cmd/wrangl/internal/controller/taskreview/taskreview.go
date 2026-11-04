@@ -94,6 +94,7 @@ func (s *Service) openReviews(ctx context.Context) error {
 SELECT t.id, t.sqid, t.title, t.completion_summary, r.id, r.status_text
 FROM task t JOIN run r ON r.id = t.completed_run_id
 WHERE t.state = 'in_review'
+  AND (SELECT archived_at FROM project WHERE id = t.project_id) IS NULL
   AND r.finished_at IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM task c WHERE c.parent_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM question q WHERE q.kind = 'task_review' AND q.state = 'open' AND q.task_id = t.id)
@@ -150,7 +151,8 @@ func (s *Service) openFailures(ctx context.Context) error {
 	rows, err := s.DB.R.QueryContext(ctx, `
 SELECT t.id, t.sqid, t.title, r.id, r.state, r.error, r.status_text
 FROM run r JOIN task t ON t.id = r.task_id
-WHERE r.state IN ('failed', 'blocked') AND r.kind IN ('work', 'revise') AND r.error <> 'runner lost'
+WHERE (SELECT archived_at FROM project WHERE id = t.project_id) IS NULL
+  AND r.state IN ('failed', 'blocked') AND r.kind IN ('work', 'revise') AND r.error <> 'runner lost'
   AND r.id = (SELECT MAX(x.id) FROM run x WHERE x.task_id = r.task_id)
   AND t.state IN ('open', 'in_progress')
   AND NOT EXISTS (SELECT 1 FROM pull_request pr WHERE pr.task_id = t.id AND pr.state = 'open')

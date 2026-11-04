@@ -695,6 +695,12 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			slug = projects[0].Slug
 		}
 		d["Project"], d["Title"] = slug, "Tasks"
+		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
+		if slug != "" { // a direct link to an archived project still works, with its actions disabled
+			if cur, err := db.RQ.GetProjectBySlug(ctx, slug); err == nil {
+				d["Archived"] = cur.ArchivedAt.Valid
+			}
+		}
 		d["Types"] = dbtypes.TaskTypes
 		d["All"] = r.URL.Query().Get("all") == "1"
 		if slug != "" {
@@ -713,6 +719,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		p, _ := db.RQ.GetProject(ctx, t.ProjectID)
 		d["Task"], d["Project"], d["Title"] = t, p.Slug, t.Title
+		d["Archived"] = p.ArchivedAt.Valid
 		d["Attention"] = h.attention(ctx, p.Slug)[sqid] && t.State != "done" && t.State != "cancelled"
 		if secs, err := h.tree(ctx, p.Slug, false); err == nil {
 			if n := secs.Index[sqid]; n != nil {
@@ -1033,6 +1040,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 	case "settings":
 		d["GHAccounts"], _ = h.D.Setup.Accounts(ctx)
 		d["Projects"], _ = db.RQ.ListProjects(ctx, "active")
+		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["CAgents"], _ = db.RQ.ListControllerAgents(ctx)
 		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"

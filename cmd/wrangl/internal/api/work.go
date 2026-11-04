@@ -18,6 +18,7 @@ import (
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	dbpkg "github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
@@ -54,7 +55,8 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		ca, _ := db.RQ.GetProjectCitationAudit(ctx, p.ID)
 		return proto.ProjectView{CitationAudit: ca == 1, Agent: d.Projects.DefaultAgent(ctx, p.ID), Limits: limits, NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
 			Template: tmplName(ctx, p.DefaultTemplateID), PlanTemplate: tmplName(ctx, p.PlanTemplateID),
-			AutoMerge: p.AutoMerge == 1, AutoQueue: p.AutoQueue == 1, Priority: p.Priority}
+			AutoMerge: p.AutoMerge == 1, AutoQueue: p.AutoQueue == 1, Priority: p.Priority,
+			Archived: p.ArchivedAt.Valid, ArchivedAt: p.ArchivedAt.String}
 	}
 	params := func(r proto.ProjectRequest) projects.ProjectParams {
 		return projects.ProjectParams{Name: r.Name, Description: r.Description, Template: r.Template,
@@ -63,7 +65,16 @@ func registerWork(mux *http.ServeMux, d Deps) {
 
 	// --- projects ---
 	mux.HandleFunc("GET /api/v1/projects", func(w http.ResponseWriter, r *http.Request) {
-		ps, err := db.RQ.ListProjects(r.Context(), "active")
+		filter := r.URL.Query().Get("archived") // "", "active", "archived" or "all"
+		switch filter {
+		case "", "active":
+			filter = "active"
+		case "archived", "all":
+		default:
+			writeErr(w, fmt.Errorf("%w: archived must be active, archived or all", errs.Invalid))
+			return
+		}
+		ps, err := db.RQ.ListProjects(r.Context(), filter)
 		if err != nil {
 			writeErr(w, err)
 			return
@@ -102,6 +113,34 @@ func registerWork(mux *http.ServeMux, d Deps) {
 			return
 		}
 		p, err := d.Projects.Update(r.Context(), r.PathValue("slug"), params(req))
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, projectView(r.Context(), p))
+	})
+	mux.HandleFunc("POST /api/v1/projects/{slug}/archive", func(w http.ResponseWriter, r *http.Request) {
+		p, cancelled, err := d.Projects.Archive(r.Context(), r.PathValue("slug"))
+		var are *dbpkg.ActiveRunsError
+		if errors.As(err, &are) {
+			ref := proto.ProjectArchiveRefusal{Error: are.Error(), Runs: []proto.ProjectArchiveRunView{}}
+			for _, run := range are.Runs {
+				ref.Runs = append(ref.Runs, proto.ProjectArchiveRunView{ID: run.ID, State: run.State, Task: run.TaskSqid, Title: run.TaskTitle})
+			}
+			writeJSON(w, http.StatusConflict, ref)
+			return
+		}
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if cancelled == nil {
+			cancelled = []int64{}
+		}
+		writeJSON(w, http.StatusOK, proto.ProjectArchiveResult{Project: projectView(r.Context(), p), CancelledRuns: cancelled})
+	})
+	mux.HandleFunc("POST /api/v1/projects/{slug}/restore", func(w http.ResponseWriter, r *http.Request) {
+		p, err := d.Projects.Restore(r.Context(), r.PathValue("slug"))
 		if err != nil {
 			writeErr(w, err)
 			return

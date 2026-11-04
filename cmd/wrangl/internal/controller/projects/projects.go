@@ -255,6 +255,35 @@ func (s *Service) SetNotesRepo(ctx context.Context, slug, ref string) error {
 	return s.DB.Q.SetNotesRepo(ctx, dbgen.SetNotesRepoParams{ProjectID: p.ID, RepoID: r.ID})
 }
 
+// Archive hides a project and makes it inert. It returns *db.ActiveRunsError when runs are
+// active, and otherwise the ids of the queued runs it cancelled. Archiving twice is a conflict.
+func (s *Service) Archive(ctx context.Context, slug string) (dbgen.Project, []int64, error) {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return p, nil, err
+	}
+	if p.ArchivedAt.Valid {
+		return p, nil, fmt.Errorf("%w: project %s is already archived", errs.Conflict, slug)
+	}
+	p, cancelled, err := s.DB.ArchiveProject(ctx, p.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = fmt.Errorf("%w: project %s is already archived", errs.Conflict, slug)
+	}
+	return p, cancelled, err
+}
+
+// Restore brings an archived project back.
+func (s *Service) Restore(ctx context.Context, slug string) (dbgen.Project, error) {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return p, err
+	}
+	if !p.ArchivedAt.Valid {
+		return p, fmt.Errorf("%w: project %s is not archived", errs.Conflict, slug)
+	}
+	return s.DB.Q.RestoreProject(ctx, p.ID)
+}
+
 // Delete removes a project (and its tasks) unless a run is active on it.
 func (s *Service) Delete(ctx context.Context, slug string) error {
 	p, err := s.Project(ctx, slug)
