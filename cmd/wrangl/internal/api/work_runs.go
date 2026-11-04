@@ -92,6 +92,14 @@ func registerRuns(mux *http.ServeMux, d Deps) {
 		}
 		streamPTY(w, r, d, id)
 	})
+	mux.HandleFunc("GET /api/v1/runs/{id}/transcript", func(w http.ResponseWriter, r *http.Request) {
+		id, err := pathID(r, "id", "run id")
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		streamTranscript(w, r, d, id)
+	})
 	mux.HandleFunc("GET /api/v1/runs/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
 		id, err := pathID(r, "id", "run id")
 		if err != nil {

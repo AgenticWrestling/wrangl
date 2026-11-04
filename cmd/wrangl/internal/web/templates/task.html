@@ -14,9 +14,14 @@
   <div class="prose">{{if $t.Prompt}}{{md $t.Prompt}}{{else}}<p class="empty">No prompt.</p>{{end}}</div>
   {{if $t.CompletionSummary}}<h3>Completion summary</h3><div class="prose">{{md $t.CompletionSummary}}</div>{{end}}
   {{with .Checkpoint}}<p class="changes"><a class="btn small" href="{{.Commit}}" target="_blank" rel="noopener noreferrer" title="the checkpoint commit for this task">{{faicon "edit"}}Changes <code>{{.Short}}</code></a> <a class="btn small" href="{{.Compare}}" target="_blank" rel="noopener noreferrer" title="compare with the previous task's checkpoint (or the base branch)">Compare</a></p>{{end}}
-  {{with .LiveRun}}<div class="liveterm" id="lt-{{.}}" data-run="{{.}}" data-ignore-morph>
+  {{if eq .LiveMode "pty"}}{{with .LiveRun}}<div class="liveterm" id="lt-{{.}}" data-run="{{.}}" data-ignore-morph>
     <div class="row small"><b>Live output</b> <span class="dim">read-only</span> <span class="grow"></span> <a href="#" class="ltfull" hidden>load full history</a> <span class="ltstate dim"></span> <a class="dim" href="/run/{{.}}">run #{{.}}</a></div>
+    <div class="note small dim">No transcript for this run (the agent doesn't write one, or it hasn't yet): showing the raw terminal.</div>
     <div class="ltbody"></div></div>{{end}}
+  {{else if or (eq .LiveMode "transcript") (eq .LiveMode "stored")}}{{with .LiveRun}}<div class="livetx" id="txp-{{.}}" data-run="{{.}}" data-ignore-morph{{if eq $.LiveMode "transcript"}} data-init="@get('/ui/transcript-live?run={{.}}&after={{$.TxLast}}')"{{end}}>
+    <div class="row small"><b>Live output</b> <span class="dim">{{if eq $.LiveMode "transcript"}}live{{else}}finished{{end}}</span> <span class="grow"></span> <a class="dim" href="/run/{{.}}">run #{{.}}</a></div>
+    <div class="txbody">{{if $.TxHasMore}}<a class="txearlier" href="#" data-before="{{$.TxFirst}}">load earlier</a>{{end}}<div id="txl-{{.}}">{{$.TxHTML}}</div></div></div>{{end}}
+  {{end}}
   <div class="actions wrap">
     {{if .CanQueue}}<button class="btn primary" data-key="q" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
     <button class="btn" data-key="e" onclick="openSheet('sheet-edit')">{{faicon "edit"}}Edit</button>

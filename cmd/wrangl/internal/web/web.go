@@ -180,6 +180,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		http.Redirect(w, r, "/settings", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /ui/detail", h.detail)
+	mux.HandleFunc("GET /ui/transcript", h.transcriptMore)
+	mux.HandleFunc("GET /ui/transcript-live", h.transcriptLive)
 	mux.HandleFunc("POST /ui/expand", h.expand)
 	mux.HandleFunc("GET /deliverable/{id}", h.deliverable)
 	mux.HandleFunc("GET /deliverable/{id}/proto", h.deliverable)

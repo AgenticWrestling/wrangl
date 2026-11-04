@@ -26,6 +26,7 @@ import (
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/transcript"
 )
 
 // Defaults for agent turns.
@@ -224,6 +225,11 @@ type session struct {
 	// front (Codex, agy, Gemini): read from its JSON output, else from a hook payload.
 	agentSession      string
 	agentSessionFixed bool // taken from the agent's own output: hooks don't override it
+	// transcript tailing: entries keep one increasing seq across agent invocations,
+	// and a resumed session's file is read on from where the last tail stopped.
+	tsNorm    transcript.Normaliser
+	tsOffsets map[string]int64
+	tsPath    string // transcript_path from the first hook event
 }
 
 var sessionIDOut = regexp.MustCompile(`"(?:thread_id|session_id|sessionId|conversation_id|conversationId)"\s*:\s*"([A-Za-z0-9_.:-]+)"`)
@@ -796,6 +802,10 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 	}
 	defer f.Close()
 	defer w.addRunTerm(s.a.RunID, f, size)()
+
+	tailCtx, stopTail := context.WithCancel(ctx)
+	tailDone := s.startTranscriptTail(tailCtx)
+	defer func() { stopTail(); <-tailDone }()
 
 	ptySubj := natsd.RunPTYSubject(w.Cfg.RunnerID, s.a.RunID)
 	readDone := make(chan struct{})

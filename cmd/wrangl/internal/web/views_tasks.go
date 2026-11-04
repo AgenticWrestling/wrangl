@@ -10,6 +10,7 @@ import (
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 func (h *Handler) viewTasks(ctx context.Context, view string, r *http.Request, d map[string]any) error {
@@ -91,15 +92,34 @@ func (h *Handler) viewTask(ctx context.Context, view string, r *http.Request, d 
 	if h.D.Agents != nil {
 		d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
 	}
-	// The live PTY: the in-progress run working on this task (or its subtasks). The PTY is the
-	// run's own session on whichever runner hosts it, so it is keyed by the run, not the runner.
+	// Live output: the in-progress run working on this task (or its subtasks), else the task's
+	// latest finished run. With transcript entries it is rendered Markdown; otherwise a running
+	// run falls back to its PTY (keyed by the run, not the runner) and a finished one shows nothing.
 	if runs, err := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: "active", Lim: 1000}); err == nil {
 		for _, x := range runs {
 			if (x.TaskSqid == sqid || x.CurrentSqid == sqid) && x.Run.RunnerID.Valid && x.Run.State != "queued" {
-				d["LiveRun"] = x.Run.ID
+				h.livePanel(ctx, d, x.Run.ID, x.Run.RunnerID.Int64, true)
 				break
 			}
 		}
+	}
+	if _, live := d["LiveMode"]; !live {
+		if rs, err := db.RQ.RunsForTask(ctx, t.ID); err == nil {
+			for _, x := range rs {
+				if !proto.Terminal(x.State) {
+					continue
+				}
+				if row, err := db.RQ.GetRun(ctx, x.ID); err == nil && row.RunnerID.Valid {
+					h.livePanel(ctx, d, x.ID, row.RunnerID.Int64, false)
+					if d["LiveMode"] != liveNone {
+						break
+					}
+				}
+			}
+		}
+	}
+	if _, ok := d["LiveMode"]; !ok {
+		d["LiveMode"] = liveNone
 	}
 	d["Pre"], _ = db.RQ.ListPrecursors(ctx, t.ID)
 	d["Dep"], _ = db.RQ.ListDependents(ctx, t.ID)
