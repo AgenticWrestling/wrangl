@@ -1,0 +1,149 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Keyboard shortcuts — prototype</title>
+<style>
+@font-face{font-family:"Red Hat Display";font-weight:300 900;src:url(fonts/red-hat-display-latin.woff2)}
+@font-face{font-family:"IBM Plex Mono";src:url(fonts/ibm-plex-mono-latin.woff2)}
+:root{--c0:#0f1115;--c1:#171a21;--c2:#1f232b;--c3:#2c313c;--c4:#4b5261;--c5:#8a919e;--c6:#c5cad3;--c7:#eef0f3;--prog:#56b4e9;--attn:#e69f00;--brand:#0072b2;--link:#a6d8f5}
+*{box-sizing:border-box;margin:0}
+body{background:var(--c0);color:var(--c7);font:300 15px "Red Hat Display",system-ui,sans-serif;height:100vh;overflow:hidden}
+b{font-weight:600}
+kbd{font:500 12px "IBM Plex Mono",monospace;background:var(--c2);border:1px solid var(--c4);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--c7);min-width:22px;display:inline-block;text-align:center}
+.app{display:grid;grid-template-columns:210px 1fr;height:100vh}
+.side{background:var(--c1);border-right:1px solid var(--c3);padding:14px 10px;display:flex;flex-direction:column;gap:2px;overflow:auto}
+.brand{display:flex;align-items:center;gap:8px;padding:2px 8px 14px;font-size:18px}
+.mark{width:26px;height:26px;border-radius:7px;background:var(--brand);display:grid;place-items:center;font-weight:700}
+.nav{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:9px;color:var(--c6);cursor:pointer}
+.nav.on{background:var(--c2);color:var(--c7)}
+.nav kbd{margin-left:auto;opacity:0}
+.keys-on .nav kbd{opacity:1}
+.recent{margin:2px 0 8px 14px;padding-left:8px;border-left:1px solid var(--c3);display:flex;flex-direction:column;gap:1px}
+.r{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;color:var(--c6);font-size:14px;cursor:pointer;min-height:32px}
+.r.on{background:var(--c2);color:var(--c7);box-shadow:inset 2px 0 var(--link)}
+.r .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.r kbd{font-size:11px;padding:0 5px;min-width:18px;color:var(--c6);background:transparent;border-color:var(--c3);opacity:0}
+.keys-on .r kbd,.r:hover kbd{opacity:1}
+.dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--c4)}.dot.live{background:var(--prog);border-color:var(--prog)}
+.sp{flex:1}
+.hint{display:flex;align-items:center;gap:8px;padding:8px 10px;color:var(--c5);font-size:13px;cursor:pointer;border-radius:9px}
+.hint:hover{background:var(--c2);color:var(--c7)}
+.main{padding:24px 30px;overflow:auto}
+h2{font-size:22px;font-weight:600}.sub{color:var(--c5);margin:2px 0 16px}
+.bar{display:flex;gap:10px;margin-bottom:14px;align-items:center}
+.filter{flex:1;max-width:380px;display:flex;gap:8px;align-items:center;background:var(--c1);border:1px solid var(--c3);border-radius:9px;padding:8px 10px;color:var(--c5)}
+.filter input{all:unset;flex:1;color:var(--c7)}.filter:focus-within{border-color:var(--prog)}
+.btn{white-space:nowrap;background:var(--brand);border-radius:9px;padding:8px 12px;font-weight:600;display:flex;gap:8px;align-items:center;cursor:pointer}
+.btn.ghost{background:var(--c2);border:1px solid var(--c3);font-weight:400}
+.btn kbd{background:#00000033;border-color:#ffffff44}
+.card{background:var(--c1);border:1px solid var(--c3);border-radius:12px;padding:12px 16px;margin-bottom:8px;display:flex;gap:10px;align-items:center}
+.card .t{margin-left:auto;font:400 12px "IBM Plex Mono",monospace;color:var(--c5)}
+.card.sel{box-shadow:inset 2px 0 var(--link);background:var(--c2)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--c3);border:1px solid var(--c4);padding:8px 14px;border-radius:99px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+/* cheat sheet */
+.cs{display:none}
+.cs h3{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--c5);margin:14px 0 6px;font-weight:600}
+.cs .row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px;color:var(--c6)}
+.cs .row span{display:flex;gap:4px;align-items:center}.cs .row i{font-style:normal;color:var(--c5);font-size:11px}
+.cs .foot{margin-top:14px;padding-top:10px;border-top:1px solid var(--c3);color:var(--c5);font-size:12.5px;line-height:1.5}
+.cs h2{font-size:18px;display:flex;justify-content:space-between;align-items:center}
+.cs .x{color:var(--c5);font-size:12px;font-weight:400}
+.open .cs{display:block}
+/* A modal */
+.A .scrim{display:none;position:fixed;inset:0;background:#0009;place-items:center}
+.A.open .scrim{display:grid}
+.A .cs{background:var(--c1);border:1px solid var(--c4);border-radius:14px;padding:20px 24px;width:min(640px,92vw)}
+.A .cols{columns:2;column-gap:36px}.A .cols>div{break-inside:avoid}
+/* B drawer */
+.B .scrim,.C .scrim{display:contents}.B:not(.open) .cs,.C:not(.open) .cs{display:none}
+.B .cs{position:fixed;right:0;top:0;bottom:0;width:320px;background:var(--c1);border-left:1px solid var(--c3);padding:20px;overflow:auto;box-shadow:-12px 0 30px #0006}
+.B .cols>div h3:first-child{margin-top:14px}
+/* C which-key + compact popover */
+
+.C .cs{position:fixed;right:20px;bottom:20px;width:300px;background:var(--c1);border:1px solid var(--c4);border-radius:12px;padding:14px 16px}
+.C .cs h3:first-of-type{margin-top:8px}
+.wk{display:none;position:fixed;left:226px;bottom:20px;background:var(--c1);border:1px solid var(--c4);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--c6)}
+.wk.show{display:block}.wk .row{display:flex;gap:10px;align-items:center;padding:2px 0}
+.wk h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--c5);margin-bottom:4px}
+.phone-note{display:none}
+@media(max-width:700px){
+ .app{grid-template-columns:1fr}.side{display:none}.main{padding:16px}
+ .kbd-only,.filter kbd,.btn kbd,.hint{display:none}
+ .phone-note{display:block;margin-top:18px;padding:12px 14px;border:1px dashed var(--c4);border-radius:10px;color:var(--c6);font-size:13.5px;line-height:1.5}
+ .phone-bar{display:flex!important}
+ .scrim{display:none!important}.cs{display:none!important}.settings-kb{display:block!important}
+}
+.phone-bar{display:none;gap:10px;align-items:center;margin-bottom:14px;font-weight:600}
+.settings-kb{display:none;margin-top:14px;background:var(--c1);border:1px solid var(--c3);border-radius:12px;padding:12px 14px}
+.settings-kb .row{display:flex;justify-content:space-between;padding:4px 0;font-size:13.5px;color:var(--c6)}.settings-kb .row span{display:flex;gap:3px}
+.settings-kb h4{font-size:13px;margin-bottom:6px}
+</style></head><body>
+<div id="root" class="A keys-on">
+<div class="app">
+ <aside class="side">
+  <div class="brand"><span class="mark">w</span>wrangl</div>
+  <div class="nav">Inbox</div>
+  <div class="nav on" id="navp">Projects <kbd>g p</kbd></div>
+  <div class="recent" id="recent"></div>
+  <div class="nav">Runners</div>
+  <div class="sp"></div>
+  <div class="hint" id="hintbtn"><kbd>?</kbd> Keyboard shortcuts</div>
+ </aside>
+ <main class="main">
+  <div class="phone-bar"><span class="mark">w</span>wrangl · Projects</div>
+  <h2 id="title">Projects</h2><div class="sub" id="sub">5 recent · 12 total</div>
+  <div class="bar">
+   <label class="filter"><input id="f" placeholder="Filter tasks"> <kbd class="kbd-only">/</kbd></label>
+   <div class="btn" id="newbtn">+ New task <kbd>n</kbd></div>
+   <div class="btn ghost" id="chatbtn">Project chat <kbd style="background:var(--c1)">c</kbd></div>
+  </div>
+  <div class="card sel"><span class="dot live"></span>Wire up SSE reconnect<span class="t">run 4m</span></div>
+  <div class="card"><span class="dot"></span>Backlog filter and collapsed parents<span class="t">queued</span></div>
+  <div class="card"><span class="dot"></span>Sidebar recent projects<span class="t">review</span></div>
+  <div class="phone-note">Shortcuts are desktop-only (they are ignored on touch devices). On phones nothing changes in the layout; the full list is read-only under Settings › Keyboard.</div>
+  <div class="settings-kb"><h4>Settings › Keyboard</h4>
+   <div class="row">Projects list<span><kbd>g</kbd><kbd>p</kbd></span></div>
+   <div class="row">Recent project 1–5<span><kbd>1</kbd>–<kbd>5</kbd></span></div>
+   <div class="row">New task / Project chat<span><kbd>n</kbd><kbd>c</kbd></span></div>
+   <div class="row">Filter tasks<span><kbd>/</kbd></span></div></div>
+ </main>
+</div>
+<div class="scrim" id="scrim"><div class="cs" id="cs" role="dialog" aria-label="Keyboard shortcuts"></div></div>
+<div class="wk" id="wk"><h4>Go to… (g then)</h4><div class="row"><kbd>p</kbd> Projects list</div><div class="row"><kbd>i</kbd> Inbox</div><div class="row"><kbd>r</kbd> Runners</div><div class="row"><kbd>Esc</kbd> cancel</div></div>
+<div class="toast" id="toast"></div>
+</div>
+<script>
+const P=['wrangl','docs-site','infra','mobile-app','billing'],root=document.getElementById('root');
+const rec=document.getElementById('recent');
+rec.innerHTML=P.map((n,i)=>`<div class="r${i==0?' on':''}" data-i="${i}"><span class="dot${i<2?' live':''}"></span><span class="n">${n}</span><kbd>${i+1}</kbd></div>`).join('');
+const R=(k,t,note)=>`<div class="row">${t}<span>${k.split(' ').map(x=>x=='then'?'<i>then</i>':`<kbd>${x}</kbd>`).join('')}</span></div>`;
+document.getElementById('cs').innerHTML=`<h2><span>Keyboard shortcuts</span> <span class="x"><kbd>Esc</kbd> to close</span></h2><div class="cols">
+<div><h3>Go</h3>${R('g then p','Projects list')}${R('1 2 3 4 5','Recent project 1–5')}</div>
+<div><h3>Act</h3>${R('n','New task')}${R('c','Project chat')}${R('/','Filter tasks')}${R('?','This sheet')}</div>
+<div><h3>Terminal page · wterm</h3>${R('Cmd 1–9','Switch tab (9 = last)')}${R('Shift Cmd N','New shell')}</div></div>
+<div class="foot">Plain keys are ignored while you type in a field or the terminal, or hold Cmd/Ctrl/Alt. Digits go to projects on every page except the terminal, where Cmd+digit switches tabs – the Cmd keeps the two apart.</div>`;
+const toast=(t)=>{const e=document.getElementById('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),1400)};
+const v=(location.hash.slice(1)||'A').split('-');root.className=v[0]+' keys-on';
+if(v[0]=='C')root.classList.remove('keys-on');
+if(v.includes('open'))root.classList.add('open');
+if(v.includes('chord'))document.getElementById('wk').classList.add('show');
+if(v.includes('filter'))document.getElementById('f').value='sse';
+if(v.includes('pick'))setTimeout(()=>go(2),0);
+function go(i){rec.querySelectorAll('.r').forEach((r,j)=>r.classList.toggle('on',i==j));document.getElementById('navp').classList.remove('on');document.getElementById('title').textContent=P[i];document.getElementById('sub').textContent='Project '+(i+1)+' of 5 recent';toast('› '+P[i])}
+let chord=0;
+const show=on=>root.classList.toggle('open',on);
+addEventListener('keydown',e=>{
+ if(e.ctrlKey||e.metaKey||e.altKey)return;
+ if(e.key=='Escape'){show(false);document.getElementById('wk').classList.remove('show');chord=0;if(document.activeElement.id=='f')document.activeElement.blur();return}
+ if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName))return;
+ const k=e.key;
+ if(chord){chord=0;document.getElementById('wk').classList.remove('show');if(k=='p'){document.querySelectorAll('.r').forEach(r=>r.classList.remove('on'));document.getElementById('navp').classList.add('on');document.getElementById('title').textContent='Projects';toast('› Projects list')}return}
+ if(k=='g'){chord=1;if(root.classList.contains('C'))document.getElementById('wk').classList.add('show');setTimeout(()=>{chord=0;document.getElementById('wk').classList.remove('show')},1500)}
+ else if(/^[1-5]$/.test(k))go(+k-1);
+ else if(k=='n')toast('New task dialog');
+ else if(k=='c')toast('Project chat opened');
+ else if(k=='/'){e.preventDefault();document.getElementById('f').focus()}
+ else if(k=='?')show(!root.classList.contains('open'));
+});
+document.getElementById('hintbtn').onclick=()=>show(true);
+document.getElementById('scrim').onclick=e=>{if(e.target.id=='scrim')show(false)};
+</script></body></html>
