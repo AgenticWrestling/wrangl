@@ -59,17 +59,32 @@ Where secrets go:
 runners share one allowance. API keys and Vertex projects are metered per key or project.
 Size `max_runners` accordingly.
 
-## GitHub issue tools (read-only)
+## GitHub issue tools
 
 Every agent that has the wrangl MCP shim can read GitHub issues of the repos linked to its
 project. The calls go over NATS to the controller; the runner and the agent hold no GitHub
-credential (see [ADR 0004](adr/0004-agent-github-issue-tools.md)). There are no write tools yet.
+credential (see [ADR 0004](adr/0004-agent-github-issue-tools.md)). The read tools need no permission change; the write tools below need `issues: write`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
 | `issue_search` | `query`, `repo?` (`owner/name`), `state?` (open default, closed, all), `labels?`, `limit?` (20, max 50), `live?` | `results` (ref, title, state, labels, author, snippet, linked task), `source` (`db` or `live`) |
 | `issue_get` | `ref` (`owner/name#number`) or `repo` + `number`, `live?` | title, body, state, labels, author, `comment_count`, linked task, `stale` |
 | `issue_comments` | `ref` or `repo` + `number`, `limit?` (30, max 100), `after?` | `comments` oldest first, `next` cursor |
+
+Writes (work and revise runs only; they need `issues: write` on the Apps, see INSTALL.md 6.2a). They go through the controller and only to repos linked to the run's project; a repo that is not linked is "not found". Comments and new issues end with a footer naming the run and task.
+
+| Tool | Arguments | Result |
+|---|---|---|
+| `issue_comment` | `ref` or `repo` + `number`, `body` | `comment_id`, `url` |
+| `issue_create` | `repo?`, `title`, `body?`, `labels?` | the new issue (`ref`, `url`, wrapped title/body) |
+| `issue_edit` | `ref` or `repo` + `number`, `title?`, `body?`, `labels?` (`{add, remove}`) | the updated issue |
+| `issue_close` | `ref` or `repo` + `number`, `reason?`, `state_reason?` | `pending_approval` and a `question_id`; the issue is closed only if the owner approves |
+
+`issue_link_task` (`task`, `ref`, `unlink?`) sets or clears the explicit task-to-issue link (a task in your assignment, an issue of the task's project). It writes nothing to GitHub; task state and issue state never follow each other.
+
+**Sync.** GitHub is the source of truth and the table is a cache. Every write stores GitHub's answer (with its `updated_at`); the `issues` webhook applies an event only if its `updated_at` is newer, so the echo of our own write, duplicates and reordered deliveries change nothing. `deleted` and `transferred` events drop the row (linked tasks stay, unlinked). `wrangl issue drift <project> [--repair]` compares every synced issue with GitHub and lists `missing_local`, `stale`, `differs` and `missing_remote` ones (a missed webhook shows up there); `--repair` re-syncs them.
+
+There is no tool to delete an issue (GitHub's REST API cannot, and the GraphQL way needs admin rights the App does not have).
 
 - Searches and reads come from the synced `issue` table (full-text search, stemmed). A row older than
   15 minutes is refreshed from GitHub; with nothing synced yet, search asks GitHub (`source: live`).

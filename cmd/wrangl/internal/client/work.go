@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/issuestore"
 	"io"
 	"net/http"
 	"net/url"
@@ -57,6 +58,16 @@ func (c *Client) SyncIssues(ctx context.Context, project string) (int, error) {
 		Synced int `json:"synced"`
 	}
 	return out.Synced, c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(project)+"/issues/sync", nil, &out)
+}
+
+// IssueDrift lists issues whose synced row differs from GitHub; repair re-syncs them.
+func (c *Client) IssueDrift(ctx context.Context, project string, repair bool) ([]issuestore.Drift, error) {
+	var out []issuestore.Drift
+	q := ""
+	if repair {
+		q = "?repair=1"
+	}
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects/"+esc(project)+"/issues/drift"+q, nil, &out)
 }
 func (c *Client) Issues(ctx context.Context, project, state string) ([]proto.IssueView, error) {
 	var out []proto.IssueView

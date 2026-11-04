@@ -829,6 +829,16 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		for _, l := range p.Issue.Labels {
 			i.Labels = append(i.Labels, l.Name)
 		}
+		if p.Action == "deleted" || p.Action == "transferred" {
+			// The issue is gone from (or left) this repo: drop our row. Tasks keep existing, unlinked.
+			// A transferred issue reappears under its new repo at the next sync if that repo is linked.
+			for _, r := range repos {
+				if _, err := issuestore.Delete(ctx, s.DB, r.ID, p.Issue.Number); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		for _, r := range repos {
 			// Reconciler: only a newer updated_at changes the row, so echoes of our own writes
 			// and duplicate or reordered deliveries are ignored.

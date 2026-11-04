@@ -54,6 +54,8 @@ Phase A exit: `go test ./...` green; agent can search/read; no permission change
 
 ## Phase B: writes, then sync (blocked until the owner raises `issues` to write)
 
+Status (PH6nkJ): B1.1, B2.1-B2.4 and the INSTALL.md upgrade section are built. Not built: B1.2 permission status page, B3. `issue_link_task` is not built; `created_by_run` is not stored (the write is logged as `issue write` with actor, op, ref, url). Label names are passed through, not checked against existing labels.
+
 ### B1 Permission plumbing
 
 **B1.1 Manifests.** `controller/ghsetup/ghsetup.go`: author `issues: write` (+ `issue_comment` event).
@@ -104,3 +106,5 @@ fake). Check: `go test ./api/... ./cli/... ./web/...`.
 
 Phase B exit: owner accepted the permission on the live Apps; manual smoke: agent comments on a test
 issue, webhook echo ignored, close asks for approval.
+
+Status (QCLp6C): B3.1 (echo, order, deleted/transferred), `issue_link_task`, and a drift check (`wrangl issue drift`, `GET /api/v1/projects/{slug}/issues/drift`) are built. Not built: the `issue_comment` webhook and comment-cache invalidation by event, the linked-task note in the UI.

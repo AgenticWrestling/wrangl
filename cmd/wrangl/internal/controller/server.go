@@ -267,7 +267,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Stack = &stack.Service{DB: s.db, Sqids: sq, Bus: s.Bus}
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
-		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, Bus: s.Bus}
+		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, ApprovalHandlers: map[string]func(context.Context, json.RawMessage) error{}, Bus: s.Bus}
 	reviewer, hasReviewer, err := s.reviewer()
 	if err != nil {
 		return err
@@ -313,7 +313,13 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		}
 		s.Push.Notify(webpush.Notification{Title: "Agent needs attention", Body: message, URL: fmt.Sprintf("/run/%d", r.ID), Tag: fmt.Sprintf("notice-run%d", r.ID)})
 	}
-	issueTools := &issuetools.Service{DB: s.db, GH: ghAPI, Now: now}
+	issueTools := &issuetools.Service{DB: s.db, GH: ghAPI, Now: now, Runs: s.Runs, Log: s.log}
+	s.Runs.ToolHandlers["issue_comment"] = issueTools.Comment
+	s.Runs.ToolHandlers["issue_create"] = issueTools.Create
+	s.Runs.ToolHandlers["issue_edit"] = issueTools.Edit
+	s.Runs.ToolHandlers["issue_close"] = issueTools.Close
+	s.Runs.ToolHandlers["issue_link_task"] = issueTools.LinkTask
+	s.Runs.ApprovalHandlers["issue_close"] = issueTools.CloseApproved
 	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
 	s.Runs.ToolHandlers["issue_get"] = issueTools.Get
 	s.Runs.ToolHandlers["issue_comments"] = issueTools.Comments

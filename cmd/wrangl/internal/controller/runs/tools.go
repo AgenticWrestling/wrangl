@@ -29,6 +29,9 @@ type Scope struct {
 	Actor     stack.Actor
 }
 
+// ActorFor is the actor of a run (the owner for run 0).
+func ActorFor(runID int64) stack.Actor { return stackActor(runID) }
+
 func stackActor(runID int64) stack.Actor {
 	if runID == 0 {
 		return stack.User
@@ -77,6 +80,11 @@ func (s *Service) writable(ctx context.Context, sc Scope, sqid string) (dbgen.Ta
 		return t, fmt.Errorf("%w: %s is outside your assignment; you may read it but not change it", errs.Forbidden, sqid)
 	}
 	return t, nil
+}
+
+// Writable is writable for other services: the task, if it is inside the caller's subtree.
+func (s *Service) Writable(ctx context.Context, sc Scope, sqid string) (dbgen.Task, error) {
+	return s.writable(ctx, sc, sqid)
 }
 
 type posArg struct {
@@ -440,7 +448,8 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		defer s.Bus.Publish("run", fmt.Sprint(sc.RunID))
 		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
 
-	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments":
+	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments",
+		"issue_comment", "issue_create", "issue_edit", "issue_close", "issue_link_task":
 		h := s.ToolHandlers[tool]
 		if h == nil {
 			return nil, fmt.Errorf("%s is not available on this controller", tool)

@@ -24,6 +24,31 @@ func issueCmd(g *Global) *cobra.Command {
 			return nil
 		},
 	}
+	var repair bool
+	drift := &cobra.Command{
+		Use: "drift <project>", Short: "List issues whose synced copy differs from GitHub (--repair re-syncs them)", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			ds, err := c.IssueDrift(cmd.Context(), args[0], repair)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, ds, func(w io.Writer) {
+				if len(ds) == 0 {
+					fmt.Fprintln(w, "no drift")
+					return
+				}
+				fmt.Fprintln(w, "ISSUE\tDRIFT\tFIELDS")
+				for _, d := range ds {
+					fmt.Fprintf(w, "%s\t%s\t%v\n", d.Ref, d.Kind, d.Fields)
+				}
+			})
+		},
+	}
+	drift.Flags().BoolVar(&repair, "repair", false, "re-sync differing rows and drop rows GitHub no longer has")
 	list := &cobra.Command{
 		Use: "list", Short: "List synced issues", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -84,5 +109,5 @@ func issueCmd(g *Global) *cobra.Command {
 	needProject(toTask)
 	toTask.Flags().StringVar(&parent, "parent", "", "parent task sqid")
 	toTask.Flags().StringVar(&template, "template", "", "runner template")
-	return group("issue", "GitHub issues", sync, list, show, toTask)
+	return group("issue", "GitHub issues", sync, drift, list, show, toTask)
 }
