@@ -1,0 +1,10 @@
+{"type":"summary","summary":"unknown line type"}
+{"type":"user","timestamp":"2026-01-01T10:00:00Z","message":{"role":"user","content":"Please run the tests and show me the result."}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:01Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"I should run go test first."},{"type":"text","text":"Running the **tests** now:\n\n```go\nfmt.Println(\"hi\")\n```\n\n- one\n- two"}]}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:02Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./...","description":"run tests"}}]}}
+this line is not json
+{"type":"user","timestamp":"2026-01-01T10:00:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok  \tgithub.com/x/y\t0.01s\nAPI_TOKEN=supersecretvalue123"}]}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:04Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":"/repo/main.go"}}]}}
+{"type":"user","timestamp":"2026-01-01T10:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","is_error":true,"content":[{"type":"text","text":"file not found"}]}]}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:06Z","message":{"role":"assistant","content":[{"type":"text","text":"Done. <script>alert('xss')</script> and token ghp_abcdefghijklmnopqrstuvwxyz0123456789"}]}}
+{"type":"assistant","message":

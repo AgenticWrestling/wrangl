@@ -113,7 +113,7 @@ func (s *Service) Ask(ctx context.Context, sqid, agentName, question string) (db
 	if err != nil {
 		return dbgen.TaskThread{}, err
 	}
-	s.Bus.Publish("thread", sqid)
+	s.Bus.Thread(sqid)
 	go s.answer(context.WithoutCancel(ctx), sqid, t.ID, aid, ag, session, brief+"\n\n## Question\n\n"+question)
 	return dbgen.TaskThread{ID: aid, TaskID: t.ID, Role: "agent", Status: "running"}, nil
 }
@@ -136,7 +136,7 @@ func (s *Service) agent(ctx context.Context, name string) (dbgen.ControllerAgent
 }
 
 func (s *Service) answer(ctx context.Context, sqid string, taskID, msgID int64, ag dbgen.ControllerAgent, session, prompt string) {
-	defer s.Bus.Publish("thread", sqid)
+	defer s.Bus.Thread(sqid)
 	res, failBody, failed := s.execute(ctx, ag, session, prompt, systemPrompt+schemaHelp(), sqid)
 	if failed {
 		s.finish(ctx, msgID, failBody, "error", res.SessionID)

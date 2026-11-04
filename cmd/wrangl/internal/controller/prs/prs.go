@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,12 +38,12 @@ import (
 // Service is the PR flow.
 type Service struct {
 	DB            *db.DB
-	Author        gh.API // creates PRs
-	Reviewer      gh.API // reviews, approves, merges (nil: owner merges by hand)
+	Author        gh.API // the account's App: creates PRs, and merges them
+	Reviewer      gh.API // optional reviewer App: approves where approving reviews are required (nil: none)
 	Stack         *stack.Service
 	Runs          *runs.Service
 	WebhookSecret []byte
-	// WebhookSecrets, when set, adds the secrets of per-account reviewer Apps.
+	// WebhookSecrets, when set, adds the secrets of the per-account Apps.
 	WebhookSecrets func() [][]byte
 	// HasReviewer reports whether owner has a reviewer App. Nil: a Reviewer, if set, serves every owner.
 	HasReviewer func(owner string) bool
@@ -69,9 +70,6 @@ type Gates struct {
 	OutOfScope []string `json:"out_of_scope,omitempty"`
 	OK         bool     `json:"ok"`
 }
-
-func nstr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
-func nint(v int64) sql.NullInt64   { return sql.NullInt64{Int64: v, Valid: v != 0} }
 
 // canReview reports whether the reviewer App can act on owner's repositories.
 func (s *Service) canReview(owner string) bool {
@@ -171,7 +169,7 @@ func (s *Service) prBody(ctx context.Context, run dbgen.Run, root dbgen.Task) (s
 	if p := strings.TrimSpace(root.Prompt); p != "" {
 		fmt.Fprintf(&b, "%s\n\n", p)
 	}
-	done, err := s.DB.RQ.CompletedInRun(ctx, nint(run.ID))
+	done, err := s.DB.RQ.CompletedInRun(ctx, dbnull.Int(run.ID))
 	if err != nil {
 		return "", err
 	}
@@ -247,7 +245,7 @@ func OutsideResearch(files []gh.PRFile) []string {
 
 // Evaluate brings a PR's state up to date and moves it along: gates, review, decision.
 func (s *Service) Evaluate(ctx context.Context, prID int64) error {
-	defer s.Bus.Publish("pr", fmt.Sprint(prID))
+	defer s.Bus.PR(prID)
 	pr, err := s.DB.RQ.GetPR(ctx, prID)
 	if err != nil {
 		return err
@@ -321,7 +319,7 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 		}
 		queued := s.reviewed[pr.ID] == pr.HeadSha
 		s.mu.Unlock()
-		active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: nint(pr.ID), Kind: "review"})
+		active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: dbnull.Int(pr.ID), Kind: "review"})
 		if err != nil {
 			return err
 		}
@@ -338,7 +336,7 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	audit, audited := Audit{}, false
 	if auditing {
 		if audit, audited = s.loadAudit(ctx, pr); !audited {
-			active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: nint(pr.ID), Kind: "review"})
+			active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: dbnull.Int(pr.ID), Kind: "review"})
 			if err != nil {
 				return err
 			}
@@ -411,7 +409,7 @@ func (s *Service) RefreshMergeable(ctx context.Context, prID int64) error {
 	if before := pr.Mergeable; live.State == "open" {
 		s.storeMergeable(ctx, &pr, live.Mergeable)
 		if pr.Mergeable != before {
-			s.Bus.Publish("pr", fmt.Sprint(pr.ID))
+			s.Bus.PR(pr.ID)
 		}
 	}
 	return nil
@@ -419,8 +417,11 @@ func (s *Service) RefreshMergeable(ctx context.Context, prID int64) error {
 
 // autoMergeable: the App that opened the PR can merge it, so auto-merge needs no reviewer App.
 func (s *Service) autoMergeable(ctx context.Context, pr dbgen.PullRequest) bool {
+	if s.Author == nil {
+		return false
+	}
 	_, _, err := s.repo(ctx, pr.RepoID)
-	return err == nil && s.Author != nil
+	return err == nil
 }
 
 func (s *Service) projectFor(ctx context.Context, pr dbgen.PullRequest) (dbgen.Project, error) {
@@ -446,8 +447,8 @@ func (s *Service) special(ctx context.Context, pr dbgen.PullRequest, kind, promp
 	}
 	n, _ := s.DB.RQ.CountRunsForTask(ctx, pr.TaskID)
 	return s.DB.Q.QueueSpecialRun(ctx, dbgen.QueueSpecialRunParams{
-		TaskID: pr.TaskID, Kind: kind, Attempt: n + 1, TemplateID: src.TemplateID, RepoID: nint(pr.RepoID),
-		Branch: pr.HeadBranch, SessionUuid: uuid4(), PromptOverride: prompt, PrID: nint(pr.ID), ContinueBranch: 1,
+		TaskID: pr.TaskID, Kind: kind, Attempt: n + 1, TemplateID: src.TemplateID, RepoID: dbnull.Int(pr.RepoID),
+		Branch: pr.HeadBranch, SessionUuid: uuid4(), PromptOverride: prompt, PrID: dbnull.Int(pr.ID), ContinueBranch: 1,
 	})
 }
 
@@ -519,7 +520,7 @@ func (s *Service) SubmitReview(ctx context.Context, sc runs.Scope, raw json.RawM
 			summary += "- " + c + "\n"
 		}
 	}
-	if err := s.DB.Q.SetPRReview(ctx, dbgen.SetPRReviewParams{Risk: nstr(a.Risk), Summary: summary, ReviewedSha: pr.HeadSha, ID: pr.ID}); err != nil {
+	if err := s.DB.Q.SetPRReview(ctx, dbgen.SetPRReviewParams{Risk: dbnull.Str(a.Risk), Summary: summary, ReviewedSha: pr.HeadSha, ID: pr.ID}); err != nil {
 		return nil, err
 	}
 	s.Log.Info("review submitted", "pr", pr.Url, "risk", a.Risk)
@@ -589,16 +590,16 @@ func (s *Service) merge(ctx context.Context, pr dbgen.PullRequest, decision, not
 }
 
 func (s *Service) markMerged(ctx context.Context, pr dbgen.PullRequest, decision string) error {
-	ids, err := s.DB.RQ.RunsForPR(ctx, dbgen.RunsForPRParams{RepoID: nint(pr.RepoID), Branch: pr.HeadBranch})
+	ids, err := s.DB.RQ.RunsForPR(ctx, dbgen.RunsForPRParams{RepoID: dbnull.Int(pr.RepoID), Branch: pr.HeadBranch})
 	if err != nil {
 		return err
 	}
 	if err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		if err := q.ClosePRRow(ctx, dbgen.ClosePRRowParams{State: "merged", Decision: nstr(decision), ID: pr.ID}); err != nil {
+		if err := q.ClosePRRow(ctx, dbgen.ClosePRRowParams{State: "merged", Decision: dbnull.Str(decision), ID: pr.ID}); err != nil {
 			return err
 		}
 		for _, id := range ids {
-			if err := q.MarkRunTasksDone(ctx, nint(id)); err != nil {
+			if err := q.MarkRunTasksDone(ctx, dbnull.Int(id)); err != nil {
 				return err
 			}
 		}
@@ -607,7 +608,7 @@ func (s *Service) markMerged(ctx context.Context, pr dbgen.PullRequest, decision
 		return err
 	}
 	for _, id := range ids {
-		done, _ := s.DB.RQ.CompletedInRun(ctx, nint(id))
+		done, _ := s.DB.RQ.CompletedInRun(ctx, dbnull.Int(id))
 		for _, d := range done {
 			s.Stack.Recompute(ctx, d.Sqid)
 		}
@@ -617,23 +618,23 @@ func (s *Service) markMerged(ctx context.Context, pr dbgen.PullRequest, decision
 }
 
 func (s *Service) markClosed(ctx context.Context, pr dbgen.PullRequest) error {
-	ids, err := s.DB.RQ.RunsForPR(ctx, dbgen.RunsForPRParams{RepoID: nint(pr.RepoID), Branch: pr.HeadBranch})
+	ids, err := s.DB.RQ.RunsForPR(ctx, dbgen.RunsForPRParams{RepoID: dbnull.Int(pr.RepoID), Branch: pr.HeadBranch})
 	if err != nil {
 		return err
 	}
 	var reopened []string
 	for _, id := range ids {
-		done, _ := s.DB.RQ.CompletedInRun(ctx, nint(id))
+		done, _ := s.DB.RQ.CompletedInRun(ctx, dbnull.Int(id))
 		for _, d := range done {
 			reopened = append(reopened, d.Sqid)
 		}
 	}
 	if err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		if err := q.ClosePRRow(ctx, dbgen.ClosePRRowParams{State: "closed", Decision: nstr("closed"), ID: pr.ID}); err != nil {
+		if err := q.ClosePRRow(ctx, dbgen.ClosePRRowParams{State: "closed", Decision: dbnull.Str("closed"), ID: pr.ID}); err != nil {
 			return err
 		}
 		for _, id := range ids {
-			if err := q.ReopenRunTasks(ctx, nint(id)); err != nil {
+			if err := q.ReopenRunTasks(ctx, dbnull.Int(id)); err != nil {
 				return err
 			}
 		}
@@ -680,7 +681,7 @@ func (s *Service) RequestChanges(ctx context.Context, prID int64, text string) e
 	if err != nil {
 		return err
 	}
-	s.DB.Q.SetPRDecision(ctx, dbgen.SetPRDecisionParams{Decision: nstr("changes_requested"), ID: pr.ID})
+	s.DB.Q.SetPRDecision(ctx, dbgen.SetPRDecisionParams{Decision: dbnull.Str("changes_requested"), ID: pr.ID})
 	s.DB.Q.CancelPRQuestions(ctx, pr.ID)
 	s.Log.Info("revise queued", "pr", pr.Url, "run", run.ID)
 	return nil
@@ -702,6 +703,7 @@ func (s *Service) Close(ctx context.Context, prID int64) error {
 	return s.markClosed(ctx, pr)
 }
 
+// openPR loads an open PR for an owner action; PRs of archived projects are refused.
 func (s *Service) openPR(ctx context.Context, id int64) (dbgen.PullRequest, error) {
 	pr, err := s.DB.RQ.GetPR(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -711,6 +713,12 @@ func (s *Service) openPR(ctx context.Context, id int64) (dbgen.PullRequest, erro
 	}
 	if pr.State != "open" {
 		return pr, fmt.Errorf("%w: PR %d is %s", errs.Conflict, id, pr.State)
+	}
+	// The owner's PR actions share the archived guard: restore the project first.
+	if p, perr := s.projectFor(ctx, pr); perr == nil {
+		if err := stack.ActiveProject(ctx, s.DB.RQ, p.ID); err != nil {
+			return pr, err
+		}
 	}
 	return pr, nil
 }
@@ -748,7 +756,7 @@ func (s *Service) continueBlocked(ctx context.Context) error {
 		if pr, err := s.DB.RQ.OpenPRForBranch(ctx, dbgen.OpenPRForBranchParams{RepoID: r.RepoID.Int64, HeadBranch: r.Branch}); err == nil {
 			n, _ := s.DB.RQ.CountRunsForTask(ctx, r.TaskID)
 			run, err := s.DB.Q.QueueSpecialRun(ctx, dbgen.QueueSpecialRunParams{TaskID: r.TaskID, Kind: "work", Attempt: n + 1,
-				TemplateID: r.TemplateID, RepoID: r.RepoID, Branch: r.Branch, SessionUuid: uuid4(), PrID: nint(pr.ID), ContinueBranch: 1})
+				TemplateID: r.TemplateID, RepoID: r.RepoID, Branch: r.Branch, SessionUuid: uuid4(), PrID: dbnull.Int(pr.ID), ContinueBranch: 1})
 			if err != nil {
 				return err
 			}
@@ -779,7 +787,7 @@ func (s *Service) secrets() [][]byte {
 	return out
 }
 
-// Webhook handles POST /gh/webhook (reviewer App): HMAC-verified, deduplicated.
+// Webhook handles POST /gh/webhook: HMAC-verified, deduplicated.
 func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
 	secrets := s.secrets()
 	if len(secrets) == 0 {
@@ -823,6 +831,13 @@ func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
 			s.Log.Error("webhook", "event", event, "delivery", id, "err", err)
 		}
 	}()
+}
+
+// repoArchived reports whether the repo belongs to an archived project: its webhook events are
+// ignored until the project is restored (Reconcile still syncs PR state).
+func (s *Service) repoArchived(ctx context.Context, repoID int64) bool {
+	r, err := s.DB.RQ.GetRepo(ctx, repoID)
+	return err == nil && stack.ActiveProject(ctx, s.DB.RQ, r.ProjectID) != nil
 }
 
 func (s *Service) handleEvent(ctx context.Context, event string, body []byte) error {
@@ -874,6 +889,9 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 			return err
 		}
 		for _, pr := range prs {
+			if s.repoArchived(ctx, pr.RepoID) {
+				continue
+			}
 			if err := s.Evaluate(ctx, pr.ID); err != nil {
 				return err
 			}
@@ -884,12 +902,17 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 			// Maybe an agent opened it: adopt it if it names one of our tasks.
 			if repos, rerr := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name}); rerr == nil && event == "pull_request" && p.Action != "closed" {
 				for _, r := range repos {
-					s.AdoptRepo(ctx, r.ID)
+					if !s.repoArchived(ctx, r.ID) {
+						s.AdoptRepo(ctx, r.ID)
+					}
 				}
 			}
 			return nil
 		} else if err != nil {
 			return err
+		}
+		if s.repoArchived(ctx, pr.RepoID) {
+			return nil
 		}
 		return s.Evaluate(ctx, pr.ID)
 	case "push":
@@ -902,7 +925,7 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		}
 		ids := map[int64]bool{}
 		for _, r := range repos {
-			ids[r.ID] = true
+			ids[r.ID] = !s.repoArchived(ctx, r.ID)
 		}
 		open, err := s.DB.RQ.OpenPRs(ctx)
 		if err != nil {
@@ -929,6 +952,13 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		if len(p.Issue.PullRequest) > 0 {
 			return nil // pull requests are not issues here
 		}
+		live := repos[:0:0]
+		for _, r := range repos {
+			if !s.repoArchived(ctx, r.ID) {
+				live = append(live, r)
+			}
+		}
+		repos = live
 		i := gh.Issue{Number: p.Issue.Number, Title: p.Issue.Title, Body: p.Issue.Body, State: p.Issue.State, URL: p.Issue.HTMLURL,
 			Author: p.Issue.User.Login, CreatedAt: p.Issue.CreatedAt, UpdatedAt: p.Issue.UpdatedAt, Comments: p.Issue.Comments}
 		for _, l := range p.Issue.Labels {
@@ -1045,7 +1075,7 @@ func (s *Service) queueResolve(ctx context.Context, pr dbgen.PullRequest) (run d
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: nint(pr.ID), Kind: "resolve"})
+	active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: dbnull.Int(pr.ID), Kind: "resolve"})
 	if err != nil || active > 0 {
 		return run, false, err
 	}

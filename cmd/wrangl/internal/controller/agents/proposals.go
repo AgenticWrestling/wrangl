@@ -121,8 +121,8 @@ func (s *Service) Apply(ctx context.Context, msgID int64, n int) error {
 	if err == nil { // our own change must not expire the sibling options
 		s.stamp(ctx, m.TaskID, msgID)
 	}
-	s.Bus.Publish("thread", task.Sqid.String)
-	s.Bus.Publish("task", task.Sqid.String)
+	s.Bus.Thread(task.Sqid.String)
+	s.Bus.Task(task.Sqid.String)
 	return err
 }
 

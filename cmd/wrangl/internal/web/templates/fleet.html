@@ -61,7 +61,7 @@
   <h2>Adopt <span id="adopt-name"></span></h2>
   <p class="hint">Turns this running instance into a runner. wrangl creates a one-time token; you run one command on the instance.</p>
   <label>Runner template
-    <select data-bind="adopttpl" id="adopt-tpl">{{range .Templates2}}<option value="{{.Name}}" data-arch="{{.Arch}}">{{.Name}} ({{.Arch}})</option>{{end}}</select>
+    <select data-bind="adopttpl" id="adopt-tpl">{{range .AdoptTemplates}}<option value="{{.Name}}" data-arch="{{.Arch}}">{{.Name}} ({{.Arch}})</option>{{end}}</select>
   </label>
   <p class="hint">Only templates for the instance's architecture can be used.</p>
   <div id="adopt-result"></div>

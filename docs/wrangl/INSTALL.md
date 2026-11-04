@@ -25,11 +25,11 @@ branch to GitHub. Do the steps in order. Each step ends with a check.
 3. [AWS network](#3-aws-network)
 4. [IAM roles](#4-iam-roles)
 5. [The controller host](#5-the-controller-host)
-6. [GitHub Apps](#6-github-apps)
+6. [GitHub: one App per account](#6-github-one-app-per-account)
 7. [The Claude Code token](#7-the-claude-code-token)
 8. [A runner template, and the first runner](#8-a-runner-template-and-the-first-runner)
 9. [The first project and run](#9-the-first-project-and-run)
-10. [Cloudflare Zero Trust](#10-cloudflare-zero-trust-remote-cli-now-pwa-in-m8)
+10. [Cloudflare Zero Trust, and the PWA](#10-cloudflare-zero-trust-and-the-pwa)
 11. [First-run checklist](#11-first-run-checklist-the-unverified-parts)
 12. [Day 2: backups, upgrades, teardown](#12-day-2-backups-upgrades-teardown)
 13. [Troubleshooting](#13-troubleshooting)
@@ -244,7 +244,7 @@ aws:
   subnet_ids: [subnet-...]      # the private subnet from step 3
   security_group_id: sg-...     # the wrangl SG
   runner_instance_profile: wrangl-runner
-cloudflare: { team: "", aud: "", owner_email: "" }   # step 10 / M8
+cloudflare: { team: "", aud: "", owner_email: "" }   # step 10
 web: { public_url: "" }            # required for GitHub setup, step 6
 ```
 
@@ -296,6 +296,10 @@ wrangl needs one GitHub App for each GitHub account that owns repositories it wo
 personal account, and any organisation). A GitHub App lives in one account and by default can only
 be installed there, so a repo in another organisation needs that organisation added too. You
 don't create the App by hand: the web app creates it through GitHub's manifest flow.
+
+One App per account does everything: it authors pushes and PRs, merges, reads CI and issues and
+receives webhooks. A second, **reviewer** App is optional (6.3) and only needed for repos that
+require approving reviews.
 
 The App clones and pushes branches, opens PRs, reads and writes issues (comments, create, edit;
 closing needs your approval), reads CI checks, merges PRs, and receives webhooks. The controller mints a fresh installation token for each run, scoped to **one**
@@ -356,7 +360,7 @@ New Apps are created with `issues: write`. Apps created earlier have `issues: re
 does not let wrangl change a registered App's permissions, so you upgrade each one by hand. Until
 you do, the agent write tools (`issue_comment`, `issue_create`, `issue_edit`, and an approved
 `issue_close`) fail with "the wrangl GitHub App needs the issues: write permission"; the read
-tools keep working. Only the author App needs it; the reviewer App stays at `read`.
+tools keep working. Only the account's main App needs it; the optional reviewer App (6.3) stays at `read`.
 
 For each account's App:
 
@@ -467,7 +471,7 @@ Notes:
 - **What the agent can do with the stack.** It can read the whole project, and create,
   reorder, complete or add precursors only inside its assignment. Cancelling or deleting a
   task it didn't create becomes an approval question for you. `ask_question` blocks until you
-  answer with `wrangl question answer <id> <option>` (or from the web app in M8).
+  answer with `wrangl question answer <id> <option>` (or from the web app).
 
 Create the template and launch a runner:
 
@@ -642,7 +646,7 @@ show ◐ (in review) until it merges. What happens next:
    (`.github/**`, migrations, `go.mod`, `*.tf`, `Dockerfile*`).
 2. **Review:** a review run on a runner reads the PR and calls `submit_review` with a risk.
 3. **Decision:** with `--auto-merge` on the project, a low-risk PR that passes every gate is
-   approved and squash-merged by wrangl (as the reviewer App if you made one, otherwise the account's App). Anything else becomes a question:
+   approved and squash-merged by wrangl (as the account's App, or as its optional reviewer App if you made one). Anything else becomes a question:
    ```sh
    wrangl question list                    # kind pr_review
    wrangl question answer <id> approve
@@ -761,7 +765,7 @@ Access, with no inbound ports.
    cf_service_token: { id: "<client id>.access", secret: "<client secret>" }
    ```
    **Check:** `wrangl fleet list` from the laptop.
-4. **Webhook bypass (M6).** Add a second Access application for
+4. **Webhook bypass.** Add a second Access application for
    `wrangl.example.com/gh/webhook` with a **Bypass** policy (everyone). GitHub authenticates
    with the HMAC secret GitHub generated for the App (step 6.2) instead.
 
@@ -777,13 +781,13 @@ Access, with no inbound ports.
    `/healthz` must now carry a valid `Cf-Access-Jwt-Assertion` for that AUD, issued to
    `owner_email` or to a service token. The unix socket is unaffected. `owner_email` also
    becomes the VAPID contact for web push.
-   **Check:** `curl -i http://127.0.0.1:8080/backlog` on the controller returns 401, and the
+   **Check:** `curl -i http://127.0.0.1:8080/tasks` on the controller returns 401, and the
    same page loads through the tunnel.
 
 ### 10.1 Install the PWA on your phone
 
 1. Open `https://wrangl.example.com/` on the phone and sign in to Access. The page lands on
-   the Backlog.
+   Tasks.
 2. **iOS (16.4+):** Share → **Add to Home Screen**, then open wrangl from the Home Screen icon.
    Web push only works from the installed app. **Android/Chrome:** menu → **Install app**.
 3. In the app: **Settings → Enable push on this device**, and allow notifications. The VAPID key
@@ -792,10 +796,10 @@ Access, with no inbound ports.
 4. **Check:** push arrives when a question is asked (for example, plan a task with
    **Split → Plan with agent**). Tapping it opens Inbox.
 
-What the PWA does: **Backlog** (drag a task by its ⠿ handle to reorder or re-parent it; ＋ New;
+What the PWA does: **Tasks** (In progress, Queue and Backlog sections; drag a task by its ⠿ handle to reorder or re-parent it; ＋ New;
 open a task to edit, split, add subtasks or precursors, queue, or **Plan with agent**).
 **Runners** (cards with CPU/mem/disk and a CPU sparkline; detail page with cordon, drain and
-terminate). **Runs** (log filter, read-only live terminal, diff, file browser with markdown
+terminate). **Logs** (runs merged with runner, template and upgrade events; log filter, read-only live terminal, diff, file browser with markdown
 preview). **Inbox** (agent questions, plan proposals with Accept / Edit / Reject, and PR
 reviews). **Settings** (text size, projects, templates, launching a runner, push).
 

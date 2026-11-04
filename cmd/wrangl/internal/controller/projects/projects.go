@@ -66,6 +66,15 @@ func (s *Service) Project(ctx context.Context, slug string) (dbgen.Project, erro
 	return p, err
 }
 
+// activeProject is Project for a mutation: an archived project is read-only until restored.
+func (s *Service) activeProject(ctx context.Context, slug string) (dbgen.Project, error) {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return p, err
+	}
+	return p, stack.ActiveProject(ctx, s.DB.RQ, p.ID)
+}
+
 // Create adds a project.
 func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbgen.Project, error) {
 	if !slugRe.MatchString(slug) {
@@ -109,7 +118,7 @@ func b2i(b bool) int64 {
 
 // Update changes the given fields.
 func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbgen.Project, error) {
-	cur, err := s.Project(ctx, slug)
+	cur, err := s.activeProject(ctx, slug)
 	if err != nil {
 		return cur, err
 	}
@@ -215,7 +224,7 @@ func (s *Service) Limits(ctx context.Context, slug string) ([]proto.ProjectLimit
 
 // SetLimits stores instance caps by template name.
 func (s *Service) SetLimits(ctx context.Context, slug string, limits map[string]int64) error {
-	p, err := s.Project(ctx, slug)
+	p, err := s.activeProject(ctx, slug)
 	if err != nil {
 		return err
 	}
@@ -239,7 +248,7 @@ func (s *Service) SetLimits(ctx context.Context, slug string, limits map[string]
 // SetNotesRepo gives one of the project's linked repos the "notes" role ("" clears it).
 // Research tasks then run in that repo and write their reports under research/.
 func (s *Service) SetNotesRepo(ctx context.Context, slug, ref string) error {
-	p, err := s.Project(ctx, slug)
+	p, err := s.activeProject(ctx, slug)
 	if err != nil {
 		return err
 	}
@@ -318,7 +327,7 @@ func (s *Service) LinkRepo(ctx context.Context, slug, ref, branch string) (dbgen
 	if s.GH == nil {
 		return dbgen.Repo{}, ErrNoGitHub
 	}
-	p, err := s.Project(ctx, slug)
+	p, err := s.activeProject(ctx, slug)
 	if err != nil {
 		return dbgen.Repo{}, err
 	}
@@ -349,7 +358,7 @@ func (s *Service) LinkRepo(ctx context.Context, slug, ref, branch string) (dbgen
 
 // UnlinkRepo removes a repo link (tasks pointing at it keep their history).
 func (s *Service) UnlinkRepo(ctx context.Context, slug, ref string) error {
-	p, err := s.Project(ctx, slug)
+	p, err := s.activeProject(ctx, slug)
 	if err != nil {
 		return err
 	}
@@ -385,7 +394,7 @@ func (s *Service) SyncIssues(ctx context.Context, slug string) (int, error) {
 	if s.GH == nil {
 		return 0, ErrNoGitHub
 	}
-	p, err := s.Project(ctx, slug)
+	p, err := s.activeProject(ctx, slug)
 	if err != nil {
 		return 0, err
 	}
@@ -445,6 +454,9 @@ func (s *Service) Issue(ctx context.Context, slug, ref string) (dbgen.Issue, err
 
 // IssueToTask creates a task from an issue, linked to it and to its repo.
 func (s *Service) IssueToTask(ctx context.Context, slug, ref, parent, template string) (dbgen.Task, error) {
+	if _, err := s.activeProject(ctx, slug); err != nil {
+		return dbgen.Task{}, err
+	}
 	i, err := s.Issue(ctx, slug, ref)
 	if err != nil {
 		return dbgen.Task{}, err

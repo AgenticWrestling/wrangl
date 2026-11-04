@@ -428,6 +428,15 @@ a.chip.on { border-color: var(--ink); color: var(--ink); }
 @media (max-width: 760px) { .crumbs { display: none; } }
 
 /* Live agent output in an expanded task card */
+.livetx { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: #12151b; }
+.livetx .txbody { max-height: 25rem; overflow: auto; padding: 4px 2px; }
+.livetx .txmsg.user { color: var(--dim); border-left: 2px solid var(--faint); padding-left: 8px; font-size: 0.9em; }
+.livetx details.txchip { margin: 3px 0; }
+.livetx details.txchip > summary { cursor: pointer; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 0.82rem var(--mono); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; background: var(--raised); }
+.livetx .txout { margin: 4px 0 8px; max-height: 9rem; overflow: auto; white-space: pre-wrap; background: #0b0d11; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.livetx details.txthink { color: var(--dim); font-style: italic; margin: 4px 0; }
+.livetx .txearlier { display: block; text-align: center; font-size: 0.85rem; padding: 2px 0 8px; }
+.liveterm .note { margin: 4px 0; }
 .liveterm { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: #0f1115; }
 .liveterm .ltbody { max-height: 22rem; overflow: auto; }
 .liveterm .ltbody .wterm { box-shadow: none; border-radius: 0; padding: 4px; width: max-content; min-width: 100%; }
@@ -568,3 +577,5 @@ a.tlink code { color: var(--link); }
   .chatfab { display: flex; align-items: center; justify-content: center; position: fixed; right: 16px; bottom: calc(var(--tabs-h) + 16px + env(safe-area-inset-bottom)); width: 52px; height: 52px; border-radius: 50%; border: 0; background: var(--brand); color: var(--brand-ink); box-shadow: 0 4px 14px rgba(0,0,0,.5); z-index: 12; font-size: 1.3rem; cursor: pointer; }
   #chatroot.open .chatfab { display: none; }
 }
+/* the parent-task jump tag on In progress rows: long titles are elided */
+.tag.ptag { display: inline-block; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+
 	"bufio"
 	"context"
 	"encoding/json"
@@ -69,10 +71,10 @@ func fleetCmd(g *Global) *cobra.Command {
 					cpu, mem, disk := metricsCols(r.Metrics)
 					idle := "-"
 					if r.State == "idle" {
-						idle = ago(r.IdleSince, now)
+						idle = dbtime.AgoShort(r.IdleSince, now)
 					}
 					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, stateLabel(r), r.Template,
-						dash(r.InstanceID), dash(r.InstanceType), dash(r.PrivateIP), cpu, mem, disk, ago(r.LastHeartbeatAt, now), idle)
+						dash(r.InstanceID), dash(r.InstanceType), dash(r.PrivateIP), cpu, mem, disk, dbtime.AgoShort(r.LastHeartbeatAt, now), idle)
 				}
 			})
 		},
@@ -103,10 +105,10 @@ func fleetCmd(g *Global) *cobra.Command {
 					{"instance", dash(r.InstanceID) + "  " + r.InstanceType + "  " + r.AZ}, {"private ip", dash(r.PrivateIP)},
 					{"machine", fmt.Sprintf("%s, %d vCPU, %d MiB, %d GiB", dash(r.Arch), r.VCPU, r.RAMMiB, r.DiskGiB)},
 					{"cpu / mem / disk", cpu + " / " + mem + " / " + disk},
-					{"last heartbeat", ago(r.LastHeartbeatAt, now) + " ago"},
+					{"last heartbeat", dbtime.AgoShort(r.LastHeartbeatAt, now) + " ago"},
 				}
 				if r.State == "idle" && r.Launched {
-					rows = append(rows, [2]string{"idle", fmt.Sprintf("%s of %s", ago(r.IdleSince, now), time.Duration(r.IdleTimeoutS)*time.Second)})
+					rows = append(rows, [2]string{"idle", fmt.Sprintf("%s of %s", dbtime.AgoShort(r.IdleSince, now), time.Duration(r.IdleTimeoutS)*time.Second)})
 				}
 				if r.BinarySHA != "" {
 					bin := "sha256 " + shortSHA(r.BinarySHA)

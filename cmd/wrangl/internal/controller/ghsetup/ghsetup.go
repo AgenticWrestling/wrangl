@@ -1,9 +1,9 @@
-// Package ghsetup creates GitHub author Apps through GitHub's App manifest flow, so the owner
+// Package ghsetup creates GitHub Apps through GitHub's App manifest flow, so the owner
 // can set them up from the web app instead of by hand.
 //
 // A GitHub App is created in, and can by default only be installed on, one account: the
 // owner's personal account or an organisation. wrangl therefore keeps a list of GitHub
-// accounts (Settings) and one author App per account. The flow for an account:
+// accounts (Settings) and one App per account. The flow for an account:
 //
 //  1. Begin: the Settings page POSTs a manifest to github.com (the personal or the
 //     organisation form of "new App"); the owner confirms there.
@@ -36,7 +36,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 )
 
-// KeyRel is where the legacy single author App's private key was stored (relative to the data
+// KeyRel is where the legacy single App's private key was stored (relative to the data
 // dir); MigrateLegacy adopts it into an account.
 const KeyRel = "secrets/gh-author.pem"
 
@@ -57,20 +57,12 @@ type Account struct {
 	Login string
 	Kind  string // user | org
 	App   *App
-	// Reviewer is the second App, which approves and merges pull requests (nil until created).
+	// Reviewer is the optional second App, which approves and merges pull requests (nil until created).
 	Reviewer *App
 }
 
-// ReviewerInstallationsURL is like InstallationsURL for the reviewer App.
-func (a Account) ReviewerInstallationsURL() string {
-	if a.Reviewer == nil {
-		return ""
-	}
-	return a.InstallationsURL2()
-}
-
-// InstallationsURL2 is the account's installations page whether or not the author App exists.
-func (a Account) InstallationsURL2() string {
+// accountInstallationsURL is the account's installations page whether or not its App exists.
+func (a Account) accountInstallationsURL() string {
 	if a.Kind == "org" {
 		return "https://github.com/organizations/" + url.PathEscape(a.Login) + "/settings/installations"
 	}
@@ -91,10 +83,7 @@ func (a Account) InstallationsURL() string {
 	if a.App == nil {
 		return ""
 	}
-	if a.Kind == "org" {
-		return "https://github.com/organizations/" + url.PathEscape(a.Login) + "/settings/installations"
-	}
-	return "https://github.com/settings/installations"
+	return a.accountInstallationsURL()
 }
 
 // Service holds the setup state for one controller.
@@ -221,21 +210,24 @@ func (s *Service) Account(ctx context.Context, login string) (Account, bool) {
 }
 
 // Lookup is gh.Multi's way to find an owner's App.
-func (s *Service) Lookup(owner string) (gh.AppRef, bool) {
-	r, err := s.DB.RQ.GetGithubAccount(context.Background(), owner)
-	if err != nil || !r.AppID.Valid || r.AppID.Int64 == 0 || r.KeyFile == "" {
-		return gh.AppRef{}, false
-	}
-	return gh.AppRef{AppID: r.AppID.Int64, KeyPath: filepath.Join(s.DataDir, r.KeyFile)}, true
-}
+func (s *Service) Lookup(owner string) (gh.AppRef, bool) { return s.lookup(owner, false) }
 
-// LookupReviewer is gh.Multi's way to find an owner's reviewer App.
-func (s *Service) LookupReviewer(owner string) (gh.AppRef, bool) {
+// LookupReviewer is gh.Multi's way to find an owner's optional reviewer App.
+func (s *Service) LookupReviewer(owner string) (gh.AppRef, bool) { return s.lookup(owner, true) }
+
+func (s *Service) lookup(owner string, reviewer bool) (gh.AppRef, bool) {
 	r, err := s.DB.RQ.GetGithubAccount(context.Background(), owner)
-	if err != nil || !r.ReviewerAppID.Valid || r.ReviewerAppID.Int64 == 0 || r.ReviewerKeyFile == "" {
+	if err != nil {
 		return gh.AppRef{}, false
 	}
-	return gh.AppRef{AppID: r.ReviewerAppID.Int64, KeyPath: filepath.Join(s.DataDir, r.ReviewerKeyFile)}, true
+	id, key := r.AppID, r.KeyFile
+	if reviewer {
+		id, key = r.ReviewerAppID, r.ReviewerKeyFile
+	}
+	if !id.Valid || id.Int64 == 0 || key == "" {
+		return gh.AppRef{}, false
+	}
+	return gh.AppRef{AppID: id.Int64, KeyPath: filepath.Join(s.DataDir, key)}, true
 }
 
 // WebhookSecrets are the secrets of every App (GitHub generates one per App); a delivery is
@@ -296,22 +288,15 @@ func FreshAppName(login string) string {
 // Manifest is the App manifest to submit to GitHub for an App called name.
 func (s *Service) Manifest(name string) ([]byte, error) { return s.ManifestFor(name, "") }
 
-// ManifestFor is the manifest for an author App (role "") or a reviewer App ("reviewer"). The
-// reviewer reads checks, approves and merges, and gets webhooks; GitHub generates its secret.
+// ManifestFor is the manifest for an account's App (role "") or its optional reviewer App
+// ("reviewer"), which differs only in reading issues instead of writing them.
 func (s *Service) ManifestFor(name, role string) ([]byte, error) {
 	if s.PublicURL == "" {
 		return nil, errors.New("web.public_url is not set in controller.yaml")
 	}
+	issues := "write"
 	if role == "reviewer" {
-		return json.Marshal(map[string]any{
-			"name": name, "url": s.PublicURL, "public": false,
-			"redirect_url":    s.PublicURL + "/setup/github/callback",
-			"hook_attributes": map[string]any{"url": s.PublicURL + "/gh/webhook", "active": true},
-			"default_permissions": map[string]string{
-				"contents": "write", "pull_requests": "write", "checks": "read", "issues": "read", "metadata": "read",
-			},
-			"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "push", "issues"},
-		})
+		issues = "read"
 	}
 	// The one App per account: opens PRs, reads CI checks, merges and receives webhooks (GitHub
 	// generates the secret). It cannot approve a PR it opened itself; that is what the optional
@@ -323,7 +308,7 @@ func (s *Service) ManifestFor(name, role string) ([]byte, error) {
 		// issues: write lets the controller comment on, create, edit and (with the owner's approval)
 		// close issues for agents. Existing Apps are upgraded by hand (docs/wrangl/INSTALL.md).
 		"default_permissions": map[string]string{
-			"contents": "write", "pull_requests": "write", "checks": "read", "issues": "write", "metadata": "read",
+			"contents": "write", "pull_requests": "write", "checks": "read", "issues": issues, "metadata": "read",
 		},
 		"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "push", "issues"},
 	})
@@ -333,7 +318,7 @@ func (s *Service) ManifestFor(name, role string) ([]byte, error) {
 // where the owner returns afterwards (a path on this site, or "").
 func (s *Service) NewState(login, back string) string { return s.NewRoleState(login, back, "") }
 
-// NewRoleState is NewState for the author App (role "") or the reviewer App ("reviewer").
+// NewRoleState is NewState for the account's App (role "") or the reviewer App ("reviewer").
 func (s *Service) NewRoleState(login, back, role string) string {
 	b := make([]byte, 24)
 	rand.Read(b)

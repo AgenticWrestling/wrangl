@@ -147,7 +147,7 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 			reply(proto.TemplateAck{Reason: "an apply is already running"})
 			return
 		}
-		if worker.Busy() != 0 {
+		if len(worker.Active()) > 0 {
 			applying.Store(false)
 			reply(proto.TemplateAck{Reason: "a run is in progress"})
 			return
@@ -191,7 +191,7 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 			respond(m, proto.Ack{Reason: "already upgrading"})
 			return
 		}
-		if worker.Busy() != 0 || applying.Load() {
+		if len(worker.Active()) > 0 || applying.Load() {
 			upgrading.Store(false)
 			gate.Unlock()
 			respond(m, proto.Ack{Reason: "busy"})
@@ -331,7 +331,11 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		hb := SampleHeartbeat(ctx, Version)
 		hb.TemplateVersion = AppliedVersion(cfg)
 		hb.Applying = applying.Load()
-		hb.RunID = worker.Busy()
+		active := worker.Active()
+		hb.Sessions = len(active)
+		if len(active) > 0 {
+			hb.RunID = active[0] // for controllers from before Sessions
+		}
 		hb.BinarySHA = binSHA.Load().(string)
 		hb.Upgrading = upgrading.Load()
 		b, _ := json.Marshal(hb)

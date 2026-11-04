@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -74,6 +75,17 @@ func (w *Worker) addWorktree(ctx context.Context, s *session, start string) erro
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "remove", "--force", dir)
 	os.RemoveAll(dir)
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "prune")
+	// A review only reads the branch: check it out detached, so it neither collides with the
+	// worktree an earlier run keeps on that branch nor disturbs it.
+	if a.Kind == "review" {
+		if out, err := gitAsDaemon(ctx, s.mirror, "", "worktree", "add", "--detach", dir, "refs/remotes/origin/"+start); err != nil {
+			return fmt.Errorf("worktree add: %w: %s", err, out)
+		}
+		return chownTree(s.mirror, id)
+	}
+	if err := w.freeBranch(ctx, s, dir); err != nil {
+		return err
+	}
 	if out, err := gitAsDaemon(ctx, s.mirror, "", "worktree", "add", "-B", a.Branch, dir, "refs/remotes/origin/"+start); err != nil {
 		return fmt.Errorf("worktree add: %w: %s", err, out)
 	}
@@ -92,5 +104,53 @@ func (s *session) removeWorktree(ctx context.Context) {
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "remove", "--force", s.dir)
 	os.RemoveAll(s.dir)
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "prune")
-	gitAsDaemon(ctx, s.mirror, "", "branch", "-D", s.a.Branch)
+	if s.a.Kind != "review" { // a review is detached: the branch belongs to the run that made it
+		gitAsDaemon(ctx, s.mirror, "", "branch", "-D", s.a.Branch)
+	}
+}
+
+// freeBranch makes a.Branch available for a new worktree at dir. A branch can be checked out in
+// one worktree only, and an earlier run of the same task (blocked, or waiting for review, so its
+// worktree was kept for inspection) still holds it: a review, revise or Smart Merge run on the same
+// branch would fail with "already used by worktree". The earlier worktree is removed unless its
+// run is live on this runner; its HEAD is kept under refs/wrangl/stale/<dir> first so nothing that
+// was committed is lost (the run's push already put the branch on the remote). Caller holds the
+// repo lock.
+func (w *Worker) freeBranch(ctx context.Context, s *session, dir string) error {
+	out, err := gitAsDaemon(ctx, s.mirror, "", "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil // the add below reports any real problem
+	}
+	for _, blk := range strings.Split(out, "\n\n") {
+		var path, head, branch string
+		for _, ln := range strings.Split(blk, "\n") {
+			switch {
+			case strings.HasPrefix(ln, "worktree "):
+				path = strings.TrimPrefix(ln, "worktree ")
+			case strings.HasPrefix(ln, "HEAD "):
+				head = strings.TrimPrefix(ln, "HEAD ")
+			case strings.HasPrefix(ln, "branch "):
+				branch = strings.TrimPrefix(ln, "branch ")
+			}
+		}
+		if path == "" || path == dir || branch != "refs/heads/"+s.a.Branch {
+			continue
+		}
+		if id, err := strconv.ParseInt(filepath.Base(path), 10, 64); err == nil {
+			w.mu.Lock()
+			_, live := w.runs[id]
+			w.mu.Unlock()
+			if live {
+				return fmt.Errorf("branch %s is in use by live run %d on this runner", s.a.Branch, id)
+			}
+		}
+		if head != "" {
+			gitAsDaemon(ctx, s.mirror, "", "update-ref", "refs/wrangl/stale/"+filepath.Base(path), head)
+		}
+		s.logf("runner", "released %s from the earlier run's worktree %s", s.a.Branch, path)
+		gitAsDaemon(ctx, s.mirror, "", "worktree", "remove", "--force", path)
+		os.RemoveAll(path)
+		gitAsDaemon(ctx, s.mirror, "", "worktree", "prune")
+	}
+	return nil
 }

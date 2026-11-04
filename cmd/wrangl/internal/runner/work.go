@@ -26,6 +26,7 @@ import (
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/transcript"
 )
 
 // Defaults for agent turns.
@@ -77,28 +78,6 @@ func (w *Worker) Active() []int64 {
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	return ids
-}
-
-// Busy reports a run in progress (the lowest id), 0 = idle. Callers that only ask "is anything
-// running?" (template apply, self-upgrade, the heartbeat) keep working with several sessions.
-func (w *Worker) Busy() int64 {
-	if ids := w.Active(); len(ids) > 0 {
-		return ids[0]
-	}
-	return 0
-}
-
-// Kind is the kind of the sole run in progress ("" when none or several).
-func (w *Worker) Kind() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if len(w.runs) != 1 {
-		return ""
-	}
-	for _, r := range w.runs {
-		return r.kind
-	}
-	return ""
 }
 
 // errNoRun: no run matches.
@@ -246,6 +225,11 @@ type session struct {
 	// front (Codex, agy, Gemini): read from its JSON output, else from a hook payload.
 	agentSession      string
 	agentSessionFixed bool // taken from the agent's own output: hooks don't override it
+	// transcript tailing: entries keep one increasing seq across agent invocations,
+	// and a resumed session's file is read on from where the last tail stopped.
+	tsNorm    transcript.Normaliser
+	tsOffsets map[string]int64
+	tsPath    string // transcript_path from the first hook event
 }
 
 var sessionIDOut = regexp.MustCompile(`"(?:thread_id|session_id|sessionId|conversation_id|conversationId)"\s*:\s*"([A-Za-z0-9_.:-]+)"`)
@@ -379,15 +363,7 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	rs.sess = s
 	w.mu.Unlock()
 	defer func() { w.mu.Lock(); rs.sess = nil; w.mu.Unlock() }()
-	fail := func(err error) {
-		s.logf("runner", "run failed: %v", err)
-		s.flush()
-		st := proto.RunState{State: "failed", Error: err.Error()}
-		if ctx.Err() != nil {
-			st = proto.RunState{State: "cancelled", Error: "cancelled"}
-		}
-		s.state(pubCtx, st)
-	}
+	fail := func(err error) { s.fail(ctx, pubCtx, err) }
 	if err != nil {
 		fail(err)
 		return
@@ -415,14 +391,34 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	}
 	s.state(pubCtx, proto.RunState{State: "running", BaseSHA: base})
 
+	turns, blocked, ok := w.runTasks(ctx, pubCtx, s, fail)
+	if !ok {
+		return
+	}
+	w.finishRun(ctx, pubCtx, s, fail, base, turns, blocked)
+}
+
+// fail reports a failed (or, after a cancel, cancelled) run.
+func (s *session) fail(ctx, pubCtx context.Context, err error) {
+	s.logf("runner", "run failed: %v", err)
+	s.flush()
+	st := proto.RunState{State: "failed", Error: err.Error()}
+	if ctx.Err() != nil {
+		st = proto.RunState{State: "cancelled", Error: "cancelled"}
+	}
+	s.state(pubCtx, st)
+}
+
+// runTasks asks the controller for the next task until none is ready, running one turn (and its
+// checkpoint) for each. ok is false when the run has already been reported as failed.
+func (w *Worker) runTasks(ctx, pubCtx context.Context, s *session, fail func(error)) (turns int, blocked, ok bool) {
+	a := s.a
 	turnTimeout := DefaultTurnTimeout
 	if a.Agent.TurnTimeout != "" {
 		if d, err := time.ParseDuration(a.Agent.TurnTimeout); err == nil && d > 0 {
 			turnTimeout = d
 		}
 	}
-	turns := 0
-	blocked := false
 	for {
 		r, err := w.stack(ctx, "next", proto.StackRequest{RunID: a.RunID})
 		if err != nil {
@@ -432,59 +428,73 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 		n := r.Next
 		if n == nil || n.Done || n.Blocked {
 			blocked = n != nil && n.Blocked
-			break
+			return turns, blocked, true
 		}
-		s.logf("runner", "==> %s %s", n.Sqid, n.Title)
-		s.state(pubCtx, proto.RunState{State: "running", Status: n.Sqid + " " + n.Title})
-		argv := a.Agent.Start
-		if turns > 0 {
-			argv = s.resumeArgv()
-		}
-		s.resetSummary()
-		var ch *chain
-		if s.interactive {
-			ch = &chain{cur: n}
-			s.onStop = func(hctx context.Context) (string, bool) { return w.chainNext(hctx, s, ch) }
-		}
-		code, err := w.turn(ctx, s, argv, n, turnTimeout)
-		turns++
-		if ch != nil {
-			s.onStop = nil
-			ch.mu.Lock()
-			n, turns = ch.cur, turns+ch.extra // the session may have moved on to later tasks
-			ch.mu.Unlock()
-		}
-		if err != nil {
-			fail(fmt.Errorf("task %s: %w", n.Sqid, err))
-			return
-		}
-		if code != 0 {
-			c := code
-			s.flush()
-			s.state(pubCtx, proto.RunState{State: "failed", ExitCode: &c, Error: fmt.Sprintf("agent exited %d on task %s", code, n.Sqid)})
-			return
-		}
-		if a.Kind == "review" || a.Kind == "plan" {
-			continue // read-only runs: no commits; the controller records what they submitted
-		}
-		if err := w.checkpoint(ctx, s, n); err != nil {
-			fail(err)
-			return
-		}
-		if a.Kind != "work" {
-			continue // revise: one composed prompt, no leaf to complete
-		}
-		if err := w.ensureComplete(ctx, s, n, &turns, turnTimeout); err != nil {
-			if errors.Is(err, errFailRun) {
-				s.flush()
-				s.state(pubCtx, proto.RunState{State: "failed", Error: "the owner chose to fail the run: " + n.Sqid + " was not completed"})
-				return
-			}
-			fail(err)
+		if !w.turnAndCheckpoint(ctx, pubCtx, s, n, &turns, turnTimeout, fail) {
 			return
 		}
 	}
+}
 
+// turnAndCheckpoint runs the agent on one task, commits its work and, for work runs, makes sure
+// the task was completed. It reports false when the run ended (failed) instead.
+func (w *Worker) turnAndCheckpoint(ctx, pubCtx context.Context, s *session, n *proto.StackNext, turns *int, turnTimeout time.Duration, fail func(error)) bool {
+	a := s.a
+	s.logf("runner", "==> %s %s", n.Sqid, n.Title)
+	s.state(pubCtx, proto.RunState{State: "running", Status: n.Sqid + " " + n.Title})
+	argv := a.Agent.Start
+	if *turns > 0 {
+		argv = s.resumeArgv()
+	}
+	s.resetSummary()
+	var ch *chain
+	if s.interactive {
+		ch = &chain{cur: n}
+		s.onStop = func(hctx context.Context) (string, bool) { return w.chainNext(hctx, s, ch) }
+	}
+	code, err := w.turn(ctx, s, argv, n, turnTimeout)
+	*turns++
+	if ch != nil {
+		s.onStop = nil
+		ch.mu.Lock()
+		n, *turns = ch.cur, *turns+ch.extra // the session may have moved on to later tasks
+		ch.mu.Unlock()
+	}
+	if err != nil {
+		fail(fmt.Errorf("task %s: %w", n.Sqid, err))
+		return false
+	}
+	if code != 0 {
+		c := code
+		s.flush()
+		s.state(pubCtx, proto.RunState{State: "failed", ExitCode: &c, Error: fmt.Sprintf("agent exited %d on task %s", code, n.Sqid)})
+		return false
+	}
+	if a.Kind == "review" || a.Kind == "plan" {
+		return true // read-only runs: no commits; the controller records what they submitted
+	}
+	if err := w.checkpoint(ctx, s, n); err != nil {
+		fail(err)
+		return false
+	}
+	if a.Kind != "work" {
+		return true // revise: one composed prompt, no leaf to complete
+	}
+	if err := w.ensureComplete(ctx, s, n, turns, turnTimeout); err != nil {
+		if errors.Is(err, errFailRun) {
+			s.flush()
+			s.state(pubCtx, proto.RunState{State: "failed", Error: "the owner chose to fail the run: " + n.Sqid + " was not completed"})
+			return false
+		}
+		fail(err)
+		return false
+	}
+	return true
+}
+
+// finishRun pushes the run branch when it has commits and reports the final state.
+func (w *Worker) finishRun(ctx, pubCtx context.Context, s *session, fail func(error), base string, turns int, blocked bool) {
+	a, id, dir := s.a, s.id, s.dir
 	head, _ := gitAsAgent(ctx, id, dir, "rev-parse", "HEAD")
 	from := base
 	if s.continuedFrom != "" {
@@ -793,6 +803,10 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 	defer f.Close()
 	defer w.addRunTerm(s.a.RunID, f, size)()
 
+	tailCtx, stopTail := context.WithCancel(ctx)
+	tailDone := s.startTranscriptTail(tailCtx)
+	defer func() { stopTail(); <-tailDone }()
+
 	ptySubj := natsd.RunPTYSubject(w.Cfg.RunnerID, s.a.RunID)
 	readDone := make(chan struct{})
 	go func() {
@@ -910,15 +924,23 @@ func (w *Worker) checkpointCommit(ctx context.Context, s *session, n *proto.Stac
 	return nil
 }
 
-// reportCheckpoint tells the controller which commit the task ended on (whether the runner or
-// the agent made it), so a done task can link to its changes. Best effort: a failure is logged,
+// reportCheckpoint pushes the run branch and tells the controller which commit the task ended on
+// (whether the runner or the agent made it), so a done task can link to its changes. Best effort: a failure is logged,
 // never fatal to the run.
 func (w *Worker) reportCheckpoint(ctx context.Context, s *session, n *proto.StackNext) {
+	if s.a.Kind == "review" || s.a.Kind == "plan" {
+		return // read-only runs never push, so a link to their HEAD would 404
+	}
 	out, err := gitAsAgent(ctx, s.id, s.dir, "rev-parse", "HEAD")
 	sha := strings.TrimSpace(out)
 	if err != nil || sha == "" {
 		s.logf("runner", "checkpoint: no HEAD to report for %s", n.Sqid)
 		return
+	}
+	// Push the run branch now so the commit exists on GitHub for the "what changed" link while
+	// the run is still going (and the work is backed up). The final push in finishRun repeats it.
+	if out, err := w.pushBranch(ctx, s.id, s.dir, s.a.GitToken, s.a.Branch); err != nil {
+		s.logf("runner", "checkpoint: push %s: %v: %s", s.a.Branch, err, strings.TrimSpace(out))
 	}
 	if _, err := w.stack(ctx, "checkpoint", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Commit: sha}); err != nil {
 		s.logf("runner", "checkpoint: report %s: %v", n.Sqid, err)

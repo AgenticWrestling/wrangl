@@ -139,8 +139,9 @@ func (w *Worker) HookFor(runID int64, event string, payload json.RawMessage) err
 		payload, _ = json.Marshal(string(payload))
 	}
 	var ids struct {
-		SessionID      string `json:"session_id"`     // Claude Code, Codex, Gemini CLI
-		ConversationID string `json:"conversationId"` // Antigravity (agy)
+		TranscriptPath string `json:"transcript_path"` // Claude Code
+		SessionID      string `json:"session_id"`      // Claude Code, Codex, Gemini CLI
+		ConversationID string `json:"conversationId"`  // Antigravity (agy)
 	}
 	if json.Unmarshal(payload, &ids) == nil {
 		w.mu.Lock()
@@ -148,6 +149,7 @@ func (w *Worker) HookFor(runID int64, event string, payload json.RawMessage) err
 		w.mu.Unlock()
 		if sess != nil {
 			sess.noteSession(ids.SessionID+ids.ConversationID, false)
+			sess.noteTranscriptPath(ids.TranscriptPath)
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"seq": seq, "ts": time.Now().UTC(), "event": event, "payload": payload})
@@ -205,7 +207,7 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 		reply(rw, 200, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /tools", func(rw http.ResponseWriter, r *http.Request) {
-		kind := w.Kind()
+		kind := "" // unknown when several runs are active and the caller names none
 		if rs, err := w.target(runOf(r)); err == nil {
 			kind = rs.kind
 		}

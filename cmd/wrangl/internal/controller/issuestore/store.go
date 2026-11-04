@@ -5,6 +5,8 @@
 package issuestore
 
 import (
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -18,7 +20,7 @@ import (
 )
 
 // TimeFormat is the one format synced_at is written in.
-const TimeFormat = "2006-01-02T15:04:05.000Z"
+const TimeFormat = dbtime.Layout
 
 // NormTime turns a GitHub timestamp into UTC RFC3339 so strings compare chronologically.
 // Unparseable or empty input yields "".

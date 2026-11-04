@@ -2,8 +2,11 @@ package runs_test
 
 import (
 	"context"
+	"errors"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,5 +161,26 @@ func TestActiveRunIsNotStuck(t *testing.T) {
 	m.rs.SweepStuck(context.Background())
 	if n := m.count(`SELECT COUNT(*) FROM question`); n != 0 {
 		t.Fatalf("a run in needs_input was reported: %d", n)
+	}
+}
+
+// Cancelling a run of an archived project is refused (archiving already cancels its queued runs;
+// a stray one is left alone until the project is restored).
+func TestCancelRunRefusedWhileProjectArchived(t *testing.T) {
+	m := newMaint(t)
+	ctx := context.Background()
+	m.exec(`INSERT INTO run (task_id, state, kind) VALUES (?, 'queued', 'work')`, m.task)
+	id := int64(m.count(`SELECT MAX(id) FROM run`))
+	m.exec(`UPDATE project SET archived_at = '2026-01-01T00:00:00.000Z' WHERE id = 1`)
+	err := m.rs.Cancel(ctx, id)
+	if !errors.Is(err, errs.Conflict) || !strings.Contains(err.Error(), "archived") {
+		t.Fatalf("cancel on an archived project: %v", err)
+	}
+	if m.count(`SELECT COUNT(*) FROM run WHERE id = ? AND state = 'queued'`, id) != 1 {
+		t.Fatal("the run was cancelled anyway")
+	}
+	m.exec(`UPDATE project SET archived_at = NULL WHERE id = 1`)
+	if err := m.rs.Cancel(ctx, id); err != nil {
+		t.Fatalf("cancel after restore: %v", err)
 	}
 }

@@ -6,6 +6,9 @@
 package web
 
 import (
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
+
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -32,16 +35,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
-	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
-	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
-	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
 //go:embed static templates
@@ -81,7 +80,7 @@ func New(d api.Deps) (*Handler, error) {
 	t, err := template.New("").Funcs(template.FuncMap{
 		"glyph":  func(s string) string { return glyph[s] },
 		"dict":   func(k, v string) map[string]string { return map[string]string{k: v} },
-		"ago":    ago,
+		"ago":    func(ts string) string { return dbtime.Ago(ts, time.Now()) },
 		"about":  firstLine,
 		"md":     markdown,
 		"pct":    func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
@@ -198,6 +197,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		http.Redirect(w, r, "/settings", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /ui/detail", h.detail)
+	mux.HandleFunc("GET /ui/transcript", h.transcriptMore)
+	mux.HandleFunc("GET /ui/transcript-live", h.transcriptLive)
 	mux.HandleFunc("POST /ui/expand", h.expand)
 	mux.HandleFunc("GET /deliverable/{id}", h.deliverable)
 	mux.HandleFunc("GET /deliverable/{id}/proto", h.deliverable)
@@ -402,7 +403,7 @@ func reqValue(r *http.Request, k string) string {
 // live is the page's Datastar stream: it re-renders #main on every change notice.
 func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	view := r.URL.Query().Get("view")
-	if _, ok := map[string]bool{"tasks": true, "task": true, "runners": true, "runner": true, "logs": true, "run": true, "inbox": true, "settings": true, "project": true, "projects": true}[view]; !ok {
+	if _, ok := liveKinds[view]; !ok {
 		w.WriteHeader(http.StatusNoContent) // static pages (diff, files) are not live
 		return
 	}
@@ -417,62 +418,88 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 	fl, _ := w.(http.Flusher)
-	push := func() {
-		data, err := h.data(r.Context(), view, r)
-		if err != nil {
-			return
-		}
-		if sq := sess.get(); view == "tasks" && sq != "" {
-			card, err := h.taskPart(r.Context(), sq, "main-task")
-			if err == nil {
-				// The card goes wherever the page lists the task: the backlog tree, a run entry
-				// (and its subtasks) in In progress / Queue, or the "In progress" leaf view.
-				var all []*node
-				if roots, ok := data["Roots"].([]*node); ok {
-					all = append(all, roots...)
-				}
-				if now, ok := data["Now"].([]*node); ok {
-					all = append(all, now...)
-				}
-				for _, k := range []string{"Progress", "Queue"} {
-					if es, ok := data[k].([]*runEntry); ok {
-						for _, e := range es {
-							all = append(all, e.Node)
+	push := func(wantMain, wantBadge bool) {
+		var open []proto.QuestionView
+		haveOpen := false
+		if wantMain {
+			data, err := h.data(r.Context(), view, r)
+			if err != nil {
+				return
+			}
+			open, haveOpen = data["OpenQuestions"].([]proto.QuestionView)
+			if sq := sess.get(); view == "tasks" && sq != "" {
+				card, err := h.taskPart(r.Context(), sq, "main-task")
+				if err == nil {
+					// The card goes wherever the page lists the task: the backlog tree, a run entry
+					// (and its subtasks) in In progress / Queue, or the "In progress" leaf view.
+					var all []*node
+					if roots, ok := data["Roots"].([]*node); ok {
+						all = append(all, roots...)
+					}
+					if now, ok := data["Now"].([]*node); ok {
+						all = append(all, now...)
+					}
+					for _, k := range []string{"Progress", "Queue"} {
+						if es, ok := data[k].([]*runEntry); ok {
+							for _, e := range es {
+								all = append(all, e.Node)
+							}
 						}
 					}
+					attachDetail(all, sq, card)
 				}
-				attachDetail(all, sq, card)
+			}
+			main, err := h.render("main-"+view, data)
+			if err != nil {
+				return
+			}
+			mergeFragments(w, `<main id="main">`+string(main)+`</main>`)
+			// The sidebar's recent projects change with the tasks, so they ride along with #main.
+			nav := map[string]any{}
+			if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context(), "active"); err == nil {
+				nav["NavProjects"], _ = recentProjects(ps, 5)
+			}
+			nav["Project"], _ = data["Project"].(string)
+			if html, err := h.render("subnav", nav); err == nil {
+				mergeFragments(w, string(html))
 			}
 		}
-		main, err := h.render("main-"+view, data)
-		if err != nil {
-			return
+		if wantBadge {
+			if !haveOpen { // the inbox view already asked; every other page asks once, here
+				open, _ = h.D.Runs.Questions(r.Context(), false)
+			}
+			mergeFragments(w, fmt.Sprintf(`<span id="inbox-badge" class="badge">%s</span>`, map[bool]string{true: strconv.Itoa(len(open)), false: ""}[len(open) > 0]))
 		}
-		open, _ := h.D.Runs.Questions(r.Context(), false)
-		badge := fmt.Sprintf(`<span id="inbox-badge" class="badge">%s</span>`, map[bool]string{true: strconv.Itoa(len(open)), false: ""}[len(open) > 0])
-		mergeFragments(w, `<main id="main">`+string(main)+`</main>`)
-		mergeFragments(w, badge)
 		if fl != nil {
 			fl.Flush()
 		}
 	}
-	push()
+	push(true, true)
 	keep := time.NewTicker(api.KeepAlive)
 	defer keep.Stop()
 	var debounce <-chan time.Time
+	var wantMain, wantBadge bool
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-sess.kick:
-			push()
-		case <-ch:
+			push(true, false)
+		case e := <-ch:
+			// Only events that change this page re-render it; a question or PR change also moves the
+			// Inbox badge, which every page shows.
+			m, b := liveRelevant(view, e.Kind)
+			if !m && !b {
+				continue
+			}
+			wantMain, wantBadge = wantMain || m, wantBadge || b
 			if debounce == nil {
 				debounce = time.After(250 * time.Millisecond)
 			}
 		case <-debounce:
 			debounce = nil
-			push()
+			push(wantMain, wantBadge)
+			wantMain, wantBadge = false, false
 		case <-keep.C:
 			io.WriteString(w, ": ping\n\n")
 			if fl != nil {
@@ -480,6 +507,33 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// liveKinds lists, per page, the bus event kinds that change what it shows. Anything else (a
+// runner heartbeat on the Settings page, say) leaves it alone.
+var liveKinds = map[string][]string{
+	"tasks":    {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindThread},
+	"projects": {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindRunner},
+	"task":     {events.KindTask, events.KindRun, events.KindPR, events.KindQuestion, events.KindThread},
+	"runners":  {events.KindRunner, events.KindRun},
+	"runner":   {events.KindRunner, events.KindRun},
+	"logs":     {events.KindLog, events.KindRun},
+	"run":      {events.KindRun, events.KindLog, events.KindTask},
+	"inbox":    {events.KindQuestion, events.KindPR, events.KindTask, events.KindRun, events.KindDoc},
+	"settings": {events.KindTask, events.KindLog},
+	"project":  {events.KindTask, events.KindPR, events.KindLog},
+}
+
+// liveRelevant says whether an event of this kind re-renders the page's #main, and whether it
+// moves the Inbox badge.
+func liveRelevant(view, kind string) (main, badge bool) {
+	for _, k := range liveKinds[view] {
+		if k == kind {
+			main = true
+		}
+	}
+	badge = kind == events.KindQuestion || kind == events.KindPR
+	return
 }
 
 // mergeFragments writes a Datastar patch-elements event (one data line per HTML line): the
@@ -553,7 +607,7 @@ func (h *Handler) changeLinks(ctx context.Context, projectID int64) map[string]c
 	r := h.D.Fleet.DB.R
 	rows, err := r.QueryContext(ctx, `SELECT t.sqid, c.sha, r.owner, r.name FROM task_checkpoint c
 		JOIN task t ON t.id = c.task_id JOIN run ru ON ru.id = c.run_id JOIN repo r ON r.id = ru.repo_id
-		WHERE c.id = (SELECT MAX(id) FROM task_checkpoint WHERE task_id = c.task_id) AND (?1 = 0 OR t.project_id = ?1)`, projectID)
+		WHERE c.id = (SELECT MAX(c2.id) FROM task_checkpoint c2 JOIN run r2 ON r2.id = c2.run_id WHERE c2.task_id = c.task_id AND (r2.pushed = 1 OR r2.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))) AND (?1 = 0 OR t.project_id = ?1)`, projectID)
 	if err == nil {
 		for rows.Next() {
 			var sqid, sha, owner, repo string
@@ -696,428 +750,32 @@ func (n *node) Awaits() bool {
 	return n.RollRev+n.RollQ+n.RollFail > 0 || n.Kind == "review" || n.Kind == "questions" || n.Kind == "failed"
 }
 
+type viewFn func(h *Handler, ctx context.Context, view string, r *http.Request, d map[string]any) error
+
+// views maps a page name to the function that gathers its template data.
+var views = map[string]viewFn{
+	"tasks":    (*Handler).viewTasks,
+	"projects": (*Handler).viewProjects,
+	"task":     (*Handler).viewTask,
+	"runners":  (*Handler).viewRunners,
+	"runner":   (*Handler).viewRunner,
+	"logs":     (*Handler).viewLogs,
+	"run":      (*Handler).viewRun,
+	"diff":     (*Handler).viewRun,
+	"files":    (*Handler).viewRun,
+	"inbox":    (*Handler).viewInbox,
+	"project":  (*Handler).viewProject,
+	"setup":    (*Handler).viewSetup,
+	"template": (*Handler).viewTemplate,
+	"settings": (*Handler).viewSettings,
+}
+
 func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[string]any, error) {
-	db := h.D.Fleet.DB
 	d := map[string]any{}
-	switch view {
-	case "tasks":
-		projects, err := db.RQ.ListProjects(ctx, "active")
-		if err != nil {
+	if fn := views[view]; fn != nil {
+		if err := fn(h, ctx, view, r, d); err != nil {
 			return nil, err
 		}
-		d["Projects"] = projects
-		d["Recent"], d["Rest"] = recentProjects(projects, 4)
-		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		slug := reqValue(r, "slug")
-		if slug == "" {
-			slug = reqValue(r, "project")
-		}
-		d["Project"], d["Title"] = slug, slug
-		if _, err := db.RQ.GetProjectBySlug(ctx, slug); err != nil {
-			return nil, fmt.Errorf("%w: project %q", errs.NotFound, slug)
-		}
-		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
-		if slug != "" { // a direct link to an archived project still works, with its actions disabled
-			if cur, err := db.RQ.GetProjectBySlug(ctx, slug); err == nil {
-				d["Archived"] = cur.ArchivedAt.Valid
-			}
-		}
-		d["Types"] = dbtypes.TaskTypes
-		d["All"] = r.URL.Query().Get("all") == "1"
-		if slug != "" {
-			secs, err := h.tree(ctx, slug, d["All"].(bool))
-			if err != nil {
-				return nil, err
-			}
-			d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
-			d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
-			d["ProjectRunners"], _ = h.D.Projects.Runners(ctx, slug)
-			// Needs you: this project's open questions, task/plan reviews and PRs, as Inbox cards.
-			var qs []proto.QuestionView
-			if all, qerr := h.D.Runs.Questions(ctx, false); qerr == nil {
-				for _, q := range all {
-					if q.Project == slug {
-						qs = append(qs, q)
-					}
-				}
-			}
-			var prs []dbgen.ListPRsRow
-			if all, perr := db.RQ.ListPRs(ctx, "open"); perr == nil {
-				for _, p := range all {
-					if _, ok := secs.Index[p.TaskSqid]; ok {
-						prs = append(prs, p)
-					}
-				}
-			}
-			var pid int64
-			if cur, cerr := db.RQ.GetProjectBySlug(ctx, slug); cerr == nil {
-				pid = cur.ID
-			}
-			if h.D.Agents != nil {
-				d["Chat"], d["ChatChip"], d["ChatAgents"] = h.chatView(ctx, slug)
-				d["ChatOpen"] = r.URL.Query().Get("chat") == "1"
-			}
-			d["Needs"] = h.inboxItems(ctx, qs, prs, h.changeLinks(ctx, pid))
-			if p, err := h.D.Projects.Project(ctx, slug); err == nil {
-				d["P"], d["About"] = p, firstLine(p.Description)
-				d["Repos"], _ = db.RQ.ListRepos(ctx, p.ID)
-				var caps []string // the concurrency chip: instances this project may run, per template (project cap, bounded by the template's ceiling)
-				lims, _ := h.D.Projects.Limits(ctx, slug)
-				for _, l := range lims {
-					if n := min(l.Max, l.Ceiling); n > 0 {
-						caps = append(caps, fmt.Sprintf("%s ×%d", l.Template, n))
-					}
-				}
-				d["Caps"] = caps
-			}
-		}
-	case "projects": // the project list (counts and expandable rows come later, see ADR 0005)
-		d["Title"] = "Projects"
-		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		active, _ := db.RQ.ListProjects(ctx, "active")
-		rows, err := projectRows(ctx, db, active)
-		if err != nil {
-			return nil, err
-		}
-		d["Projects"], d["Rows"] = active, rows
-		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
-	case "task":
-		sqid := reqValue(r, "sqid")
-		t, err := h.D.Stack.Task(ctx, db.RQ, sqid)
-		if err != nil {
-			return nil, err
-		}
-		p, _ := db.RQ.GetProject(ctx, t.ProjectID)
-		d["Task"], d["Project"], d["Title"] = t, p.Slug, t.Title
-		d["Archived"] = p.ArchivedAt.Valid
-		d["Attention"] = h.attention(ctx, p.Slug)[sqid] && t.State != "done" && t.State != "cancelled"
-		if secs, err := h.tree(ctx, p.Slug, false); err == nil {
-			if n := secs.Index[sqid]; n != nil {
-				d["TNode"] = n
-			}
-			kk := map[string]string{}
-			for sq, n := range secs.Index {
-				kk[sq] = n.Kind
-			}
-			d["KidKind"] = kk
-		}
-		d["Types"] = dbtypes.TaskTypes
-		if h.D.Deliverables != nil {
-			rows, _ := db.RQ.ListDeliverablesForTask(ctx, t.ID)
-			dv := h.deliverableViews(ctx, rows)
-			d["Deliverables"] = dv
-		}
-		if t.ParentID.Valid {
-			if pt, err := db.RQ.GetTask(ctx, t.ParentID.Int64); err == nil {
-				d["Parent"] = pt
-			}
-		}
-		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
-		d["Kids"] = kids
-		if cp, err := db.RQ.LatestTaskCheckpoint(ctx, t.ID); err == nil {
-			d["Checkpoint"] = checkpointLinks(cp)
-		}
-		// Queue is offered on every live task; if nothing is runnable the refusal says why (e.g.
-		// subtasks still in review).
-		d["CanQueue"] = false
-		if n, ok := d["TNode"].(*node); ok {
-			d["CanQueue"] = n.Queueable > 0
-		}
-		if h.D.Agents != nil {
-			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
-		}
-		// The live PTY: the in-progress run working on this task (or its subtasks). The PTY is the
-		// run's own session on whichever runner hosts it, so it is keyed by the run, not the runner.
-		if runs, err := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: "active", Lim: 1000}); err == nil {
-			for _, x := range runs {
-				if (x.TaskSqid == sqid || x.CurrentSqid == sqid) && x.Run.RunnerID.Valid && x.Run.State != "queued" {
-					d["LiveRun"] = x.Run.ID
-					break
-				}
-			}
-		}
-		d["Pre"], _ = db.RQ.ListPrecursors(ctx, t.ID)
-		d["Dep"], _ = db.RQ.ListDependents(ctx, t.ID)
-		d["Runs"], _ = db.RQ.RunsForTask(ctx, t.ID)
-		d["Events"], _ = db.RQ.TaskEvents(ctx, sqid)
-		if qid := r.URL.Query().Get("split"); qid != "" { // "Edit" on a plan proposal
-			if id, err := strconv.ParseInt(qid, 10, 64); err == nil {
-				if q, err := h.D.Runs.Question(ctx, id); err == nil {
-					d["SplitOutline"] = outlineFromPayload(q.Payload)
-				}
-			}
-		}
-	case "runners":
-		rows, err := db.RQ.ListRunners(ctx, 0)
-		if err != nil {
-			return nil, err
-		}
-		type card struct {
-			R       dbgen.Runner
-			T       dbgen.RunnerTemplate
-			M       proto.Heartbeat
-			Spark   []float64
-			Run     *dbgen.Run
-			IdleFor string
-			Used    int64 // agent sessions in use (active runs); the limit is T.MaxSessions
-		}
-		var cards []card
-		for _, x := range rows {
-			c := card{R: x.Runner}
-			c.T, _ = db.RQ.GetTemplate(ctx, x.Runner.TemplateID)
-			json.Unmarshal([]byte(x.Runner.LastMetricsJson), &c.M)
-			for _, s := range h.D.Fleet.History(x.Runner.ID) {
-				c.Spark = append(c.Spark, s.CPU)
-			}
-			if run, err := db.RQ.ActiveRunForRunner(ctx, sql.NullInt64{Int64: x.Runner.ID, Valid: true}); err == nil {
-				c.Run = &run
-			}
-			c.Used, _ = db.RQ.CountActiveRunsForRunner(ctx, sql.NullInt64{Int64: x.Runner.ID, Valid: true})
-			cards = append(cards, c)
-		}
-		// Machines the fleet doesn't launch (the controller host) are permanent: pin them first.
-		sort.SliceStable(cards, func(i, j int) bool {
-			return cards[i].R.Launched == 0 && cards[j].R.Launched != 0
-		})
-		d["Cards"] = cards
-		if h.D.Costs != nil {
-			snap := h.D.Costs.Cached()
-			known := map[string]bool{}
-			for _, c := range cards {
-				if c.R.InstanceID.Valid && c.R.State != "terminated" {
-					known[c.R.InstanceID.String] = true
-				}
-			}
-			d["Spend"], d["SpendAsOf"], d["SpendErrors"] = snap.Summary, snap.AsOf, snap.Errors
-			others := api.OtherInstances(snap, known)
-			d["Others"] = others
-			var otherHourly float64
-			for _, o := range others {
-				if o.State == "running" && o.PriceKnown {
-					otherHourly += o.HourlyUSD
-				}
-			}
-			d["OtherHourly"] = otherHourly
-			d["Top"] = snap.Top
-			d["Templates2"], _ = db.RQ.ListTemplates(ctx)
-		}
-		demand, _ := db.RQ.TemplateDemand(ctx)
-		d["Demand"], d["Title"] = demand, "Runners"
-	case "runner":
-		r2, err := db.RQ.GetRunnerByName(ctx, reqValue(r, "name"))
-		if err != nil {
-			return nil, fmt.Errorf("%w: runner", errs.NotFound)
-		}
-		d["R"], d["Title"] = r2, r2.Name
-		t, _ := db.RQ.GetTemplate(ctx, r2.TemplateID)
-		d["T"] = t
-		var m proto.Heartbeat
-		json.Unmarshal([]byte(r2.LastMetricsJson), &m)
-		d["M"] = m
-		var spark []float64
-		for _, s := range h.D.Fleet.History(r2.ID) {
-			spark = append(spark, s.CPU)
-		}
-		d["Spark"] = spark
-		if run, err := db.RQ.ActiveRunForRunner(ctx, sql.NullInt64{Int64: r2.ID, Valid: true}); err == nil {
-			d["Run"] = run
-			d["Progress"], _ = db.RQ.SubtreeOrdered(ctx, run.TaskID)
-		}
-		d["Recent"], _ = db.RQ.ListRuns(ctx, dbgen.ListRunsParams{Runner: r2.Name, Lim: 10})
-	case "logs":
-		rows, err := h.logRows(ctx, reqValue(r, "kind"))
-		if err != nil {
-			return nil, err
-		}
-		d["Rows"], d["Kind"], d["Title"] = rows, reqValue(r, "kind"), "Logs"
-	case "run", "diff", "files":
-		id, _ := strconv.ParseInt(reqValue(r, "id"), 10, 64)
-		run, err := db.RQ.GetRun(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("%w: run %d", errs.NotFound, id)
-		}
-		d["Run"], d["Title"] = run, fmt.Sprintf("Run %d", id)
-		if t, err := db.RQ.GetTask(ctx, run.TaskID); err == nil {
-			d["Task"] = t
-		}
-		if run.RunnerID.Valid {
-			if rn, err := db.RQ.GetRunner(ctx, run.RunnerID.Int64); err == nil {
-				d["Runner"] = rn.Name
-			}
-		}
-		if pr, err := db.RQ.OpenPRForTask(ctx, run.TaskID); err == nil {
-			d["PR"] = pr
-		}
-		switch view {
-		case "run":
-			q := r.URL.Query()
-			logs, _ := db.RQ.RunLogs(ctx, dbgen.RunLogsParams{RunID: id, Stream: q.Get("stream"), Lim: 2000})
-			if g := strings.ToLower(q.Get("q")); g != "" {
-				var f []dbgen.LogLine
-				for _, l := range logs {
-					if strings.Contains(strings.ToLower(l.Message), g) {
-						f = append(f, l)
-					}
-				}
-				logs = f
-			}
-			if len(logs) > 300 {
-				logs = logs[len(logs)-300:]
-			}
-			d["Logs"], d["Q"], d["Stream"] = logs, q.Get("q"), q.Get("stream")
-			d["Hooks"], _ = db.RQ.RunHookEvents(ctx, id)
-			if h.D.Deliverables != nil {
-				rows, _ := db.RQ.ListDeliverablesForRun(ctx, sql.NullInt64{Int64: id, Valid: true})
-				d["Deliverables"] = h.deliverableViews(ctx, rows)
-			}
-		case "diff":
-			out, err := h.D.Runs.Inspect(ctx, id, "diff", "", false)
-			d["Err"] = errString(err)
-			d["Files"] = parseDiff(out.Data)
-			d["Truncated"] = out.Truncated
-		case "files":
-			path := r.URL.Query().Get("path")
-			d["Path"] = path
-			kind := "tree"
-			if path != "" && !strings.HasSuffix(path, "/") {
-				kind = "file"
-			}
-			out, err := h.D.Runs.Inspect(ctx, id, kind, path, false)
-			if err != nil && kind == "file" { // maybe a directory without the slash
-				if o2, e2 := h.D.Runs.Inspect(ctx, id, "tree", path, false); e2 == nil {
-					out, err, kind, path = o2, nil, "tree", path+"/"
-					d["Path"] = path
-				}
-			}
-			d["Err"], d["Kind"] = errString(err), kind
-			if kind == "tree" {
-				var entries []string
-				for _, e := range strings.Split(strings.TrimSpace(out.Data), "\n") {
-					if e != "" {
-						entries = append(entries, e)
-					}
-				}
-				d["Entries"] = entries
-			} else {
-				d["IsMD"] = strings.HasSuffix(strings.ToLower(path), ".md") && r.URL.Query().Get("raw") != "1"
-				d["Content"] = out.Data
-				d["Highlighted"] = highlight(path, out.Data)
-			}
-			d["Up"] = parentDir(path)
-		}
-	case "inbox":
-		qs, err := h.D.Runs.Questions(ctx, false)
-		if err != nil {
-			return nil, err
-		}
-		prs, _ := db.RQ.ListPRs(ctx, "open")
-		d["Title"] = "Inbox"
-		d["Items"] = h.inboxItems(ctx, qs, prs, h.changeLinks(ctx, 0))
-	case "project":
-		p, err := h.D.Projects.Project(ctx, reqValue(r, "slug"))
-		if err != nil {
-			return nil, err
-		}
-		repos, err := db.RQ.ListRepos(ctx, p.ID)
-		if err != nil {
-			return nil, err
-		}
-		d["P"], d["Repos"], d["Title"] = p, repos, p.Name
-		d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
-		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		d["Limits"], _ = h.D.Projects.Limits(ctx, p.Slug)
-		d["GitHub"] = h.D.Projects.GH != nil
-		d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
-		d["AutoResolve"] = false
-		if v, _ := db.RQ.GetProjectAutoResolve(ctx, p.ID); v == 1 {
-			d["AutoResolve"] = true
-		}
-		d["Template"] = ""
-		if p.DefaultTemplateID.Valid {
-			if t, err := db.RQ.GetTemplate(ctx, p.DefaultTemplateID.Int64); err == nil {
-				d["Template"] = t.Name
-			}
-		}
-	case "setup":
-		d["Title"] = "GitHub accounts"
-		qv := r.URL.Query()
-		back := ghsetup.SafeBack(qv.Get("back"))
-		accts, _ := h.D.Setup.Accounts(ctx)
-		var views []acctView
-		seen := false
-		for _, ac := range accts {
-			v := acctView{Account: ac, AppName: ghsetup.AppName(ac.Login)}
-			if ac.App != nil { // re-authorizing makes a new App: names are unique across GitHub
-				v.AppName = ghsetup.FreshAppName(ac.Login)
-			}
-			v.State = h.D.Setup.NewState(ac.Login, back)
-			m, err := h.D.Setup.Manifest(v.AppName)
-			v.Manifest, v.ManifestErr = string(m), errString(err)
-			v.Status, v.StatusText, v.NRepos = h.appHealth(ctx, ac)
-			v.Auto = ac.App == nil && strings.EqualFold(qv.Get("create"), ac.Login) || ac.App == nil && qv.Get("create") == "1" && strings.EqualFold(qv.Get("account"), ac.Login)
-			v.JustCreated = ac.App != nil && qv.Get("role") != "reviewer" && strings.EqualFold(qv.Get("created"), ac.Login) && v.Status == "noinstall"
-			if ac.Reviewer == nil {
-				v.RName = ghsetup.ReviewerName(ac.Login)
-				v.RState = h.D.Setup.NewRoleState(ac.Login, back, "reviewer")
-				m, err := h.D.Setup.ManifestFor(v.RName, "reviewer")
-				v.RManifest, v.RManifestErr = string(m), errString(err)
-			}
-			v.Focus = strings.EqualFold(qv.Get("account"), ac.Login)
-			seen = seen || v.Focus
-			views = append(views, v)
-		}
-		if h.D.Secrets != nil {
-			defs, _ := db.RQ.ListAgentDefs(ctx)
-			d["Creds"] = agentdef.Credentials(defs, h.D.Secrets.Has)
-		}
-		d["Accounts"], d["Created"], d["Error"] = views, qv.Get("created"), qv.Get("error")
-		d["CreatedRole"] = qv.Get("role")
-		d["Repo"], d["Back"] = qv.Get("repo"), back
-		if f := qv.Get("account"); f != "" && !seen {
-			d["Suggest"] = f // an owner we could not add (GitHub did not know it): prefill the add box
-		}
-	case "template":
-		t, err := h.D.Fleet.Template(ctx, reqValue(r, "name"))
-		if err != nil {
-			return nil, err
-		}
-		d["T"], d["Title"] = t, "Template "+t.Name
-		var types []string
-		json.Unmarshal([]byte(t.InstanceTypes), &types)
-		ticked := map[string]bool{}
-		for _, x := range types {
-			ticked[x] = true
-		}
-		d["Ticked"], d["TypesList"], d["TypesCSV"] = ticked, types, strings.Join(types, ",")
-		d["SessStr"] = strconv.FormatInt(t.MaxSessions, 10)
-		d["MaxStr"], d["IdleStr"] = strconv.FormatInt(t.MaxRunners, 10), shortDuration(time.Duration(t.IdleTimeoutS)*time.Second)
-		d["VcpuStr"], d["RamStr"], d["DiskStr"] = strconv.FormatInt(t.MinVcpu, 10), fmt.Sprintf("%gGiB", float64(t.MinRamMib)/1024), fmt.Sprintf("%dGiB", t.MinDiskGib)
-		d["ImgMode"], d["AmiStr"] = "al", ""
-		if strings.HasPrefix(t.Ami, "ami-") {
-			d["ImgMode"], d["AmiStr"] = "ami", t.Ami
-		}
-		var agent struct {
-			Start []string `json:"start"`
-		}
-		json.Unmarshal([]byte(t.AgentJson), &agent)
-		d["AgentSummary"] = "no agent"
-		if len(agent.Start) > 0 {
-			d["AgentSummary"] = "runs " + agent.Start[0]
-		}
-		d["HasAWS"] = h.D.Fleet.Prov != nil
-		if h.D.Costs != nil {
-			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			cat, err := h.D.Costs.Catalogue(cctx)
-			cancel()
-			d["Catalogue"], d["CatalogueErr"], d["Region"] = cat, errString(err), h.D.Costs.Home
-		}
-	case "settings":
-		d["GHAccounts"], _ = h.D.Setup.Accounts(ctx)
-		d["Projects"], _ = db.RQ.ListProjects(ctx, "active")
-		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
-		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		d["CAgents"], _ = db.RQ.ListControllerAgents(ctx)
-		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"
 	}
 	return d, nil
 }
@@ -1429,363 +1087,120 @@ func outlineFromPayload(p json.RawMessage) string {
 // --- actions ---------------------------------------------------------------------------
 
 // act handles POST /ui/act/{action}: Datastar sends its signals as JSON.
+// actReq is one /ui/act/<action> request: the decoded Datastar signals and URL parameters.
+type actReq struct {
+	w    http.ResponseWriter
+	r    *http.Request
+	ctx  context.Context
+	q    url.Values
+	sig  map[string]any
+	name string // the action
+	sqid string
+	id   int64
+}
+
+func (a *actReq) str(k string) string { v, _ := a.sig[k].(string); return strings.TrimSpace(v) }
+func (a *actReq) flag(k string) bool  { v, _ := a.sig[k].(bool); return v }
+
+// actResult is what an action reports on success (and, for back/dropEl, on failure too).
+type actResult struct {
+	msg    string         // the toast
+	nav    string         // page to go to afterwards
+	dropEl string         // id of a card to remove from the page
+	flash  string         // sqid of the row that was acted on: it lights up after the live patch
+	back   string         // where a missing/uninstalled GitHub App error should link to
+	reset  map[string]any // signals to clear on success
+}
+
+type actFn func(h *Handler, a *actReq) (actResult, error)
+
+// needAgents refuses an action when the controller agents are not configured.
+func needAgents(fn actFn) actFn {
+	return func(h *Handler, a *actReq) (actResult, error) {
+		if h.D.Agents == nil {
+			return actResult{}, errs.Invalid
+		}
+		return fn(h, a)
+	}
+}
+
+var actions = map[string]actFn{
+	"task-new":               actTaskNew,
+	"task-edit":              actTaskEdit,
+	"task-ask":               needAgents(actTaskAsk),
+	"proposal-apply":         needAgents(actProposalApply),
+	"account-check":          actAccountCheck,
+	"agent-save":             needAgents(actAgentSave),
+	"agent-delete":           needAgents(actAgentDelete),
+	"task-split":             actTaskSplit,
+	"task-plan":              actTaskPlan,
+	"instance-terminate":     actInstanceTerminate,
+	"instance-adopt":         actInstanceAdopt,
+	"task-queue":             actTaskQueue,
+	"task-dequeue":           actTaskDequeue,
+	"queue-move":             actQueueMove,
+	"queue-all":              actQueueAll,
+	"project-ask":            needAgents(actProjectAsk),
+	"project-proposal-apply": needAgents(actProjectProposalApply),
+	"project-archive":        actProjectArchive,
+	"project-restore":        actProjectRestore,
+	"task-complete":          actTaskState,
+	"task-reopen":            actTaskState,
+	"task-cancel":            actTaskState,
+	"task-delete":            actTaskDelete,
+	"task-needs":             actTaskNeeds,
+	"answer":                 actAnswer,
+	"pr":                     actPR,
+	"pr-resolve":             actPRResolve,
+	"run-cancel":             actRunCancel,
+	"runner":                 actRunner,
+	"fleet-launch":           actFleetLaunch,
+	"project-new":            actProjectNew,
+	"project-save":           actProjectSave,
+	"project-limit":          actProjectLimit,
+	"repo-notes":             actRepoNotes,
+	"repo-link":              actRepoLink,
+	"template-save":          actTemplateSave,
+	"account-add":            actAccountAdd,
+	"account-remove":         actAccountRemove,
+	"repo-unlink":            actRepoUnlink,
+}
+
 func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var sig map[string]any
-	json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&sig)
-	str := func(k string) string { v, _ := sig[k].(string); return strings.TrimSpace(v) }
-	flag := func(k string) bool { v, _ := sig[k].(bool); return v }
-	q := r.URL.Query()
-	sqid := q.Get("sqid")
-	id, _ := strconv.ParseInt(q.Get("id"), 10, 64)
-	var msg string
-	var err error
-	nav, dropEl, flash := "", "", ""
-	var reset map[string]any // signals to clear on success
-	switch r.PathValue("action") {
-	case "task-new":
-		var t dbgen.Task
-		pos := stack.Position{First: q.Get("first") == "1", After: q.Get("after")}
-		t, err = h.D.Stack.Create(ctx, stack.CreateParams{Project: q.Get("project"), Parent: q.Get("parent"), Title: str("title"), Prompt: str("prompt"), Type: str("ttype"), TargetDate: str("ttarget"), Pos: pos, Actor: stack.User})
-		if err == nil {
-			msg = "created " + t.Sqid.String
-			reset = map[string]any{"title": "", "prompt": "", "queue": false, "ttarget": ""}
-			if q.Get("parent") == "" { // the backlog sheet's type picker (subtasks inherit instead)
-				reset["ttype"] = "code"
-			}
-			if flag("queue") {
-				if _, qerr := h.D.Stack.Queue(ctx, t.Sqid.String); qerr != nil {
-					msg += " (not queued: " + qerr.Error() + ")"
-				} else {
-					msg += " and queued"
-				}
-			}
-		}
-	case "task-edit":
-		title, prompt := str("etitle"), str("eprompt")
-		if _, err = h.D.Stack.Edit(ctx, sqid, &title, &prompt, stack.User); err == nil && str("etype") != "" {
-			_, err = h.D.Stack.SetType(ctx, sqid, str("etype"), stack.User)
-		}
-		if err == nil {
-			_, err = h.D.Stack.SetTargetDate(ctx, sqid, str("etarget"), stack.User)
-		}
-		msg = "saved"
-	case "task-ask":
-		if h.D.Agents == nil {
-			err = errs.Invalid
-			break
-		}
-		question, field := str("askq"), "askq"
-		if q.Get("reply") == "1" {
-			question, field = str("replyq"), "replyq"
-		}
-		if _, err = h.D.Agents.Ask(ctx, sqid, str("askagent"), question); err == nil {
-			msg = "asked; the answer will appear on the task"
-			reset = map[string]any{field: ""}
-		}
-	case "project-ask":
-		if h.D.Agents == nil {
-			err = errs.Invalid
-			break
-		}
-		if _, err = h.D.Agents.AskProject(ctx, q.Get("slug"), "", str("chatq")); err == nil {
-			reset = map[string]any{"chatq": ""}
-		}
-	case "project-proposal-apply":
-		n, _ := strconv.Atoi(q.Get("n"))
-		if err = h.D.Agents.ApplyProject(ctx, id, n); err == nil {
-			msg = "done"
-		}
-	case "proposal-apply":
-		n, _ := strconv.Atoi(q.Get("n"))
-		if err = h.D.Agents.Apply(ctx, id, n); err == nil {
-			msg = "done"
-		}
-	case "account-check": // drop the cached health so the page re-checks, and reload it
-		h.health.Delete(strings.ToLower(q.Get("login")))
-		msg, nav = "checking…", "/setup?account="+url.QueryEscape(q.Get("login"))
-	case "agent-save":
-		ag := dbgen.ControllerAgent{Name: str("agname"), Command: str("agcmd"), Model: str("agmodel"), Auth: str("agauth"), AuthSecret: str("agsecret"), AuthEnv: str("agenv"), Enabled: 1}
-		ag.MaxTurns, _ = strconv.ParseInt(str("agturns"), 10, 64)
-		ag.TimeoutS, _ = strconv.ParseInt(str("agtimeout"), 10, 64)
-		if err = h.D.Agents.Save(ctx, ag, flag("agdefault")); err == nil {
-			msg = "saved " + ag.Name
-		}
-	case "agent-delete":
-		if err = h.D.Agents.Delete(ctx, q.Get("name")); err == nil {
-			msg = "removed " + q.Get("name")
-		}
-	case "task-split":
-		var nodes []stack.SplitNode
-		if nodes, err = stack.ParseOutline(str("outline")); err == nil {
-			_, err = h.D.Stack.Split(ctx, sqid, nodes, flag("chain"), flag("copy"), stack.User)
-			msg = fmt.Sprintf("split into %d subtasks", len(nodes))
-			reset = map[string]any{"outline": ""}
-		}
-	case "task-plan":
-		_, err = h.D.Plans.Queue(ctx, sqid, str("guidance"))
-		msg = "planning… the proposal will arrive in Inbox"
-	case "instance-terminate":
-		var name string
-		name, err = api.TerminateOther(ctx, h.D, q.Get("region"), q.Get("iid"))
-		msg = "terminating " + name
-	case "instance-adopt":
-		var res *api.AdoptResult
-		res, err = api.Adopt(ctx, h.D, q.Get("region"), q.Get("iid"), str("adopttpl"))
-		if err == nil {
-			note := ""
-			if !res.Reachable {
-				note = `<p class="warn">` + template.HTMLEscapeString(res.Note) + `</p>`
-			}
-			mergeFragments(w, `<div id="adopt-result" class="adopt-result"><p>Run this on the instance (it needs the wrangl binary, from <code>`+template.HTMLEscapeString(res.Binary)+`</code>, and the token works once for 30 minutes):</p><pre>`+template.HTMLEscapeString(res.Command)+`</pre>`+note+`</div>`)
-			msg = "token created"
-		}
-	case "task-queue":
-		_, err = h.D.Plans.QueueWork(ctx, sqid)
-		msg, flash = "queued", sqid
-	case "task-dequeue":
-		_, err = h.D.Runs.Dequeue(ctx, sqid)
-		msg, flash = "back in the backlog", sqid
-	case "queue-move": // up/down on a queued row: swap its rank with the neighbour's
-		run, rerr := h.D.Fleet.DB.RQ.GetRun(ctx, id)
-		if rerr != nil {
-			err = rerr
-			break
-		}
-		task, _ := h.D.Fleet.DB.RQ.GetTask(ctx, run.TaskID)
-		proj, _ := h.D.Fleet.DB.RQ.GetProject(ctx, task.ProjectID)
-		secs, terr := h.tree(ctx, proj.Slug, false)
-		if terr != nil {
-			err = terr
-			break
-		}
-		var ids []int64
-		at := -1
-		for i, e := range secs.Queue {
-			ids = append(ids, e.RunID)
-			if e.RunID == id {
-				at = i
-			}
-		}
-		to := at - 1
-		if q.Get("dir") == "down" {
-			to = at + 1
-		}
-		if at < 0 || to < 0 || to >= len(ids) {
-			err = fmt.Errorf("%w: nothing to move", errs.Conflict)
-			break
-		}
-		ids[at], ids[to] = ids[to], ids[at]
-		for i, rid := range ids { // persist the whole order so ties (unranked runs) stay put
-			if _, err = h.D.Fleet.DB.Q.SetRunQueueRank(ctx, dbgen.SetRunQueueRankParams{QueueRank: sql.NullFloat64{Float64: float64(i + 1), Valid: true}, ID: rid}); err != nil {
-				break
-			}
-		}
-		msg, flash = "moved "+q.Get("dir"), sqid
-	case "queue-all": // every open top-level task of the project that is not already queued or running
-		secs, terr := h.tree(ctx, q.Get("project"), false)
-		if terr != nil {
-			err = terr
-			break
-		}
-		n, skipped := 0, 0
-		for _, nd := range secs.Backlog {
-			if nd.State != "open" {
-				continue
-			}
-			if _, qerr := h.D.Plans.QueueWork(ctx, nd.Sqid); qerr != nil {
-				skipped++
-				continue
-			}
-			n++
-		}
-		msg = fmt.Sprintf("queued %d", n)
-		if skipped > 0 {
-			msg += fmt.Sprintf(" (%d skipped: locked or not queueable)", skipped)
-		}
-	case "task-complete", "task-reopen", "task-cancel":
-		op := strings.TrimPrefix(r.PathValue("action"), "task-")
-		switch op {
-		case "complete":
-			err = h.D.Stack.Complete(ctx, sqid, "", stack.User)
-		case "reopen":
-			err = h.D.Stack.Reopen(ctx, sqid, stack.User)
-		case "cancel":
-			err = h.D.Stack.Cancel(ctx, sqid, "", stack.User)
-		}
-		msg = op + "d"
-	case "task-delete":
-		t, terr := h.D.Stack.Task(ctx, h.D.Fleet.DB.RQ, sqid)
-		if err = terr; err == nil {
-			p, _ := h.D.Fleet.DB.RQ.GetProject(ctx, t.ProjectID)
-			err = h.D.Stack.Delete(ctx, sqid, stack.User)
-			msg, nav = "deleted", "/projects/"+url.PathEscape(p.Slug)
-		}
-	case "task-needs":
-		err = h.D.Stack.NeedsAdd(ctx, sqid, str("precursor"), stack.User)
-		msg = "precursor added"
-	case "answer":
-		err = h.D.Runs.Answer(ctx, id, q.Get("value"), str(fmt.Sprintf("ans%d", id)))
-		msg = "answered"
-		dropEl = fmt.Sprintf("q%d", id)
-		if q.Get("value") == "edit" { // plan proposal: open the split sheet with it
-			if qv, qerr := h.D.Runs.Question(ctx, id); qerr == nil {
-				nav = fmt.Sprintf("/task/%s?split=%d#split", qv.Task, id)
-			}
-		}
-	case "pr":
-		switch q.Get("op") {
-		case "approve":
-			err = h.D.PRs.Approve(ctx, id)
-			msg = "Merged ✓ the task is done"
-		case "request-changes":
-			err = h.D.PRs.RequestChanges(ctx, id, str(fmt.Sprintf("pr%d", id)))
-			msg = "Changes requested: a revise run is queued"
-		case "close":
-			err = h.D.PRs.Close(ctx, id)
-			msg = "PR closed"
-		}
-		dropEl = fmt.Sprintf("pr-%d", id) // gone from the Inbox now, not at the next live patch
-	case "pr-resolve":
-		err = h.D.PRs.ResolveConflicts(ctx, id)
-		msg = "Smart Merge queued: an agent will resolve the conflicts"
-	case "run-cancel":
-		err = h.D.Runs.Cancel(ctx, id)
-		msg = "cancelling"
-	case "runner":
-		name := q.Get("name")
-		switch q.Get("op") {
-		case "cordon":
-			err = h.D.Fleet.Cordon(ctx, name, true)
-		case "uncordon":
-			err = h.D.Fleet.Cordon(ctx, name, false)
-		case "drain":
-			err = h.D.Fleet.Drain(ctx, name)
-		case "terminate":
-			err = h.D.Fleet.Terminate(ctx, name)
-		}
-		msg = name + ": " + q.Get("op")
-	case "fleet-launch":
-		_, err = h.D.Fleet.Launch(ctx, q.Get("template"))
-		msg = "launching a " + q.Get("template") + " runner"
-	case "project-new":
-		slug := str("slug")
-		pp := projectsParams(str("ptemplate"))
-		if n := str("pname"); n != "" {
-			pp.Name = &n
-		}
-		if g := str("pgoals"); g != "" {
-			pp.Description = &g
-		}
-		if _, err = h.D.Projects.Create(ctx, slug, pp); err != nil {
-			break
-		}
-		msg, nav = "project created", "/projects/"+url.PathEscape(slug)+"/settings"
-		var failed []string
-		for _, ref := range strings.FieldsFunc(str("prepos"), func(r rune) bool { return r == ',' || r == '\n' || r == ' ' }) {
-			if _, lerr := h.D.Projects.LinkRepo(ctx, slug, ref, ""); lerr != nil {
-				failed = append(failed, ref+": "+lerr.Error())
-			}
-		}
-		if len(failed) > 0 {
-			msg = "project created; not linked: " + strings.Join(failed, "; ")
-		}
-		reset = map[string]any{"slug": "", "pname": "", "pgoals": "", "prepos": "", "ptemplate": ""}
-	case "project-archive":
-		_, _, err = h.D.Projects.Archive(ctx, q.Get("slug"))
-		var are *db.ActiveRunsError
-		if errors.As(err, &are) {
-			err = fmt.Errorf("%w: %s", errs.Conflict, are.Error())
-		}
-		msg, nav = "archived "+q.Get("slug"), "/projects"
-	case "project-restore":
-		_, err = h.D.Projects.Restore(ctx, q.Get("slug"))
-		msg, nav = "restored "+q.Get("slug"), "/projects"
-	case "project-save":
-		slug := q.Get("slug")
-		name, goals, tmpl := str("pname"), str("pgoals"), str("ptemplate")
-		am, aq, ar := flag("pautomerge"), flag("pautoqueue"), flag("pautoresolve")
-		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq, AutoResolve: &ar})
-		msg = "saved " + slug
-	case "project-limit":
-		var n int64
-		if n, err = strconv.ParseInt(q.Get("n"), 10, 64); err != nil || n < 0 {
-			err = fmt.Errorf("limit must be a whole number, 0 or more")
-			break
-		}
-		err = h.D.Projects.SetLimits(ctx, q.Get("slug"), map[string]int64{q.Get("template"): n})
-		msg = fmt.Sprintf("%s limit on %s: %d", q.Get("slug"), q.Get("template"), n)
-	case "repo-notes": // repo=owner/name gives it the notes role; empty repo clears
-		err = h.D.Projects.SetNotesRepo(ctx, q.Get("slug"), q.Get("repo"))
-		msg = "notes repo saved"
-	case "repo-link":
-		ref := str("repoadd")
-		if ref == "" {
-			ref = str("repoother")
-		}
-		_, err = h.D.Projects.LinkRepo(ctx, q.Get("slug"), ref, "")
-		msg, reset = "repo linked", map[string]any{"repoadd": "", "repoother": ""}
-		if err != nil && h.githubToast(ctx, w, err, "/projects/"+q.Get("slug")+"/settings") {
-			return
-		}
-	case "template-save":
-		var t dbgen.RunnerTemplate
-		t, err = h.D.Fleet.Template(ctx, q.Get("name"))
-		if err == nil {
-			var body []byte
-			if body, err = templateYAMLFromForm(t, str, flag); err == nil {
-				var nt dbgen.RunnerTemplate
-				if nt, err = h.D.Fleet.UpdateTemplate(ctx, t.Name, body); err == nil {
-					msg = fmt.Sprintf("%s is now v%d", nt.Name, nt.Version)
-					nav = "/settings"
-				}
-			}
-		}
-	case "account-add":
-		_, err = h.D.Setup.AddAccount(ctx, str("acctlogin"), str("acctkind"))
-		msg, reset = "account added", map[string]any{"acctlogin": ""}
-		// No App yet means create it now: the setup page goes straight on to GitHub.
-		nav = "/setup?account=" + url.QueryEscape(strings.TrimPrefix(str("acctlogin"), "@")) + "&create=1&back=" + url.QueryEscape(ghsetup.SafeBack(q.Get("back")))
-	case "account-remove":
-		err = h.D.Setup.RemoveAccount(ctx, q.Get("login"))
-		msg = "account removed"
-		nav = "/setup"
-	case "repo-unlink":
-		err = h.D.Projects.UnlinkRepo(ctx, q.Get("slug"), q.Get("repo"))
-		msg = "repo unlinked"
-	default:
-		err = fmt.Errorf("unknown action")
+	a := &actReq{w: w, r: r, ctx: ctx, q: r.URL.Query(), name: r.PathValue("action")}
+	json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&a.sig)
+	a.sqid = a.q.Get("sqid")
+	a.id, _ = strconv.ParseInt(a.q.Get("id"), 10, 64)
+	fn := actions[a.name]
+	if fn == nil {
+		toast(w, "unknown action", true)
+		return
 	}
+	res, err := fn(h, a)
 	if err != nil {
 		// A missing or uninstalled GitHub App gets a link to the page that fixes it.
-		back := ""
-		switch r.PathValue("action") {
-		case "pr", "pr-resolve", "answer":
-			back = "/inbox"
-		case "task-queue", "task-plan":
-			back = "/projects"
-		}
-		if h.githubToast(ctx, w, err, back) {
+		if h.githubToast(ctx, w, err, res.back) {
 			return
 		}
-		if dropEl != "" && errors.Is(err, errs.Conflict) { // already handled elsewhere (second click, another tab): the card is stale
-			executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", dropEl))
+		if res.dropEl != "" && errors.Is(err, errs.Conflict) { // already handled elsewhere (second click, another tab): the card is stale
+			executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", res.dropEl))
 		}
 		toast(w, err.Error(), true)
 		return
 	}
-	toast(w, msg, false)
-	if reset != nil {
-		mergeSignals(w, reset)
+	toast(w, res.msg, false)
+	if res.reset != nil {
+		mergeSignals(w, res.reset)
 	}
-	if dropEl != "" {
-		executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", dropEl))
+	if res.dropEl != "" {
+		executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", res.dropEl))
 	}
-	if flash != "" { // the row that was acted on lights up once the live patch has re-rendered it
-		executeScript(w, fmt.Sprintf("window.wrFlash&&wrFlash(%q)", flash))
+	if res.flash != "" { // the row that was acted on lights up once the live patch has re-rendered it
+		executeScript(w, fmt.Sprintf("window.wrFlash&&wrFlash(%q)", res.flash))
 	}
-	if nav != "" {
-		executeScript(w, fmt.Sprintf("window.location.assign(%q)", nav))
+	if res.nav != "" {
+		executeScript(w, fmt.Sprintf("window.location.assign(%q)", res.nav))
 	}
 }
 
@@ -1842,26 +1257,6 @@ func (h *Handler) logRows(ctx context.Context, kind string) ([]logRow, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At > out[j].At })
 	return out, nil
-}
-
-func ago(ts string) string {
-	if ts == "" {
-		return "-"
-	}
-	t, err := time.Parse(time.RFC3339Nano, ts)
-	if err != nil {
-		return ts
-	}
-	d := time.Since(t).Round(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds ago", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%.1fh ago", d.Hours())
-	}
-	return t.Format("2 Jan")
 }
 
 // sparkline renders values (0-100) as an inline SVG polyline.
@@ -2134,7 +1529,7 @@ func (h *Handler) termPage(w http.ResponseWriter, r *http.Request) {
 // templateYAMLFromForm builds the template file for an edit: the editor's fields replace the
 // stored ones, the agent block is kept as it is, and the usual validation (ParseTemplate, on
 // save) has the last word.
-func templateYAMLFromForm(t dbgen.RunnerTemplate, str func(string) string, _ func(string) bool) ([]byte, error) {
+func templateYAMLFromForm(t dbgen.RunnerTemplate, str func(string) string) ([]byte, error) {
 	var agent any
 	if err := json.Unmarshal([]byte(t.AgentJson), &agent); err != nil {
 		return nil, fmt.Errorf("stored agent: %w", err)
