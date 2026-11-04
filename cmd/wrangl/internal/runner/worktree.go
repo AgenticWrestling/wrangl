@@ -75,6 +75,14 @@ func (w *Worker) addWorktree(ctx context.Context, s *session, start string) erro
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "remove", "--force", dir)
 	os.RemoveAll(dir)
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "prune")
+	// A review only reads the branch: check it out detached, so it neither collides with the
+	// worktree an earlier run keeps on that branch nor disturbs it.
+	if a.Kind == "review" {
+		if out, err := gitAsDaemon(ctx, s.mirror, "", "worktree", "add", "--detach", dir, "refs/remotes/origin/"+start); err != nil {
+			return fmt.Errorf("worktree add: %w: %s", err, out)
+		}
+		return chownTree(s.mirror, id)
+	}
 	if err := w.freeBranch(ctx, s, dir); err != nil {
 		return err
 	}
@@ -96,7 +104,9 @@ func (s *session) removeWorktree(ctx context.Context) {
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "remove", "--force", s.dir)
 	os.RemoveAll(s.dir)
 	gitAsDaemon(ctx, s.mirror, "", "worktree", "prune")
-	gitAsDaemon(ctx, s.mirror, "", "branch", "-D", s.a.Branch)
+	if s.a.Kind != "review" { // a review is detached: the branch belongs to the run that made it
+		gitAsDaemon(ctx, s.mirror, "", "branch", "-D", s.a.Branch)
+	}
 }
 
 // freeBranch makes a.Branch available for a new worktree at dir. A branch can be checked out in
