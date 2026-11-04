@@ -44,7 +44,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	}
 
 	get("/tasks?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
-	get("/tasks?project=web", `class="subnav"`, `data-sec="in-progress"`, `data-sec="queue"`, `data-sec="backlog"`, `id="backlog"`)
+	get("/tasks?project=web", `class="subnav"`, `href="/tasks?project=web"`, `id="backlog"`)
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
 	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals:outline=")
 	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)

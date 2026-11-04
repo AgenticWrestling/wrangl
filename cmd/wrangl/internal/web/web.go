@@ -207,6 +207,10 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request, view string) {
 	open, _ := h.D.Runs.Questions(r.Context(), false)
 	page := map[string]any{"View": view, "Title": data["Title"], "Main": main, "LiveURL": "/ui/live?" + q.Encode(), "SID": sid,
 		"Inbox": len(open), "Data": data}
+	if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context()); err == nil { // left panel: the five most recently updated
+		page["NavProjects"], _ = recentProjects(ps, 5)
+	}
+	page["Project"], _ = data["Project"].(string)
 	for _, region := range []string{"Pre", "Post"} { // static regions outside #main (sheets, terminal)
 		name := strings.ToLower(region) + "-" + view
 		if h.tmpl.Lookup(name) == nil {

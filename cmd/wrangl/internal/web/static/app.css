@@ -357,13 +357,13 @@ table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 details.sub { padding: 2px 0 2px 1.6rem; }
 details.sub > summary { cursor: pointer; color: var(--dim); font-size: 0.85rem; padding: 2px 0; }
 
-/* Left panel (desktop only): section links under Tasks. */
+/* Left panel (desktop only): the most recent projects under Tasks. */
 .subnav { display: none; }
 @media (min-width: 900px) {
   .subnav { display: flex; flex-direction: column; gap: 1px; margin: 0 0 4px 34px; }
   nav.tabs .subnav a { flex: none; flex-direction: row; height: auto; padding: 4px 10px; border-radius: 8px; font-size: 0.86rem; color: var(--dim); }
   nav.tabs .subnav a:hover { background: var(--raised); color: var(--ink2); }
-  nav.tabs .subnav a[hidden] { display: none; }
+  nav.tabs .subnav a.on { color: var(--ink); background: var(--raised); }
 }
 html { scroll-padding-top: 64px; }
 

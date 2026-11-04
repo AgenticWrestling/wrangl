@@ -487,27 +487,7 @@ function initTemplateEditor() {
 
 // --- boot --------------------------------------------------------------------------------
 
-// Left panel (desktop): the Tasks sub-items jump to a section of the page. Sections that are
-// empty are not rendered, so their sub-items are hidden; clicking on the Tasks page scrolls
-// instead of reloading.
-function markSections() {
-  const onTasks = document.body.dataset.view === 'tasks';
-  document.querySelectorAll('.subnav a[data-sec]').forEach((a) => {
-    a.hidden = onTasks && !document.getElementById(a.dataset.sec);
-  });
-}
-document.addEventListener('click', (e) => {
-  const a = e.target.closest && e.target.closest('.subnav a[data-sec]');
-  if (!a || document.body.dataset.view !== 'tasks') return;
-  const el = document.getElementById(a.dataset.sec);
-  if (!el) return;
-  e.preventDefault();
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  history.replaceState(null, '', '#' + a.dataset.sec);
-});
-
 function boot() {
-  markSections();
   initSortables();
   initQueueSort();
   initTerminal();
