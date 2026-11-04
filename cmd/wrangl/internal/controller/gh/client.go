@@ -217,6 +217,7 @@ func (c *Client) Issues(ctx context.Context, r Repo, state string) ([]Issue, err
 			State       string          `json:"state"`
 			HTMLURL     string          `json:"html_url"`
 			PullRequest json.RawMessage `json:"pull_request"`
+			wireIssueMeta
 		}
 		h, err := c.do(ctx, http.MethodGet, next, "token "+tok, nil, &items)
 		if err != nil {
@@ -226,7 +227,9 @@ func (c *Client) Issues(ctx context.Context, r Repo, state string) ([]Issue, err
 			if len(it.PullRequest) > 0 {
 				continue
 			}
-			out = append(out, Issue{Number: it.Number, Title: it.Title, Body: it.Body, State: it.State, URL: it.HTMLURL})
+			i := Issue{Number: it.Number, Title: it.Title, Body: it.Body, State: it.State, URL: it.HTMLURL}
+			it.wireIssueMeta.fill(&i)
+			out = append(out, i)
 		}
 		next = ""
 		if m := nextLink.FindStringSubmatch(h.Get("Link")); m != nil {

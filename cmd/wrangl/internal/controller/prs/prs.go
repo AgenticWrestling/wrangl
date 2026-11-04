@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/issuestore"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
@@ -773,6 +774,16 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 			Body    string `json:"body"`
 			State   string `json:"state"`
 			HTMLURL string `json:"html_url"`
+			User    struct {
+				Login string `json:"login"`
+			} `json:"user"`
+			Labels []struct {
+				Name string `json:"name"`
+			} `json:"labels"`
+			CreatedAt   string          `json:"created_at"`
+			UpdatedAt   string          `json:"updated_at"`
+			Comments    int             `json:"comments"`
+			PullRequest json.RawMessage `json:"pull_request"`
 		} `json:"issue"`
 		Repository struct {
 			Name  string `json:"name"`
@@ -810,9 +821,18 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		if err != nil {
 			return err
 		}
+		if len(p.Issue.PullRequest) > 0 {
+			return nil // pull requests are not issues here
+		}
+		i := gh.Issue{Number: p.Issue.Number, Title: p.Issue.Title, Body: p.Issue.Body, State: p.Issue.State, URL: p.Issue.HTMLURL,
+			Author: p.Issue.User.Login, CreatedAt: p.Issue.CreatedAt, UpdatedAt: p.Issue.UpdatedAt, Comments: p.Issue.Comments}
+		for _, l := range p.Issue.Labels {
+			i.Labels = append(i.Labels, l.Name)
+		}
 		for _, r := range repos {
-			if _, err := s.DB.Q.UpsertIssue(ctx, dbgen.UpsertIssueParams{RepoID: r.ID, GhNumber: p.Issue.Number, Title: p.Issue.Title,
-				Body: p.Issue.Body, State: p.Issue.State, Url: p.Issue.HTMLURL, SyncedAt: s.Now().UTC().Format(time.RFC3339)}); err != nil {
+			// Reconciler: only a newer updated_at changes the row, so echoes of our own writes
+			// and duplicate or reordered deliveries are ignored.
+			if _, _, err := issuestore.Save(ctx, s.DB, r.ID, i, s.Now()); err != nil {
 				return err
 			}
 		}

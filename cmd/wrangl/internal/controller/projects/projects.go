@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/issuestore"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
@@ -360,16 +361,15 @@ func (s *Service) SyncIssues(ctx context.Context, slug string) (int, error) {
 		return 0, err
 	}
 	n := 0
-	now := s.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	now := s.Now()
 	for _, r := range repos {
 		issues, err := s.GH.Issues(ctx, ghRepo(r.Repo), "all")
 		if err != nil {
 			return n, fmt.Errorf("%s/%s: %w", r.Repo.Owner, r.Repo.Name, err)
 		}
 		for _, i := range issues {
-			if _, err := s.DB.Q.UpsertIssue(ctx, dbgen.UpsertIssueParams{
-				RepoID: r.Repo.ID, GhNumber: i.Number, Title: i.Title, Body: i.Body, State: i.State, Url: i.URL, SyncedAt: now,
-			}); err != nil {
+			// Only-newer-wins, so a sync never overwrites a fresher webhook or live read.
+			if _, _, err := issuestore.Save(ctx, s.DB, r.Repo.ID, i, now); err != nil {
 				return n, err
 			}
 			n++

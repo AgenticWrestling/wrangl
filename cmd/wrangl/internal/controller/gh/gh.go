@@ -24,7 +24,27 @@ type Issue struct {
 	Body   string
 	State  string // open | closed
 	URL    string
+	// Read-side metadata (empty when the source did not provide it).
+	Author    string
+	Labels    []string
+	CreatedAt string
+	UpdatedAt string // GitHub's updated_at, RFC3339 UTC
+	Comments  int
 }
+
+// IssueComment is one comment on an issue.
+type IssueComment struct {
+	ID        int64
+	Author    string
+	Body      string
+	CreatedAt string
+}
+
+// ErrIsPullRequest means the number names a pull request, not an issue. Issue tools never touch PRs.
+var ErrIsPullRequest = errors.New("that number is a pull request, not an issue")
+
+// ErrIssueNotFound means the repository has no issue with that number.
+var ErrIssueNotFound = errors.New("issue not found")
 
 // ErrNotInstalled means the App is not installed on the repository.
 var ErrNotInstalled = errors.New("the GitHub App is not installed on this repository")
@@ -72,7 +92,19 @@ type API interface {
 	Issues(ctx context.Context, r Repo, state string) ([]Issue, error)
 	// ListRepos lists the repositories an owner's App is installed on (what can be linked).
 	ListRepos(ctx context.Context, owner string) ([]Repo, error)
+	IssueReader
 	PRAPI
+}
+
+// IssueReader is the read-only issue surface used by the agent issue tools. It never
+// returns pull requests: GetIssue answers ErrIsPullRequest for one, the others skip them.
+type IssueReader interface {
+	// GetIssue fetches one issue. ErrIssueNotFound / ErrIsPullRequest are returned as such.
+	GetIssue(ctx context.Context, r Repo, number int64) (Issue, error)
+	// IssueComments returns one page (1-based, up to 100 comments) and whether more pages follow.
+	IssueComments(ctx context.Context, r Repo, number int64, page int) (comments []IssueComment, more bool, err error)
+	// SearchIssues runs a text search over the repository's issues (state: open | closed | all).
+	SearchIssues(ctx context.Context, r Repo, query, state string, limit int) ([]Issue, error)
 }
 
 // PR is a pull request.

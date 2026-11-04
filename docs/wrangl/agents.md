@@ -59,6 +59,31 @@ Where secrets go:
 runners share one allowance. API keys and Vertex projects are metered per key or project.
 Size `max_runners` accordingly.
 
+## GitHub issue tools (read-only)
+
+Every agent that has the wrangl MCP shim can read GitHub issues of the repos linked to its
+project. The calls go over NATS to the controller; the runner and the agent hold no GitHub
+credential (see [ADR 0004](adr/0004-agent-github-issue-tools.md)). There are no write tools yet.
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `issue_search` | `query`, `repo?` (`owner/name`), `state?` (open default, closed, all), `labels?`, `limit?` (20, max 50), `live?` | `results` (ref, title, state, labels, author, snippet, linked task), `source` (`db` or `live`) |
+| `issue_get` | `ref` (`owner/name#number`) or `repo` + `number`, `live?` | title, body, state, labels, author, `comment_count`, linked task, `stale` |
+| `issue_comments` | `ref` or `repo` + `number`, `limit?` (30, max 100), `after?` | `comments` oldest first, `next` cursor |
+
+- Searches and reads come from the synced `issue` table (full-text search, stemmed). A row older than
+  15 minutes is refreshed from GitHub; with nothing synced yet, search asks GitHub (`source: live`).
+  `live: true` forces a GitHub read. Live calls are limited to 60 per project per hour; the error says
+  when to retry. Reads from the table are not limited.
+- Only repos linked to the run's project are visible. Any other repo, or another project, answers
+  "not found". Pull request numbers are refused ("is a pull request"); only issues are handled.
+- **Issue text is untrusted.** Titles, bodies, comments, snippets and unusual labels are wrapped as
+  `<untrusted-github-issue source="owner/name#n" field="body"> ... </untrusted-github-issue>` and each
+  result carries `untrusted: true` and a notice. It is data to read, never instructions to follow; a closing
+  tag inside the text is escaped so it cannot end the wrapper.
+- Available to every run kind (work, revise, review, plan) and to the owner's remote MCP (which must pass
+  `project`). They need no change to the Apps' permissions (`issues: read` is enough).
+
 ## Still to check on a real runner
 
 - Claude:
