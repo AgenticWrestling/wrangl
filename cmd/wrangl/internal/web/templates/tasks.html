@@ -1,22 +1,45 @@
-{{define "main-backlog"}}
+{{define "main-tasks"}}
 <div class="projbar" role="toolbar" aria-label="Projects">
-  {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/backlog?project={{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
+  {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
   {{if .Rest}}<details class="pmore">
     <summary class="pbtn{{range .Rest}}{{if eq .Slug $.Project}} on{{end}}{{end}}" aria-label="More projects">…</summary>
-    <div class="menu">{{range .Rest}}<a href="/backlog?project={{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
+    <div class="menu">{{range .Rest}}<a href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
   </details>{{end}}
   <button class="pbtn add" onclick="openSheet('sheet-project')" aria-label="New project" title="New project">＋</button>
 </div>
 {{if .Project}}<div class="bar">
-  <a class="chip" href="/backlog?project={{.Project}}{{if not .All}}&amp;all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
+  <a class="chip" href="/tasks?project={{.Project}}{{if not .All}}&amp;all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
   <a class="chip" href="/project/{{.Project}}">Project goals &amp; repos</a>
   <span class="grow"></span>
   <button class="btn primary" onclick="openSheet('sheet-new')">＋ New task</button>
 </div>{{end}}
 {{if not .Projects}}<p class="empty">No projects yet. Tap ＋ above to create one.</p>
-{{else if not .Roots}}<p class="empty">Nothing open in {{.Project}}. Tap ＋ New to add a task.</p>{{end}}
-<ul class="tasks sortable root" data-parent="">{{template "tasklist" .Roots}}</ul>
+{{else if and (not .Roots) (not .Progress) (not .Queue)}}<p class="empty">Nothing open in {{.Project}}. Tap ＋ New to add a task.</p>{{end}}
+{{if .Progress}}<section class="tsec" id="in-progress"><h3>In progress <span class="dim small">{{len .Progress}}</span></h3>
+  <ul class="tasks runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
+{{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
+  <ul class="tasks runs">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
+<section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
+<ul class="tasks sortable root" data-parent="">{{template "tasklist" .Roots}}</ul></section>
 {{end}}
+
+{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}">
+  <div class="row">
+    <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
+    {{ticon $n.Type}}
+    <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
+    {{if $n.Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}
+    {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
+    {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
+    {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
+    <a class="dim small" href="/run/{{.RunID}}">run #{{.RunID}}</a>
+    <code class="sqid">{{$n.Sqid}}</code>
+  </div>
+  {{if .CurrentTitle}}<div class="now small dim">working on <a href="/task/{{.Current}}">{{.CurrentTitle}}</a></div>{{end}}
+  <div class="detail" id="d-{{$n.Sqid}}">{{$n.Detail}}</div>
+  {{if $n.Kids}}<details class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
+    <ul class="tasks" data-parent="{{$n.Sqid}}">{{template "tasklist" $n.Kids}}</ul></details>{{end}}
+</li>{{end}}
 
 {{define "tasklist"}}{{range .}}<li class="task st-{{.State}} ty-{{.Type}}" data-sqid="{{.Sqid}}">
   <div class="row">
@@ -35,7 +58,7 @@
   <ul class="tasks sortable" data-parent="{{.Sqid}}">{{template "tasklist" .Kids}}</ul>
 </li>{{end}}{{end}}
 
-{{define "post-backlog"}}{{template "sheet-project" .}}{{if .Project}}
+{{define "post-tasks"}}{{template "sheet-project" .}}{{if .Project}}
 <dialog id="sheet-new" class="sheet" data-signals:ttype="'code'" data-signals:ttarget="''">
   <h2>New task in {{.Project}}</h2>
   <label>Title<input data-bind="title" placeholder="What needs doing?" autocomplete="off"></label>

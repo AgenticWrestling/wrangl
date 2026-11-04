@@ -43,7 +43,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		return string(b)
 	}
 
-	get("/backlog?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
+	get("/tasks?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
 	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals:outline=")
 	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)
@@ -52,7 +52,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	// A page that expanded a task keeps it across live re-renders: the stream includes the card.
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=backlog&project=web&sid=testsid", nil)
+		req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=tasks&project=web&sid=testsid", nil)
 		resp, err := hc.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -88,7 +88,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	}
 	post("/ui/act/task-edit?sqid="+big, `{"etitle":"design it","eprompt":"do the whole thing","etype":"milestone","etarget":"2026-12-31"}`)
 	get("/task/"+big, "2026-12-31", "Milestone")
-	get("/backlog?project=web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
+	get("/tasks?project=web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
 	get("/static/app.css", ".ty-milestone > .row .title", "font-weight: 600")
 	get("/runners", runner, "tiny")
 	get("/runner/"+runner, "Cordon", "Recent runs")
@@ -106,7 +106,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/inbox", "plan_review", "another big job", `pre class="outline"`)
 	get("/settings", "enablePush", "tiny", "sheet-project", "Appearance", `id="fs-seg"`, `data-fs="1.15"`)
 	get("/static/app.css", "calc(16px * var(--fs, 1))")
-	get("/backlog?project=web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/project/web")
+	get("/tasks?project=web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/project/web")
 	post("/ui/act/project-new", `{"slug":"goalproj","pname":"Goal project","pgoals":"## Done when\n- it ships"}`)
 	get("/project/goalproj", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
 	post("/ui/act/project-save?slug=goalproj", `{"pname":"Renamed","pgoals":"new **goals**","ptemplate":"","pautomerge":false,"pautoqueue":true}`)
@@ -166,7 +166,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	// The live stream opens with a morph of #main and the inbox badge.
 	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=backlog&project=web", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://x/ui/live?view=tasks&project=web", nil)
 	resp, err := hc.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	if d := e.task(sqid); d.Type != "review" {
 		t.Fatalf("task-edit type: %q", d.Type)
 	}
-	get("/backlog?project=web", `id="ti-review"`, `class="ticon ti-review"`)
+	get("/tasks?project=web", `id="ti-review"`, `class="ticon ti-review"`)
 	if out := post("/ui/act/task-split?sqid="+sqid, `{"outline":"- one\n- two\n  - two.a","chain":true}`); !strings.Contains(out, "split into 2") {
 		t.Fatalf("split: %s", out)
 	}

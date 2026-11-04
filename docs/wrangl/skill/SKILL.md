@@ -25,8 +25,8 @@ for exact flags; this skill is the map.
 - `wrangl task move SQID [--parent SQID | --root] [--after|--before SQID | --first | --last]` - reparent or rerank.
 - `wrangl task split SQID --title A --title B [--chain] [--copy-prompt]` or `-f outline.md` (one subtask per line, indent to nest); `--agent [--guidance TEXT]` queues a plan run that proposes the split for you to accept.
 - `wrangl task needs add|rm SQID PRECURSOR` - ordering dependencies between tasks.
-- `wrangl task ask SQID "question" [--agent NAME] [--wait]` - ask a controller agent (a light Claude on the controller host, with this skill) about a task and its subtree; answers collect in a thread on the task (`wrangl task thread SQID`, or the "Ask?" button); the agent may attach up to 5 proposed actions, approve one with `wrangl task apply MSGID N`. Agents are registered in Settings > Controller agents.
-- `wrangl task queue SQID` - queue a work run for that subtree (nothing runs until queued, unless the project has auto-queue).
+- `wrangl task ask SQID "question" [--agent NAME] [--wait]` - ask a controller agent (a light Claude on the controller host, with this skill) about a task and its subtree; answers collect in a thread on the task (`wrangl task thread SQID`, or the "Ask?" button); the agent may attach up to 5 proposed actions, approve one with `wrangl task apply MSGID N` (N is 0-based, as listed by `task thread`). Agents are registered in Settings > Controller agents.
+- `wrangl task queue SQID` - queue a work run for that subtree (nothing runs until queued, unless the project has auto-queue). Works on any live task at any depth; if nothing is runnable it refuses and says why (e.g. "N subtask(s) are in review"). Overlapping subtrees are refused.
 - `wrangl task complete SQID [-m MSG]` (leaves only; parents complete when their subtasks do), `task reopen`, `task cancel` (with unfinished subtasks), `task delete` (whole subtree - confirm with the user first).
 
 ## Task types
@@ -49,14 +49,25 @@ Agents hand back non-PR results with the `submit_deliverable` tool (image, proto
 - `wrangl fleet list|show NAME`, `fleet launch --template T [--count N]` (new EC2), `fleet drain|cordon|terminate NAME`.
   Launched runners are reaped after the template's idle timeout (30m default); the controller host runner (`host-*`, template `host`) is permanent and cannot be terminated.
 - `wrangl template create -f file.yaml | edit | ...` - mise tools, setup script, agent command. Examples in `docs/wrangl/templates/`.
+  Runner names are opaque labels (moving from `<template>-<hex>` to three-part music names like `cherry-rain-slowdive`); the template is a separate field (`fleet show`, `-o json`). Never parse a runner name for its template.
 - `wrangl fleet enroll-token --template T` then `wrangl runner bootstrap --controller URL --token ...` adopts an existing machine; add `--host` to enrol the controller host itself under the current user (systemd --user unit).
 - Web terminal: Runners view -> Terminal (`/runner/NAME/term`): a tab per agent session plus "+ Shell" (fish if installed, else bash). Shell tabs open in control; run tabs are watch-only until "Take control". The first shell on a runner installs bat, lsd, dust, duf, fd, ripgrep and tldr.
 - The controller host is a permanent runner (`host-*`, pinned first in the Runners view, never reaped); enrol it with `wrangl runner bootstrap --host`.
 
 ## Web app (PWA)
-Inbox / Backlog (project buttons, `+` to create) / Runners / Settings (text size, push, Setup: GitHub Apps, Projects, templates). Same data as the CLI; use whichever fits.
+Nav: Tasks / Runners / Logs / Inbox / Settings. **Tasks** (`/tasks`; `/backlog` redirects to `/tasks#backlog`) has three sections: *In progress* (runs assigned/running, with runner and the leaf being worked), *Queue* (queued runs, by tree position then FIFO) and *Backlog* (everything else). A queued or running task's whole subtree appears once in its section and not in Backlog. "Queue" is offered on every live task. Project buttons, `+` to create. Settings (text size, push, Setup: GitHub Apps, Projects, templates). Same data as the CLI; use whichever fits.
+
+## Planned: wrangl 2 (not built yet; do not assume these flags exist)
+Release task `xTxoFH` (`wrangl task tree xTxoFH` for its milestones/subtasks). Check `wrangl <cmd> --help` before using anything below.
+- Sessions per runner: template `max_sessions` (default 4); concurrent agent sessions each in their own git worktree; a runner is idle only at zero sessions; Runners page shows slots used/total.
+- Project instance caps: per project x template limit on runner instances that project's demand may launch; default 1 for the project's default template, 0 for others (opt-in, e.g. Mac/Android). Effective cap = min(project cap, template `max_runners` account ceiling). In the project details panel; planned `wrangl project edit --limit TEMPLATE=N`. Runners stay a shared pool; the cap governs launches.
+- Agent definitions: named agents (claude, codex, gemini, antigravity...) separate from templates; a template lists allowed agents; the project has a default agent; planned `wrangl task queue --agent NAME`; a run on a template that disallows the agent is refused.
+- The controller agent can propose launching special-purpose runners (Mac, Android) as a one-click proposal, within the project's cap.
+- Remote runners: the agent does not run on the target. It runs in a session on a host runner (the "driver") with the repo checked out, and drives the target over SSH (ADB for Android). The target runs no wrangl binary; the controller owns its lifecycle (health, idle reaping, cost, ssh terminal); credentials come from the secrets store via SSM port-forwarding. Examples: EC2 Mac (24h minimum host allocation, so caps default to 0), Android emulator.
+- Also: expand an In progress task for live PTY output of its session; one PR per task so a done task links to its GitHub diff.
 
 ## Working rules
 - Read first (`task tree`, `task show`) before editing or moving; confirm with the user before `delete`, `cancel`, `pr approve`, `fleet terminate`.
 - Prefer `-o json` and quote prompts via `-f file.md` for anything multi-line.
-- Don't queue broad subtrees without saying what will run and where.
+- Don't queue broad subtrees without saying what will run and where. To start work, queue the smallest sensible subtree, after checking `wrangl run list` / Tasks (In progress, Queue) so you don't double-queue an overlapping one.
+- Don't treat the Planned section as available; verify with `--help`.

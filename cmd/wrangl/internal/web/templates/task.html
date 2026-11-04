@@ -7,7 +7,7 @@
     {{if .Attention}}<span class="tag attn">! needs attention</span>{{end}}
     {{if eq $t.State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}
     <code class="sqid">{{$t.Sqid.String}}</code>
-    <a href="/backlog?project={{.Project}}">{{.Project}}</a>
+    <a href="/tasks?project={{.Project}}">{{.Project}}</a>
     {{with .Parent}}› <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{end}}
   </div>
   <h2>{{$t.Title}}</h2>

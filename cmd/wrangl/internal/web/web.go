@@ -143,15 +143,22 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/css")
 		io.WriteString(w, h.css)
 	})
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/backlog", http.StatusFound) })
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/tasks", http.StatusFound) })
 	for path, view := range map[string]string{
-		"/backlog": "backlog", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
+		"/tasks": "tasks", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
 		"/logs": "logs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
 		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/project/{slug}": "project", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
 	}
+	mux.HandleFunc("GET /backlog", func(w http.ResponseWriter, r *http.Request) { // the old name of /tasks
+		to := "/tasks"
+		if r.URL.RawQuery != "" {
+			to += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, to+"#backlog", http.StatusFound)
+	})
 	mux.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/logs", http.StatusMovedPermanently)
 	})
@@ -331,7 +338,7 @@ func reqValue(r *http.Request, k string) string {
 // live is the page's Datastar stream: it re-renders #main on every change notice.
 func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	view := r.URL.Query().Get("view")
-	if _, ok := map[string]bool{"backlog": true, "task": true, "runners": true, "runner": true, "logs": true, "run": true, "inbox": true, "settings": true, "project": true}[view]; !ok {
+	if _, ok := map[string]bool{"tasks": true, "task": true, "runners": true, "runner": true, "logs": true, "run": true, "inbox": true, "settings": true, "project": true}[view]; !ok {
 		w.WriteHeader(http.StatusNoContent) // static pages (diff, files) are not live
 		return
 	}
@@ -351,10 +358,18 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		if sq := sess.get(); view == "backlog" && sq != "" {
+		if sq := sess.get(); view == "tasks" && sq != "" {
 			if card, err := h.taskPart(r.Context(), sq, "main-task"); err == nil {
 				if roots, ok := data["Roots"].([]*node); ok {
-					attachDetail(roots, sq, card)
+					all := roots
+					for _, k := range []string{"Progress", "Queue"} {
+						if es, ok := data[k].([]*runEntry); ok {
+							for _, e := range es {
+								all = append(all, e.Node)
+							}
+						}
+					}
+					attachDetail(all, sq, card)
 				}
 			}
 		}
@@ -450,11 +465,29 @@ type node struct {
 	Kids      []*node
 }
 
+// runEntry is an active run shown in the In progress or Queue section: its root task (with the
+// subtree beneath it) is taken out of the backlog tree.
+type runEntry struct {
+	Node         *node
+	RunID        int64
+	Kind, State  string
+	Runner       string
+	Current      string // sqid of the leaf being worked
+	CurrentTitle string
+	Crumb        string // "parent > " for a queued task that is not a root
+}
+
+// taskSections is what the Tasks page lists: running, queued and the rest.
+type taskSections struct {
+	Progress, Queue []*runEntry
+	Backlog         []*node
+}
+
 func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[string]any, error) {
 	db := h.D.Fleet.DB
 	d := map[string]any{}
 	switch view {
-	case "backlog":
+	case "tasks":
 		projects, err := db.RQ.ListProjects(ctx)
 		if err != nil {
 			return nil, err
@@ -466,15 +499,15 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		if slug == "" && len(projects) > 0 {
 			slug = projects[0].Slug
 		}
-		d["Project"], d["Title"] = slug, "Backlog"
+		d["Project"], d["Title"] = slug, "Tasks"
 		d["Types"] = dbtypes.TaskTypes
 		d["All"] = r.URL.Query().Get("all") == "1"
 		if slug != "" {
-			roots, err := h.tree(ctx, slug, d["All"].(bool))
+			secs, err := h.tree(ctx, slug, d["All"].(bool))
 			if err != nil {
 				return nil, err
 			}
-			d["Roots"] = roots
+			d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
 		}
 	case "task":
 		sqid := reqValue(r, "sqid")
@@ -831,15 +864,16 @@ func parentDir(p string) string {
 }
 
 // tree builds the nested backlog with lock badges.
-func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, error) {
+func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections, error) {
+	var secs taskSections
 	db := h.D.Fleet.DB
 	p, err := db.RQ.GetProjectBySlug(ctx, slug)
 	if err != nil {
-		return nil, fmt.Errorf("%w: project %s", errs.NotFound, slug)
+		return secs, fmt.Errorf("%w: project %s", errs.NotFound, slug)
 	}
 	rows, err := db.RQ.ProjectTree(ctx, p.ID)
 	if err != nil {
-		return nil, err
+		return secs, err
 	}
 	active, _ := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: "active", Lim: 1000})
 	locks := map[int64]string{}
@@ -848,6 +882,8 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, err
 	}
 	attn := h.attention(ctx, slug)
 	byID := map[int64]*node{}
+	bySqid := map[string]*node{}
+	order := map[string]int{} // tree position, for ordering the queue
 	var roots []*node
 	lockOf := map[int64]string{}
 	for _, t := range rows {
@@ -864,6 +900,8 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, err
 		}
 		lockOf[t.ID], n.LockedBy = lock, lock
 		byID[t.ID] = n
+		bySqid[t.Sqid] = n
+		order[t.Sqid] = len(order)
 		if !all && (t.State == "done" || t.State == "cancelled") {
 			continue
 		}
@@ -874,7 +912,48 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) ([]*node, err
 			roots = append(roots, n)
 		}
 	}
-	return roots, nil
+	// Active runs leave the backlog: queued ones go to Queue, assigned/running ones to In progress.
+	runs, _ := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: "active", Project: slug, Lim: 1000})
+	taken := map[*node]bool{}
+	for i := len(runs) - 1; i >= 0; i-- { // oldest first
+		r := runs[i]
+		n := bySqid[r.TaskSqid]
+		if n == nil || taken[n] {
+			continue
+		}
+		taken[n] = true
+		e := &runEntry{Node: n, RunID: r.Run.ID, Kind: r.Run.Kind, State: r.Run.State, Runner: r.RunnerName, Current: r.CurrentSqid}
+		if c := bySqid[r.CurrentSqid]; c != nil {
+			e.CurrentTitle = c.Title
+		}
+		if n.Parent != "" {
+			if p := bySqid[n.Parent]; p != nil {
+				e.Crumb = p.Title
+			}
+		}
+		if r.Run.State == "queued" {
+			secs.Queue = append(secs.Queue, e)
+		} else {
+			secs.Progress = append(secs.Progress, e)
+		}
+	}
+	sort.SliceStable(secs.Queue, func(a, b int) bool { // tree order (project priority/rank), then FIFO
+		return order[secs.Queue[a].Node.Sqid] < order[secs.Queue[b].Node.Sqid]
+	})
+	var strip func(ns []*node) []*node
+	strip = func(ns []*node) []*node {
+		var out []*node
+		for _, n := range ns {
+			if taken[n] {
+				continue
+			}
+			n.Kids = strip(n.Kids)
+			out = append(out, n)
+		}
+		return out
+	}
+	secs.Backlog = strip(roots)
+	return secs, nil
 }
 
 // attention is the set of task sqids that need the owner: an open question on the task,
@@ -1038,7 +1117,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		if err = terr; err == nil {
 			p, _ := h.D.Fleet.DB.RQ.GetProject(ctx, t.ProjectID)
 			err = h.D.Stack.Delete(ctx, sqid, stack.User)
-			msg, nav = "deleted", "/backlog?project="+url.QueryEscape(p.Slug)
+			msg, nav = "deleted", "/tasks?project="+url.QueryEscape(p.Slug)
 		}
 	case "task-needs":
 		err = h.D.Stack.NeedsAdd(ctx, sqid, str("precursor"), stack.User)
@@ -1153,7 +1232,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		case "pr", "answer":
 			back = "/inbox"
 		case "task-queue", "task-plan":
-			back = "/backlog"
+			back = "/tasks"
 		}
 		if h.githubToast(ctx, w, err, back) {
 			return

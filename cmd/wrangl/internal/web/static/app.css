@@ -334,3 +334,13 @@ table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 .brand img { display: block; }
 .about { text-align: center; padding: 8px 0 0; }
 .about img { width: min(280px, 70%); height: auto; background: #0f1115; border-radius: 16px; padding: 12px 12px 4px; }
+
+/* Tasks page: In progress / Queue / Backlog sections */
+.tsec { margin: 0 0 18px; }
+.tsec > h3 { margin: 6px 0 8px; font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.tasks.runs > li.run { border-left: 3px solid var(--prog); }
+#queue .tasks.runs > li.run { border-left-color: var(--line); }
+.crumb { color: var(--dim); font-weight: 400; }
+.now { padding: 2px 0 2px 2.2rem; }
+details.sub { padding: 2px 0 2px 1.6rem; }
+details.sub > summary { cursor: pointer; color: var(--dim); font-size: 0.85rem; padding: 2px 0; }

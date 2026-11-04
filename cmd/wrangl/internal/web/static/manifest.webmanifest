@@ -2,7 +2,7 @@
   "name": "wrangl",
   "short_name": "wrangl",
   "description": "Agent fleet backlog, runners and review inbox",
-  "start_url": "/backlog",
+  "start_url": "/tasks",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0f1115",

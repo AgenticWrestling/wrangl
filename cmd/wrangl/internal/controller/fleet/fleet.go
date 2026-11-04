@@ -150,12 +150,6 @@ func newToken() (plain string, hash []byte) {
 	return plain, h[:]
 }
 
-func newName(template string) string {
-	b := make([]byte, 3)
-	io.ReadFull(rand.Reader, b)
-	return template + "-" + hex.EncodeToString(b)
-}
-
 // MintToken creates a one-time token for adopting a box the controller did not launch.
 func (s *Service) MintToken(ctx context.Context, template string, ttl time.Duration) (string, time.Time, error) {
 	t, err := s.Template(ctx, template)
@@ -255,7 +249,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 	var types []string
 	json.Unmarshal([]byte(t.InstanceTypes), &types)
 
-	name := newName(t.Name)
+	name := s.newName(ctx)
 	plain, hash := newToken()
 	tokID, err := s.DB.Q.CreateEnrollmentToken(ctx, dbgen.CreateEnrollmentTokenParams{
 		TokenHash: hash, TemplateID: t.ID, RunnerName: name, ExpiresAt: ts(s.now().Add(EnrollDeadline)),
@@ -393,7 +387,7 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 		} else {
 			name := tok.RunnerName
 			if name == "" {
-				name = newName(t.Name)
+				name = s.newName(ctx)
 			}
 			var err error
 			if r, err = q.CreateAdoptedRunner(ctx, dbgen.CreateAdoptedRunnerParams{Name: name, TemplateID: t.ID}); err != nil {
