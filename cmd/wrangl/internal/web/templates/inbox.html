@@ -1,30 +1,19 @@
 {{define "main-inbox"}}
-{{if and (not .Questions) (not .PRs)}}<p class="empty">Inbox zero. Questions from agents, plan proposals and PR reviews land here.</p>{{end}}
-{{range .Questions}}<section class="card q q-{{.Kind}} k-questions" id="q{{.ID}}" data-signals:qbusy{{.ID}}="false" data-class:busy="$qbusy{{.ID}}">
-  <div class="meta"><span class="tag k-questions">{{if eq .Kind "plan_review"}}◐ plan review{{else if eq .Kind "task_review"}}◐ task review{{else}}? needs input{{end}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}{{with index $.Changes .Task}}{{if .URL}} · <a href="{{.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Title}}">{{faicon "edit"}}{{.Label}} ↗</a>{{end}}{{end}}<span class="grow"></span><span class="dim">{{ago .CreatedAt}}</span></div>
-  <h3>{{.Prompt}}</h3>
-  {{if .DetailMD}}<div class="prose">{{md .DetailMD}}</div>{{end}}
-  {{if eq .Kind "plan_review"}}<pre class="outline">{{outline .Payload}}</pre>{{end}}
-  {{if .AllowFreeText}}<textarea data-bind="ans{{.ID}}" rows="3" placeholder="Reply / feedback"></textarea>{{end}}
-  <div class="actions wrap">
-    {{$id := .ID}}{{range .Options}}<button class="btn{{if or (eq .Value "accept") (eq .Value "approve") (eq .Value "yes")}} primary{{end}}" title="{{.Description}}" data-indicator:qbusy{{$id}} data-attr:disabled="$qbusy{{$id}}" data-on:click="@post('/ui/act/answer?id={{$id}}&amp;value={{.Value}}')">{{.Label}}</button>{{end}}
-    {{if and .AllowFreeText (not .Options)}}<button class="btn primary" data-indicator:qbusy{{$id}} data-attr:disabled="$qbusy{{$id}}" data-on:click="@post('/ui/act/answer?id={{$id}}')">Send</button>{{end}}
-  </div>
-</section>{{end}}
-{{if .PRs}}<h2 class="section">Open pull requests</h2>{{end}}
-{{range .PRs}}{{$p := .PullRequest}}<section class="card pr k-review" id="pr-{{$p.ID}}" data-signals:prbusy{{$p.ID}}="false" data-class:busy="$prbusy{{$p.ID}}">
-  <div class="meta"><span class="tag k-review">◐ in review</span> <a href="{{$p.Url}}" target="_blank" rel="noopener">{{.Repo}}#{{$p.GhNumber}} ↗</a> <span class="pill">{{$p.State}}</span>{{if $p.Risk.Valid}}<span class="pill risk-{{$p.Risk.String}}">risk: {{$p.Risk.String}}</span>{{end}}{{if $p.Checks}}<span class="pill">checks: {{$p.Checks}}</span>{{end}}</div>
-  <h3><a href="/task/{{.TaskSqid}}">{{.TaskTitle}}</a></h3>
-  <div class="row small"><a href="/run/{{$p.RunID}}/diff">diff</a> · <code>{{$p.HeadBranch}}</code></div>
-  {{if $p.ReviewSummaryMd}}<details><summary>Review</summary><div class="prose">{{md $p.ReviewSummaryMd}}</div></details>{{end}}
-  <textarea data-bind="pr{{$p.ID}}" rows="2" placeholder="What should change? (for Request changes)"></textarea>
-  <div class="actions wrap">
-    <button class="btn primary" data-indicator:prbusy{{$p.ID}} data-attr:disabled="$prbusy{{$p.ID}}" data-on:click="confirm('Approve and merge?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=approve')"><span data-show="!$prbusy{{$p.ID}}">Approve &amp; merge</span><span data-show="$prbusy{{$p.ID}}" style="display:none"><span class="spin" aria-hidden="true"></span> Merging…</span></button>
-    <button class="btn" data-indicator:prbusy{{$p.ID}} data-attr:disabled="$prbusy{{$p.ID}}" data-on:click="@post('/ui/act/pr?id={{$p.ID}}&amp;op=request-changes')">Request changes</button>
-    <button class="btn danger" data-indicator:prbusy{{$p.ID}} data-attr:disabled="$prbusy{{$p.ID}}" data-on:click="confirm('Close without merging?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=close')">Close</button>
-  </div>
-</section>{{end}}
+{{if not .Items}}<p class="empty">Inbox zero. Questions from agents, plan proposals, task reviews and PR reviews land here.</p>{{end}}
+{{range .Items}}{{template "icard" .}}{{end}}
 {{end}}
+
+{{define "icard"}}{{$k := .Key}}<section class="card icard q-{{.Kind}} {{.TagClass}}" id="{{.DOM}}" data-signals:b{{$k}}__ifmissing="false" data-signals:c{{$k}}__ifmissing="false" data-class:busy="$b{{$k}}">
+  <div class="meta"><span class="tag {{.TagClass}}">{{.Tag}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}{{range .Links}} · <a href="{{.URL}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>{{.Text}}{{if .External}} ↗{{end}}</a>{{end}}{{if .Changes.URL}} · <a href="{{.Changes.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Changes.Title}}">{{faicon "edit"}}{{.Changes.Label}} ↗</a>{{end}}{{range .Pills}}<span class="pill {{.Class}}">{{.Text}}</span>{{end}}<span class="grow"></span><span class="dim">{{.Age}}</span></div>
+  <h3>{{.Title}}</h3>
+  {{if .Body}}<div class="prose">{{.Body}}</div>{{end}}
+  {{range .Details}}<details class="idetail"{{if .Open}} open{{end}}><summary>{{.Summary}}</summary>{{if .Pre}}<pre class="outline">{{.Pre}}</pre>{{end}}{{if .HTML}}<div class="prose">{{.HTML}}</div>{{end}}</details>{{end}}
+  {{if .Chat}}<textarea data-bind="{{.Bind}}" data-show="$c{{$k}}" style="display:none" rows="3" placeholder="{{.ChatHint}}"></textarea>{{end}}
+  <div class="actions wrap">
+    {{range .Actions}}<button class="btn {{.Class}}"{{if .Tip}} title="{{.Tip}}"{{end}} data-indicator:b{{$k}} data-attr:disabled="$b{{$k}}" data-on:click="{{if .NeedsText}}!(${{$.Bind}} || '').trim() ? ($c{{$k}} = true) : {{end}}{{if .Confirm}}confirm('{{.Confirm}}') && {{end}}@post('{{.URL}}')">{{if .Busy}}<span data-show="!$b{{$k}}">{{.Label}}</span><span data-show="$b{{$k}}" style="display:none"><span class="spin" aria-hidden="true"></span> {{.Busy}}</span>{{else}}{{.Label}}{{end}}</button>{{end}}
+    {{if .Chat}}<button type="button" class="chatbtn" aria-label="Add a comment" title="Comment" data-attr:aria-pressed="$c{{$k}}" data-on:click="$c{{$k}} = !$c{{$k}}">{{faicon "comment"}}</button>{{end}}
+  </div>
+</section>{{end}}
 
 {{define "main-settings"}}
 <section class="card">

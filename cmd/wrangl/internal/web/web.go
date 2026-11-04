@@ -52,6 +52,7 @@ type Handler struct {
 
 	sessions sync.Map // page session id -> *liveSession
 	health   sync.Map // lowercase login -> cached App health (see appHealth)
+	docs     sync.Map // run id -> *docEntry: the single Markdown file a run produced (Inbox)
 }
 
 // liveSession is one open page's live stream. The page says which backlog task it has
@@ -926,8 +927,8 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			return nil, err
 		}
 		prs, _ := db.RQ.ListPRs(ctx, "open")
-		d["Questions"], d["PRs"], d["Title"] = qs, prs, "Inbox"
-		d["Changes"] = h.changeLinks(ctx, 0)
+		d["Title"] = "Inbox"
+		d["Items"] = h.inboxItems(ctx, qs, prs, h.changeLinks(ctx, 0))
 	case "project":
 		p, err := h.D.Projects.Project(ctx, reqValue(r, "slug"))
 		if err != nil {

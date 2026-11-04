@@ -460,3 +460,13 @@ section.card.k-running { border-left: 4px solid var(--prog); }
 .spin { display: inline-block; width: 0.8em; height: 0.8em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -0.1em; animation: wspin .7s linear infinite; }
 @keyframes wspin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s; } }
+
+/* Inbox cards: one layout for questions, task reviews, plan proposals and PRs. */
+.icard .actions { align-items: center; }
+.icard .chatbtn { margin-left: auto; background: none; border: 1px solid transparent; color: var(--dim); border-radius: 999px; width: 40px; height: 40px; display: grid; place-items: center; cursor: pointer; }
+.icard .chatbtn:hover, .icard .chatbtn[aria-pressed="true"] { color: var(--ink); background: var(--raised); border-color: var(--line); }
+.icard .chatbtn .fa { width: 1.25em; height: 1.25em; margin: 0; }
+.icard textarea { width: 100%; margin-top: 8px; }
+.icard details.idetail { margin: 8px 0; }
+.icard details.idetail > summary { cursor: pointer; color: var(--dim); font-size: 0.88rem; }
+.icard details.idetail[open] > .prose { max-height: 28rem; overflow: auto; padding: 4px 12px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
