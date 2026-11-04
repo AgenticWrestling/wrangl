@@ -497,7 +497,7 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	}
 	if ahead != "" && ahead != "0" {
 		s.state(pubCtx, proto.RunState{State: "pushing", Status: fmt.Sprintf("pushing %s commits to %s", ahead, a.Branch)})
-		if out, err := gitAsDaemon(ctx, dir, a.GitToken, "push", "origin", "HEAD:refs/heads/"+a.Branch); err != nil {
+		if out, err := w.pushBranch(ctx, id, dir, a.GitToken, a.Branch); err != nil {
 			fail(fmt.Errorf("push %s: %w: %s", a.Branch, err, out))
 			return
 		}
@@ -1181,4 +1181,27 @@ func lookPathIn(name, path string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// pushBranch pushes HEAD to the run branch. An agent that opened its own PR with gh has
+// usually pushed the branch already, so a rejected push is not a failure: if the remote
+// already contains HEAD there is nothing to push; if it holds commits we lack, replace it
+// only if it is still what we just fetched (force-with-lease), since wrangl owns the branch.
+func (w *Worker) pushBranch(ctx context.Context, id agentIdentity, dir, token, branch string) (string, error) {
+	ref := "HEAD:refs/heads/" + branch
+	out, err := gitAsDaemon(ctx, dir, token, "push", "origin", ref)
+	if err == nil {
+		return out, nil
+	}
+	if _, ferr := gitAsDaemon(ctx, dir, token, "fetch", "origin", "refs/heads/"+branch); ferr != nil {
+		return out, err
+	}
+	tip, terr := gitAsAgent(ctx, id, dir, "rev-parse", "FETCH_HEAD")
+	if terr != nil || tip == "" {
+		return out, err
+	}
+	if _, aerr := gitAsAgent(ctx, id, dir, "merge-base", "--is-ancestor", "HEAD", tip); aerr == nil {
+		return "remote already has HEAD", nil // the agent pushed it
+	}
+	return gitAsDaemon(ctx, dir, token, "push", "--force-with-lease=refs/heads/"+branch+":"+tip, "origin", ref)
 }
