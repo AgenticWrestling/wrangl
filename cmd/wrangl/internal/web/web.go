@@ -822,6 +822,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["P"], d["Repos"], d["Title"] = p, repos, p.Name
 		d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
+		d["Limits"], _ = h.D.Projects.Limits(ctx, p.Slug)
 		d["GitHub"] = h.D.Projects.GH != nil
 		d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
 		d["Template"] = ""
@@ -1322,6 +1323,14 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		am, aq := flag("pautomerge"), flag("pautoqueue")
 		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq})
 		msg = "saved " + slug
+	case "project-limit":
+		var n int64
+		if n, err = strconv.ParseInt(q.Get("n"), 10, 64); err != nil || n < 0 {
+			err = fmt.Errorf("limit must be a whole number, 0 or more")
+			break
+		}
+		err = h.D.Projects.SetLimits(ctx, q.Get("slug"), map[string]int64{q.Get("template"): n})
+		msg = fmt.Sprintf("%s limit on %s: %d", q.Get("slug"), q.Get("template"), n)
 	case "repo-notes": // repo=owner/name gives it the notes role; empty repo clears
 		err = h.D.Projects.SetNotesRepo(ctx, q.Get("slug"), q.Get("repo"))
 		msg = "notes repo saved"

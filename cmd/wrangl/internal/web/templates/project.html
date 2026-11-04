@@ -25,6 +25,14 @@
   {{if not .GitHub}}<p class="hint">GitHub isn't configured on this controller yet (<code>github.author_app</code>), so repos can't be linked.</p>{{end}}
 </section>
 
+<section class="card" id="limits">
+  <div class="row"><h3>Runner limits</h3></div>
+  <p class="hint">The most runner instances this project's queued work may start, per template. The default template starts at 1; the others at 0, so expensive runners are opt-in. A template's own <code>max_runners</code> is a ceiling for everyone. Existing runners with a free slot are shared, whichever project started them.</p>
+  {{range .Limits}}<div class="row link"><b>{{.Template}}</b>{{if .Default}} <span class="tag">default</span>{{end}} <span class="dim small">ceiling {{.Ceiling}}</span><span class="grow"></span>
+    <input type="number" min="0" step="1" value="{{.Max}}" style="width:5rem" aria-label="Instances of {{.Template}} for {{$p.Slug}}" data-on:change="@post('/ui/act/project-limit?slug={{$p.Slug}}&template={{.Template}}&n=' + evt.target.value)"></div>
+  {{else}}<p class="empty">No runner templates yet.</p>{{end}}
+</section>
+
 <section class="card tools" id="tools">
   <div class="row"><h3>Custom tools</h3><span class="grow"></span><span class="pill">coming soon</span>
     <button class="btn small" disabled aria-disabled="true" title="Not available yet">＋ Add tool</button></div>

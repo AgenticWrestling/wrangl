@@ -188,3 +188,26 @@ func TestPlanningTaskTypesAndTargetDate(t *testing.T) {
 		t.Fatal("unknown task type accepted")
 	}
 }
+
+// The migration seeds project_template_limit with 1 for a project's default template and 0 for
+// every other. The seeding statement is replayed over existing rows (the migration itself ran
+// on an empty database).
+func TestProjectTemplateLimitSeed(t *testing.T) {
+	d, _ := open(t)
+	ctx := context.Background()
+	exec(t, d, `INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('go','[tools]','{}',2,4096,20), ('mac','[tools]','{}',2,4096,20)`)
+	exec(t, d, `INSERT INTO project (slug, name, default_template_id) VALUES ('a','A',1), ('b','B',2), ('c','C',NULL)`)
+	exec(t, d, `INSERT INTO project_template_limit (project_id, template_id, max_instances)
+SELECT p.id, t.id, CASE WHEN p.default_template_id = t.id THEN 1 ELSE 0 END FROM project p CROSS JOIN runner_template t`)
+	for pid, want := range map[int64][2]int64{1: {1, 0}, 2: {0, 1}, 3: {0, 0}} {
+		rows, err := d.RQ.ListProjectTemplateLimits(ctx, pid)
+		if err != nil || len(rows) != 2 {
+			t.Fatalf("project %d: %v %v", pid, rows, err)
+		}
+		for i, r := range rows { // ordered by template name: go, mac
+			if r.Stored.Int64 != want[i] || !r.Stored.Valid {
+				t.Errorf("project %d template %s = %v, want %d", pid, r.TemplateName, r.Stored, want[i])
+			}
+		}
+	}
+}

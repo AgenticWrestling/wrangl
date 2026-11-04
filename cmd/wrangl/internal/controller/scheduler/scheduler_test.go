@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"io"
@@ -61,6 +62,7 @@ func setup(t *testing.T, maxRunners int) (*Scheduler, *failingEC2, *clock, *db.D
 		t.Fatal(err)
 	}
 	d.W.Exec(`INSERT INTO project (slug, name, default_template_id) VALUES ('p', 'P', 1)`)
+	d.W.Exec(`INSERT INTO project_template_limit (project_id, template_id, max_instances) VALUES (1, 1, 100)`) // caps have their own tests
 	return &Scheduler{Fleet: f, Now: clk.Now, Log: log}, fake, clk, d
 }
 
@@ -239,4 +241,67 @@ func TestRepeatedEnrolFailuresPauseLaunching(t *testing.T) {
 	if got, _ := s.Tick(ctx); got["go"] != 1 {
 		t.Fatalf("did not resume after the window: %v", got)
 	}
+}
+
+func TestEffectiveCap(t *testing.T) {
+	null, v := sql.NullInt64{}, func(n int64) sql.NullInt64 { return sql.NullInt64{Int64: n, Valid: true} }
+	for _, c := range []struct {
+		stored sql.NullInt64
+		def    bool
+		max    int64
+		want   int64
+	}{
+		{null, true, 5, 1},  // no row: default template gets 1
+		{null, false, 5, 0}, // no row: other templates are opt-in
+		{v(3), false, 5, 3},
+		{v(9), false, 5, 5}, // the template ceiling wins
+		{v(0), true, 5, 0},
+		{v(2), true, 0, 0},
+	} {
+		if got := EffectiveCap(c.stored, c.def, c.max); got != c.want {
+			t.Errorf("EffectiveCap(%v,%v,%d) = %d, want %d", c.stored, c.def, c.max, got, c.want)
+		}
+	}
+}
+
+func TestPlanLaunches(t *testing.T) {
+	got := PlanLaunches(10, 4, 10, []ProjectDemand{
+		{Project: 1, Demand: 6, Live: 0, Cap: 1}, // wants 2 hosts, capped at 1
+		{Project: 2, Demand: 4, Live: 0, Cap: 5}, // 1 host; project 1's overflow does not spill here
+		{Project: 3, Demand: 4, Live: 2, Cap: 2}, // at its cap
+	})
+	want := []Launch{{1, 1}, {2, 1}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got := PlanLaunches(8, 4, 1, []ProjectDemand{{1, 4, 0, 5}, {2, 4, 0, 5}}); len(got) != 1 {
+		t.Fatalf("total must respect max hosts: %v", got)
+	}
+}
+
+// With the default caps a project launches one instance of its default template and none of any
+// other; raising its cap lets the next tick launch more, attributed to the project.
+func TestProjectCapLimitsLaunches(t *testing.T) {
+	s, fake, _, d := setup(t, 5)
+	d.W.Exec(`UPDATE runner_template SET max_sessions = 1`)
+	d.W.Exec(`DELETE FROM project_template_limit`) // back to the default rule: 1 for the default template
+	ctx := context.Background()
+	queue(t, d, 3)
+	if got, _ := s.Tick(ctx); got["go"] != 1 {
+		t.Fatalf("want 1 launch under the default cap, got %v", got)
+	}
+	var forProject int64
+	d.W.QueryRow(`SELECT launched_for_project FROM runner`).Scan(&forProject)
+	if forProject != 1 {
+		t.Fatalf("launched_for_project = %d", forProject)
+	}
+	if got, _ := s.Tick(ctx); len(got) != 0 {
+		t.Fatalf("launched past the cap: %v", got)
+	}
+	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 1, 3)`)
+	if got, _ := s.Tick(ctx); got["go"] != 2 {
+		t.Fatalf("want 2 more after raising the cap, got %v", got)
+	}
+	d.W.Exec(`UPDATE project_template_limit SET max_instances = 0`)
+	_ = fake
 }

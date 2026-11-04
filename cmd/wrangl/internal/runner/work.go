@@ -367,6 +367,7 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	pubCtx := context.WithoutCancel(ctx)
 	dir, id, err := w.workdir(a.RunID)
 	s := &session{w: w, a: a, id: id, dir: dir, interactive: a.Agent.Drive == proto.DriveInteractive && a.Kind == "work"}
+	defer s.removeWorktree(pubCtx) // runs after removeSecrets (LIFO); only acts once cleanup is set: failed runs keep theirs
 	defer s.removeSecrets()
 	w.mu.Lock()
 	rs.sess = s
@@ -385,7 +386,6 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 		fail(err)
 		return
 	}
-	defer s.removeWorktree(pubCtx) // only acts once cleanup is set: failed runs keep theirs for inspection
 	s.state(pubCtx, proto.RunState{State: "preparing", Status: "cloning " + a.Repo})
 	base, err := w.prepare(ctx, s)
 	if err != nil {

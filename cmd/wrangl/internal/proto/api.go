@@ -93,6 +93,17 @@ type ProjectView struct {
 	AutoQueue    bool   `json:"auto_queue"`
 	Priority     int64  `json:"priority"`
 	NotesRepo    string `json:"notes_repo,omitempty"`
+	// Limits are the runner instances this project's demand may cause, per template.
+	Limits []ProjectLimit `json:"limits,omitempty"`
+}
+
+// ProjectLimit is a project's instance cap on one template. Ceiling is the template's own
+// max_runners; the effective cap is the smaller of the two.
+type ProjectLimit struct {
+	Template string `json:"template"`
+	Max      int64  `json:"max"`
+	Ceiling  int64  `json:"ceiling"`
+	Default  bool   `json:"default,omitempty"` // the project's default template
 }
 
 // ProjectRequest creates or patches a project (nil = unchanged).
@@ -106,6 +117,8 @@ type ProjectRequest struct {
 	AutoQueue    *bool   `json:"auto_queue,omitempty"`
 	Priority     *int64  `json:"priority,omitempty"`
 	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
+	// Limits sets instance caps by template name; templates not listed keep theirs.
+	Limits map[string]int64 `json:"limits,omitempty"`
 }
 
 // RepoView is a linked repo.

@@ -3,6 +3,9 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -30,6 +33,19 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 	r.Name, r.Description, r.Template, r.PlanTemplate = str("name"), str("description"), str("template"), str("plan-template")
 	r.AutoMerge, r.AutoQueue = boolean("auto-merge"), boolean("auto-queue")
 	r.NotesRepo = str("notes-repo")
+	if f.Changed("limit") {
+		vals, _ := f.GetStringSlice("limit")
+		r.Limits = map[string]int64{}
+		for _, v := range vals {
+			name, num, ok := strings.Cut(v, "=")
+			n, err := strconv.ParseInt(num, 10, 64)
+			if !ok || name == "" || err != nil || n < 0 {
+				c.PrintErrln("--limit wants TEMPLATE=N (N >= 0), got", v)
+				os.Exit(2)
+			}
+			r.Limits[name] = n
+		}
+	}
 	if f.Changed("priority") {
 		v, _ := f.GetInt64("priority")
 		r.Priority = &v
@@ -46,12 +62,20 @@ func projectFlags(c *cobra.Command) {
 	f.Bool("auto-merge", false, "auto-merge PRs that pass every gate and review as low risk")
 	f.Bool("auto-queue", false, "queue new top-level tasks automatically")
 	f.String("notes-repo", "", "linked repo (owner/name) that holds research reports under research/; empty clears")
+	f.StringSlice("limit", nil, "max runner instances this project may cause on a template: TEMPLATE=N (repeatable)")
 	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
 }
 
 func printProject(w io.Writer, p proto.ProjectView) {
 	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\nnotes repo\t%s\n",
 		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
+	for _, l := range p.Limits {
+		note := ""
+		if l.Max > l.Ceiling {
+			note = fmt.Sprintf(" (effective %d: template max_runners)", l.Ceiling)
+		}
+		fmt.Fprintf(w, "limit %s\t%d%s\n", l.Template, l.Max, note)
+	}
 	if p.Description != "" {
 		fmt.Fprintf(w, "description\t%s\n", p.Description)
 	}
