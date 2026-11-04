@@ -266,6 +266,7 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 		s.DB.Q.SetPRHeadSHA(ctx, dbgen.SetPRHeadSHAParams{HeadSha: live.HeadSHA, ID: pr.ID})
 		pr.HeadSha = live.HeadSHA
 	}
+	s.storeMergeable(ctx, &pr, live.Mergeable)
 	proj, err := s.projectFor(ctx, pr)
 	if err != nil {
 		return err
@@ -349,6 +350,42 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 		return s.merge(ctx, pr, "auto_merged", "Auto-merged by wrangl: gates passed and the review rated it low risk.")
 	}
 	return s.askOwner(ctx, pr, g, auditing, audit, audited)
+}
+
+// storeMergeable records GitHub's mergeable state on the PR (empty = not reported, keep the old one).
+func (s *Service) storeMergeable(ctx context.Context, pr *dbgen.PullRequest, state string) {
+	if state == "" || state == pr.Mergeable {
+		return
+	}
+	if err := s.DB.Q.SetPRMergeable(ctx, dbgen.SetPRMergeableParams{Mergeable: state, ID: pr.ID}); err != nil {
+		s.Log.Warn("store mergeable", "pr", pr.Url, "err", err)
+		return
+	}
+	pr.Mergeable = state
+}
+
+// RefreshMergeable re-reads only the mergeable state of an open PR (a push to its base
+// branch can make it conflict) and publishes the change.
+func (s *Service) RefreshMergeable(ctx context.Context, prID int64) error {
+	pr, err := s.DB.RQ.GetPR(ctx, prID)
+	if err != nil || pr.State != "open" {
+		return err
+	}
+	_, ghr, err := s.repo(ctx, pr.RepoID)
+	if err != nil {
+		return err
+	}
+	live, err := s.gh(ghr).GetPR(ctx, ghr, pr.GhNumber)
+	if err != nil {
+		return err
+	}
+	if before := pr.Mergeable; live.State == "open" {
+		s.storeMergeable(ctx, &pr, live.Mergeable)
+		if pr.Mergeable != before {
+			s.Bus.Publish("pr", fmt.Sprint(pr.ID))
+		}
+	}
+	return nil
 }
 
 // autoMergeable: the App that opened the PR can merge it, so auto-merge needs no reviewer App.
@@ -765,6 +802,7 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		CheckRun struct {
 			HeadSHA string `json:"head_sha"`
 		} `json:"check_run"`
+		Ref         string `json:"ref"`
 		PullRequest struct {
 			Number int64 `json:"number"`
 		} `json:"pull_request"`
@@ -822,6 +860,35 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 			return err
 		}
 		return s.Evaluate(ctx, pr.ID)
+	case "push":
+		// A push to a base branch can make other open PRs conflict: refresh them all. The PR
+		// whose own head moved gets a full evaluation.
+		branch := strings.TrimPrefix(p.Ref, "refs/heads/")
+		repos, err := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name})
+		if err != nil {
+			return err
+		}
+		ids := map[int64]bool{}
+		for _, r := range repos {
+			ids[r.ID] = true
+		}
+		open, err := s.DB.RQ.OpenPRs(ctx)
+		if err != nil {
+			return err
+		}
+		for _, pr := range open {
+			if !ids[pr.RepoID] {
+				continue
+			}
+			if pr.HeadBranch == branch {
+				err = s.Evaluate(ctx, pr.ID)
+			} else {
+				err = s.RefreshMergeable(ctx, pr.ID)
+			}
+			if err != nil {
+				s.Log.Warn("push webhook PR", "pr", pr.Url, "err", err)
+			}
+		}
 	case "issues":
 		repos, err := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name})
 		if err != nil {
