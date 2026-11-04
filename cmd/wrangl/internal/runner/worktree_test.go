@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,5 +58,47 @@ func TestWorktreesShareMirror(t *testing.T) {
 	}
 	if _, err := os.Stat(sess[1].dir); err != nil {
 		t.Fatal("sibling worktree lost")
+	}
+}
+
+// Sessions set their commit identity concurrently: none may fail on the mirror's config lock,
+// and each worktree keeps its own user.name.
+func TestSetIdentityConcurrentSessions(t *testing.T) {
+	tmp := t.TempDir()
+	origin := filepath.Join(tmp, "origin")
+	for _, args := range [][]string{{"init", "-b", "main", origin}, {"-C", origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	w := &Worker{}
+	id := agentIdentity{home: filepath.Join(tmp, "home")}
+	var sess []*session
+	for i := 0; i < 6; i++ {
+		a := proto.Assignment{RunID: int64(i + 1), Branch: fmt.Sprintf("wr/%d", i), CloneURL: origin, SessionName: fmt.Sprintf("r:%d", i)}
+		s := &session{w: w, a: a, id: id, dir: filepath.Join(id.home, "work", fmt.Sprint(i+1))}
+		if err := w.addWorktree(context.Background(), s, "main"); err != nil {
+			t.Fatal(err)
+		}
+		sess = append(sess, s)
+	}
+	for round := 0; round < 20; round++ {
+		var wg sync.WaitGroup
+		for _, s := range sess {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := w.setIdentity(context.Background(), s); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+		wg.Wait()
+	}
+	for _, s := range sess {
+		out, err := gitAsDaemon(context.Background(), s.dir, "", "config", "user.name")
+		if want := "wrangl agent (" + s.a.SessionName + ")"; err != nil || out != want {
+			t.Fatalf("%s: user.name %q (err %v), want %q", s.dir, out, err, want)
+		}
 	}
 }

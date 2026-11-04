@@ -154,3 +154,24 @@ func (w *Worker) freeBranch(ctx context.Context, s *session, dir string) error {
 	}
 	return nil
 }
+
+// setIdentity gives the session's worktree its own commit identity. A linked worktree shares the
+// mirror's config file, so a plain `git config` from two sessions at once collides on config.lock
+// (failing a run) and, when it does not, one session overwrites the other's user.name. The values
+// go in the worktree's own config (extensions.worktreeConfig), and the shared file is only touched
+// under the repo lock. (With that extension on, a linked worktree would otherwise read the bare
+// mirror's core.bare=true, so each worktree pins core.bare=false for itself.)
+func (w *Worker) setIdentity(ctx context.Context, s *session) error {
+	unlock := w.lockRepo(s.mirror)
+	out, err := gitAsDaemon(ctx, s.mirror, "", "config", "extensions.worktreeConfig", "true")
+	unlock()
+	if err != nil {
+		return fmt.Errorf("git config: %w: %s", err, out)
+	}
+	for _, kv := range [][2]string{{"core.bare", "false"}, {"user.name", "wrangl agent (" + s.a.SessionName + ")"}, {"user.email", "agent@wrangl.invalid"}} {
+		if out, err := gitAsAgent(ctx, s.id, s.dir, "config", "--worktree", kv[0], kv[1]); err != nil {
+			return fmt.Errorf("git config: %w: %s", err, out)
+		}
+	}
+	return nil
+}
