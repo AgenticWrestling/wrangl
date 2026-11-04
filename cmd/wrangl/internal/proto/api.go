@@ -96,6 +96,8 @@ type ProjectView struct {
 	// Limits are the runner instances this project's demand may cause, per template.
 	Limits []ProjectLimit `json:"limits,omitempty"`
 	Agent  string         `json:"agent,omitempty"` // default agent definition
+	// CitationAudit: research PRs get an audit run that re-fetches every cited URL before merge.
+	CitationAudit bool `json:"citation_audit"`
 }
 
 // ProjectLimit is a project's instance cap on one template. Ceiling is the template's own
@@ -119,8 +121,9 @@ type ProjectRequest struct {
 	Priority     *int64  `json:"priority,omitempty"`
 	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
 	// Limits sets instance caps by template name; templates not listed keep theirs.
-	Limits map[string]int64 `json:"limits,omitempty"`
-	Agent  *string          `json:"agent,omitempty"` // default agent name; "" clears
+	Limits        map[string]int64 `json:"limits,omitempty"`
+	Agent         *string          `json:"agent,omitempty"` // default agent name; "" clears
+	CitationAudit *bool            `json:"citation_audit,omitempty"`
 }
 
 // AgentView is a named agent definition (docs/wrangl/adr/0001).

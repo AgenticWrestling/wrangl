@@ -41,6 +41,7 @@ type ProjectParams struct {
 	NotesRepo              *string          // owner/name of a linked repo that holds research reports; "" clears
 	Limits                 map[string]int64 // instance caps by template name
 	Agent                  *string          // default agent definition by name; "" clears
+	CitationAudit          *bool            // audit research PRs' citations before merge
 }
 
 func (s *Service) templateID(ctx context.Context, name string) (sql.NullInt64, error) {
@@ -90,7 +91,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
+	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -141,6 +142,9 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 		up.Priority = *p.Priority
 	}
 	out, err := s.DB.Q.UpdateProject(ctx, up)
+	if err == nil && p.CitationAudit != nil {
+		err = s.DB.Q.SetProjectCitationAudit(ctx, b2i(*p.CitationAudit), cur.ID)
+	}
 	if err == nil && p.Agent != nil {
 		err = s.SetDefaultAgent(ctx, slug, *p.Agent)
 	}

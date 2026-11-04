@@ -51,6 +51,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	reviewed map[int64]string // pr id -> head sha a review run was queued for
+	audited  map[int64]string // PR id -> head sha a citation audit was queued for (guarded by mu)
 }
 
 // Gates is what the controller checked before considering an auto-merge.
@@ -318,14 +319,35 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 		}
 		// The review run ended without submitting a review: the owner decides.
 	}
+	// Research citation audit (opt-in per project): one audit run per head commit, after the review.
+	auditing := s.auditWanted(ctx, proj, pr)
+	audit, audited := Audit{}, false
+	if auditing {
+		if audit, audited = s.loadAudit(ctx, pr); !audited {
+			active, err := s.DB.RQ.ActiveRunForPR(ctx, dbgen.ActiveRunForPRParams{PrID: nint(pr.ID), Kind: "review"})
+			if err != nil {
+				return err
+			}
+			if active > 0 {
+				return nil
+			}
+			s.mu.Lock()
+			queued := s.audited[pr.ID] == pr.HeadSha
+			s.mu.Unlock()
+			if !queued {
+				return s.queueAudit(ctx, pr)
+			}
+			// The audit run ended without reporting: the owner decides, told that nothing was verified.
+		}
+	}
 	ownerGate := false // designs and decisions always wait for the owner
 	if t, err := s.DB.RQ.GetTask(ctx, pr.TaskID); err == nil {
 		ownerGate = t.TaskType.OwnerGate()
 	}
-	if proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && s.autoMergeable(ctx, pr) {
+	if proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && (!auditing || audit.OK()) && s.autoMergeable(ctx, pr) {
 		return s.merge(ctx, pr, "auto_merged", "Auto-merged by wrangl: gates passed and the review rated it low risk.")
 	}
-	return s.askOwner(ctx, pr, g)
+	return s.askOwner(ctx, pr, g, auditing, audit, audited)
 }
 
 // autoMergeable: the App that opened the PR can merge it, so auto-merge needs no reviewer App.
@@ -437,7 +459,7 @@ func (s *Service) SubmitReview(ctx context.Context, sc runs.Scope, raw json.RawM
 	return map[string]any{"ok": true, "note": "Review recorded. You are done; end your turn."}, nil
 }
 
-func (s *Service) askOwner(ctx context.Context, pr dbgen.PullRequest, g Gates) error {
+func (s *Service) askOwner(ctx context.Context, pr dbgen.PullRequest, g Gates, auditing bool, audit Audit, audited bool) error {
 	n, err := s.DB.RQ.OpenQuestionForPR(ctx, pr.ID)
 	if err != nil || n > 0 {
 		return err
@@ -454,6 +476,9 @@ func (s *Service) askOwner(ctx context.Context, pr dbgen.PullRequest, g Gates) e
 	}
 	if pr.ReviewSummaryMd != "" {
 		fmt.Fprintf(&d, "\n### Review\n\n%s\n", pr.ReviewSummaryMd)
+	}
+	if auditing {
+		d.WriteString(auditMarkdown(audit, audited))
 	}
 	payload, _ := json.Marshal(map[string]int64{"pr_id": pr.ID})
 	_, err = s.Runs.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: pr.TaskID, Kind: "pr_review",

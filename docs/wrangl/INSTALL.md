@@ -453,6 +453,18 @@ To follow a runner's progress:
 
 **Check:** `wrangl fleet list` shows the runner `idle` with CPU, memory and disk figures.
 
+### Research citation audit (optional)
+
+`wrangl project edit PROJ --citation-audit` turns on an audit for the project's **research** tasks.
+After the normal risk review of a research PR, wrangl queues one more read-only run (a `review` run
+whose prompt lists every URL the PR adds, taken from the diff). The agent fetches each URL, checks it
+loads and supports the claim it is cited for, and reports `verified`, `unsupported` or `unreachable`
+for each with the `submit_citation_audit` tool; any URL it fails to report on counts as "not checked".
+Auto-merge then requires every citation verified. Otherwise (or if the audit run ends without reporting)
+the PR question for the owner gets a **Citation audit** section naming what to look at. The audit
+re-runs for each new head commit. It needs an agent that can fetch web pages; the review run uses the
+same template and agent as the PR's work run.
+
 ### 8.0 Agent definitions
 
 The `agent:` block above is stored as a named **agent definition** (here `claude`), separate from

@@ -56,6 +56,8 @@ var All = []mcp.Tool{
 		InputSchema: raw(`{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["image","artifact_url","link","report_md","prototype_html"]},"title":{"type":"string"},"url":{"type":"string"},"content_md":{"type":"string"},"content_html":{"type":"string"},"image_base64":{"type":"string"}}}`)},
 	{Name: "submit_review", Description: "Review runs only: submit your review of the pull request. risk is low, medium or high.",
 		InputSchema: raw(`{"type":"object","required":["risk","summary_md"],"properties":{"risk":{"type":"string","enum":["low","medium","high"]},"summary_md":{"type":"string"},"concerns":{"type":"array","items":{"type":"string"}}}}`)},
+	{Name: "submit_citation_audit", Description: "Citation audit review runs only: report, for every URL you were asked to check, whether it is verified (loads and supports the claim it is cited for), unsupported (loads but does not) or unreachable (did not load). Call once.",
+		InputSchema: raw(`{"type":"object","required":["citations"],"properties":{"citations":{"type":"array","items":{"type":"object","required":["url","status"],"properties":{"url":{"type":"string"},"status":{"type":"string","enum":["verified","unsupported","unreachable"]},"note":{"type":"string","description":"what the page says instead, or why it did not load"}}}},"summary_md":{"type":"string"}}}`)},
 	{Name: "propose_split", Description: "Plan runs only: propose subtasks for the task. Nested children allowed. This ends the plan run.",
 		InputSchema: raw(`{"type":"object","required":["children"],"properties":{"chain":{"type":"boolean","description":"each top-level subtask needs the previous"},"rationale_md":{"type":"string"},"children":{"type":"array","items":{"type":"object","required":["title"],"properties":{"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"children":{"type":"array"}}}}}}`)},
 }
@@ -86,7 +88,7 @@ func Allowed(kind string) map[string]bool {
 	switch kind {
 	case "work", "revise", "user":
 		for _, t := range All {
-			if t.Name != "submit_review" && t.Name != "propose_split" {
+			if t.Name != "submit_review" && t.Name != "propose_split" && t.Name != "submit_citation_audit" {
 				m[t.Name] = true
 			}
 		}
@@ -100,6 +102,7 @@ func Allowed(kind string) map[string]bool {
 		}
 	case "review":
 		m["submit_review"] = true
+		m["submit_citation_audit"] = true
 	case "plan":
 		m["propose_split"] = true
 	}

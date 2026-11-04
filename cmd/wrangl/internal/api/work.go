@@ -51,13 +51,14 @@ func registerWork(mux *http.ServeMux, d Deps) {
 			}
 		}
 		limits, _ := d.Projects.Limits(ctx, p.Slug)
-		return proto.ProjectView{Agent: d.Projects.DefaultAgent(ctx, p.ID), Limits: limits, NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
+		ca, _ := db.RQ.GetProjectCitationAudit(ctx, p.ID)
+		return proto.ProjectView{CitationAudit: ca == 1, Agent: d.Projects.DefaultAgent(ctx, p.ID), Limits: limits, NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
 			Template: tmplName(ctx, p.DefaultTemplateID), PlanTemplate: tmplName(ctx, p.PlanTemplateID),
 			AutoMerge: p.AutoMerge == 1, AutoQueue: p.AutoQueue == 1, Priority: p.Priority}
 	}
 	params := func(r proto.ProjectRequest) projects.ProjectParams {
 		return projects.ProjectParams{Name: r.Name, Description: r.Description, Template: r.Template,
-			PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, Priority: r.Priority, NotesRepo: r.NotesRepo, Limits: r.Limits, Agent: r.Agent}
+			PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, Priority: r.Priority, NotesRepo: r.NotesRepo, Limits: r.Limits, Agent: r.Agent, CitationAudit: r.CitationAudit}
 	}
 
 	// --- projects ---

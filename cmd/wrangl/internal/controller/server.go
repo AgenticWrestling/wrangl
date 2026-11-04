@@ -313,6 +313,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		s.Push.Notify(webpush.Notification{Title: "Agent needs attention", Body: message, URL: fmt.Sprintf("/run/%d", r.ID), Tag: fmt.Sprintf("notice-run%d", r.ID)})
 	}
 	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
+	s.Runs.ToolHandlers["submit_citation_audit"] = s.PRs.SubmitCitationAudit
 	s.Deliverables = &deliverables.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "deliverables"), Bus: s.Bus, Log: s.log}
 	s.Runs.ToolHandlers["submit_deliverable"] = s.Deliverables.Submit
 	s.Runs.AnswerHandlers["deliverable_review"] = s.Deliverables.Answer(s.review())
