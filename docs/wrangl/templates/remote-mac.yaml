@@ -8,15 +8,26 @@
 # instance profile allowing ssm:StartSession on instances tagged by this controller; the target with
 # the SSM agent and sshd; the private key stored as a controller secret:
 #   wrangl secret set mac_ssh_key < id_ed25519
-# EC2 Mac needs a dedicated host with a 24 h minimum: keep the project cap at its default of 0 and
-# raise it deliberately (wrangl project edit PROJ --limit mac=1).
+# COST: an EC2 Mac runs on a Dedicated Host with a 24-HOUR MINIMUM allocation. One short run bills a
+# full day of the host, and stopping it early saves nothing (see EC2 Dedicated Host pricing for the
+# mac2 family). So:
+#   - a project's cap for this template is 0 unless it is the project's default template: opt in
+#     deliberately with  wrangl project edit PROJ --limit mac=1 ;
+#   - the controller logs and notes a "Cost warning" every time it launches a target on a mac type,
+#     and the controller agent's fleet.launch proposal repeats it in its result;
+#   - keep max_runners at 1 and set idle_timeout to cover the paid day (24h) so back-to-back runs
+#     share one host instead of allocating another.
+# Allocating the Dedicated Host and a macOS AMI is yours to arrange: put the host in the launch
+# template/subnet your controller uses and pin the AMI below (not yet automated; wrangl launches the
+# instance, it does not allocate or release hosts).
 name: mac
-arch: x86_64              # EC2 naming; use the Mac instance family in instance_types
+arch: arm64               # EC2 naming: mac2.metal is Apple silicon (arm64); mac1.metal is x86_64
 instance_types: [mac2.metal]
+ami: ami-REPLACE-WITH-A-MACOS-AMI   # or an SSM parameter path for a macOS AMI
 min: { vcpu: 8, ram: 16GiB, disk: 100GiB }
 max_runners: 1
 max_sessions: 1           # concurrent driver sessions on this one target
-idle_timeout: 30m
+idle_timeout: 24h          # the host is paid for 24h anyway; shorter only frees the instance, not the bill
 mode: remote
 connection:
   driver_template: go-claude

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"io"
 	"log/slog"
 	"os"
@@ -373,5 +375,41 @@ func TestRemoteTemplateLaunchesTargetWithinCap(t *testing.T) {
 	// the launching target already supplies the session: no second target for the same run
 	if got, _ := s.Tick(ctx); got["mac"] != 0 {
 		t.Fatalf("second target launched for one run: %v", got)
+	}
+}
+
+// fleet.launch on a remote Mac template starts a target (not an enrolling runner), respects the
+// project's cap (0 by default) and carries the 24-hour-minimum cost warning back to the caller.
+func TestLaunchForMacTargetWarnsAndRespectsCap(t *testing.T) {
+	s, fake, _, d := setup(t, 3)
+	fake.Types = append(fake.Types, ec2types.InstanceTypeInfo{InstanceType: "mac2.metal", VCpuInfo: &ec2types.VCpuInfo{DefaultVCpus: aws.Int32(8)},
+		MemoryInfo: &ec2types.MemoryInfo{SizeInMiB: aws.Int64(16384)}, ProcessorInfo: &ec2types.ProcessorInfo{SupportedArchitectures: []ec2types.ArchitectureType{ec2types.ArchitectureTypeArm64}}})
+	ctx := context.Background()
+	mac := "name: mac\narch: arm64\ninstance_types: [mac2.metal]\nmin: {vcpu: 2, ram: 4GiB, disk: 20GiB}\nmax_runners: 1\nmode: remote\nconnection: {driver_template: go, secret: k}\n"
+	if _, err := s.Fleet.CreateTemplate(ctx, []byte(mac)); err != nil {
+		t.Fatal(err)
+	}
+	d.W.Exec(`DELETE FROM project_template_limit`)
+	if _, err := s.LaunchFor(ctx, "p", "mac", 1); err == nil || !strings.Contains(err.Error(), "at most 0 instance(s) of template mac") {
+		t.Fatalf("opt-in: want a refusal naming the cap of 0, got %v", err)
+	}
+	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 2, 1)`)
+	names, err := s.LaunchFor(ctx, "p", "mac", 1)
+	if err != nil || len(names) != 1 || !strings.Contains(names[0], "24-hour minimum") {
+		t.Fatalf("want a launch carrying the cost warning: %v %v", names, err)
+	}
+	var targets, runners int
+	d.R.QueryRow(`SELECT COUNT(*) FROM remote_target WHERE launched_for_project = 1`).Scan(&targets)
+	d.R.QueryRow(`SELECT COUNT(*) FROM runner WHERE template_id = 2`).Scan(&runners)
+	if targets != 1 || runners != 0 {
+		t.Fatalf("targets %d runners %d", targets, runners)
+	}
+	var warned int
+	d.R.QueryRow(`SELECT COUNT(*) FROM log_entry WHERE level = 'warn' AND title LIKE 'Cost warning%'`).Scan(&warned)
+	if warned != 1 {
+		t.Fatalf("a cost warning must be recorded on launch, got %d", warned)
+	}
+	if _, err := s.LaunchFor(ctx, "p", "mac", 1); err == nil || !strings.Contains(err.Error(), "has 1") {
+		t.Fatalf("second Mac over the cap: %v", err)
 	}
 }

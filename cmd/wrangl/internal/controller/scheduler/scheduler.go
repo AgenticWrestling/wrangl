@@ -306,7 +306,17 @@ func (s *Scheduler) LaunchFor(ctx context.Context, project, template string, cou
 	}
 	projectCap := EffectiveCap(stored, isDefault, 1<<30)
 	eff := EffectiveCap(stored, isDefault, t.MaxRunners)
-	live, err := db.RQ.CountProjectRunners(ctx, dbgen.CountProjectRunnersParams{ProjectID: sql.NullInt64{Int64: p.ID, Valid: true}, TemplateID: t.ID})
+	mode, _, _, err := s.Fleet.Connection(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	remote := mode == "remote"
+	var live int64
+	if remote {
+		live, err = db.RQ.CountProjectTargets(ctx, p.ID, t.ID)
+	} else {
+		live, err = db.RQ.CountProjectRunners(ctx, dbgen.CountProjectRunnersParams{ProjectID: sql.NullInt64{Int64: p.ID, Valid: true}, TemplateID: t.ID})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +325,21 @@ func (s *Scheduler) LaunchFor(ctx context.Context, project, template string, cou
 			errs.Conflict, project, eff, t.Name, projectCap, t.MaxRunners, live, count, project, t.Name)
 	}
 	var names []string
+	warn := ""
+	if remote {
+		if w := fleet.CostWarning(t); w != "" {
+			warn = " [COST WARNING: " + w + "]"
+		}
+	}
 	for i := 0; i < count; i++ {
+		if remote { // a target machine: no enrolling runner
+			g, err := s.Fleet.LaunchTarget(ctx, t.Name, p.ID)
+			if err != nil {
+				return names, err
+			}
+			names = append(names, g.Name+warn)
+			continue
+		}
 		r, err := s.Fleet.Launch(ctx, t.Name)
 		if err != nil {
 			return names, err

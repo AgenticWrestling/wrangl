@@ -39,7 +39,7 @@ var Actions = map[string]string{
 	"task.queue":       `{"sqid"}`,
 	"task.complete":    `{"sqid","summary"?}`,
 	"task.reopen":      `{"sqid"}`,
-	"fleet.launch":     `{"template" (runner template name, e.g. a Mac or Android one),"count"? (1-5, default 1)}; only works within this task's project's cap for that template (refused otherwise, with the cap)`,
+	"fleet.launch":     `{"template" (runner template name, e.g. a Mac or Android one),"count"? (1-5, default 1)}; only works within this task's project's cap for that template (refused otherwise, with the cap). A Mac template bills a 24-hour Dedicated Host minimum: say so in the description`,
 }
 
 const fence = "```wrangl-proposals"

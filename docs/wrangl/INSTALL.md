@@ -514,6 +514,13 @@ every loop, marks it `offline` after three failed probes, reaps it after `idle_t
 runs on it as `target lost` if it is gone or unreachable for two minutes. `wrangl target list` shows
 targets and their sessions; `wrangl target terminate NAME` stops one now.
 
+**EC2 Mac (`templates/remote-mac.yaml`).** A Mac instance runs on a Dedicated Host with a
+**24-hour minimum allocation**: one short run bills a full day and stopping early saves nothing. So
+a project's cap on the Mac template stays 0 (opt in with `wrangl project edit PROJ --limit mac=1`),
+the controller logs a "Cost warning" note every time it launches one (also shown in the controller
+agent's `fleet.launch` result), and the template's `idle_timeout` is 24 h so back-to-back runs share
+the host. wrangl launches the instance; allocating the host and choosing the macOS AMI is yours.
+
 Not built yet: the plain `ssh target` escape hatch and signing forwarder, the Runners-page card and
 ssh terminal for targets, and EC2 Instance Connect keys.
 

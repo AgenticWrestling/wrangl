@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
@@ -63,6 +64,20 @@ func (s *Service) Connection(ctx context.Context, templateID int64) (mode string
 	return tc.Mode, conn, tc.DriverTemplateID.Int64, nil
 }
 
+// CostWarning explains billing the owner should know before a target is launched; "" when the
+// template has nothing unusual. EC2 Mac instances run on Dedicated Hosts that bill for a 24-hour
+// minimum, so a short run costs a full day and releasing early saves nothing.
+func CostWarning(t dbgen.RunnerTemplate) string {
+	var types []string
+	json.Unmarshal([]byte(t.InstanceTypes), &types)
+	for _, it := range types {
+		if strings.HasPrefix(it, "mac") {
+			return fmt.Sprintf("%s is an EC2 Mac (%s): a Dedicated Host with a 24-hour minimum allocation. You pay for at least 24 hours of the host even if the run takes minutes, and stopping it earlier saves nothing (see EC2 Dedicated Host pricing for the mac family)", t.Name, it)
+		}
+	}
+	return ""
+}
+
 // LaunchTarget launches the machine of a remote template and records it. There is no user-data
 // and no enrolment: the controller owns it. project is the project whose demand caused it (0 = none).
 func (s *Service) LaunchTarget(ctx context.Context, template string, project int64) (dbgen.RemoteTarget, error) {
@@ -100,6 +115,10 @@ func (s *Service) LaunchTarget(ctx context.Context, template string, project int
 		s.Log.Error("recording remote target failed; terminating instance", "instance", inst.ID, "err", err)
 		_ = s.Prov.Terminate(context.WithoutCancel(ctx), inst.ID)
 		return zero, err
+	}
+	if w := CostWarning(t); w != "" {
+		s.Log.Warn("cost warning on launch", "target", name, "warning", w)
+		s.note(ctx, "runner", "warn", name, "Cost warning: "+t.Name, w)
 	}
 	s.Log.Info("launched remote target", "target", name, "instance", inst.ID, "type", inst.Type)
 	s.note(ctx, "runner", "info", name, "Remote target launched", fmt.Sprintf("%s · %s · template %s", inst.Type, inst.ID, t.Name))
