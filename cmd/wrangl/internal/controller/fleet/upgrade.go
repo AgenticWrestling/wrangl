@@ -54,7 +54,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 		}
 		s.Bus.Runner(r.Name)
 	}
-	if hb.RunID != 0 || hb.Applying || hb.Upgrading || s.NC == nil {
+	if hb.Busy() || hb.Applying || hb.Upgrading || s.NC == nil {
 		return nil // after the run / apply; or it is already on it
 	}
 	now := s.now()

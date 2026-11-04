@@ -35,7 +35,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		// Work runs need a leaf ready right now; review/revise/plan runs carry their prompt.
 		if r.Kind != "work" {
 			if err := s.assignOne(ctx, r); err != nil {
-				if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, errWaitingForApp) {
+				if !tolerated(err) {
 					errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
 				}
 				continue
@@ -55,7 +55,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 			continue
 		}
 		if err := s.assignOne(ctx, r); err != nil {
-			if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, errWaitingForApp) { // no idle runner is normal
+			if !tolerated(err) { // no idle runner is normal
 				errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
 			}
 			continue
@@ -63,6 +63,132 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		assigned = append(assigned, r.ID)
 	}
 	return assigned, errors.Join(errs...)
+}
+
+// tolerated: errors that mean "not now" (no idle runner, or the run is held back visibly) and
+// are not reported as scheduling failures.
+func tolerated(err error) bool {
+	return errors.Is(err, sql.ErrNoRows) || errors.Is(err, errHeldBack)
+}
+
+// secret reads a secret from the controller's store, with the fix in the error.
+func (s *Scheduler) secret(name, needer string) ([]byte, error) {
+	if s.Secret == nil {
+		return nil, fmt.Errorf("secret %q needed but no secret store", name)
+	}
+	v, err := s.Secret(name)
+	if err != nil {
+		return nil, fmt.Errorf("%s needs secret %q: %w (wrangl secret set %s)", needer, name, err, name)
+	}
+	return v, nil
+}
+
+// resolveAgent picks the run's agent spec: the one it was queued with, else the project's default
+// or the template's only allowed one. Templates without allowed agents use their own agent block.
+func (s *Scheduler) resolveAgent(ctx context.Context, r dbgen.QueuedRunsForAssignmentRow, tmpl dbgen.RunnerTemplate) (proto.AgentSpec, string, error) {
+	d := s.Fleet.DB
+	agentJSON, agentName := tmpl.AgentJson, "template "+tmpl.Name
+	task, err := d.RQ.GetTask(ctx, r.TaskID)
+	if err != nil {
+		return proto.AgentSpec{}, "", err
+	}
+	runAgent, _ := d.RQ.GetRunAgent(ctx, r.ID)
+	chosen, err := agentdef.Resolve(ctx, d.RQ, r.TemplateID.Int64, task.ProjectID, runAgent)
+	if err != nil {
+		// Not a failure the run can fix by retrying: it waits, visibly, until the owner changes the
+		// agent or the template's allow-list.
+		d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: " + err.Error(), ID: r.ID})
+		return proto.AgentSpec{}, "", errHeldBack
+	}
+	if chosen != nil {
+		agentJSON, agentName = chosen.SpecJson, "agent "+chosen.Name
+	}
+	spec, err := proto.ParseAgentSpec(agentJSON)
+	if err != nil {
+		return spec, "", fmt.Errorf("%s: %w", agentName, err)
+	}
+	if len(spec.Start) == 0 {
+		return spec, "", fmt.Errorf("%s has no agent.start command", agentName)
+	}
+	return spec, agentName, nil
+}
+
+// resolveSecrets turns the spec's secret names into values; the names stay on the controller.
+func (s *Scheduler) resolveSecrets(spec *proto.AgentSpec, agentName string) (map[string]string, []proto.SecretFile, error) {
+	env := map[string]string{}
+	for k, name := range spec.Secrets {
+		v, err := s.secret(name, agentName)
+		if err != nil {
+			return nil, nil, err
+		}
+		env[k] = strings.TrimSpace(string(v))
+	}
+	spec.Secrets = nil
+	var files []proto.SecretFile
+	for _, f := range spec.SecretFiles {
+		v, err := s.secret(f.Secret, agentName)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, proto.SecretFile{Path: f.Path, Content: string(v), Mode: f.Mode})
+	}
+	spec.SecretFiles = nil
+	return env, files, nil
+}
+
+// claimTarget handles a remote template: a free target of its template (the machine the agent
+// drives) is claimed, and the driver template (where the agent runs) supplies the session slot.
+// For an ordinary template it returns the template's own slot and a nil target.
+func (s *Scheduler) claimTarget(ctx context.Context, r dbgen.QueuedRunsForAssignmentRow, tmpl dbgen.RunnerTemplate) (slotTemplate, maxSessions int64, target *proto.TargetConn, targetRow dbgen.RemoteTarget, err error) {
+	d := s.Fleet.DB
+	slotTemplate, maxSessions = r.TemplateID.Int64, tmpl.MaxSessions
+	mode, conn, driver, err := s.Fleet.Connection(ctx, r.TemplateID.Int64)
+	if err != nil || mode != "remote" {
+		return
+	}
+	if targetRow, err = d.RQ.ClaimTarget(ctx, r.TemplateID.Int64); err != nil {
+		return // sql.ErrNoRows: no ready target with a free session; one is launched on demand
+	}
+	dt, err := d.RQ.GetTemplate(ctx, driver)
+	if err != nil {
+		return
+	}
+	slotTemplate, maxSessions = driver, dt.MaxSessions
+	key := ""
+	if conn.Secret != "" {
+		if s.Secret == nil {
+			err = fmt.Errorf("secret %q needed but no secret store", conn.Secret)
+			return
+		}
+		v, serr := s.secret(conn.Secret, "template "+tmpl.Name)
+		if serr != nil {
+			d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: " + serr.Error(), ID: r.ID})
+			err = errHeldBack
+			return
+		}
+		key = string(v)
+	}
+	target = &proto.TargetConn{Name: targetRow.Name, Protocol: conn.Protocol, User: conn.User, Port: conn.Port, Via: conn.Via,
+		InstanceID: targetRow.InstanceID.String, Host: targetRow.Host, Key: key, Reset: conn.Reset}
+	return
+}
+
+// mintToken makes the run's repo token (empty without GitHub configured). A repository whose
+// owner has no usable App is not a failure: the run waits, visibly, until the App is set up.
+func (s *Scheduler) mintToken(ctx context.Context, runID int64, repo dbgen.Repo) (string, error) {
+	if s.GH == nil {
+		return "", nil
+	}
+	token, _, err := s.GH.RepoToken(ctx, projects.GHRepo(repo))
+	if err != nil {
+		var noApp *gh.NoAppError
+		if errors.As(err, &noApp) || errors.Is(err, gh.ErrNotInstalled) {
+			s.waitingForApp(ctx, runID, repo.Owner, repo.Name, err)
+			return "", errHeldBack
+		}
+		return "", fmt.Errorf("mint GitHub token for %s/%s: %w", repo.Owner, repo.Name, err)
+	}
+	return token, nil
 }
 
 func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignmentRow) error {
@@ -75,104 +201,28 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	if err != nil {
 		return err
 	}
-	// The run's agent: the one it was queued with, else the project's default or the template's only
-	// allowed one. Templates without allowed agents still use their own agent block.
-	agentJSON, agentName := tmpl.AgentJson, "template "+tmpl.Name
-	task, err := d.RQ.GetTask(ctx, r.TaskID)
+	spec, agentName, err := s.resolveAgent(ctx, r, tmpl)
 	if err != nil {
 		return err
 	}
-	runAgent, _ := d.RQ.GetRunAgent(ctx, r.ID)
-	chosen, err := agentdef.Resolve(ctx, d.RQ, r.TemplateID.Int64, task.ProjectID, runAgent)
+	env, files, err := s.resolveSecrets(&spec, agentName)
 	if err != nil {
-		// Not a failure the run can fix by retrying: it waits, visibly, until the owner changes the
-		// agent or the template's allow-list.
-		d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: " + err.Error(), ID: r.ID})
-		return errWaitingForApp
-	}
-	if chosen != nil {
-		agentJSON, agentName = chosen.SpecJson, "agent "+chosen.Name
-	}
-	spec, err := proto.ParseAgentSpec(agentJSON)
-	if err != nil {
-		return fmt.Errorf("%s: %w", agentName, err)
-	}
-	if len(spec.Start) == 0 {
-		return fmt.Errorf("%s has no agent.start command", agentName)
-	}
-	env := map[string]string{}
-	for k, name := range spec.Secrets {
-		if s.Secret == nil {
-			return fmt.Errorf("secret %q needed but no secret store", name)
-		}
-		v, err := s.Secret(name)
-		if err != nil {
-			return fmt.Errorf("%s needs secret %q: %w (wrangl controller secret set %s)", agentName, name, err, name)
-		}
-		env[k] = strings.TrimSpace(string(v))
-	}
-	spec.Secrets = nil // names stay on the controller
-	var files []proto.SecretFile
-	for _, f := range spec.SecretFiles {
-		if s.Secret == nil {
-			return fmt.Errorf("secret %q needed but no secret store", f.Secret)
-		}
-		v, err := s.Secret(f.Secret)
-		if err != nil {
-			return fmt.Errorf("%s needs secret %q: %w (wrangl controller secret set %s)", agentName, f.Secret, err, f.Secret)
-		}
-		files = append(files, proto.SecretFile{Path: f.Path, Content: string(v), Mode: f.Mode})
-	}
-	spec.SecretFiles = nil
-
-	// A remote run needs two slots at once: a free target of its template (the machine it drives) and
-	// a free session on a driver runner (where the agent runs). Neither is claimed until both exist.
-	slotTemplate, maxSessions := r.TemplateID.Int64, tmpl.MaxSessions
-	var target *proto.TargetConn
-	var targetRow dbgen.RemoteTarget
-	if mode, conn, driver, err := s.Fleet.Connection(ctx, r.TemplateID.Int64); err != nil {
 		return err
-	} else if mode == "remote" {
-		if targetRow, err = d.RQ.ClaimTarget(ctx, r.TemplateID.Int64); err != nil {
-			return err // sql.ErrNoRows: no ready target with a free session; one is launched on demand
-		}
-		dt, err := d.RQ.GetTemplate(ctx, driver)
-		if err != nil {
-			return err
-		}
-		slotTemplate, maxSessions = driver, dt.MaxSessions
-		key := ""
-		if conn.Secret != "" {
-			if s.Secret == nil {
-				return fmt.Errorf("secret %q needed but no secret store", conn.Secret)
-			}
-			v, err := s.Secret(conn.Secret)
-			if err != nil {
-				d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: fmt.Sprintf("waiting: template %s needs secret %q (wrangl secret set %s)", tmpl.Name, conn.Secret, conn.Secret), ID: r.ID})
-				return errWaitingForApp
-			}
-			key = string(v)
-		}
-		target = &proto.TargetConn{Name: targetRow.Name, Protocol: conn.Protocol, User: conn.User, Port: conn.Port, Via: conn.Via,
-			InstanceID: targetRow.InstanceID.String, Host: targetRow.Host, Key: key, Reset: conn.Reset}
+	}
+	// A remote run needs two slots at once: a free target and a free session on a driver runner.
+	// Neither is claimed until both exist.
+	slotTemplate, maxSessions, target, targetRow, err := s.claimTarget(ctx, r, tmpl)
+	if err != nil {
+		return err
 	}
 	if free, err := d.RQ.FreeRunnerSlot(ctx, slotTemplate); err == nil && free == 0 {
 		return sql.ErrNoRows // no runner has a free session: nothing to mint a token for yet
 	}
 	// Mint the repo token before claiming a runner: a failure here must not touch the runner (a claim
 	// and release every tick would keep resetting its idle clock and it would never be reaped).
-	token := ""
-	if s.GH != nil {
-		var err error
-		if token, _, err = s.GH.RepoToken(ctx, projects.GHRepo(repo)); err != nil {
-			var noApp *gh.NoAppError
-			if errors.As(err, &noApp) || errors.Is(err, gh.ErrNotInstalled) {
-				// Not a failure: the run waits, visibly, until the owner sets the App up.
-				s.waitingForApp(ctx, r.ID, repo.Owner, repo.Name, err)
-				return errWaitingForApp
-			}
-			return fmt.Errorf("mint GitHub token for %s/%s: %w", repo.Owner, repo.Name, err)
-		}
+	token, err := s.mintToken(ctx, r.ID, repo)
+	if err != nil {
+		return err
 	}
 	runner, err := d.Q.ClaimIdleRunner(ctx, slotTemplate)
 	if err != nil {
@@ -223,8 +273,9 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	return nil
 }
 
-// errWaitingForApp marks a run held back because its repository's owner has no usable GitHub App.
-var errWaitingForApp = errors.New("waiting for a GitHub App")
+// errHeldBack marks a run held back visibly (no usable GitHub App, agent or secret to resolve); the
+// scheduler retries it on later ticks.
+var errHeldBack = errors.New("run held back")
 
 // waitingForApp shows on the run why it is waiting and, once per owner per hour, tells the owner
 // where to fix it (OnNeedApp: a push notification linking to the Settings flow).

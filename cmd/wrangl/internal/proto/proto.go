@@ -47,13 +47,19 @@ type Heartbeat struct {
 	TemplateVersion int64 `json:"template_version"`
 	// Applying is true while a template apply is running.
 	Applying bool `json:"applying"`
-	// RunID is the run in progress (0 = none).
+	// Sessions is the number of runs in progress on the runner (0 = idle).
+	Sessions int `json:"sessions,omitempty"`
+	// RunID is the lowest run id in progress (0 = none). Deprecated: set only so a controller from
+	// before Sessions still sees the runner as busy; drop one release after Sessions ships.
 	RunID int64 `json:"run_id,omitempty"`
 	// BinarySHA is the sha256 of the wrangl binary the daemon runs ("" = self-upgrade off).
 	BinarySHA string `json:"binary_sha,omitempty"`
 	// Upgrading is true while a self-upgrade is downloading or restarting.
 	Upgrading bool `json:"upgrading,omitempty"`
 }
+
+// Busy reports whether the runner has a run in progress, from a runner of either vintage.
+func (h Heartbeat) Busy() bool { return h.Sessions > 0 || h.RunID != 0 }
 
 // Upgrade is the cmd.upgrade request: replace the wrangl binary with the one the
 // controller serves at <enrol URL>/dl/wrangl-linux-<arch>, which must hash to SHA256.
