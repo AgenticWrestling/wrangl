@@ -127,7 +127,7 @@ const head=()=>`<div class="row0"><h3>Backlog</h3><span class="dim small">${T.le
 function render(){const vs=tree();let h=head();
  if(S.v=='A'){h+=`<div class="fbar">${search()}${tsel()}${sw()}</div>${menu()}`}
  if(S.v=='B'){h+=`<div class="fbar">${search()}${sw()}</div>${tchips()}`}
- if(S.v=='C'){h+=`<div class="fbar">${search('Filter — text, or type:bug')}<button class="sel ${S.types.length?'on':''}" id="tsel" aria-label="Task type">⛛ ${S.types.length||''}</button><button class="sel ${S.done?'on':''}" id="swd" role="switch" aria-checked="${S.done}">${S.done?'✓ ':''}Done</button></div>${menu()}${S.types.length?`<div class="chips">${S.types.map(t=>`<button class="tchip on" data-ty="${t}">${ico(t)}${TL[t]} ×</button>`).join('')}</div>`:''}`}
+ if(S.v=='C'){h+=`<div class="fbar">${search('Filter — text, or type:bug')}<button class="sel ${S.types.length?'on':''}" id="tsel" aria-label="Task type"><svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>${S.types.length||''}</button><button class="sel ${S.done?'on':''}" id="swd" role="switch" aria-checked="${S.done}">${S.done?'✓ ':''}Done</button></div>${menu()}${S.types.length?`<div class="chips">${S.types.map(t=>`<button class="tchip on" data-ty="${t}">${ico(t)}${TL[t]} ×</button>`).join('')}</div>`:''}`}
  h+=status(vs)+body(vs);
  const f=document.activeElement&&document.activeElement.id=='q';const pos=f?document.activeElement.selectionStart:0;
  document.getElementById('card').innerHTML=h;
