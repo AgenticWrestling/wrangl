@@ -37,6 +37,7 @@ type ProjectParams struct {
 	Template, PlanTemplate *string // template names; "" clears
 	AutoMerge, AutoQueue   *bool
 	Priority               *int64
+	NotesRepo              *string // owner/name of a linked repo that holds research reports; "" clears
 }
 
 func (s *Service) templateID(ctx context.Context, name string) (sql.NullInt64, error) {
@@ -86,7 +87,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
+	if p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -136,7 +137,34 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 	if p.Priority != nil {
 		up.Priority = *p.Priority
 	}
-	return s.DB.Q.UpdateProject(ctx, up)
+	out, err := s.DB.Q.UpdateProject(ctx, up)
+	if err == nil && p.NotesRepo != nil {
+		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
+	}
+	return out, err
+}
+
+// SetNotesRepo gives one of the project's linked repos the "notes" role ("" clears it).
+// Research tasks then run in that repo and write their reports under research/.
+func (s *Service) SetNotesRepo(ctx context.Context, slug, ref string) error {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return err
+	}
+	if ref == "" {
+		return s.DB.Q.ClearNotesRepo(ctx, p.ID)
+	}
+	owner, name, err := splitRepo(ref)
+	if err != nil {
+		return err
+	}
+	r, err := s.DB.RQ.GetProjectRepo(ctx, dbgen.GetProjectRepoParams{ProjectID: p.ID, Owner: owner, Name: name})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: link %s to %s first", errs.Invalid, ref, slug)
+	} else if err != nil {
+		return err
+	}
+	return s.DB.Q.SetNotesRepo(ctx, dbgen.SetNotesRepoParams{ProjectID: p.ID, RepoID: r.ID})
 }
 
 // Delete removes a project (and its tasks) unless a run is active on it.

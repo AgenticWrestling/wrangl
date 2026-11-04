@@ -135,4 +135,4 @@
     <div class="row small"><a href="/deliverable/{{.ID}}/proto" target="_blank" rel="noopener">Open full page ↗</a> <a href="/deliverable/{{.ID}}">Source</a></div>
     <iframe class="protoframe" src="/deliverable/{{.ID}}/proto" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" title="{{.Title}}"></iframe></details>
   {{else if eq .Kind "link"}}<div class="row"><a href="{{.Url}}" target="_blank" rel="noopener noreferrer">{{if .Title}}{{.Title}}{{else}}{{.Url}}{{end}}</a></div>
-  {{else if eq .Kind "report_md"}}<details class="report" open><summary>{{if .Title}}{{.Title}}{{else}}Report{{end}}</summary><div class="md">{{.Report}}</div></details>{{end}}{{end}}{{end}}
+  {{else if eq .Kind "report_md"}}<details class="report" open><summary>{{if .Title}}{{.Title}}{{else}}Report{{end}}</summary><div class="report-grid"><div class="md">{{.Report}}</div>{{if .Sources}}<aside class="sources" aria-label="Sources"><h4>Sources</h4><div class="md">{{.Sources}}</div></aside>{{end}}</div></details>{{end}}{{end}}{{end}}

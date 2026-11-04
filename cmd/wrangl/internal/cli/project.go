@@ -29,6 +29,7 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 	}
 	r.Name, r.Description, r.Template, r.PlanTemplate = str("name"), str("description"), str("template"), str("plan-template")
 	r.AutoMerge, r.AutoQueue = boolean("auto-merge"), boolean("auto-queue")
+	r.NotesRepo = str("notes-repo")
 	if f.Changed("priority") {
 		v, _ := f.GetInt64("priority")
 		r.Priority = &v
@@ -44,12 +45,13 @@ func projectFlags(c *cobra.Command) {
 	f.String("plan-template", "", "runner template for plan runs (default: --template)")
 	f.Bool("auto-merge", false, "auto-merge PRs that pass every gate and review as low risk")
 	f.Bool("auto-queue", false, "queue new top-level tasks automatically")
+	f.String("notes-repo", "", "linked repo (owner/name) that holds research reports under research/; empty clears")
 	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
 }
 
 func printProject(w io.Writer, p proto.ProjectView) {
-	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\n",
-		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority)
+	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\nnotes repo\t%s\n",
+		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
 	if p.Description != "" {
 		fmt.Fprintf(w, "description\t%s\n", p.Description)
 	}

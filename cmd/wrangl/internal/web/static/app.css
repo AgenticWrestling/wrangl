@@ -410,3 +410,9 @@ dialog.lightbox .lb { display: flex; flex-direction: column; align-items: center
 dialog.lightbox img { max-width: 100%; max-height: calc(100% - 44px); object-fit: contain; border-radius: 6px; }
 dialog.lightbox .cap { color: #eee; font-size: 0.9rem; display: flex; gap: 12px; align-items: center; }
 dialog.lightbox button { background: #222; color: #eee; border: 1px solid #555; border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; min-height: 40px; }
+
+.report-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 900px) { .report-grid:has(.sources) { grid-template-columns: minmax(0, 1fr) 300px; } }
+aside.sources { border: 1px solid var(--line); border-radius: 8px; background: var(--raised); padding: 8px 12px; font-size: 0.85rem; align-self: start; }
+aside.sources h4 { margin: 0 0 4px; }
+@media (min-width: 900px) { aside.sources { position: sticky; top: 8px; } }

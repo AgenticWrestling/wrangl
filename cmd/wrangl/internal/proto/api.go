@@ -92,6 +92,7 @@ type ProjectView struct {
 	AutoMerge    bool   `json:"auto_merge"`
 	AutoQueue    bool   `json:"auto_queue"`
 	Priority     int64  `json:"priority"`
+	NotesRepo    string `json:"notes_repo,omitempty"`
 }
 
 // ProjectRequest creates or patches a project (nil = unchanged).
@@ -104,6 +105,7 @@ type ProjectRequest struct {
 	AutoMerge    *bool   `json:"auto_merge,omitempty"`
 	AutoQueue    *bool   `json:"auto_queue,omitempty"`
 	Priority     *int64  `json:"priority,omitempty"`
+	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
 }
 
 // RepoView is a linked repo.

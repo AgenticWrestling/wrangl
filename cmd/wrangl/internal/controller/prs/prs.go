@@ -26,6 +26,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
@@ -58,7 +59,9 @@ type Gates struct {
 	Lines     int      `json:"lines"`
 	MaxLines  int64    `json:"max_lines"`
 	Protected []string `json:"protected,omitempty"`
-	OK        bool     `json:"ok"`
+	// OutOfScope lists files a research PR changed outside research/ (the notes repo's report area).
+	OutOfScope []string `json:"out_of_scope,omitempty"`
+	OK         bool     `json:"ok"`
 }
 
 func nstr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
@@ -221,6 +224,18 @@ func Protected(files []gh.PRFile, globs []string) []string {
 	return hit
 }
 
+// OutsideResearch returns the changed files that are not under research/. A research PR may
+// auto-merge only when every file is a report.
+func OutsideResearch(files []gh.PRFile) []string {
+	var out []string
+	for _, f := range files {
+		if !strings.HasPrefix(f.Path, "research/") || strings.Contains(f.Path, "..") {
+			out = append(out, f.Path)
+		}
+	}
+	return out
+}
+
 // Evaluate brings a PR's state up to date and moves it along: gates, review, decision.
 func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	defer s.Bus.Publish("pr", fmt.Sprint(prID))
@@ -269,7 +284,10 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 		var globs []string
 		json.Unmarshal([]byte(proj.ProtectedPaths), &globs)
 		g.Protected = Protected(files, globs)
-		g.OK = (checks == gh.ChecksSuccess || checks == gh.ChecksNone) && int64(g.Lines) <= g.MaxLines && len(g.Protected) == 0
+		if t, err := s.DB.RQ.GetTask(ctx, pr.TaskID); err == nil && t.TaskType == dbtypes.TaskResearch {
+			g.OutOfScope = OutsideResearch(files)
+		}
+		g.OK = (checks == gh.ChecksSuccess || checks == gh.ChecksNone) && int64(g.Lines) <= g.MaxLines && len(g.Protected) == 0 && len(g.OutOfScope) == 0
 	}
 	gj, _ := json.Marshal(g)
 	if err := s.DB.Q.SetPRGates(ctx, dbgen.SetPRGatesParams{GatesJson: string(gj), Checks: checks, ID: pr.ID}); err != nil {

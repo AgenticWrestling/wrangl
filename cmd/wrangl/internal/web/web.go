@@ -292,7 +292,8 @@ func (h *Handler) deliverableViews(ctx context.Context, rows []dbgen.Deliverable
 // deliverableView is a deliverable ready for the task page.
 type deliverableView struct {
 	dbgen.Deliverable
-	Report template.HTML // rendered markdown, for reports
+	Report  template.HTML // rendered markdown, for reports (without the Sources section)
+	Sources template.HTML // the report's Sources section, shown as a panel
 }
 
 // taskPart renders one part of the task page ("main-task": the card; "post-task": its edit
@@ -760,6 +761,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			return nil, err
 		}
 		d["P"], d["Repos"], d["Title"] = p, repos, p.Name
+		d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["GitHub"] = h.D.Projects.GH != nil
 		d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
@@ -1252,6 +1254,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		am, aq := flag("pautomerge"), flag("pautoqueue")
 		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq})
 		msg = "saved " + slug
+	case "repo-notes": // repo=owner/name gives it the notes role; empty repo clears
+		err = h.D.Projects.SetNotesRepo(ctx, q.Get("slug"), q.Get("repo"))
+		msg = "notes repo saved"
 	case "repo-link":
 		ref := str("repoadd")
 		if ref == "" {

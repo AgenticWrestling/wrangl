@@ -859,6 +859,11 @@ func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
 		if templateID == 0 {
 			return invalid("no runner template: set one on the task, an ancestor, or the project (--template)")
 		}
+		if repoID == 0 && t.TaskType == dbtypes.TaskResearch { // reports live in the notes repo
+			if id, err := q.GetNotesRepoID(ctx, proj.ID); err == nil {
+				repoID = id
+			}
+		}
 		if repoID == 0 {
 			rc, err := q.ListProjectRepoCount(ctx, proj.ID)
 			if err != nil {

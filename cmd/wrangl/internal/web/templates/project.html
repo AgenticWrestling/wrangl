@@ -18,7 +18,8 @@
 
 <section class="card" id="repos">
   <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-repo')">＋ Link repo</button></div>
-  {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span><span class="grow"></span>
+  {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}<span class="tag" title="Research tasks run here; reports go under research/">notes repo</span>{{end}}<span class="grow"></span>
+    {{if eq .ID $.NotesRepo}}<button class="btn small" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo=')">Not notes</button>{{else}}<button class="btn small" title="Research reports are written here, under research/" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Use for research notes</button>{{end}}
     <button class="btn small danger" data-on:click="confirm('Unlink {{.Owner}}/{{.Name}} from {{$p.Slug}}?') && @post('/ui/act/repo-unlink?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Unlink</button></div>{{end}}
   {{else}}<p class="empty">No repositories linked. Tasks need one to run.</p>{{end}}
   {{if not .GitHub}}<p class="hint">GitHub isn't configured on this controller yet (<code>github.author_app</code>), so repos can't be linked.</p>{{end}}

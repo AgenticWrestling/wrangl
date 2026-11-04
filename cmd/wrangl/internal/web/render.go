@@ -157,3 +157,41 @@ func typeIcon(t any) template.HTML {
 	label := dbtypes.TaskType(name).Label()
 	return template.HTML(fmt.Sprintf(`<svg class="ticon ti-%s" role="img" aria-label="%s"><title>%s</title><use href="#ti-%s"/></svg>`, name, label, label, name))
 }
+
+// splitSources separates a report's "Sources" section (a level-2 or level-3 heading named
+// Sources or References, up to the next heading of the same or higher level) from the rest,
+// so the page can show it as a panel beside the report.
+func splitSources(md string) (body, sources string) {
+	lines := strings.Split(md, "\n")
+	start, level := -1, 0
+	inFence := false
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "```") {
+			inFence = !inFence
+		}
+		if inFence {
+			continue
+		}
+		h := strings.TrimLeft(l, "#")
+		n := len(l) - len(h)
+		if n < 2 || n > 3 || !strings.HasPrefix(h, " ") {
+			if start >= 0 && n >= 1 && n <= level && strings.HasPrefix(h, " ") {
+				return strings.Join(append(lines[:start:start], lines[i:]...), "\n"), strings.Join(lines[start+1:i], "\n")
+			}
+			continue
+		}
+		if start >= 0 {
+			if n <= level {
+				return strings.Join(append(lines[:start:start], lines[i:]...), "\n"), strings.Join(lines[start+1:i], "\n")
+			}
+			continue
+		}
+		if t := strings.ToLower(strings.TrimSpace(h)); t == "sources" || t == "references" {
+			start, level = i, n
+		}
+	}
+	if start < 0 {
+		return md, ""
+	}
+	return strings.Join(lines[:start], "\n"), strings.TrimRight(strings.Join(lines[start+1:], "\n"), "\n")
+}
