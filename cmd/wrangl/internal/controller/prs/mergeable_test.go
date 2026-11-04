@@ -214,13 +214,39 @@ func TestResolveConflictsQueuesOneRun(t *testing.T) {
 	}
 }
 
-func TestResolveConflictsCleanPRQueuesNothing(t *testing.T) {
-	s, _ := mergeableFixture(t)
-	if err := s.ResolveConflicts(context.Background(), 1); err == nil {
-		t.Fatal("a clean PR was accepted")
+func TestResolveConflictsCleanPRUpdatesBranchWithoutAgent(t *testing.T) {
+	s, f := mergeableFixture(t)
+	ctx := context.Background()
+	before := mustPR(t, s, 1)
+	if err := s.ResolveConflicts(ctx, 1); err != nil {
+		t.Fatal(err)
 	}
 	if n, _ := resolveRuns(t, s); n != 0 {
 		t.Fatalf("%d resolve runs for a clean PR", n)
+	}
+	if got := f.BranchUpdates(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("update-branch calls %v", got)
+	}
+	after := mustPR(t, s, 1)
+	if after.HeadSha == before.HeadSha || !strings.HasPrefix(after.HeadSha, "updated-") {
+		t.Fatalf("head not re-evaluated: %q -> %q", before.HeadSha, after.HeadSha)
+	}
+	if other := mustPR(t, s, 2); other.HeadSha != "" {
+		t.Fatalf("another PR changed: %q", other.HeadSha)
+	}
+}
+
+func TestResolveConflictsConflictedPRNeverUpdatesBranch(t *testing.T) {
+	s, f := mergeableFixture(t)
+	f.SetMergeable(1, gh.MergeConflicted)
+	if err := s.ResolveConflicts(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.BranchUpdates(); len(got) != 0 {
+		t.Fatalf("update-branch called for a conflicted PR: %v", got)
+	}
+	if n, _ := resolveRuns(t, s); n != 1 {
+		t.Fatalf("%d resolve runs", n)
 	}
 }
 

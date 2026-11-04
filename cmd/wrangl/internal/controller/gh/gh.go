@@ -196,6 +196,9 @@ const (
 type PRAPI interface {
 	CreatePR(ctx context.Context, r Repo, head, base, title, body string) (PR, error)
 	GetPR(ctx context.Context, r Repo, number int64) (PR, error)
+	// UpdateBranch merges the PR's base branch into its head branch on GitHub (PUT /pulls/{n}/update-branch).
+	// It fails when the merge conflicts.
+	UpdateBranch(ctx context.Context, r Repo, number int64) error
 	PRFiles(ctx context.Context, r Repo, number int64) ([]PRFile, error)
 	PRDiff(ctx context.Context, r Repo, number int64) (string, error)
 	Checks(ctx context.Context, r Repo, sha string) (string, error)

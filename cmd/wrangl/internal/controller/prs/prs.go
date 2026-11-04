@@ -992,7 +992,8 @@ func (s *Service) ResolveConflicts(ctx context.Context, prID int64) error {
 		return err
 	}
 	if pr.Mergeable != gh.MergeConflicted {
-		return fmt.Errorf("%w: PR %d has no merge conflicts (%s)", errs.Conflict, pr.ID, pr.Mergeable)
+		// The base moved but nothing conflicts: GitHub merges it in; no agent needed.
+		return s.updateBranch(ctx, pr)
 	}
 	_, queued, err := s.queueResolve(ctx, pr)
 	if err != nil {
@@ -1093,4 +1094,23 @@ func (s *Service) recordResolveOutcome(ctx context.Context, run dbgen.Run) {
 	default:
 		s.logPR(ctx, pr, "error", fmt.Sprintf("Smart Merge %s on PR #%d", run.State, pr.GhNumber), strings.TrimSpace(summary+" "+run.Error))
 	}
+}
+
+// updateBranch is the clean path of Smart Merge: GitHub merges the base branch into the PR
+// branch (update-branch), then the PR is re-evaluated at its new head so checks and review run
+// again.
+func (s *Service) updateBranch(ctx context.Context, pr dbgen.PullRequest) error {
+	_, ghr, err := s.repo(ctx, pr.RepoID)
+	if err != nil {
+		return err
+	}
+	if err := s.gh(ghr).UpdateBranch(ctx, ghr, pr.GhNumber); err != nil {
+		s.logPR(ctx, pr, "error", fmt.Sprintf("Update branch failed on PR #%d", pr.GhNumber), err.Error())
+		return fmt.Errorf("update branch of PR #%d: %w", pr.GhNumber, err)
+	}
+	s.logPR(ctx, pr, "info", fmt.Sprintf("Branch of PR #%d updated from its base", pr.GhNumber),
+		"The base moved without conflicts; GitHub merged it into the PR branch (no agent run).")
+	s.Log.Info("branch updated", "pr", pr.Url)
+	s.DB.Q.CancelPRQuestions(ctx, pr.ID) // the head changed: the old review card is stale
+	return s.Evaluate(ctx, pr.ID)
 }

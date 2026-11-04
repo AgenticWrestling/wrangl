@@ -169,3 +169,25 @@ func TestGetPRRetriesWhileMergeableNull(t *testing.T) {
 		}
 	}
 }
+
+func TestClientUpdateBranch(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/acme/app/installation":
+			fmt.Fprint(w, `{"id": 909}`)
+		case r.URL.Path == "/app/installations/909/access_tokens":
+			fmt.Fprint(w, `{"token":"t","expires_at":"2030-01-01T00:00:00Z"}`)
+		default:
+			got = r.Method + " " + r.URL.Path
+			w.WriteHeader(202)
+			fmt.Fprint(w, `{"message":"Updating pull request branch."}`)
+		}
+	}))
+	defer srv.Close()
+	cl := &Client{AppID: 7, Key: key, BaseURL: srv.URL, HTTP: srv.Client(), Now: time.Now}
+	if err := cl.UpdateBranch(context.Background(), Repo{Owner: "acme", Name: "app"}, 5); err != nil || got != "PUT /repos/acme/app/pulls/5/update-branch" {
+		t.Fatalf("%q %v", got, err)
+	}
+}

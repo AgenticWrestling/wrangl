@@ -222,6 +222,16 @@ func (c *Client) Merge(ctx context.Context, r Repo, n int64, title string) error
 	return err
 }
 
+// UpdateBranch implements PRAPI.
+func (c *Client) UpdateBranch(ctx context.Context, r Repo, n int64) error {
+	tok, err := c.tokenFor(ctx, r)
+	if err != nil {
+		return err
+	}
+	_, err = c.do(ctx, http.MethodPut, fmt.Sprintf("%s/pulls/%d/update-branch", repoPath(r), n), "token "+tok, nil, nil)
+	return err
+}
+
 // ClosePR implements PRAPI.
 func (c *Client) ClosePR(ctx context.Context, r Repo, n int64) error {
 	tok, err := c.tokenFor(ctx, r)

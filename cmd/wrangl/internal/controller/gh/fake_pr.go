@@ -203,6 +203,46 @@ func (f *Fake) Merge(_ context.Context, r Repo, n int64, _ string) error {
 	return nil
 }
 
+// UpdateBranch implements PRAPI: the base branch is merged into the head. With a local bare
+// repo that is a real merge commit (a conflict is refused with 422); otherwise the head just
+// moves to a new synthetic commit.
+func (f *Fake) UpdateBranch(_ context.Context, r Repo, n int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, err := f.get(n)
+	if err != nil {
+		return err
+	}
+	f.updates = append(f.updates, n)
+	if p.Mergeable == MergeConflicted {
+		return fmt.Errorf("github: HTTP 422: merge conflict between base and head")
+	}
+	if dir, ok := f.bare(r); ok {
+		tree, err := gitOut(dir, "merge-tree", "--write-tree", p.head, p.base)
+		if err != nil {
+			return fmt.Errorf("github: HTTP 422: merge conflict: %s", tree)
+		}
+		sha, err := gitOut(dir, "-c", "user.name=fake", "-c", "user.email=fake@example.com", "commit-tree", tree, "-p", p.head, "-p", p.base, "-m", "Merge branch '"+p.base+"' into "+p.head)
+		if err != nil {
+			return fmt.Errorf("fake update-branch: %v: %s", err, sha)
+		}
+		if out, err := gitOut(dir, "update-ref", "refs/heads/"+p.head, sha); err != nil {
+			return fmt.Errorf("fake update-branch: %v: %s", err, out)
+		}
+		p.HeadSHA = sha
+		return nil
+	}
+	p.HeadSHA = fmt.Sprintf("updated-%d-%d", n, len(f.updates))
+	return nil
+}
+
+// BranchUpdates returns the PR numbers update-branch was called for.
+func (f *Fake) BranchUpdates() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int64(nil), f.updates...)
+}
+
 // ClosePR implements PRAPI.
 func (f *Fake) ClosePR(_ context.Context, _ Repo, n int64) error {
 	f.mu.Lock()
