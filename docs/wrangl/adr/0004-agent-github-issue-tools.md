@@ -1,9 +1,9 @@
 # ADR 0004: Agent GitHub issue tools, routed through the controller
 
-- Status: **Proposed** (the owner decides before Phase A implementation starts; Phase B also needs the Apps' `issues` permission raised)
+- Status: **Accepted, implemented**
 - Task: 4fX3d2 (parent yRQdKE). Spec: [agent GitHub issue tools](../../superpowers/specs/2026-11-04-agent-github-issue-tools.md). Plan: [plan](../../superpowers/plans/2026-11-04-agent-github-issue-tools-plan.md).
 - Builds on: the runner MCP shim (`wrangl runner mcp`), `runs.ExecTool` scope checks, `controller/gh` (`gh.API`), `controller/ghsetup` (Apps), the `issue` table and `projects.SyncIssues`, approval questions ([ADR 0003](0003-project-custom-tools.md) for the tool path)
-- Touches (future work): `stacktools/tools.go`, `controller/runs/tools.go`, `controller/gh`, `controller/ghsetup`, `controller/prs` (webhook), `controller/projects`, a DB migration
+- Touches: `stacktools/tools.go`, `controller/runs/tools.go`, `controller/gh`, `controller/ghsetup`, `controller/prs` (webhook), `controller/projects`, a DB migration
 
 ## Context
 

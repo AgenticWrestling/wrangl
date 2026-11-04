@@ -1,9 +1,9 @@
 # ADR 0002: Remote runners (driver sessions, credentials, lifecycle)
 
-- Status: **Proposed** (the owner decides before this merges)
+- Status: **Accepted, implemented**
 - Task: Z84sEj, under "Remote runner mechanism" (z0rBI0) in "Remote agents and special runners" (BjrJ3Y)
 - Builds on: [ADR 0001](0001-agent-definitions-vs-templates.md) (agents vs templates), per-run worktrees on shared runners (`runner/worktree.go`), sessions per runner (`max_sessions`), project x template caps (`project_template_limit`, `launched_for_project`), the controller's secret store (`<data>/secrets`, write-only over the API)
-- Touches (future work): `runner_template` (mode, connection), `runner` (no enrolment for remote targets), `fleet` (launch/health/reap), `scheduler` (driver placement), `runner` (session env, tools), `costs`, the runner terminal page
+- Touches: `runner_template` (mode, connection), `runner` (no enrolment for remote targets), `fleet` (launch/health/reap), `scheduler` (driver placement), `runner` (session env, tools), `costs`, the runner terminal page
 
 ## Context
 
