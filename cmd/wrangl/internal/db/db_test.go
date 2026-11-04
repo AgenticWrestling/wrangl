@@ -211,3 +211,53 @@ SELECT p.id, t.id, CASE WHEN p.default_template_id = t.id THEN 1 ELSE 0 END FROM
 		}
 	}
 }
+
+// Migration 00026 wraps each template's agent_json as an agent: 'claude' for go-claude, one
+// agent for identical blocks, a template-name suffix when the same binary has different blocks,
+// and the project's default agent follows its default template. The data statements are
+// replayed over existing templates (the migration itself ran on an empty database).
+func TestAgentMigrationWrapsTemplates(t *testing.T) {
+	d, _ := open(t)
+	ctx := context.Background()
+	raw, err := os.ReadFile("migrations/00026_agent_definitions.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	body = body[strings.Index(body, "-- Wrap every"):strings.Index(body, "-- +goose Down")]
+	exec(t, d, `DELETE FROM template_agent`)
+	exec(t, d, `DELETE FROM agent`)
+	exec(t, d, `INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES
+	  ('go-claude','','{"start":["claude","-p"]}',2,4096,20),
+	  ('rust-claude','','{"start":["claude","-p"]}',2,4096,20),
+	  ('claude-int','','{"start":["claude"],"drive":"interactive"}',2,4096,20),
+	  ('gem','','{"start":["agy","-p"]}',2,4096,20),
+	  ('host','','{}',2,4096,20)`)
+	exec(t, d, `INSERT INTO project (slug, name, default_template_id) VALUES ('p','P',1)`)
+	for _, stmt := range strings.Split(body, ";\n\n") {
+		if s := strings.TrimSpace(stmt); s != "" {
+			exec(t, d, s)
+		}
+	}
+	names := map[string][]string{}
+	for _, tn := range []string{"go-claude", "rust-claude", "claude-int", "gem", "host"} {
+		tp, _ := d.RQ.GetTemplateByName(ctx, tn)
+		as, _ := d.RQ.ListTemplateAgents(ctx, tp.ID)
+		for _, a := range as {
+			names[tn] = append(names[tn], a.Name)
+		}
+	}
+	want := map[string]string{"go-claude": "claude", "rust-claude": "claude", "claude-int": "claude-claude-int", "gem": "antigravity"}
+	for tn, w := range want {
+		if len(names[tn]) != 1 || names[tn][0] != w {
+			t.Errorf("%s: agents %v, want [%s]", tn, names[tn], w)
+		}
+	}
+	if len(names["host"]) != 0 {
+		t.Errorf("host (no agent) got %v", names["host"])
+	}
+	p, _ := d.RQ.GetProjectBySlug(ctx, "p")
+	if id, err := d.RQ.GetProjectDefaultAgent(ctx, p.ID); err != nil || !id.Valid {
+		t.Errorf("project default agent not set: %v %v", id, err)
+	}
+}

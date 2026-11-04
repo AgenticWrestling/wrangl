@@ -91,6 +91,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	f := d.Fleet
 	registerWork(mux, d)
 	registerTerm(mux, d)
+	registerAgentDefs(mux, d)
 	registerCosts(mux, d)
 	registerAgents(mux, d)
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { streamEvents(w, r, d.Bus) })

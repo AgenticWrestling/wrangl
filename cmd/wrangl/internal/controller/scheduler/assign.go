@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
@@ -74,12 +75,30 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	if err != nil {
 		return err
 	}
-	spec, err := proto.ParseAgentSpec(tmpl.AgentJson)
+	// The run's agent: the one it was queued with, else the project's default or the template's only
+	// allowed one. Templates without allowed agents still use their own agent block.
+	agentJSON, agentName := tmpl.AgentJson, "template "+tmpl.Name
+	task, err := d.RQ.GetTask(ctx, r.TaskID)
 	if err != nil {
-		return fmt.Errorf("template %s agent block: %w", tmpl.Name, err)
+		return err
+	}
+	runAgent, _ := d.RQ.GetRunAgent(ctx, r.ID)
+	chosen, err := agentdef.Resolve(ctx, d.RQ, r.TemplateID.Int64, task.ProjectID, runAgent)
+	if err != nil {
+		// Not a failure the run can fix by retrying: it waits, visibly, until the owner changes the
+		// agent or the template's allow-list.
+		d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: " + err.Error(), ID: r.ID})
+		return errWaitingForApp
+	}
+	if chosen != nil {
+		agentJSON, agentName = chosen.SpecJson, "agent "+chosen.Name
+	}
+	spec, err := proto.ParseAgentSpec(agentJSON)
+	if err != nil {
+		return fmt.Errorf("%s: %w", agentName, err)
 	}
 	if len(spec.Start) == 0 {
-		return fmt.Errorf("template %s has no agent.start command", tmpl.Name)
+		return fmt.Errorf("%s has no agent.start command", agentName)
 	}
 	env := map[string]string{}
 	for k, name := range spec.Secrets {
@@ -88,7 +107,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		v, err := s.Secret(name)
 		if err != nil {
-			return fmt.Errorf("template %s needs secret %q: %w (wrangl controller secret set %s)", tmpl.Name, name, err, name)
+			return fmt.Errorf("%s needs secret %q: %w (wrangl controller secret set %s)", agentName, name, err, name)
 		}
 		env[k] = strings.TrimSpace(string(v))
 	}
@@ -100,7 +119,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		v, err := s.Secret(f.Secret)
 		if err != nil {
-			return fmt.Errorf("template %s needs secret %q: %w (wrangl controller secret set %s)", tmpl.Name, f.Secret, err, f.Secret)
+			return fmt.Errorf("%s needs secret %q: %w (wrangl controller secret set %s)", agentName, f.Secret, err, f.Secret)
 		}
 		files = append(files, proto.SecretFile{Path: f.Path, Content: string(v), Mode: f.Mode})
 	}

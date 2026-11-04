@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
@@ -806,6 +807,12 @@ func (s *Service) Split(ctx context.Context, sqid string, nodes []SplitNode, cha
 
 // Queue creates a work run for the subtree rooted at sqid.
 func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
+	return s.QueueWith(ctx, sqid, "")
+}
+
+// QueueWith is Queue with an agent override by name ("" = the project's default). The run is
+// refused, and nothing is queued, if the template it would run on does not allow the agent.
+func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run, error) {
 	var run dbgen.Run
 	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
 		t, err := s.Task(ctx, q, sqid)
@@ -893,10 +900,27 @@ func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
 		b[8] = (b[8] & 0x3f) | 0x80
 		h := hex.EncodeToString(b)
 		uuid := h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+		var override sql.NullInt64
+		if agent != "" {
+			a, err := q.GetAgentByName(ctx, agent)
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: agent %q (see `wrangl agent list`)", errs.NotFound, agent)
+			} else if err != nil {
+				return err
+			}
+			override = sql.NullInt64{Int64: a.ID, Valid: true}
+		}
+		chosen, err := agentdef.Resolve(ctx, q, templateID, proj.ID, override)
+		if err != nil {
+			return err
+		}
 		run, err = q.QueueRun(ctx, dbgen.QueueRunParams{
 			TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: nint(templateID), RepoID: nint(repoID),
 			Branch: fmt.Sprintf("wrangl/%s-%d", sqid, n+1), SessionUuid: uuid,
 		})
+		if err == nil && chosen != nil {
+			err = q.SetRunAgent(ctx, dbgen.SetRunAgentParams{AgentID: sql.NullInt64{Int64: chosen.ID, Valid: true}, ID: run.ID})
+		}
 		return err
 	})
 	return run, err

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"io"
 	"log/slog"
 	"net"
@@ -111,7 +112,22 @@ func (s *Service) CreateTemplate(ctx context.Context, yamlBody []byte) (dbgen.Ru
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 		return t, fmt.Errorf("%w: template %q already exists", ErrConflict, p.Name)
 	}
+	if err == nil {
+		err = s.syncAgents(ctx, t, yamlBody)
+	}
 	return t, err
+}
+
+// syncAgents applies a template file's allow-list ("agents:"), or wraps an embedded agent block
+// as an agent definition and allows it.
+func (s *Service) syncAgents(ctx context.Context, t dbgen.RunnerTemplate, yamlBody []byte) error {
+	if names := TemplateAgents(yamlBody); len(names) > 0 {
+		if err := agentdef.SetTemplateAgents(ctx, s.DB.Q, t.ID, names); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		return nil
+	}
+	return agentdef.EnsureForTemplate(ctx, s.DB.Q, t.ID, t.Name, t.AgentJson)
 }
 
 // Template returns a template by name.

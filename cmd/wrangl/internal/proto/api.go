@@ -95,6 +95,7 @@ type ProjectView struct {
 	NotesRepo    string `json:"notes_repo,omitempty"`
 	// Limits are the runner instances this project's demand may cause, per template.
 	Limits []ProjectLimit `json:"limits,omitempty"`
+	Agent  string         `json:"agent,omitempty"` // default agent definition
 }
 
 // ProjectLimit is a project's instance cap on one template. Ceiling is the template's own
@@ -119,6 +120,28 @@ type ProjectRequest struct {
 	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
 	// Limits sets instance caps by template name; templates not listed keep theirs.
 	Limits map[string]int64 `json:"limits,omitempty"`
+	Agent  *string          `json:"agent,omitempty"` // default agent name; "" clears
+}
+
+// AgentView is a named agent definition (docs/wrangl/adr/0001).
+type AgentView struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Version     int64           `json:"version"`
+	Spec        json.RawMessage `json:"spec"`
+	Templates   []string        `json:"templates"` // templates that allow it
+}
+
+// AgentRequest creates or replaces an agent definition.
+type AgentRequest struct {
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Spec        json.RawMessage `json:"spec"`
+}
+
+// QueueRequest is the optional body of POST /tasks/{sqid}/queue.
+type QueueRequest struct {
+	Agent string `json:"agent,omitempty"` // override the project's default agent for this run
 }
 
 // RepoView is a linked repo.

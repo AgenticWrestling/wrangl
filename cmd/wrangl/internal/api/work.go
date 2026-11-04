@@ -51,13 +51,13 @@ func registerWork(mux *http.ServeMux, d Deps) {
 			}
 		}
 		limits, _ := d.Projects.Limits(ctx, p.Slug)
-		return proto.ProjectView{Limits: limits, NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
+		return proto.ProjectView{Agent: d.Projects.DefaultAgent(ctx, p.ID), Limits: limits, NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
 			Template: tmplName(ctx, p.DefaultTemplateID), PlanTemplate: tmplName(ctx, p.PlanTemplateID),
 			AutoMerge: p.AutoMerge == 1, AutoQueue: p.AutoQueue == 1, Priority: p.Priority}
 	}
 	params := func(r proto.ProjectRequest) projects.ProjectParams {
 		return projects.ProjectParams{Name: r.Name, Description: r.Description, Template: r.Template,
-			PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, Priority: r.Priority, NotesRepo: r.NotesRepo, Limits: r.Limits}
+			PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, Priority: r.Priority, NotesRepo: r.NotesRepo, Limits: r.Limits, Agent: r.Agent}
 	}
 
 	// --- projects ---
@@ -530,7 +530,14 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		writeJSON(w, http.StatusCreated, out)
 	})
 	mux.HandleFunc("POST /api/v1/tasks/{sqid}/queue", func(w http.ResponseWriter, r *http.Request) {
-		run, err := d.Plans.QueueWork(r.Context(), r.PathValue("sqid"))
+		var req proto.QueueRequest
+		if r.ContentLength > 0 {
+			if err := decode(r, &req); err != nil {
+				writeErr(w, err)
+				return
+			}
+		}
+		run, err := d.Plans.QueueWorkWith(r.Context(), r.PathValue("sqid"), req.Agent)
 		if err != nil {
 			writeErr(w, err)
 			return

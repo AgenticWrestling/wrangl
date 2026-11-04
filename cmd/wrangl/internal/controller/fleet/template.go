@@ -43,6 +43,15 @@ type TemplateFile struct {
 	MiseTOML      string   `yaml:"mise_toml"`
 	SetupScript   string   `yaml:"setup_script"`
 	Agent         any      `yaml:"agent"`
+	// Agents lists the named agent definitions allowed on this template (wrangl agent list).
+	Agents []string `yaml:"agents"`
+}
+
+// TemplateAgents returns the allow-list a template file names ("agents:"), nil when absent.
+func TemplateAgents(b []byte) []string {
+	var f TemplateFile
+	yaml.Unmarshal(b, &f)
+	return f.Agents
 }
 
 var templateName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)

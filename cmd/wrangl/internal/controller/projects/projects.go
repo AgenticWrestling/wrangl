@@ -40,6 +40,7 @@ type ProjectParams struct {
 	Priority               *int64
 	NotesRepo              *string          // owner/name of a linked repo that holds research reports; "" clears
 	Limits                 map[string]int64 // instance caps by template name
+	Agent                  *string          // default agent definition by name; "" clears
 }
 
 func (s *Service) templateID(ctx context.Context, name string) (sql.NullInt64, error) {
@@ -89,7 +90,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
+	if p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -140,6 +141,9 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 		up.Priority = *p.Priority
 	}
 	out, err := s.DB.Q.UpdateProject(ctx, up)
+	if err == nil && p.Agent != nil {
+		err = s.SetDefaultAgent(ctx, slug, *p.Agent)
+	}
 	if err == nil && len(p.Limits) > 0 {
 		err = s.SetLimits(ctx, slug, p.Limits)
 	}
@@ -147,6 +151,35 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
 	}
 	return out, err
+}
+
+// SetDefaultAgent sets (or with "" clears) the project's default agent definition.
+func (s *Service) SetDefaultAgent(ctx context.Context, slug, name string) error {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return err
+	}
+	var id sql.NullInt64
+	if name != "" {
+		a, err := s.DB.RQ.GetAgentByName(ctx, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: agent %q (see `wrangl agent list`)", errs.NotFound, name)
+		} else if err != nil {
+			return err
+		}
+		id = sql.NullInt64{Int64: a.ID, Valid: true}
+	}
+	return s.DB.Q.SetProjectDefaultAgent(ctx, dbgen.SetProjectDefaultAgentParams{AgentID: id, ID: p.ID})
+}
+
+// DefaultAgent names the project's default agent ("" = none).
+func (s *Service) DefaultAgent(ctx context.Context, projectID int64) string {
+	id, err := s.DB.RQ.GetProjectDefaultAgent(ctx, projectID)
+	if err != nil || !id.Valid {
+		return ""
+	}
+	a, _ := s.DB.RQ.GetAgent(ctx, id.Int64)
+	return a.Name
 }
 
 // Limits lists the project's instance cap on every template. A template with no stored cap

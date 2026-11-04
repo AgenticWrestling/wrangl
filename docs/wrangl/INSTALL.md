@@ -452,6 +452,34 @@ To follow a runner's progress:
 
 **Check:** `wrangl fleet list` shows the runner `idle` with CPU, memory and disk figures.
 
+### 8.0 Agent definitions
+
+The `agent:` block above is stored as a named **agent definition** (here `claude`), separate from
+the template: the template says what machine to build and which agents may run on it, the agent
+says how to start and configure one (start/resume, secrets, hook and MCP files). You rarely need
+to think about it: creating a template with an `agent:` block creates (or reuses, when identical)
+the agent and allows it on the template, and existing templates were migrated the same way with
+no change in behaviour.
+
+```
+wrangl agent list                                   # name, version, templates that allow it
+wrangl agent show claude                            # the spec
+wrangl agent create codex -f codex-agent.yaml       # a spec: the contents of an `agent:` block
+wrangl agent edit claude -f claude-agent.yaml       # takes effect for runs assigned from now on
+wrangl agent allow codex --template go-claude       # or list `agents: [claude, codex]` in the template file
+wrangl agent disallow codex --template go-claude
+wrangl project edit myproj --agent claude           # the project's default agent
+wrangl task queue SQID --agent codex                # override for this run
+```
+
+An agent is chosen as: the `--agent` override, else the project's default if the run's template
+allows it, else the template's only allowed agent. A template that allows several agents with no
+usable default needs `--agent`. Asking for an agent the template does not allow is refused when you
+queue, naming what is allowed. Editing an agent does not bump the template version, so no runner
+reinstalls anything. The agent's binary is still installed by the template (`mise_toml` /
+`setup_script`), so allow an agent only on templates that install it. Secrets belong to the agent:
+a missing one is reported as `agent NAME needs secret ...`.
+
 ### 8.1 Other agents, interactive sessions and Remote Control (experimental)
 
 `docs/wrangl/templates/` holds example templates. Before picking one, read

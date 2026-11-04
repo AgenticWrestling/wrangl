@@ -32,7 +32,7 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 	}
 	r.Name, r.Description, r.Template, r.PlanTemplate = str("name"), str("description"), str("template"), str("plan-template")
 	r.AutoMerge, r.AutoQueue = boolean("auto-merge"), boolean("auto-queue")
-	r.NotesRepo = str("notes-repo")
+	r.NotesRepo, r.Agent = str("notes-repo"), str("agent")
 	if f.Changed("limit") {
 		vals, _ := f.GetStringSlice("limit")
 		r.Limits = map[string]int64{}
@@ -62,6 +62,7 @@ func projectFlags(c *cobra.Command) {
 	f.Bool("auto-merge", false, "auto-merge PRs that pass every gate and review as low risk")
 	f.Bool("auto-queue", false, "queue new top-level tasks automatically")
 	f.String("notes-repo", "", "linked repo (owner/name) that holds research reports under research/; empty clears")
+	f.String("agent", "", "default agent definition (wrangl agent list); empty clears")
 	f.StringSlice("limit", nil, "max runner instances this project may cause on a template: TEMPLATE=N (repeatable)")
 	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
 }
@@ -69,6 +70,9 @@ func projectFlags(c *cobra.Command) {
 func printProject(w io.Writer, p proto.ProjectView) {
 	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\nnotes repo\t%s\n",
 		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
+	if p.Agent != "" {
+		fmt.Fprintf(w, "agent\t%s\n", p.Agent)
+	}
 	for _, l := range p.Limits {
 		note := ""
 		if l.Max > l.Ceiling {

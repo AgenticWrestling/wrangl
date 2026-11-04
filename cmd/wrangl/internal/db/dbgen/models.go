@@ -350,3 +350,13 @@ type TaskThread struct {
 	Proposals string        `json:"proposals"`
 	Rev       string        `json:"rev"`
 }
+
+type Agent struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	SpecJson    string `json:"spec_json"`
+	Version     int64  `json:"version"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
