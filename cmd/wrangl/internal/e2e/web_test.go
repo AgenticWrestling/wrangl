@@ -216,6 +216,27 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	if d := e.task(sqid); len(d.Children) != 2 || d.Children[1].Title != "two" {
 		t.Fatalf("split result: %+v", d.Children)
 	}
+	// The "In progress" view lists only leaf tasks in progress, with ancestors and a parent link;
+	// a container's page has a Now card; in_review tasks are not shown.
+	{
+		kids := e.task(sqid).Children
+		leaf, review := kids[0].Sqid, kids[1].Sqid // "one" (leaf) and "two" (has two.a)
+		if _, err := e.db.W.Exec(`UPDATE task SET state='in_progress' WHERE sqid IN (?, ?)`, leaf, review); err != nil {
+			t.Fatal(err)
+		}
+		page := get("/tasks?project=web&now=1", `id="now"`, `data-sqid="`+leaf+`"`, `href="/task/`+sqid+`"`, "↑ parent", "from the phone")
+		if strings.Contains(page, `data-sqid="`+review+`"`) {
+			t.Fatal("a task with subtasks is not a leaf and must not be listed in the In progress view")
+		}
+		get("/task/"+sqid, `id="now"`, `data-sqid="`+leaf+`"`)
+		if _, err := e.db.W.Exec(`UPDATE task SET state='in_review' WHERE sqid = ?`, leaf); err != nil {
+			t.Fatal(err)
+		}
+		if page := get("/tasks?project=web&now=1", `id="now"`); strings.Contains(page, `data-sqid="`+leaf+`"`) {
+			t.Fatal("in_review tasks belong in the inbox, not the In progress view")
+		}
+		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid IN (?, ?)`, leaf, review)
+	}
 	// Queueing takes the task out of Backlog: it shows once, as a run entry, in Queue (waiting) or
 	// In progress (a runner with a free session slot took it straight away), ahead of Backlog.
 	if out := post("/ui/act/task-queue?sqid="+sqid, `{}`); strings.Contains(out, "toast show err") {

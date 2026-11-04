@@ -9,10 +9,15 @@
 </div>
 {{if .Project}}<div class="bar">
   <a class="chip" href="/tasks?project={{.Project}}{{if not .All}}&amp;all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
+  <a class="chip{{if .NowOnly}} on{{end}}" href="/tasks?project={{.Project}}{{if not .NowOnly}}&amp;now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
   <a class="chip" href="/project/{{.Project}}">Project goals &amp; repos</a>
   <span class="grow"></span>
   <button class="btn primary" data-key="n" onclick="openSheet('sheet-new')">＋ New task</button>
 </div>{{end}}
+{{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
+  {{if not .Now}}<p class="empty">No leaf task is in progress. Tasks in review are in the <a href="/inbox">inbox</a>.</p>{{end}}
+  <ul class="tasks" role="tree" aria-label="In progress">{{template "tasklist" .Now}}</ul></section>
+{{else}}
 {{if not .Projects}}<p class="empty">No projects yet. Tap ＋ above to create one.</p>
 {{else if and (not .Roots) (not .Progress) (not .Queue)}}<p class="empty">Nothing open in {{.Project}}. Tap ＋ New to add a task.</p>{{end}}
 {{if .Progress}}<section class="tsec" id="in-progress"><h3>In progress <span class="dim small">{{len .Progress}}</span></h3>
@@ -21,7 +26,7 @@
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 <section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
 <ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul></section>
-{{end}}
+{{end}}{{end}}
 
 {{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
   <div class="row">
@@ -49,6 +54,7 @@
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
     {{ticon .Type}}
     <a class="title" href="/task/{{.Sqid}}" onclick="return toggleDetail('{{.Sqid}}', event)" aria-expanded="false">{{.Title}}</a>
+    {{if .Crumbs}}<span class="crumbs dim small">{{range $i, $c := .Crumbs}}{{if $i}} › {{end}}<a href="/task/{{$c.Sqid}}">{{$c.Title}}</a>{{end}}</span><a class="tag" href="/task/{{.Parent}}" title="Go to the parent task">↑ parent</a>{{end}}
     {{if .Mockups}}<a class="tag mock" href="/task/{{.Sqid}}#deliverables" title="{{.Mockups}} deliverable{{if gt .Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{.Mockups}}</a>{{end}}
     {{if and (eq .State "in_review") (eq .Type "research")}}<span class="tag attn" title="the report waits for your review">awaiting review</span>{{end}}
     {{if .Attention}}<span class="tag attn" title="needs your attention">! attention</span>{{end}}

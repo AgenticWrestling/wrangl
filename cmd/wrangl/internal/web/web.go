@@ -495,9 +495,50 @@ func toast(w http.ResponseWriter, msg string, isErr bool) {
 type node struct {
 	proto.TaskNode
 	Attention bool          // an open question, or its latest run failed / is blocked
+	Crumbs    []crumb       // "Now" view: ancestors, root first
 	Mockups   int           // deliverables (mockups, prototypes, reports) handed back on this task
 	Detail    template.HTML // the expanded task's card, when this page has it open
 	Kids      []*node
+}
+
+// crumb is one ancestor in a breadcrumb.
+type crumb struct{ Sqid, Title string }
+
+// nowLeaves lists leaf tasks whose state is in_progress (in_review ones belong in the inbox),
+// each with its ancestors as a breadcrumb. within, if non-zero, limits it to that task's subtree.
+func nowLeaves(rows []dbgen.ProjectTreeRow, within int64) []*node {
+	byID := map[int64]dbgen.ProjectTreeRow{}
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	var out []*node
+	for _, r := range rows {
+		if r.State != "in_progress" || r.Children != 0 {
+			continue
+		}
+		var up []crumb
+		inside := within == 0
+		for p := r; p.ParentID.Valid; {
+			par, ok := byID[p.ParentID.Int64]
+			if !ok {
+				break
+			}
+			if par.ID == within {
+				inside = true
+			}
+			up = append([]crumb{{par.Sqid, par.Title}}, up...)
+			p = par
+		}
+		if !inside {
+			continue
+		}
+		n := &node{TaskNode: proto.TaskNode{Sqid: r.Sqid, Title: r.Title, State: r.State, Type: string(r.TaskType), Depth: r.Depth, Children: r.Children}, Crumbs: up}
+		if len(up) > 0 {
+			n.Parent = up[len(up)-1].Sqid
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // runEntry is an active run shown in the In progress or Queue section: its root task (with the
@@ -516,6 +557,7 @@ type runEntry struct {
 type taskSections struct {
 	Progress, Queue []*runEntry
 	Backlog         []*node
+	Now             []*node // in-progress leaf tasks, with breadcrumbs
 }
 
 func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[string]any, error) {
@@ -543,6 +585,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 				return nil, err
 			}
 			d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
+			d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
 		}
 	case "task":
 		sqid := reqValue(r, "sqid")
@@ -566,6 +609,11 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
 		d["Kids"] = kids
+		if len(kids) > 0 { // a container: what is being worked on beneath it right now
+			if rows, err := db.RQ.ProjectTree(ctx, t.ProjectID); err == nil {
+				d["Now"] = nowLeaves(rows, t.ID)
+			}
+		}
 		if cp, err := db.RQ.LatestTaskCheckpoint(ctx, t.ID); err == nil {
 			d["Checkpoint"] = checkpointLinks(cp)
 		}
@@ -937,6 +985,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 	for _, r := range active {
 		locks[r.Run.TaskID] = map[bool]string{true: r.RunnerName, false: "queued"}[r.RunnerName != ""]
 	}
+	secs.Now = nowLeaves(rows, 0)
 	attn := h.attention(ctx, slug)
 	mockups := map[int64]int{}
 	if cs, err := db.RQ.CountDeliverablesForTasks(ctx, p.ID); err == nil {

@@ -416,3 +416,8 @@ dialog.lightbox button { background: #222; color: #eee; border: 1px solid #555; 
 aside.sources { border: 1px solid var(--line); border-radius: 8px; background: var(--raised); padding: 8px 12px; font-size: 0.85rem; align-self: start; }
 aside.sources h4 { margin: 0 0 4px; }
 @media (min-width: 900px) { aside.sources { position: sticky; top: 8px; } }
+
+.crumbs { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.crumbs a { color: var(--dim); }
+a.chip.on { border-color: var(--ink); color: var(--ink); }
+@media (max-width: 760px) { .crumbs { display: none; } }

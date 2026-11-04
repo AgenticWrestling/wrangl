@@ -19,6 +19,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner/runnertest"
@@ -84,6 +85,7 @@ type workEnv struct {
 	api  *client.Client
 	bare string
 	t    *testing.T
+	db   *db.DB // the controller's database, for setting up states a test cannot reach otherwise
 }
 
 func (e *workEnv) run(id int64) proto.RunView {
@@ -160,7 +162,7 @@ func TestWorkLoopEndToEnd(t *testing.T) {
 	go func() { srvDone <- srv.Run(ctx) }()
 	<-srv.Ready()
 	api, _ := client.New("unix://"+cfg.Listen.Unix, nil)
-	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t}
+	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t, db: srv.Fleet.DB}
 
 	// Template whose "agent" is the fake script; secrets resolved from the controller.
 	if err := controller.SecretSet(cfg.DataDir, "fake_token", strings.NewReader("s3cret")); err != nil {

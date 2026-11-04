@@ -50,6 +50,9 @@
   <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .State "in_progress"}}<span class="tag prog">▶ in progress</span>{{end}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
 </section>
 
+{{if .Now}}<section class="card" id="now"><h3>Now <span class="dim small">{{len .Now}} in progress</span></h3>
+  <ul class="tasks" role="tree" aria-label="In progress beneath this task">{{template "tasklist" .Now}}</ul></section>{{end}}
+
 {{if .Deliverables}}<section class="card" id="deliverables"><h3>Deliverables</h3>{{template "gallery" .Deliverables}}</section>{{end}}
 {{if or .Pre .Dep}}<section class="card"><h3>Dependencies</h3>
   {{range .Pre}}<div class="row">needs <span class="glyph">{{glyph .State}}</span><a href="/task/{{.Sqid}}">{{.Title}}</a> <code class="sqid">{{.Sqid}}</code></div>{{end}}
