@@ -1,0 +1,142 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wrangl — transcript as Markdown in the task card (ykpdKE)</title>
+<style>
+@font-face{font-family:"Red Hat Display";font-weight:300 900;src:url(fonts/red-hat-display-latin.woff2) format("woff2")}@font-face{font-family:"IBM Plex Mono";src:url(fonts/ibm-plex-mono-latin.woff2) format("woff2")}
+:root{--bg:#0f1115;--card:#171a21;--raised:#1f232b;--line:#2c313c;--faint:#4b5261;--dim:#8a919e;--ink2:#c5cad3;--ink:#eef0f3;--brand:#0072b2;--prog:#56b4e9;--ok:#009e73;--attn:#e69f00;--err:#d55e00;--review:#cc79a7;--link:#a6d8f5;--mono:"IBM Plex Mono",ui-monospace,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.45 "Red Hat Display",system-ui,sans-serif}
+.bar{position:sticky;top:0;z-index:20;background:#0a0c10;border-bottom:1px solid var(--line);padding:8px 16px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.8rem;color:var(--dim)}
+.bar button{font:inherit;color:var(--ink2);background:var(--raised);border:1px solid var(--line);border-radius:999px;padding:3px 11px;cursor:pointer}.bar button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.bar .sep{width:1px;height:18px;background:var(--line);margin:0 6px}
+body.shot .bar{display:none}
+.wrap{max-width:820px;margin:0 auto;padding:12px 16px 40px}
+code,.mono{font-family:var(--mono);font-size:.86em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.8rem;color:var(--dim)}
+.pill{border:1px solid var(--prog);color:var(--prog);border-radius:999px;padding:1px 9px;font-size:.78rem}.pill.done{border-color:var(--ok);color:var(--ok)}
+.sqid{font-family:var(--mono);color:#b4bac4}
+h2{font-size:1.05rem;margin:10px 0 6px}.prompt{color:var(--ink2);margin:0 0 10px;font-size:.95rem}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.btn{font:inherit;font-size:.85rem;color:var(--ink);background:var(--raised);border:1px solid var(--line);border-radius:8px;padding:5px 12px}.btn.p{background:var(--brand);border-color:var(--brand)}
+/* ---- live panel (shared) ---- */
+.live{margin:8px 0;border:1px solid var(--line);border-radius:10px;background:#12151b;position:relative;overflow:hidden}
+.lh{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:.8rem;border-bottom:1px solid var(--line);background:#161a21}
+.lh b{font-weight:600}.grow{flex:1}.dim{color:var(--dim)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:5px;animation:pulse 1.6s infinite}.ended .dot{animation:none;background:var(--faint)}
+@keyframes pulse{50%{opacity:.35}}
+.lb{max-height:25rem;overflow:auto;padding:10px 12px;scroll-behavior:auto}
+.earlier{display:block;text-align:center;font-size:.8rem;padding:4px 0 10px;color:var(--link);cursor:pointer}
+.prose p{margin:.2em 0 .55em}.prose strong{font-weight:600;color:var(--ink)}.prose ul{margin:.2em 0 .6em;padding-left:1.3em}
+.prose code{background:#1f232b;border-radius:4px;padding:1px 5px}
+.prose pre{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow:auto;margin:.4em 0 .7em}.prose pre code{background:none;padding:0;color:#d5dae2;line-height:1.35;display:block}.prose pre{font-size:.8rem}
+.you{color:var(--dim);font-size:.85rem;border-left:2px solid var(--faint);padding-left:9px;margin:2px 0 10px}
+.think{font-size:.82rem;color:var(--dim);font-style:italic;border-left:2px dashed var(--faint);padding:2px 0 2px 9px;margin:4px 0 10px}
+.tg{color:var(--dim);font-size:.78rem;cursor:pointer;user-select:none}
+.chip{font:inherit;cursor:pointer;color:var(--ink2);background:var(--raised);border:1px solid var(--line);border-radius:999px;padding:2px 10px 2px 9px;font-size:.8rem;display:inline-flex;gap:6px;align-items:center;max-width:100%}
+.chip .t{font-weight:600;color:var(--ink)}.chip .a{font-family:var(--mono);font-size:.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.chip .s{font-weight:600}.s.ok{color:var(--ok)}.s.er{color:var(--err)}.s.run{color:var(--prog);animation:pulse 1.2s infinite}
+.chip.open{border-color:var(--faint);background:#262b35}
+.chip.bad{border-color:color-mix(in srgb,var(--err) 60%,var(--line))}
+.xp{margin:5px 0 10px;background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-family:var(--mono);font-size:.78rem;color:var(--ink2);white-space:pre-wrap;overflow:auto;max-height:9rem}
+.xp .more{color:var(--link);font-family:inherit}
+.jump{position:absolute;right:12px;bottom:12px;background:var(--brand);color:#fff;border:0;border-radius:999px;padding:5px 13px;font:inherit;font-size:.8rem;box-shadow:0 2px 10px #0008;display:none;cursor:pointer}.jump.on{display:block}
+.note{font-size:.8rem;color:var(--attn);padding:6px 10px;border-bottom:1px solid var(--line);background:#1b1913}
+.pty{padding:10px;font-family:var(--mono);font-size:.72rem;line-height:1.25;color:#b9c0cc;white-space:pre;overflow:hidden;max-height:14rem}
+/* ---- A: chat log, inline chips ---- */
+.vA .chips{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}.vA .xp{margin-top:-2px}
+/* ---- B: timeline rail ---- */
+.vB .lb{padding:10px 12px 10px 0}.vB .row{display:grid;grid-template-columns:54px 14px 1fr;gap:0 6px;position:relative}
+.vB .ts{font-family:var(--mono);font-size:.68rem;color:var(--faint);text-align:right;padding-top:3px}
+.vB .rail{position:relative}.vB .rail:before{content:"";position:absolute;left:6px;top:0;bottom:-8px;width:1px;background:var(--line)}
+.vB .rail i{position:absolute;left:3px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--faint);border:1px solid var(--bg)}.vB .row.asst .rail i{background:var(--prog)}.vB .row.tool .rail i{background:var(--c4,#4b5261);border-radius:2px}
+.vB .row .bd{padding-bottom:8px;min-width:0}
+.vB .crow{display:flex;gap:8px;align-items:center;width:100%;font:inherit;font-size:.8rem;color:var(--ink2);background:none;border:0;border-bottom:1px solid #1c2028;padding:3px 0;cursor:pointer;text-align:left}
+.vB .crow .t{font-weight:600;color:var(--ink);min-width:3.4rem}.vB .crow .a{font-family:var(--mono);font-size:.92em;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.vB .crow .d{color:var(--faint);font-size:.72rem;font-family:var(--mono)}
+.vB .grp{font-size:.78rem;color:var(--dim);cursor:pointer;margin-bottom:2px}
+/* ---- C: reader + filter ---- */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}.seg button{font:inherit;font-size:.74rem;background:none;color:var(--dim);border:0;padding:2px 10px;cursor:pointer}.seg button.on{background:var(--raised);color:var(--ink)}
+.vC .sum{display:flex;gap:7px;align-items:center;font-size:.78rem;color:var(--dim);border:1px dashed var(--line);border-radius:8px;padding:4px 9px;margin:2px 0 9px;cursor:pointer}.vC .sum .s{font-weight:600}
+.vC .sum .tl{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.vC .stack{border:1px solid var(--line);border-radius:8px;margin:2px 0 9px;overflow:hidden}.vC .stack .crow{display:flex;gap:8px;align-items:center;width:100%;font:inherit;font-size:.78rem;color:var(--ink2);background:none;border:0;border-top:1px solid #1c2028;padding:4px 9px;cursor:pointer;text-align:left}.vC .stack .crow:first-child{border-top:0}
+.vC .stack .t{font-weight:600;color:var(--ink)}.vC .stack .a{font-family:var(--mono);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.vC .stack .xp{margin:0;border:0;border-top:1px solid #1c2028;border-radius:0}
+.status{display:flex;align-items:center;gap:8px;font-size:.76rem;color:var(--dim);padding:5px 10px;border-top:1px solid var(--line);background:#161a21}
+.status b{font-weight:600;color:var(--ok)}.status.paused b{color:var(--attn)}.status a{color:var(--link);cursor:pointer}
+@media(max-width:520px){.wrap{padding:8px 8px 40px}.card{padding:12px}.lb{max-height:30rem;padding:9px 10px}.vB .row{grid-template-columns:34px 12px 1fr}.vB .ts{font-size:.62rem}.lh .hide-s{display:none}.lh{flex-wrap:wrap}.vC .lh .seg{order:9;width:100%;justify-content:center}.vC .lh .seg button{flex:1}}
+.ic{vertical-align:-1px;display:inline-block}.dot2{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:3px}.chip .s{display:inline-flex}</style>
+<div class="bar" id="bar"></div>
+<div class="wrap"><section class="card" id="card">
+ <div class="meta"><span class="pill" id="pill"><svg class="ic" viewBox="0 0 16 16" width="10" height="10"><path d="M5 3l6 5-6 5z" fill="currentColor" transform="rotate(0 8 8)"/></svg> in_progress</span><span class="sqid">Hk3p9Q</span><span>wrangl</span><span>› Webhooks</span></div>
+ <h2>Retry failed webhook deliveries with backoff</h2>
+ <p class="prompt">Add exponential backoff to the webhook sender and cover it with tests.</p>
+ <div id="live" class="live"></div>
+ <div class="actions"><span class="btn p">Complete</span><span class="btn">Edit</span><span class="btn">Needs…</span><span class="btn">Cancel</span></div>
+</section>
+<p class="dim" style="font-size:.78rem;margin-top:14px">Prototype: entries are rendered the way the server will (goldmark, no raw HTML — the <code>&lt;script&gt;</code> in the last message is shown as inert text). Use the top bar to change variant/state, append live entries, and scroll the panel.</p></div>
+<script>
+const E=(s,t)=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+// kind: u=user prompt, a=assistant prose (html), k=thinking, t=tool call (merged with its result: st ok|er|run)
+const BASE=[
+ {id:41,ts:'10:02',k:'u',h:'Add exponential backoff to the webhook sender and cover it with tests.'},
+ {id:42,ts:'10:02',k:'a',h:'<p>I\'ll start by reading the <strong>sender</strong> and its tests to see where retries happen.</p>'},
+ {id:43,ts:'10:02',k:'k',h:'The retry loop is in <code>send.go</code>; it sleeps a fixed 2s. Jitter needs an injectable clock for tests.'},
+ {id:44,ts:'10:02',k:'t',tool:'Read',arg:'internal/hooks/send.go',st:'ok',d:'0.1s',out:'212 lines · func (s *Sender) Deliver(ctx, ev) error {\n  for i := 0; i < s.Max; i++ { … time.Sleep(2*time.Second) … }'},
+ {id:45,ts:'10:03',k:'t',tool:'Grep',arg:'time.Sleep',st:'ok',d:'0.2s',out:'internal/hooks/send.go:88: time.Sleep(2 * time.Second)\ninternal/hooks/send_test.go:41: s.sleep = func(time.Duration) {}'},
+ {id:46,ts:'10:03',k:'a',h:'<p>Plan:</p><ul><li>replace the fixed sleep with <code>backoff(attempt)</code> (base 500ms, ×2, <strong>capped at 30s</strong>)</li><li>add jitter via an injectable <code>rand</code></li></ul><pre><code>func backoff(n int) time.Duration {\n\td := base &lt;&lt; n\n\treturn min(d, maxWait)\n}</code></pre>'},
+ {id:47,ts:'10:04',k:'t',tool:'Edit',arg:'internal/hooks/send.go',st:'ok',d:'0.1s',out:'+34 −6 · replaced fixed sleep with backoff(attempt)'},
+ {id:48,ts:'10:04',k:'t',tool:'Bash',arg:'go test ./...',st:'er',d:'6.2s',out:'--- FAIL: TestBackoffCap (0.00s)\n    send_test.go:57: got 32s, want 30s\nFAIL\tgithub.com/acme/hooks\t0.41s'},
+ {id:49,ts:'10:05',k:'a',h:'<p>The cap is applied <strong>after</strong> the shift overflows for large attempts. Clamping the shift first.</p>'},
+ {id:50,ts:'10:05',k:'t',tool:'Edit',arg:'internal/hooks/send.go',st:'ok',d:'0.1s',out:'+3 −1 · clamp shift before applying cap'},
+ {id:51,ts:'10:05',k:'t',tool:'Bash',arg:'go test ./...',st:'ok',d:'5.8s',out:'ok  \tgithub.com/acme/hooks\t0.52s\nok  \tgithub.com/acme/api\t1.9s'},
+];
+const LIVE_MORE=[
+ {id:52,ts:'10:06',k:'a',h:'<p>All green. One note: a message containing <code>&lt;script&gt;alert(1)&lt;/script&gt;</code> in a payload is shown as plain text here — nothing in the transcript is ever executed.</p>'},
+ {id:53,ts:'10:06',k:'t',tool:'Bash',arg:'git diff --stat',st:'run',d:'',out:''},
+ {id:54,ts:'10:06',k:'a',h:'<p>Ready for review: <strong>3 files changed</strong>, tests added for the cap and the jitter bounds.</p>'},
+];
+let prog=false,V=location.hash.slice(1,2)||'A', S=(location.hash.slice(3)||'live'), filt='tools', showThink=false, open=new Set(), extra=0, prepended=0, grp=new Set(), paused=false, unseen=0;
+const bar=document.getElementById('bar'),live=document.getElementById('live'),card=document.getElementById('card');
+if(location.search.includes('shot'))document.body.classList.add('shot');
+function setBar(){bar.innerHTML='<b style="color:var(--ink2)">ykpdKE</b>'+['A','B','C'].map(v=>`<button class="${V==v?'on':''}" onclick="V='${v}';draw()">${v}</button>`).join('')+'<span class="sep"></span>'+[['live','live'],['done','finished'],['none','no transcript']].map(([k,l])=>`<button class="${S==k?'on':''}" onclick="S='${k}';extra=0;unseen=0;draw()">${l}</button>`).join('')+'<span class="sep"></span><button onclick="append()">+ append entry</button><button onclick="document.getElementById(\'lb\')&&(lb.scrollTop=0)">scroll up</button>'}
+function entries(){let a=BASE.slice();if(S!='live'&&S!='none')a=a.concat(LIVE_MORE.map(e=>e.k=='t'?{...e,st:'ok',d:'0.2s',out:' 3 files changed, 71 insertions(+), 9 deletions(-)'}:e));else a=a.concat(LIVE_MORE.slice(0,extra));return a}
+function chipHTML(e){const s=e.st=='ok'?'<span class="s ok" title="succeeded"><svg class="ic" viewBox="0 0 16 16" width="12" height="12" ><path d="M3 8.5l3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>':e.st=='er'?'<span class="s er" title="failed"><svg class="ic" viewBox="0 0 16 16" width="12" height="12" ><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>':'<span class="s run" title="running">…</span>';return s}
+function xp(e){return open.has(e.id)?`<div class="xp">${E(e.out||'(running — output appears when the tool returns)')}${e.out&&e.out.length>60?'\n<span class="more">… output truncated · full output on the run page</span>':''}</div>`:''}
+function tog(id){open.has(id)?open.delete(id):open.add(id);draw(true)}
+function chipA(e){return `<button class="chip ${open.has(e.id)?'open':''} ${e.st=='er'?'bad':''}" onclick="tog(${e.id})" aria-expanded="${open.has(e.id)}"><span class="t">${e.tool}:</span><span class="a">${E(e.arg)}</span>${chipHTML(e)}</button>`}
+function bodyA(es){let o='',run=[];const fl=()=>{if(run.length){o+='<div class="chips">'+run.map(chipA).join('')+'</div>'+run.filter(e=>open.has(e.id)).map(xp).join('');run=[]}};
+ for(const e of es){if(e.k=='t'){run.push(e);continue}fl();o+=blk(e)}fl();return o}
+function blk(e){return e.k=='u'?`<div class="you">${e.h}</div>`:e.k=='a'?`<div class="prose">${e.h}</div>`:showThink?`<div class="think">${e.h}</div>`:''}
+function bodyB(es){let o='',i=0;while(i<es.length){const e=es[i];if(e.k=='t'){let r=[];while(i<es.length&&es[i].k=='t')r.push(es[i++]);o+=`<div class="row tool"><div class="ts">${r[0].ts}</div><div class="rail"><i></i></div><div class="bd">`+r.map(t=>`<button class="crow" onclick="tog(${t.id})"><span class="t">${t.tool}</span><span class="a">${E(t.arg)}</span><span class="d">${t.d}</span>${chipHTML(t)}</button>${xp(t)}`).join('')+'</div></div>';continue}
+ if(e.k=='k'&&!showThink){i++;continue}
+ o+=`<div class="row ${e.k=='a'?'asst':''}"><div class="ts">${e.ts}</div><div class="rail"><i></i></div><div class="bd">${blk(e)}</div></div>`;i++}return o}
+function bodyC(es){let o='',i=0;while(i<es.length){const e=es[i];if(e.k=='t'){let r=[];while(i<es.length&&es[i].k=='t')r.push(es[i++]);
+ if(filt=='prose'){continue}
+ const id='g'+r[0].id,names=[...new Set(r.map(t=>t.tool))].join(', '),bad=r.some(t=>t.st=='er'),run=r.some(t=>t.st=='run');
+ if(filt=='all'||grp.has(id)){o+=`<div class="stack">`+r.map(t=>`<button class="crow" onclick="tog(${t.id})"><span class="t">${t.tool}:</span><span class="a">${E(t.arg)}</span>${chipHTML(t)}</button>${xp(t)}`).join('')+'</div>'}
+ else o+=`<div class="sum" onclick="grp.add('${id}');draw(true)"><span><svg class="ic" viewBox="0 0 16 16" width="10" height="10"><path d="M5 3l6 5-6 5z" fill="currentColor" transform="rotate(0 8 8)"/></svg> ${r.length} tool call${r.length>1?'s':''}</span><span class="tl">${names}</span>${bad?'<span class="s er"><svg class="ic" viewBox="0 0 16 16" width="12" height="12" ><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> 1 failed</span>':run?'<span class="s run">…</span>':'<span class="s ok"><svg class="ic" viewBox="0 0 16 16" width="12" height="12" ><path d="M3 8.5l3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'}</div>`;continue}
+ if(e.k=='k'&&!showThink){i++;continue}o+=blk(e);i++}return o}
+function draw(keep){
+ document.body.className=document.body.className.replace(/\bv[ABC]\b/g,'')+' v'+V;setBar();
+ const old=document.getElementById('lb');const at=old?old.scrollTop:0, nearBottom=old?(old.scrollHeight-old.scrollTop-old.clientHeight<24):true;
+ document.getElementById('pill').className='pill'+(S=='done'?' done':'');document.getElementById('pill').innerHTML=S=='done'?'<svg class="ic" viewBox="0 0 16 16" width="12" height="12" ><path d="M3 8.5l3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> in_review':'<svg class="ic" viewBox="0 0 16 16" width="10" height="10"><path d="M5 3l6 5-6 5z" fill="currentColor" transform="rotate(0 8 8)"/></svg> in_progress';
+ if(S=='none'){live.className='live';live.innerHTML=`<div class="lh"><b>Live output</b><span class="dim">terminal · read-only</span><span class="grow"></span><a class="dim" href="#">run #212</a></div><div class="note"><svg class="ic" viewBox="0 0 16 16" width="12" height="12"><path d="M8 2l7 12H1z M8 7v3M8 12v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg> No transcript for this run (agent doesn’t write one, or the run predates it) — showing the raw terminal instead.</div><div class="pty">$ codex exec --json "Add exponential backoff…"\n<i class="dot2"></i> Reading internal/hooks/send.go\n<i class="dot2"></i> Editing internal/hooks/send.go  (+34 −6)\n<i class="dot2"></i> Running go test ./...\n  ok  github.com/acme/hooks  0.52s\n<i class="dot2"></i> Done — 3 files changed</div>`;return}
+ const es=entries(),ended=S=='done';
+ const hd=`<div class="lh"><b>Live output</b>${ended?'<span class="dim">finished</span>':'<span class="dim"><i class="dot"></i>live</span>'}<span class="grow"></span>`+
+  (V=='C'?`<span class="seg">${[['prose','Prose'],['tools','+ Tools'],['all','All']].map(([k,l])=>`<button class="${filt==k?'on':''}" onclick="filt='${k}';draw(true)">${l}</button>`).join('')}</span>`:'')+
+  `<a class="tg" onclick="showThink=!showThink;draw(true)">${showThink?'<svg class="ic" viewBox="0 0 16 16" width="10" height="10"><path d="M5 3l6 5-6 5z" fill="currentColor" transform="rotate(90 8 8)"/></svg>':'<svg class="ic" viewBox="0 0 16 16" width="10" height="10"><path d="M5 3l6 5-6 5z" fill="currentColor" transform="rotate(0 8 8)"/></svg>'} thinking</a><a class="dim hide-s" href="#">run #212</a></div>`;
+ const body=(V=='A'?bodyA:V=='B'?bodyB:bodyC)(es);
+ const stat=V=='C'?`<div class="status ${paused?'paused':''}" id="stat">${ended?'<span>Transcript complete · 62 entries</span>':paused?`<b><svg class="ic" viewBox="0 0 16 16" width="11" height="11"><path d="M5 3v10M11 3v10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg> Paused</b><span>scrolled up</span><a onclick="jump()">${unseen?unseen+' new · ':''}jump to latest ↓</a>`:'<b><i class="dot2"></i> Following</b><span>auto-scrolls while you’re at the bottom</span>'}</div>`:'';
+ live.className='live'+(ended?' ended':'');
+ live.innerHTML=hd+`<div class="lb" id="lb"><a class="earlier" onclick="earlier()">↑ load earlier (${40-prepended*20>0?40-prepended*20:0} more)</a>${body}</div>`+(V!='C'?`<button class="jump ${paused&&!ended?'on':''}" id="jump" onclick="jump()">↓ ${unseen?unseen+' new':'latest'}</button>`:'')+stat;
+ const lb=document.getElementById('lb');lb.addEventListener('scroll',()=>{if(prog)return;const nb=lb.scrollHeight-lb.scrollTop-lb.clientHeight<24;if(nb&&paused){paused=false;unseen=0;drawSoft()}else if(!nb&&!paused){paused=true;drawSoft()}});
+ prog=true;if(keep&&!nearBottom){lb.scrollTop=at}else{lb.scrollTop=lb.scrollHeight}
+ setTimeout(()=>prog=false,60)
+}
+function drawSoft(){const j=document.getElementById('jump'),s=document.getElementById('stat');if(j)j.className='jump'+(paused&&S!='done'?' on':'');if(j)j.textContent='↓ '+(unseen?unseen+' new':'latest');if(s){draw2()}}
+function draw2(){const s=document.getElementById('stat');if(!s)return;s.className='status '+(paused?'paused':'');s.innerHTML=paused?`<b><svg class="ic" viewBox="0 0 16 16" width="11" height="11"><path d="M5 3v10M11 3v10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg> Paused</b><span>scrolled up</span><a onclick="jump()">${unseen?unseen+' new · ':''}jump to latest ↓</a>`:'<b><i class="dot2"></i> Following</b><span>auto-scrolls while you’re at the bottom</span>'}
+function jump(){const lb=document.getElementById('lb');paused=false;unseen=0;prog=true;lb.scrollTop=lb.scrollHeight;setTimeout(()=>prog=false,60);drawSoft()}
+function append(){if(extra<LIVE_MORE.length&&S=='live'){extra++;if(paused)unseen++;draw(true)}}
+function earlier(){prepended++;alert('Prototype: older entries are fetched as JSON (?before=seq), rendered server-side and prepended; scroll position is kept so the view doesn’t jump.')}
+onhashchange=()=>{V=location.hash.slice(1,2)||'A';S=location.hash.slice(3)||'live';draw()};
+// demo hooks for screenshots
+window.demo={open:id=>{open.add(id);draw(true)},thinking:()=>{showThink=true;draw(true)},up:()=>{const lb=document.getElementById('lb');lb.scrollTop=(lb.scrollHeight-lb.clientHeight)*.3;lb.dispatchEvent(new Event('scroll'))},more:n=>{for(let i=0;i<n;i++)append()},filt:f=>{filt=f;draw(true)},grp:id=>{grp.add(id);draw(true)}};
+Promise.all([document.fonts.load('400 16px "Red Hat Display"'),document.fonts.load('600 16px "Red Hat Display"'),document.fonts.load('14px "IBM Plex Mono"')]).catch(()=>{}).then(draw);
+</script>
