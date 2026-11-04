@@ -44,6 +44,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	}
 
 	get("/tasks?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
+	get("/tasks?project=web", `class="subnav"`, `data-sec="in-progress"`, `data-sec="queue"`, `data-sec="backlog"`, `id="backlog"`)
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
 	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals:outline=")
 	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)
@@ -214,6 +215,17 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	}
 	if d := e.task(sqid); len(d.Children) != 2 || d.Children[1].Title != "two" {
 		t.Fatalf("split result: %+v", d.Children)
+	}
+	// Queueing moves the task into the Queue section and out of Backlog: shown once, as a run entry.
+	if out := post("/ui/act/task-queue?sqid="+sqid, `{}`); strings.Contains(out, "toast show err") {
+		t.Fatalf("task-queue: %s", out)
+	}
+	page := get("/tasks?project=web", `id="queue"`, `class="subnav"`, `class="task run `, "run #")
+	if n := strings.Count(page, `data-sqid="`+sqid+`"`); n != 1 {
+		t.Fatalf("a queued task is listed once (in Queue), found %d times", n)
+	}
+	if i, j := strings.Index(page, `id="queue"`), strings.Index(page, `id="backlog"`); i < 0 || j < i {
+		t.Fatalf("Queue must come before Backlog (%d, %d)", i, j)
 	}
 	if out := post("/ui/act/task-queue?sqid=nope", `{}`); !strings.Contains(out, "toast show err") {
 		t.Fatalf("error toast: %s", out)
