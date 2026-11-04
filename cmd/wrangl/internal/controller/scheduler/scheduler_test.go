@@ -331,3 +331,47 @@ func TestLaunchForRespectsCap(t *testing.T) {
 		t.Fatalf("zero cap: %v", err)
 	}
 }
+
+// Remote templates launch a target machine (no enrolling runner); the queued run also counts as
+// demand on its driver template; the project's cap for the remote template governs the target.
+func TestRemoteTemplateLaunchesTargetWithinCap(t *testing.T) {
+	s, _, _, d := setup(t, 3)
+	ctx := context.Background()
+	d.W.Exec(`UPDATE runner_template SET max_sessions = 1`)
+	mac := "name: mac\narch: arm64\nmin: {vcpu: 2, ram: 4GiB, disk: 20GiB}\nmax_runners: 2\nmax_sessions: 1\nmode: remote\nconnection: {driver_template: go, secret: k}\n"
+	if _, err := s.Fleet.CreateTemplate(ctx, []byte(mac)); err != nil {
+		t.Fatal(err)
+	}
+	// the project's tasks run on mac (template 2); caps start at the default rule: 0 for mac
+	d.W.Exec(`INSERT INTO task (project_id, rank, title, template_id) VALUES (1, 'V001', 'ios', 2)`)
+	d.W.Exec(`INSERT INTO run (task_id, template_id) VALUES (1, 2)`)
+	d.W.Exec(`DELETE FROM project_template_limit`)
+	if got, _ := s.Tick(ctx); len(got) != 0 {
+		t.Fatalf("a project capped at 0 targets gets neither a target nor an idle driver: %v", got)
+	}
+	var targets int
+	d.R.QueryRow(`SELECT COUNT(*) FROM remote_target`).Scan(&targets)
+	if targets != 0 {
+		t.Fatalf("launched %d targets over a cap of 0", targets)
+	}
+	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 2, 1)`)
+	got, err := s.Tick(ctx)
+	if err != nil || got["mac"] != 1 || got["go"] != 1 {
+		t.Fatalf("want one target and one driver runner within the cap: %v %v", got, err)
+	}
+	var state string
+	var forProject int64
+	d.R.QueryRow(`SELECT state, launched_for_project FROM remote_target`).Scan(&state, &forProject)
+	if state != "launching" || forProject != 1 {
+		t.Fatalf("target: %s for project %d", state, forProject)
+	}
+	var runners int
+	d.R.QueryRow(`SELECT COUNT(*) FROM runner WHERE template_id = 2`).Scan(&runners)
+	if runners != 0 {
+		t.Fatal("a remote template must not create runner rows")
+	}
+	// the launching target already supplies the session: no second target for the same run
+	if got, _ := s.Tick(ctx); got["mac"] != 0 {
+		t.Fatalf("second target launched for one run: %v", got)
+	}
+}

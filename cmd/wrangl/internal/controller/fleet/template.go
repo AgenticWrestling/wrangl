@@ -45,6 +45,34 @@ type TemplateFile struct {
 	Agent         any      `yaml:"agent"`
 	// Agents lists the named agent definitions allowed on this template (wrangl agent list).
 	Agents []string `yaml:"agents"`
+	// Mode is local (default: the template describes runners that run the agent) or remote (it
+	// describes a target machine that runs no wrangl; the agent runs on a driver and drives it).
+	Mode       string            `yaml:"mode"`
+	Connection *proto.Connection `yaml:"connection"`
+}
+
+// TemplateMode parses just the mode and connection block of a template file.
+func TemplateMode(b []byte) (string, *proto.Connection, error) {
+	var f TemplateFile
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		return "", nil, err
+	}
+	switch f.Mode {
+	case "", "local":
+		if f.Connection != nil {
+			return "", nil, fmt.Errorf("connection is only for mode: remote")
+		}
+		return "local", nil, nil
+	case "remote":
+		if f.Connection == nil {
+			return "", nil, fmt.Errorf("mode: remote needs a connection block")
+		}
+		if err := f.Connection.Validate(); err != nil {
+			return "", nil, err
+		}
+		return "remote", f.Connection, nil
+	}
+	return "", nil, fmt.Errorf("mode %q: want local or remote", f.Mode)
 }
 
 // TemplateAgents returns the allow-list a template file names ("agents:"), nil when absent.

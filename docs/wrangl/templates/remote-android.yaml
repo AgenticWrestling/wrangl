@@ -1,0 +1,16 @@
+# EXPERIMENTAL: a remote runner for an Android emulator host, driven with adb through an SSM
+# port-forward (see remote-mac.yaml and docs/wrangl/adr/0002). The agent runs on the driver and
+# uses target_exec ("adb shell ..." is run for it) and target_put (adb push).
+name: android
+arch: x86_64
+min: { vcpu: 8, ram: 32GiB, disk: 100GiB }
+max_runners: 1
+max_sessions: 1           # an emulator is usually one session at a time
+idle_timeout: 20m
+mode: remote
+connection:
+  driver_template: go-claude
+  protocol: adb
+  port: 5555
+  via: ssm
+agents: [claude]

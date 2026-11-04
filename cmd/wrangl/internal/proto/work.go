@@ -135,7 +135,8 @@ type Assignment struct {
 	SessionName string            `json:"session_name"`
 	SessionUUID string            `json:"session_uuid"`
 	Agent       AgentSpec         `json:"agent"`
-	Env         map[string]string `json:"env,omitempty"` // resolved secrets for the agent process
+	Env         map[string]string `json:"env,omitempty"`    // resolved secrets for the agent process
+	Target      *TargetConn       `json:"target,omitempty"` // remote runs: the target the driver drives
 	SecretFiles []SecretFile      `json:"secret_files,omitempty"`
 }
 
@@ -287,3 +288,59 @@ type TermOpenReply struct {
 
 // TermEndHeader marks the final (empty) message of a terminal's output on the PTY stream.
 const TermEndHeader = "Wrangl-Term-End"
+
+// Connection is a remote template's connection block: how the driver reaches the target.
+type Connection struct {
+	DriverTemplate string `json:"driver_template" yaml:"driver_template"` // runner template that hosts the driver sessions
+	Protocol       string `json:"protocol,omitempty" yaml:"protocol"`     // ssh (default) | adb
+	User           string `json:"user,omitempty" yaml:"user"`
+	Port           int    `json:"port,omitempty" yaml:"port"`     // default 22 (ssh) or 5555 (adb)
+	Via            string `json:"via,omitempty" yaml:"via"`       // ssm (default: SSM port-forward) | direct (host:port inside the VPC)
+	Secret         string `json:"secret,omitempty" yaml:"secret"` // controller secret holding the SSH private key
+	Reset          string `json:"reset,omitempty" yaml:"reset"`   // command run on the target when a session ends
+}
+
+// Validate checks and defaults a connection block.
+func (c *Connection) Validate() error {
+	if c.DriverTemplate == "" {
+		return fmt.Errorf("connection.driver_template is required: the runner template that hosts the agent")
+	}
+	switch c.Protocol {
+	case "":
+		c.Protocol = "ssh"
+	case "ssh", "adb":
+	default:
+		return fmt.Errorf("connection.protocol %q: want ssh or adb", c.Protocol)
+	}
+	switch c.Via {
+	case "":
+		c.Via = "ssm"
+	case "ssm", "direct":
+	default:
+		return fmt.Errorf("connection.via %q: want ssm or direct", c.Via)
+	}
+	if c.Port == 0 {
+		c.Port = 22
+		if c.Protocol == "adb" {
+			c.Port = 5555
+		}
+	}
+	if c.Protocol == "ssh" && c.Secret == "" {
+		return fmt.Errorf("connection.secret is required for ssh: the controller secret holding the private key")
+	}
+	return nil
+}
+
+// TargetConn is what a driver's daemon needs to reach its run's target. It is daemon-only: the
+// key never reaches the agent process.
+type TargetConn struct {
+	Name       string `json:"name"`
+	Protocol   string `json:"protocol"`
+	User       string `json:"user,omitempty"`
+	Port       int    `json:"port"`
+	Via        string `json:"via"`
+	InstanceID string `json:"instance_id,omitempty"` // for the SSM port-forward
+	Host       string `json:"host,omitempty"`        // via direct
+	Key        string `json:"key,omitempty"`         // private key (ssh)
+	Reset      string `json:"reset,omitempty"`
+}

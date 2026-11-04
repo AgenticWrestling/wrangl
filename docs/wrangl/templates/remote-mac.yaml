@@ -1,0 +1,28 @@
+# EXPERIMENTAL: a remote runner (docs/wrangl/adr/0002). The template describes a TARGET machine that
+# runs NO wrangl binary: an EC2 Mac here. The agent does not run on it. It runs in a session on a
+# DRIVER (any runner of connection.driver_template), with the repo checked out there, and drives the
+# target with the target_exec / target_put tools (ssh underneath). The controller launches the target,
+# probes it, reaps it when idle and fails runs on it as "target lost" if it disappears.
+#
+# Needs: the driver template (e.g. go-claude) installed `aws` + the SSM session plugin and an
+# instance profile allowing ssm:StartSession on instances tagged by this controller; the target with
+# the SSM agent and sshd; the private key stored as a controller secret:
+#   wrangl secret set mac_ssh_key < id_ed25519
+# EC2 Mac needs a dedicated host with a 24 h minimum: keep the project cap at its default of 0 and
+# raise it deliberately (wrangl project edit PROJ --limit mac=1).
+name: mac
+arch: x86_64              # EC2 naming; use the Mac instance family in instance_types
+instance_types: [mac2.metal]
+min: { vcpu: 8, ram: 16GiB, disk: 100GiB }
+max_runners: 1
+max_sessions: 1           # concurrent driver sessions on this one target
+idle_timeout: 30m
+mode: remote
+connection:
+  driver_template: go-claude
+  protocol: ssh           # ssh | adb
+  user: ec2-user
+  via: ssm                # ssm (port-forward, no inbound ports) | direct (host:port inside the VPC)
+  secret: mac_ssh_key     # controller secret holding the private key; never given to the agent
+  # reset: "rm -rf ~/work/*"   # optional: run on the target when a session ends
+agents: [claude]

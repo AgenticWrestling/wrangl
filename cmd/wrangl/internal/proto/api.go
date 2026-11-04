@@ -338,3 +338,16 @@ type PRView struct {
 	Gates    json.RawMessage `json:"gates,omitempty"`
 	Review   string          `json:"review,omitempty"`
 }
+
+// TargetView is a remote target (a machine without a wrangl binary, owned by the controller).
+type TargetView struct {
+	Name        string `json:"name"`
+	Template    string `json:"template"`
+	State       string `json:"state"` // launching | ready | offline | draining | terminated
+	InstanceID  string `json:"instance_id,omitempty"`
+	Sessions    int64  `json:"sessions"` // runs using it now
+	MaxSessions int64  `json:"max_sessions"`
+	IdleSince   string `json:"idle_since,omitempty"`
+	LastError   string `json:"last_error,omitempty"`
+	Project     string `json:"project,omitempty"` // the project whose demand launched it
+}

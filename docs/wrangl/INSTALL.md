@@ -494,6 +494,29 @@ Agent credentials** lists every secret each agent needs with `✓ set` or `! mis
 command to fix it; a missing secret also holds the run with `agent claude needs secret ...`.
 Other agents declare the same `auth:` section (`secret`, `command`, `note`) in their spec.
 
+### 8.2 Remote runners (Mac, Android emulator) (experimental)
+
+A template with `mode: remote` and a `connection:` block describes a **target** machine that runs
+no wrangl binary (see `templates/remote-mac.yaml`, `remote-android.yaml` and
+[ADR 0002](adr/0002-remote-runners.md)). The agent runs on a **driver**, a session of an ordinary
+runner template named in `connection.driver_template`, with the repo checked out there. It drives
+the target with two tools served by the driver's daemon: `target_exec` (a shell command over ssh, or
+`adb shell`) and `target_put` (scp / `adb push` from the checkout). The SSH key is a controller
+secret (`wrangl secret set NAME`), is held only by the daemon (a 0700 temp dir removed when the run
+ends) and never reaches the agent. The target is reached through an SSM port-forward started by the
+driver (`aws ssm start-session`, so the driver needs the AWS CLI + the Session Manager plugin and
+`ssm:StartSession`), or directly with `via: direct`.
+
+A run on a remote template takes a session on the target (`max_sessions`) and a session on a driver
+at the same time. The controller launches a target when queued runs need one, within the project's
+cap for the template (default 0: opt in with `wrangl project edit PROJ --limit mac=1`), probes it
+every loop, marks it `offline` after three failed probes, reaps it after `idle_timeout`, and fails the
+runs on it as `target lost` if it is gone or unreachable for two minutes. `wrangl target list` shows
+targets and their sessions; `wrangl target terminate NAME` stops one now.
+
+Not built yet: the plain `ssh target` escape hatch and signing forwarder, the Runners-page card and
+ssh terminal for targets, and EC2 Instance Connect keys.
+
 ### 8.1 Other agents, interactive sessions and Remote Control (experimental)
 
 `docs/wrangl/templates/` holds example templates. Before picking one, read

@@ -77,6 +77,10 @@ type Service struct {
 	// AllowLoopbackEnroll lets tests launch with a 127.0.0.1 enrol URL. Production
 	// refuses: a runner on another host could never reach it.
 	AllowLoopbackEnroll bool
+	// ProbeTarget overrides the remote-target health probe (tests); nil = EC2 state + direct dial.
+	ProbeTarget func(ctx context.Context, g dbgen.RemoteTarget, conn proto.Connection) error
+	// OnTargetLost fails a run whose remote target is gone (runs.Service.FailRun).
+	OnTargetLost func(ctx context.Context, runID int64, reason string) error
 }
 
 func (s *Service) now() time.Time { return s.Now().UTC() }
@@ -121,6 +125,9 @@ func (s *Service) CreateTemplate(ctx context.Context, yamlBody []byte) (dbgen.Ru
 // syncAgents applies a template file's allow-list ("agents:"), or wraps an embedded agent block
 // as an agent definition and allows it.
 func (s *Service) syncAgents(ctx context.Context, t dbgen.RunnerTemplate, yamlBody []byte) error {
+	if err := s.syncMode(ctx, t, yamlBody); err != nil {
+		return err
+	}
 	if names := TemplateAgents(yamlBody); len(names) > 0 {
 		if err := agentdef.SetTemplateAgents(ctx, s.DB.Q, t.ID, names); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -541,6 +548,9 @@ func (s *Service) Loop(ctx context.Context, interval time.Duration) {
 		}
 		if err := s.SweepOffline(ctx); err != nil {
 			s.Log.Error("offline sweep", "err", err)
+		}
+		if err := s.ReconcileTargets(ctx); err != nil {
+			s.Log.Error("remote targets", "err", err)
 		}
 		if _, err := s.Reap(ctx); err != nil {
 			s.Log.Error("reaper", "err", err)

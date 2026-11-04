@@ -409,3 +409,17 @@ func (c *Client) Secrets(ctx context.Context) ([]string, error) {
 func (c *Client) SetSecret(ctx context.Context, name, value string) error {
 	return c.do(ctx, http.MethodPut, "/api/v1/secrets/"+esc(name), strings.NewReader(value), "text/plain", nil)
 }
+
+// --- remote targets ---
+
+func (c *Client) Targets(ctx context.Context, all bool) ([]proto.TargetView, error) {
+	var out []proto.TargetView
+	q := ""
+	if all {
+		q = "?all=1"
+	}
+	return out, c.json(ctx, http.MethodGet, "/api/v1/targets"+q, nil, &out)
+}
+func (c *Client) TerminateTarget(ctx context.Context, name string) error {
+	return c.json(ctx, http.MethodDelete, "/api/v1/targets/"+esc(name), nil, nil)
+}

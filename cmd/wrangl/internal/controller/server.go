@@ -48,6 +48,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/mcp"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stacktools"
@@ -85,6 +86,8 @@ type Server struct {
 	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
 	SchedulerInterval   time.Duration // scale-up cadence (default 10s)
 	AllowLoopbackEnroll bool
+	// ProbeTarget replaces the remote-target health probe (tests); nil = EC2 state check.
+	ProbeTarget func(ctx context.Context, g dbgen.RemoteTarget, conn proto.Connection) error
 
 	mu         sync.Mutex
 	httpAddr   string
@@ -243,6 +246,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		Prov: prov, ControllerID: controllerID, EnrollURL: "http://" + enrollLn.Addr().String(),
 		SubnetID: subnet, SecurityGroupID: s.cfg.AWS.SecurityGroupID, InstanceProfile: s.cfg.AWS.RunnerInstanceProfile,
 		BinDir: filepath.Join(s.cfg.DataDir, "bin"), Now: now, Log: s.log, AllowLoopbackEnroll: s.AllowLoopbackEnroll,
+		ProbeTarget: s.ProbeTarget,
 	}
 
 	ghAPI, err := s.github(ctx)
@@ -404,6 +408,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if s.Agents != nil {
 		s.Agents.Launch = sched.LaunchFor
 	}
+	s.Fleet.OnTargetLost = s.Runs.FailRun
 	reconcile := s.ReconcileInterval
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute

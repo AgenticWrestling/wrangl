@@ -135,7 +135,9 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
        CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
              JOIN project p ON p.id = k.project_id
              WHERE r.state = 'queued'
-               AND COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
+               AND (COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id
+                    OR COALESCE(r.template_id, k.template_id, p.default_template_id) IN
+                       (SELECT c.template_id FROM template_connection c WHERE c.mode = 'remote' AND c.driver_template_id = t.id))) AS INTEGER) AS demand,
        CAST((SELECT COALESCE(SUM(MAX(t.max_sessions - (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
                           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0)
              FROM runner n

@@ -445,3 +445,45 @@ func (s *Service) askOwner(ctx context.Context, t dbgen.Task, runID int64, op, y
 		s.Log.Error("raise question", "run", runID, "op", op, "err", err)
 	}
 }
+
+// FailRun fails an active run for a reason that is not the agent's fault (e.g. its remote target
+// vanished): the run is finished as failed, its driver slot is released, the driver is told to stop
+// the session, and the task is handled as for any lost run (re-queued when appropriate).
+func (s *Service) FailRun(ctx context.Context, runID int64, reason string) error {
+	run, err := s.DB.RQ.GetRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if proto.Terminal(run.State) {
+		return nil
+	}
+	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+		if err := q.FinishRun(ctx, dbgen.FinishRunParams{State: "failed", Now: nstr(s.ts()), Error: reason, StatusText: reason, ID: runID}); err != nil {
+			return err
+		}
+		if run.CurrentTaskID.Valid {
+			if err := q.RevertInProgress(ctx, run.CurrentTaskID.Int64); err != nil {
+				return err
+			}
+		}
+		if run.RunnerID.Valid {
+			return q.ReleaseRunner(ctx, dbgen.ReleaseRunnerParams{Now: nstr(s.ts()), ID: run.RunnerID.Int64})
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if run.RunnerID.Valid && s.NC != nil { // best effort: stop the session on the driver
+		b, _ := json.Marshal(proto.RunRef{RunID: runID})
+		rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		s.NC.RequestWithContext(rctx, natsd.RunnerCmdSubject(run.RunnerID.Int64, "cancel"), b)
+	}
+	if run.CurrentTaskID.Valid {
+		s.recomputeTask(ctx, run.CurrentTaskID.Int64)
+	}
+	s.Log.Warn("run failed", "run", runID, "reason", reason)
+	s.afterLost(ctx, runID)
+	return nil
+}

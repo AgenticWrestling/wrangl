@@ -74,7 +74,15 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 	now := s.Now()
 	launched := map[string]int{}
 	var errs []error
+	remoteIDs, _ := s.Fleet.DB.RQ.ListRemoteTemplateIDs(ctx)
+	remote := map[int64]bool{}
+	for _, id := range remoteIDs {
+		remote[id] = true
+	}
 	for _, t := range rows {
+		if remote[t.ID] {
+			continue // remote templates launch targets, below
+		}
 		need := t.Demand - t.Supply // sessions still without a slot
 		perHost := max(t.MaxSessions, 1)
 		hosts := (need + perHost - 1) / perHost // each new runner brings max_sessions slots
@@ -113,7 +121,7 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 			continue
 		}
 		failedLaunch := false
-		for _, a := range PlanLaunches(t.Demand-t.Supply, perHost, n, projectDemands(pdem, t.ID, t.MaxRunners)) {
+		for _, a := range PlanLaunches(t.Demand-t.Supply, perHost, n, append(projectDemands(pdem, t.ID, t.MaxRunners), s.driverDemands(ctx, pdem, t.ID, t.MaxRunners)...)) {
 			for i := int64(0); i < a.Hosts && !failedLaunch; i++ {
 				r, err := s.Fleet.Launch(ctx, t.Name)
 				if err != nil {
@@ -134,7 +142,80 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 			}
 		}
 	}
+	if err := s.tickRemote(ctx, pdem, launched); err != nil {
+		errs = append(errs, err)
+	}
 	return launched, errors.Join(errs...)
+}
+
+// driverDemands is the demand that remote runs put on a driver template: a run on a remote template
+// needs a driver session, but only as many as its project's cap lets it have targets for (a project
+// capped at 0 Macs does not get idle drivers). The driver's own ceiling is the template's max_runners.
+func (s *Scheduler) driverDemands(ctx context.Context, pdem []dbgen.ProjectTemplateDemandRow, driver, driverMax int64) []ProjectDemand {
+	rows, err := s.Fleet.DB.RQ.TargetDemand(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []ProjectDemand
+	for _, rt := range rows {
+		if _, _, d, err := s.Fleet.Connection(ctx, rt.TemplateID); err != nil || d != driver {
+			continue
+		}
+		for _, p := range pdem {
+			if p.TemplateID != rt.TemplateID {
+				continue
+			}
+			c := EffectiveCap(p.Stored, p.IsDefault == 1, rt.MaxRunners)
+			if d := min(p.Demand, c*rt.MaxSessions); d > 0 {
+				out = append(out, ProjectDemand{Project: p.ProjectID, Demand: d, Cap: driverMax})
+			}
+		}
+	}
+	return out
+}
+
+// tickRemote launches target machines for remote templates whose queued runs have no free target
+// session, within each project's cap and the template's max_runners. Their drivers are counted as
+// demand on the driver template by TemplateDemand.
+func (s *Scheduler) tickRemote(ctx context.Context, pdem []dbgen.ProjectTemplateDemandRow, launched map[string]int) error {
+	rows, err := s.Fleet.DB.RQ.TargetDemand(ctx)
+	if err != nil {
+		return err
+	}
+	now := s.Now()
+	var errs []error
+	for _, t := range rows {
+		need := t.Demand - t.Supply
+		if need <= 0 || t.Live >= t.MaxRunners {
+			continue
+		}
+		if b := s.backoff[t.TemplateID]; b != nil && now.Before(b.until) {
+			continue
+		}
+		var projs []ProjectDemand
+		for _, p := range projectDemands(pdem, t.TemplateID, t.MaxRunners) {
+			live, _ := s.Fleet.DB.RQ.CountProjectTargets(ctx, p.Project, t.TemplateID)
+			p.Live = live
+			projs = append(projs, p)
+		}
+		for _, a := range PlanLaunches(need, t.MaxSessions, t.MaxRunners-t.Live, projs) {
+			for i := int64(0); i < a.Hosts; i++ {
+				if _, err := s.Fleet.LaunchTarget(ctx, t.Name, a.Project); err != nil {
+					next := MinBackoff
+					if b := s.backoff[t.TemplateID]; b != nil {
+						next = min(b.next*2, MaxBackoff)
+					}
+					s.backoff[t.TemplateID] = &backoff{until: now.Add(next), next: next}
+					s.Log.Error("remote target launch failed; backing off", "template", t.Name, "retry_in", next, "err", err)
+					errs = append(errs, err)
+					break
+				}
+				delete(s.backoff, t.TemplateID)
+				launched[t.Name]++
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // ProjectDemand is one project's queued demand on a template, with its cap.

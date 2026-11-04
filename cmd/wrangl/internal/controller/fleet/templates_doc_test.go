@@ -24,6 +24,9 @@ func TestDocTemplatesParse(t *testing.T) {
 			t.Errorf("%s: %v", filepath.Base(f), err)
 			continue
 		}
+		if len(TemplateAgents(b)) > 0 { // names agents defined elsewhere (wrangl agent create)
+			continue
+		}
 		spec, err := proto.ParseAgentSpec(p.AgentJson)
 		if err != nil || len(spec.Start) == 0 {
 			t.Errorf("%s: agent block: %v %+v", filepath.Base(f), err, spec)

@@ -52,6 +52,8 @@ type Worker struct {
 	// repoLocks serialises git operations that touch a repo's shared object store (fetch,
 	// worktree add/remove): one lock per mirror path.
 	repoLocks sync.Map // mirror path -> *sync.Mutex
+	// Targets reaches remote targets for remote runs (nil = real ssh/adb over SSM; tests use FakeTarget).
+	Targets TargetBackend
 }
 
 // runState is one run in progress on this runner.
@@ -236,9 +238,10 @@ type session struct {
 	// prompt, and when there is none the daemon ends the session.
 	interactive bool
 	onStop      func(ctx context.Context) (string, bool)
-	secretPaths []string // secret files to remove when the run ends
-	mirror      string   // the shared bare clone this run's worktree belongs to
-	cleanup     bool     // remove the worktree when the run ends (set once its work is safely pushed)
+	secretPaths []string   // secret files to remove when the run ends
+	mirror      string     // the shared bare clone this run's worktree belongs to
+	target      *runTarget // remote runs: the connection to the target
+	cleanup     bool       // remove the worktree when the run ends (set once its work is safely pushed)
 	// agentSession is the agent's own session id, for agents that cannot be given one up
 	// front (Codex, agy, Gemini): read from its JSON output, else from a hook payload.
 	agentSession      string
@@ -314,6 +317,9 @@ func (s *session) line(stream, msg string) {
 		}
 	}
 	s.mu.Unlock()
+	if s.w.JS == nil { // unit tests without a bus
+		return
+	}
 	b, _ := json.Marshal(l)
 	if _, err := s.w.JS.PublishAsync(natsd.RunLogSubject(s.w.Cfg.RunnerID, s.a.RunID), b); err != nil {
 		s.w.Log.Warn("log publish", "err", err)
@@ -391,6 +397,21 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	if err != nil {
 		fail(err)
 		return
+	}
+	if a.Target != nil {
+		rt, err := w.openTarget(ctx, s)
+		if err != nil {
+			fail(err)
+			return
+		}
+		w.mu.Lock()
+		s.target = rt
+		w.mu.Unlock()
+		defer func() {
+			rt.reset(context.WithoutCancel(ctx))
+			rt.close()
+		}()
+		s.logf("runner", "remote target %s ready (%s)", a.Target.Name, a.Target.Protocol)
 	}
 	s.state(pubCtx, proto.RunState{State: "running", BaseSHA: base})
 
