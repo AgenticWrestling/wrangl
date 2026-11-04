@@ -49,6 +49,9 @@ type Service struct {
 	Now         func() time.Time
 	Log         *slog.Logger
 	Bus         *events.Bus
+	// QueueResolve queues a Smart Merge (resolve) run for a conflicted PR; it must be idempotent
+	// (one resolve run per PR at a time). Nil until the resolve run exists.
+	QueueResolve func(ctx context.Context, pr dbgen.PullRequest) error
 
 	mu       sync.Mutex
 	reviewed map[int64]string // pr id -> head sha a review run was queued for
@@ -346,7 +349,20 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	if t, err := s.DB.RQ.GetTask(ctx, pr.TaskID); err == nil {
 		ownerGate = t.TaskType.OwnerGate()
 	}
-	if proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && (!auditing || audit.OK()) && s.autoMergeable(ctx, pr) {
+	wouldAutoMerge := proj.AutoMerge == 1 && !ownerGate && g.OK && pr.Risk.String == "low" && pr.ReviewedSha == pr.HeadSha && (!auditing || audit.OK()) && s.autoMergeable(ctx, pr)
+	if wouldAutoMerge && pr.Mergeable == gh.MergeConflicted {
+		// Never attempt a conflicted PR. With auto-resolve on, queue Smart Merge (the re-evaluation
+		// after its push brings the PR back here); otherwise the owner gets an Inbox item.
+		if ar, _ := s.DB.RQ.GetProjectAutoResolve(ctx, proj.ID); ar == 1 && s.QueueResolve != nil {
+			if err := s.QueueResolve(ctx, pr); err == nil {
+				return nil
+			} else {
+				s.Log.Warn("auto-resolve", "pr", pr.Url, "err", err)
+			}
+		}
+		return s.askOwner(ctx, pr, g, auditing, audit, audited)
+	}
+	if wouldAutoMerge {
 		return s.merge(ctx, pr, "auto_merged", "Auto-merged by wrangl: gates passed and the review rated it low risk.")
 	}
 	return s.askOwner(ctx, pr, g, auditing, audit, audited)
@@ -511,6 +527,9 @@ func (s *Service) askOwner(ctx context.Context, pr dbgen.PullRequest, g Gates, a
 	fmt.Fprintf(&d, "%s\n\n**Risk:** %s  \n**CI:** %s  \n**Changed lines:** %d (auto-merge limit %d)\n", pr.Url, risk, g.Checks, g.Lines, g.MaxLines)
 	if len(g.Protected) > 0 {
 		fmt.Fprintf(&d, "**Protected paths:** %s\n", strings.Join(g.Protected, ", "))
+	}
+	if pr.Mergeable == gh.MergeConflicted {
+		d.WriteString("**Merge conflicts:** this PR conflicts with its base branch and cannot be merged until they are resolved.\n")
 	}
 	if pr.ReviewSummaryMd != "" {
 		fmt.Fprintf(&d, "\n### Review\n\n%s\n", pr.ReviewSummaryMd)

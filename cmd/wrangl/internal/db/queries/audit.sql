@@ -9,3 +9,9 @@ SELECT audit_sha, audit_json FROM pull_request WHERE id = ?;
 
 -- name: SetPRAudit :exec
 UPDATE pull_request SET audit_sha = ?, audit_json = ? WHERE id = ?;
+
+-- name: GetProjectAutoResolve :one
+SELECT auto_resolve FROM project WHERE id = ?;
+
+-- name: SetProjectAutoResolve :exec
+UPDATE project SET auto_resolve = ? WHERE id = ?;

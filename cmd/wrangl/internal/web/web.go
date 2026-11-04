@@ -951,6 +951,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["Limits"], _ = h.D.Projects.Limits(ctx, p.Slug)
 		d["GitHub"] = h.D.Projects.GH != nil
 		d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
+		d["AutoResolve"] = false
+		if v, _ := db.RQ.GetProjectAutoResolve(ctx, p.ID); v == 1 {
+			d["AutoResolve"] = true
+		}
 		d["Template"] = ""
 		if p.DefaultTemplateID.Valid {
 			if t, err := db.RQ.GetTemplate(ctx, p.DefaultTemplateID.Int64); err == nil {
@@ -1488,8 +1492,8 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	case "project-save":
 		slug := q.Get("slug")
 		name, goals, tmpl := str("pname"), str("pgoals"), str("ptemplate")
-		am, aq := flag("pautomerge"), flag("pautoqueue")
-		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq})
+		am, aq, ar := flag("pautomerge"), flag("pautoqueue"), flag("pautoresolve")
+		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq, AutoResolve: &ar})
 		msg = "saved " + slug
 	case "project-limit":
 		var n int64

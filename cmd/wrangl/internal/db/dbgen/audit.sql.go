@@ -25,3 +25,14 @@ func (q *Queries) SetPRAudit(ctx context.Context, sha, js string, id int64) erro
 	_, err := q.db.ExecContext(ctx, `UPDATE pull_request SET audit_sha = ?, audit_json = ? WHERE id = ?`, sha, js, id)
 	return err
 }
+
+func (q *Queries) GetProjectAutoResolve(ctx context.Context, id int64) (int64, error) {
+	var v int64
+	err := q.db.QueryRowContext(ctx, `SELECT auto_resolve FROM project WHERE id = ?`, id).Scan(&v)
+	return v, err
+}
+
+func (q *Queries) SetProjectAutoResolve(ctx context.Context, on int64, id int64) error {
+	_, err := q.db.ExecContext(ctx, `UPDATE project SET auto_resolve = ? WHERE id = ?`, on, id)
+	return err
+}

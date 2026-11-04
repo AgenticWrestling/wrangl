@@ -43,13 +43,14 @@
 {{end}}
 
 {{define "post-project"}}{{$p := .P}}
-<dialog id="sheet-edit-project" class="sheet" data-signals:pname="{{json $p.Name}}" data-signals:pgoals="{{json $p.Description}}" data-signals:ptemplate="{{json .Template}}" data-signals:pautomerge="{{json (gt $p.AutoMerge 0)}}" data-signals:pautoqueue="{{json (gt $p.AutoQueue 0)}}">
+<dialog id="sheet-edit-project" class="sheet" data-signals:pname="{{json $p.Name}}" data-signals:pgoals="{{json $p.Description}}" data-signals:ptemplate="{{json .Template}}" data-signals:pautomerge="{{json (gt $p.AutoMerge 0)}}" data-signals:pautoqueue="{{json (gt $p.AutoQueue 0)}}" data-signals:pautoresolve="{{json .AutoResolve}}">
   <h2>Edit {{$p.Slug}}</h2>
   <label>Name<input data-bind="pname" autocomplete="off"></label>
   <label>Goals &amp; definition of done (markdown)<textarea data-bind="pgoals" rows="12" placeholder="## Goal&#10;What this project is for.&#10;&#10;## Done when&#10;- [ ] ..."></textarea></label>
   <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
   <label class="check"><input type="checkbox" data-bind="pautomerge"> Auto-merge low-risk PRs</label>
   <label class="check"><input type="checkbox" data-bind="pautoqueue"> Auto-queue new tasks</label>
+  <label class="check"><input type="checkbox" data-bind="pautoresolve"> Auto-resolve merge conflicts (Smart Merge) on PRs that would auto-merge</label>
   <div class="actions">
     <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
     <button class="btn primary" data-on:click="@post('/ui/act/project-save?slug={{$p.Slug}}')" data-close>Save</button>

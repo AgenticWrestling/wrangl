@@ -5,10 +5,14 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 )
 
@@ -102,5 +106,71 @@ func TestReconcileRefreshesMergeable(t *testing.T) {
 	s.Reconcile(context.Background())
 	if a, b := mergeableOf(t, s, 1), mergeableOf(t, s, 2); a != "clean" || b != "conflicted" {
 		t.Fatalf("PR1 %q PR2 %q", a, b)
+	}
+}
+
+// autoMergeFixture: PR 1 is reviewed low-risk with every gate green on a project with auto-merge on.
+func autoMergeFixture(t *testing.T, autoResolve bool) (*Service, *gh.Fake, *[]int64) {
+	t.Helper()
+	s, f := mergeableFixture(t)
+	f.SetDefaultChecks(gh.ChecksSuccess)
+	s.Runs = &runs.Service{DB: s.DB, Log: s.Log, Bus: &events.Bus{}, Now: time.Now}
+	s.Now = time.Now
+	s.DB.W.Exec(`UPDATE project SET auto_merge = 1, auto_resolve = ? WHERE id = 1`, autoResolve)
+	if err := s.DB.Q.SetPRReview(context.Background(), dbgen.SetPRReviewParams{Risk: nstr("low"), Summary: "ok", ReviewedSha: "", ID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	var queued []int64
+	s.QueueResolve = func(_ context.Context, pr dbgen.PullRequest) error { queued = append(queued, pr.ID); return nil }
+	return s, f, &queued
+}
+
+func TestAutoMergeMergesACleanPR(t *testing.T) {
+	s, _, queued := autoMergeFixture(t, true)
+	if err := s.Evaluate(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	pr, _ := s.DB.RQ.GetPR(context.Background(), 1)
+	if pr.State != "merged" || len(*queued) != 0 {
+		t.Fatalf("state %q, resolve queued %v", pr.State, *queued)
+	}
+}
+
+func TestAutoMergeSkipsConflictedPRAndQueuesResolve(t *testing.T) {
+	s, f, queued := autoMergeFixture(t, true)
+	f.SetMergeable(1, gh.MergeConflicted)
+	for i := 0; i < 2; i++ {
+		if err := s.Evaluate(context.Background(), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pr, _ := s.DB.RQ.GetPR(context.Background(), 1)
+	if pr.State != "open" {
+		t.Fatalf("a conflicted PR was merged: %q", pr.State)
+	}
+	if len(*queued) == 0 || (*queued)[0] != 1 {
+		t.Fatalf("resolve not queued: %v", *queued)
+	}
+	var n int
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM question WHERE kind='pr_review'`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("auto-resolve on must not raise an Inbox item, got %d", n)
+	}
+}
+
+func TestAutoMergeConflictedWithoutAutoResolveRaisesInboxItem(t *testing.T) {
+	s, f, queued := autoMergeFixture(t, false)
+	f.SetMergeable(1, gh.MergeConflicted)
+	for i := 0; i < 2; i++ { // twice: still one item
+		if err := s.Evaluate(context.Background(), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pr, _ := s.DB.RQ.GetPR(context.Background(), 1)
+	var n int
+	var detail string
+	s.DB.R.QueryRow(`SELECT COUNT(*), COALESCE(MAX(detail_md),'') FROM question WHERE kind='pr_review'`).Scan(&n, &detail)
+	if pr.State != "open" || len(*queued) != 0 || n != 1 || !strings.Contains(detail, "Merge conflicts") {
+		t.Fatalf("state %q queued %v items %d detail %q", pr.State, *queued, n, detail)
 	}
 }
