@@ -262,6 +262,11 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	if live.State == "closed" {
 		return s.markClosed(ctx, pr)
 	}
+	if p, perr := s.projectFor(ctx, pr); perr == nil && p.ArchivedAt.Valid {
+		// Archived projects are inert: no reviews, auto-merge or owner questions. The PR row stays
+		// open and is evaluated again (Reconcile) once the project is restored.
+		return nil
+	}
 	if live.HeadSHA != "" && live.HeadSHA != pr.HeadSha {
 		s.DB.Q.SetPRHeadSHA(ctx, dbgen.SetPRHeadSHAParams{HeadSha: live.HeadSHA, ID: pr.ID})
 		pr.HeadSha = live.HeadSHA

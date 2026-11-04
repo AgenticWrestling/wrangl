@@ -303,3 +303,25 @@ func TestRecordCheckpoint(t *testing.T) {
 		t.Fatalf("a run may only checkpoint tasks in its own subtree: %v", err)
 	}
 }
+
+func TestCreateInArchivedProjectRejected(t *testing.T) {
+	s, d := setup(t)
+	ctx := context.Background()
+	parent := mk(t, s, "", "parent", stack.Position{})
+	if _, _, err := d.ArchiveProject(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []stack.CreateParams{
+		{Project: "p", Title: "new", Actor: stack.User},
+		{Project: "p", Parent: parent.Sqid.String, Title: "child", Actor: stack.Actor("run:1")},
+	} {
+		_, err := s.Create(ctx, c)
+		if !errors.Is(err, errs.Conflict) || !strings.Contains(err.Error(), "archived") {
+			t.Fatalf("create %+v: %v", c, err)
+		}
+	}
+	if _, err := d.Q.RestoreProject(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	mk(t, s, "", "after restore", stack.Position{})
+}

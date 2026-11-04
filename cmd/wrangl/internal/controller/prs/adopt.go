@@ -92,6 +92,10 @@ func (s *Service) adopt(ctx context.Context, repo dbgen.Repo, p gh.OpenPR, sqid 
 	if t.ProjectID != repo.ProjectID {
 		return 0, false, nil
 	}
+	if p, perr := s.DB.RQ.GetProject(ctx, t.ProjectID); perr == nil && p.ArchivedAt.Valid {
+		// Inert while archived; nothing is recorded, so the next AdoptAll after a restore adopts it.
+		return 0, false, nil
+	}
 	// The run that did the work: the newest on the task or on an ancestor that owns it.
 	var runID, rootID int64
 	err = s.DB.R.QueryRowContext(ctx, `
