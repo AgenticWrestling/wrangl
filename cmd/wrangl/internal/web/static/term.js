@@ -17,7 +17,7 @@
 
   // --- engine adapter ---------------------------------------------------------------------
   // Everything wterm-specific lives here. To swap in xterm.js, return the same handle:
-  //   write(bytes) resize(cols, rows) fit() size() focus() setFont(px) lockHeight(bool) setPaused(bool) dispose()
+  //   appCursor() write(bytes) resize(cols, rows) fit() size() focus() setFont(px) lockHeight(bool) setPaused(bool) dispose()
   // and call o.onData(string) for typed input, o.onBytes(Uint8Array) for raw (mouse) bytes and
   // o.onResize(cols, rows) after the grid changes.
   const Engine = {
@@ -35,6 +35,8 @@
         fit: () => t.fit(),
         size: () => ({ cols: t.cols, rows: t.rows }),
         focus: () => t.focus(),
+        // DECCKM: the app wants ESC O A rather than ESC [ A for unmodified arrows/Home/End.
+        appCursor: () => !!(t.bridge && t.bridge.cursorKeysApp && t.bridge.cursorKeysApp()),
         setFont(px) {
           rowPx = Math.round(px * 1.2);
           el.style.setProperty('--term-font-size', px + 'px');
@@ -387,7 +389,8 @@
 
   const csi = (final, num) => {
     const m = 1 + (mods.alt ? 2 : 0) + (mods.ctrl ? 4 : 0);
-    const out = m > 1 ? '\x1b[' + (num || 1) + ';' + m + final : '\x1b[' + (num || '') + final;
+    const t = tabs.get(active);
+    const out = window.wtermKeys.csi(final, num, m, !!(t && t.h && t.h.appCursor && t.h.appCursor()));
     clearMods();
     return out;
   };
