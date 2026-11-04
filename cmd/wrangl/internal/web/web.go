@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -752,6 +753,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			if cur, cerr := db.RQ.GetProjectBySlug(ctx, slug); cerr == nil {
 				pid = cur.ID
 			}
+			if h.D.Agents != nil {
+				d["Chat"], d["ChatChip"], d["ChatAgents"] = h.chatView(ctx, slug)
+				d["ChatOpen"] = r.URL.Query().Get("chat") == "1"
+			}
 			d["Needs"] = h.inboxItems(ctx, qs, prs, h.changeLinks(ctx, pid))
 			if p, err := h.D.Projects.Project(ctx, slug); err == nil {
 				d["P"], d["About"] = p, firstLine(p.Description)
@@ -1143,6 +1148,54 @@ type threadMsg struct {
 	Props                   []agents.Proposal
 }
 
+// chatMsg is one message of a project chat, rendered for the panel.
+type chatMsg struct {
+	ID                      int64
+	Role, Status, Agent, At string
+	Body                    template.HTML
+	Props                   []agents.Proposal
+}
+
+var codeSqidRE = regexp.MustCompile(`<code>([0-9A-Za-z]{3,16})</code>`)
+
+// chatView loads the project's chat (task ids in agent replies become links to their rows), the
+// context chip and whether any controller agent can answer.
+func (h *Handler) chatView(ctx context.Context, slug string) ([]chatMsg, agents.ProjectContext, bool) {
+	msgs, chip, err := h.D.Agents.ProjectThread(ctx, slug)
+	if err != nil {
+		return nil, chip, false
+	}
+	can := false
+	if ags, _ := h.D.Agents.DB.RQ.ListControllerAgents(ctx); len(ags) > 0 {
+		for _, a := range ags {
+			can = can || a.Enabled == 1
+		}
+	}
+	var out []chatMsg
+	for _, m := range msgs {
+		cm := chatMsg{ID: m.ID, Role: m.Role, Status: m.Status, Agent: m.Agent, At: m.At, Props: m.Proposals}
+		if m.Role == "agent" {
+			known := map[string]bool{}
+			for _, t := range m.Tasks {
+				known[t.Sqid] = true
+			}
+			html := string(markdown(m.Body))
+			html = codeSqidRE.ReplaceAllStringFunc(html, func(s string) string {
+				sq := codeSqidRE.FindStringSubmatch(s)[1]
+				if !known[sq] {
+					return s
+				}
+				return `<a class="tlink" href="/task/` + sq + `" data-goto="` + sq + `">` + s + `</a>`
+			})
+			cm.Body = template.HTML(html)
+		} else {
+			cm.Body = template.HTML("<p>" + strings.ReplaceAll(template.HTMLEscapeString(m.Body), "\n", "<br>") + "</p>")
+		}
+		out = append(out, cm)
+	}
+	return out, chip, can
+}
+
 // threadView loads a task's thread and the agents that can be asked.
 func (h *Handler) threadView(ctx context.Context, taskID int64) ([]threadMsg, []dbgen.ControllerAgent) {
 	db := h.D.Agents.DB
@@ -1429,6 +1482,19 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		if _, err = h.D.Agents.Ask(ctx, sqid, str("askagent"), question); err == nil {
 			msg = "asked; the answer will appear on the task"
 			reset = map[string]any{field: ""}
+		}
+	case "project-ask":
+		if h.D.Agents == nil {
+			err = errs.Invalid
+			break
+		}
+		if _, err = h.D.Agents.AskProject(ctx, q.Get("slug"), "", str("chatq")); err == nil {
+			reset = map[string]any{"chatq": ""}
+		}
+	case "project-proposal-apply":
+		n, _ := strconv.Atoi(q.Get("n"))
+		if err = h.D.Agents.ApplyProject(ctx, id, n); err == nil {
+			msg = "done"
 		}
 	case "proposal-apply":
 		n, _ := strconv.Atoi(q.Get("n"))

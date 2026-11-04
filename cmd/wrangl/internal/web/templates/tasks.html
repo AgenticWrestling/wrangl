@@ -28,9 +28,11 @@
   {{if not $.Archived}}<button class="btn small danger" data-confirm="Archive {{.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{.Slug}}')">Archive</button>{{end}}
 </div>{{end}}
 {{template "needsyou" .Needs}}
+{{template "projchat" .}}
 <div class="bar">
   <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
   <span class="grow"></span>
+  <button class="btn" data-on:click="$chat = !$chat" aria-controls="projchat" title="Talk to a controller agent about this project">Comment</button>
   <button class="btn primary" data-key="n" onclick="openSheet('sheet-new')">＋ New task</button>
 </div>{{end}}
 {{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
@@ -79,7 +81,7 @@
   </div>
   <div class="actions wrap">
     <a class="btn primary small" href="/projects/{{$p.Slug}}">Open</a>
-    <a class="btn small" href="/projects/{{$p.Slug}}" title="Project chat is coming; opens the project for now">Comment</a>
+    <a class="btn small" href="/projects/{{$p.Slug}}?chat=1" title="Talk to a controller agent about this project">Comment</a>
     <a class="btn small" href="/projects/{{$p.Slug}}/settings">Edit</a>
     <button class="btn small danger" data-confirm="Archive {{$p.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{$p.Slug}}')">Archive</button>
   </div>
@@ -163,3 +165,25 @@
 {{define "rollchips"}}{{if .RollFail}}<span class="chip-roll k-failed" title="{{.RollFail}} failed below">✕ {{.RollFail}}</span>{{end}}{{if .RollQ}}<span class="chip-roll k-questions" title="{{.RollQ}} blocked on questions below">? {{.RollQ}}</span>{{end}}{{if .RollRev}}<span class="chip-roll k-review" title="{{.RollRev}} in review below">◐ {{.RollRev}}</span>{{end}}{{end}}
 
 {{define "bannertext"}}Awaiting you: {{if eq .Kind "failed"}}this task failed{{else if eq .Kind "questions"}}this task has open questions{{else if eq .Kind "review"}}this task is in review{{end}}{{if or .RollFail .RollQ .RollRev}}{{if or (eq .Kind "failed") (eq .Kind "questions") (eq .Kind "review")}}; {{end}}beneath it:{{if .RollFail}} {{.RollFail}} failed{{end}}{{if .RollQ}} {{.RollQ}} with questions{{end}}{{if .RollRev}} {{.RollRev}} in review{{end}}{{end}}{{end}}
+
+{{define "projchat"}}{{if .Project}}<div id="chatroot" data-signals:chat__ifmissing="{{if .ChatOpen}}true{{else}}false{{end}}" data-signals:chatq__ifmissing="''" data-class:open="$chat">
+  <button class="chatfab" data-on:click="$chat = true" aria-label="Comment on {{.Project}}" title="Comment">{{faicon "comment"}}</button>
+  <aside id="projchat" class="projchat thread" role="complementary" aria-label="Project chat">
+    <header class="chathead"><b>Comment on {{.Project}}</b>
+      <span class="chip chatchip" title="What the agent reads: this project's tasks, runs, pull requests and repos">{{.ChatChip.Tasks}} tasks · {{.ChatChip.Runs}} runs · {{.ChatChip.PRs}} PRs · {{.ChatChip.Repos}} repos{{if .ChatChip.Trimmed}} · trimmed{{end}}</span>
+      <span class="grow"></span><button class="btn small" data-on:click="$chat = false" aria-label="Close chat">✕</button></header>
+    <div class="chatlog">
+      {{if not .Chat}}<p class="dim small">Ask about this project, or type <code>/queue &lt;task&gt;</code> or <code>/dequeue &lt;task&gt;</code>. The agent can propose changes; nothing happens until you approve them.</p>{{end}}
+      {{range .Chat}}<div class="msg {{.Role}}{{if eq .Status "error"}} err{{end}}">
+        <div class="who">{{if eq .Role "user"}}You{{else}}{{if .Agent}}{{.Agent}}{{else}}wrangl{{end}}{{end}} <span class="dim">{{ago .At}}</span></div>
+        {{if eq .Status "running"}}<p class="dim">thinking…</p>{{else}}<div class="prose">{{.Body}}</div>{{end}}
+        {{if .Props}}<div class="props">{{$mid := .ID}}{{range $i, $p := .Props}}
+          <button class="btn small prop {{$p.State}}" {{if eq $p.State "done"}}disabled{{end}} title="{{$p.Description}}{{if $p.Result}} · {{$p.Result}}{{end}}" data-on:click="@post('/ui/act/project-proposal-apply?id={{$mid}}&amp;n={{$i}}')">{{if eq $p.State "done"}}✓ {{else if eq $p.State "error"}}! {{end}}{{if eq $p.State ""}}Approve: {{end}}{{$p.Label}}</button>
+          {{if eq $p.State "error"}}<span class="err small">{{$p.Result}}</span>{{end}}{{end}}</div>{{end}}
+      </div>{{end}}
+    </div>
+    <div class="chatin">{{if not .ChatAgents}}<p class="dim small">No controller agent is enabled; register one in Settings to get answers (slash commands still work).</p>{{end}}
+      <textarea data-bind="chatq" rows="2" placeholder="Ask, or /queue or /dequeue a task…" data-on:keydown="(evt.ctrlKey || evt.metaKey) && evt.key == 'Enter' && $chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')"></textarea>
+      <button class="btn small primary" data-on:click="$chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')">Send</button></div>
+  </aside>
+</div>{{end}}{{end}}

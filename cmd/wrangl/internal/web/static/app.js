@@ -690,3 +690,19 @@ window.ghManifest = ghManifest;
   };
   new MutationObserver(apply).observe(document.documentElement, { childList: true, subtree: true });
 })();
+
+// Project chat: keep the newest message in view, and let a task id in a reply jump to its row
+// (closing the full-screen chat on a phone first); a task not on this page opens its own page.
+(function () {
+  function toEnd() { document.querySelectorAll('.projchat .chatlog').forEach((el) => { el.scrollTop = el.scrollHeight; }); }
+  new MutationObserver(toEnd).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a.tlink');
+    if (!a) return;
+    const sq = a.dataset.goto;
+    if (!document.querySelector('li.task[data-sqid="' + sq + '"]')) return; // follow the link to /task/<sqid>
+    e.preventDefault();
+    if (window.matchMedia('(max-width: 899px)').matches) document.querySelector('.projchat .chathead .btn')?.click();
+    setTimeout(() => window.wrFlash && wrFlash(sq), 50);
+  });
+})();
