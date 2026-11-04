@@ -1447,6 +1447,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 			msg = "PR closed"
 		}
 		dropEl = fmt.Sprintf("pr-%d", id) // gone from the Inbox now, not at the next live patch
+	case "pr-resolve":
+		err = h.D.PRs.ResolveConflicts(ctx, id)
+		msg = "Smart Merge queued: an agent will resolve the conflicts"
 	case "run-cancel":
 		err = h.D.Runs.Cancel(ctx, id)
 		msg = "cancelling"
@@ -1548,7 +1551,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		// A missing or uninstalled GitHub App gets a link to the page that fixes it.
 		back := ""
 		switch r.PathValue("action") {
-		case "pr", "answer":
+		case "pr", "pr-resolve", "answer":
 			back = "/inbox"
 		case "task-queue", "task-plan":
 			back = "/tasks"

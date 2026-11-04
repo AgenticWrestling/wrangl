@@ -596,7 +596,7 @@ func (q *Queries) ReposByName(ctx context.Context, arg ReposByNameParams) ([]Rep
 }
 
 const runsForPR = `-- name: RunsForPR :many
-SELECT id FROM run WHERE repo_id = ? AND branch = ? AND kind IN ('work', 'revise')
+SELECT id FROM run WHERE repo_id = ? AND branch = ? AND kind IN ('work', 'revise', 'resolve')
 `
 
 type RunsForPRParams struct {

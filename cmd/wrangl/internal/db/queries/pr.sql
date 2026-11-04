@@ -49,7 +49,7 @@ UPDATE pull_request SET decision = sqlc.narg(decision), updated_at = strftime('%
 
 -- name: RunsForPR :many
 -- Work/revise runs whose commits are on the PR's branch.
-SELECT id FROM run WHERE repo_id = ? AND branch = ? AND kind IN ('work', 'revise');
+SELECT id FROM run WHERE repo_id = ? AND branch = ? AND kind IN ('work', 'revise', 'resolve');
 
 -- name: ActiveRunForPR :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM run

@@ -102,7 +102,7 @@ func Allowed(kind string) map[string]bool {
 		m[t] = true
 	}
 	switch kind {
-	case "work", "revise", "user":
+	case "work", "revise", "resolve", "user":
 		for _, t := range All {
 			if t.Name != "submit_review" && t.Name != "propose_split" && t.Name != "submit_citation_audit" {
 				m[t.Name] = true

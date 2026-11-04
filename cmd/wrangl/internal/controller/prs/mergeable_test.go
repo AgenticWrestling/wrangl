@@ -174,3 +174,75 @@ func TestAutoMergeConflictedWithoutAutoResolveRaisesInboxItem(t *testing.T) {
 		t.Fatalf("state %q queued %v items %d detail %q", pr.State, *queued, n, detail)
 	}
 }
+
+func resolveRuns(t *testing.T, s *Service) (n int, prompt string) {
+	t.Helper()
+	s.DB.R.QueryRow(`SELECT COUNT(*), COALESCE(MAX(prompt_override),'') FROM run WHERE kind = 'resolve'`).Scan(&n, &prompt)
+	return
+}
+
+func TestResolveConflictsQueuesOneRun(t *testing.T) {
+	s, f := mergeableFixture(t)
+	ctx := context.Background()
+	f.SetMergeable(1, gh.MergeConflicted)
+	if err := s.ResolveConflicts(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	n, prompt := resolveRuns(t, s)
+	if n != 1 {
+		t.Fatalf("%d resolve runs", n)
+	}
+	for _, want := range []string{"git merge origin/main", "NEVER force-push", "question tool", "report_status", "check.sh"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	// A second click while the run is active is refused; still one run.
+	if err := s.ResolveConflicts(ctx, 1); err == nil {
+		t.Fatal("a second resolve run was accepted")
+	}
+	if err := s.autoResolve(ctx, mustPR(t, s, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := resolveRuns(t, s); n != 1 {
+		t.Fatalf("%d resolve runs after retries", n)
+	}
+	var logs int
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM log_entry WHERE kind = 'pr'`).Scan(&logs)
+	if logs != 1 {
+		t.Fatalf("%d timeline entries", logs)
+	}
+}
+
+func TestResolveConflictsCleanPRQueuesNothing(t *testing.T) {
+	s, _ := mergeableFixture(t)
+	if err := s.ResolveConflicts(context.Background(), 1); err == nil {
+		t.Fatal("a clean PR was accepted")
+	}
+	if n, _ := resolveRuns(t, s); n != 0 {
+		t.Fatalf("%d resolve runs for a clean PR", n)
+	}
+}
+
+func TestAutoMergeQueuesResolveRunOnce(t *testing.T) {
+	s, f, _ := autoMergeFixture(t, true)
+	s.QueueResolve = nil // the real path
+	f.SetMergeable(1, gh.MergeConflicted)
+	for i := 0; i < 3; i++ {
+		if err := s.Evaluate(context.Background(), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, _ := resolveRuns(t, s); n != 1 {
+		t.Fatalf("%d resolve runs", n)
+	}
+}
+
+func mustPR(t *testing.T, s *Service, id int64) dbgen.PullRequest {
+	t.Helper()
+	pr, err := s.DB.RQ.GetPR(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pr
+}

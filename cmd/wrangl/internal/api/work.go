@@ -692,7 +692,7 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		writeErr(w, fmt.Errorf("%w: PR %d", errs.NotFound, id))
 	})
-	for _, op := range []string{"approve", "request-changes", "close"} {
+	for _, op := range []string{"approve", "request-changes", "resolve", "close"} {
 		mux.HandleFunc("POST /api/v1/prs/{id}/"+op, func(w http.ResponseWriter, r *http.Request) {
 			id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 			if err != nil {
@@ -711,6 +711,8 @@ func registerWork(mux *http.ServeMux, d Deps) {
 				err = d.PRs.Approve(r.Context(), id)
 			case "request-changes":
 				err = d.PRs.RequestChanges(r.Context(), id, req.Message)
+			case "resolve":
+				err = d.PRs.ResolveConflicts(r.Context(), id)
 			case "close":
 				err = d.PRs.Close(r.Context(), id)
 			}
