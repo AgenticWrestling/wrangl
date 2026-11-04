@@ -175,6 +175,14 @@ func (m *Multi) Merge(ctx context.Context, r Repo, number int64, title string) e
 	return c.Merge(ctx, r, number, title)
 }
 
+func (m *Multi) ListOpenPRs(ctx context.Context, r Repo) ([]PR, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return nil, err
+	}
+	return c.ListOpenPRs(ctx, r)
+}
+
 func (m *Multi) ClosePR(ctx context.Context, r Repo, number int64) error {
 	c, err := m.client(r.Owner)
 	if err != nil {

@@ -114,6 +114,11 @@ type PR struct {
 	HeadSHA string
 	State   string // open | closed
 	Merged  bool
+	// Set by ListOpenPRs (and the fake's CreatePR): what adoption needs to match a PR.
+	Title    string
+	Head     string // head branch name
+	HeadRepo string // owner/name of the repository the head lives in ("" unknown)
+	Base     string // base branch name
 }
 
 // PRFile is one changed file.
@@ -141,4 +146,6 @@ type PRAPI interface {
 	Review(ctx context.Context, r Repo, number int64, event, body string) error // APPROVE | REQUEST_CHANGES | COMMENT
 	Merge(ctx context.Context, r Repo, number int64, title string) error        // squash
 	ClosePR(ctx context.Context, r Repo, number int64) error
+	// ListOpenPRs lists the repository's open pull requests (newest first, capped at 300).
+	ListOpenPRs(ctx context.Context, r Repo) ([]PR, error)
 }

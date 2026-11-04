@@ -46,13 +46,48 @@ type ghPR struct {
 	HTMLURL string `json:"html_url"`
 	State   string `json:"state"`
 	Merged  bool   `json:"merged"`
+	Title   string `json:"title"`
 	Head    struct {
-		SHA string `json:"sha"`
+		SHA  string `json:"sha"`
+		Ref  string `json:"ref"`
+		Repo *struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
 	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
 }
 
 func (p ghPR) pr() PR {
-	return PR{Number: p.Number, URL: p.HTMLURL, HeadSHA: p.Head.SHA, State: p.State, Merged: p.Merged}
+	out := PR{Number: p.Number, URL: p.HTMLURL, HeadSHA: p.Head.SHA, State: p.State, Merged: p.Merged,
+		Title: p.Title, Head: p.Head.Ref, Base: p.Base.Ref}
+	if p.Head.Repo != nil {
+		out.HeadRepo = p.Head.Repo.FullName
+	}
+	return out
+}
+
+// ListOpenPRs implements PRAPI.
+func (c *Client) ListOpenPRs(ctx context.Context, r Repo) ([]PR, error) {
+	tok, err := c.tokenFor(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	var all []PR
+	for page := 1; page <= 3; page++ {
+		var out []ghPR
+		if _, err := c.do(ctx, http.MethodGet, fmt.Sprintf("%s/pulls?state=open&per_page=100&page=%d", repoPath(r), page), "token "+tok, nil, &out); err != nil {
+			return nil, err
+		}
+		for _, p := range out {
+			all = append(all, p.pr())
+		}
+		if len(out) < 100 {
+			break
+		}
+	}
+	return all, nil
 }
 
 // CreatePR implements PRAPI.

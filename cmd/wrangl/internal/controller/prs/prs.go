@@ -118,7 +118,14 @@ func (s *Service) onRunFinished(ctx context.Context, runID int64) error {
 	default:
 		return nil
 	}
-	if run.Pushed != 1 || !run.RepoID.Valid {
+	if !run.RepoID.Valid {
+		return nil
+	}
+	// The agent may have opened its own PR with gh: take it over before opening one.
+	if _, err := s.Adopt(ctx, run.RepoID.Int64); err != nil {
+		s.Log.Warn("adopt agent-opened PRs", "run", runID, "err", err)
+	}
+	if run.Pushed != 1 {
 		return nil
 	}
 	repo, ghr, err := s.repo(ctx, run.RepoID.Int64)
@@ -811,7 +818,19 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 	case "pull_request", "pull_request_review":
 		pr, err := s.DB.RQ.PRByNumber(ctx, dbgen.PRByNumberParams{Owner: owner, Name: name, GhNumber: p.PullRequest.Number})
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil // not a wrangl PR
+			// Maybe an agent opened it with gh: adopt it if it belongs to a task.
+			if event == "pull_request" && (p.Action == "opened" || p.Action == "reopened" || p.Action == "ready_for_review") {
+				repos, err := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name})
+				if err != nil {
+					return err
+				}
+				for _, r := range repos {
+					if _, err := s.Adopt(ctx, r.ID); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
 		} else if err != nil {
 			return err
 		}
@@ -842,6 +861,9 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 
 // Reconcile re-evaluates every open PR (missed webhooks, CI finishing, merges on GitHub).
 func (s *Service) Reconcile(ctx context.Context) {
+	if s.Author != nil {
+		s.AdoptAll(ctx)
+	}
 	prs, err := s.DB.RQ.OpenPRs(ctx)
 	if err != nil {
 		s.Log.Error("reconcile PRs", "err", err)

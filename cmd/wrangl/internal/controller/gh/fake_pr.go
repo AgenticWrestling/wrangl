@@ -72,7 +72,8 @@ func (f *Fake) CreatePR(_ context.Context, r Repo, head, base, title, body strin
 		}
 	}
 	f.nextPR++
-	p := &fakePR{PR: PR{Number: f.nextPR, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", r.Owner, r.Name, f.nextPR), State: "open"},
+	p := &fakePR{PR: PR{Number: f.nextPR, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", r.Owner, r.Name, f.nextPR), State: "open",
+		Title: title, Head: head, HeadRepo: r.Owner + "/" + r.Name, Base: base},
 		repo: r.Owner + "/" + r.Name, head: head, base: base}
 	f.prs[p.Number] = p
 	f.refresh(p)
@@ -197,4 +198,34 @@ func (f *Fake) ClosePR(_ context.Context, _ Repo, n int64) error {
 	}
 	p.State = "closed"
 	return nil
+}
+
+// ListOpenPRs implements PRAPI.
+func (f *Fake) ListOpenPRs(_ context.Context, r Repo) ([]PR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []PR
+	for n := f.nextPR; n >= 1; n-- {
+		if p := f.prs[n]; p != nil && p.State == "open" && p.repo == r.Owner+"/"+r.Name {
+			f.refresh(p)
+			out = append(out, p.PR)
+		}
+	}
+	return out, nil
+}
+
+// OpenPR adds an open PR as if someone (an agent, using gh) had opened it. headRepo is the
+// repository the head branch lives in ("" = r itself; another name is a fork).
+func (f *Fake) OpenPR(r Repo, head, base, title, headRepo string) PR {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextPR++
+	if headRepo == "" {
+		headRepo = r.Owner + "/" + r.Name
+	}
+	p := &fakePR{PR: PR{Number: f.nextPR, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", r.Owner, r.Name, f.nextPR), State: "open",
+		Title: title, Head: head, HeadRepo: headRepo, Base: base}, repo: r.Owner + "/" + r.Name, head: head, base: base}
+	f.prs[p.Number] = p
+	f.refresh(p)
+	return p.PR
 }
