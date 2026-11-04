@@ -209,6 +209,109 @@
     refreshState();
   }
 
+
+  // --- links: hold Shift+Cmd (Shift+Ctrl elsewhere) and hover a URL to underline it, click to open.
+  // A URL may wrap over rows: a row that fills the whole grid width continues on the next one.
+  const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
+  const hasHL = !!(window.CSS && CSS.highlights && window.Highlight);
+  const linkMods = (e) => e.shiftKey && (e.metaKey || e.ctrlKey);
+  const rowText = (row) => row.textContent.replace(/ /g, ' ');
+
+  function caretAt(x, y) {
+    if (document.caretPositionFromPoint) { const p = document.caretPositionFromPoint(x, y); return p && { node: p.offsetNode, off: p.offset }; }
+    if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(x, y); return r && { node: r.startContainer, off: r.startOffset }; }
+    return null;
+  }
+  function textNodes(row) {
+    const w = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    const out = [];
+    for (let n = w.nextNode(); n; n = w.nextNode()) out.push(n);
+    return out;
+  }
+  function colOf(row, node, off) {
+    let c = 0;
+    for (const n of textNodes(row)) { if (n === node) return c + off; c += n.data.length; }
+    return node === row ? Math.min(off, rowText(row).length) : -1;
+  }
+  function rangeIn(row, from, to) {
+    const r = document.createRange();
+    let c = 0, a = false;
+    for (const n of textNodes(row)) {
+      const len = n.data.length;
+      if (!a && from < c + len) { r.setStart(n, from - c); a = true; }
+      if (a && to <= c + len) { r.setEnd(n, to - c); return r; }
+      c += len;
+    }
+    return a ? r : null;
+  }
+  // The URL under (x, y) as {url, ranges}, or null.
+  function linkAt(tab, x, y) {
+    const hit = caretAt(x, y);
+    if (!hit || !tab.el.contains(hit.node)) return null;
+    const rows = [...tab.el.querySelectorAll('.term-row')];
+    const row = (hit.node.nodeType === 1 ? hit.node : hit.node.parentElement).closest('.term-row');
+    let i = rows.indexOf(row);
+    if (i < 0) return null;
+    const col = colOf(row, hit.node, hit.off);
+    if (col < 0) return null;
+    const cols = tab.h ? tab.h.size().cols : 80;
+    const full = (r) => rowText(r).length >= cols;
+    let a = i, b = i;
+    while (a > 0 && i - a < 20 && full(rows[a - 1])) a--;
+    while (b < rows.length - 1 && b - i < 20 && full(rows[b])) b++;
+    const parts = rows.slice(a, b + 1).map(rowText);
+    const text = parts.join('');
+    let pos = 0;
+    for (let k = 0; k < i - a; k++) pos += parts[k].length;
+    pos += col;
+    URL_RE.lastIndex = 0;
+    for (let m; (m = URL_RE.exec(text));) {
+      let end = m.index + m[0].length;
+      while (end > m.index && /[.,;:!?)\]}'"]/.test(text[end - 1])) end--;
+      if (pos < m.index || pos >= end) continue;
+      const ranges = [];
+      let base = 0;
+      for (let k = 0; k < parts.length; k++) {
+        const lo = Math.max(m.index, base), hi = Math.min(end, base + parts[k].length);
+        if (lo < hi) { const r = rangeIn(rows[a + k], lo - base, hi - base); if (r) ranges.push(r); }
+        base += parts[k].length;
+      }
+      return { url: text.slice(m.index, end), ranges };
+    }
+    return null;
+  }
+  function clearLink(tab) {
+    if (hasHL) CSS.highlights.delete('wlink');
+    tab.el.classList.remove('linkhover');
+    tab.link = null;
+  }
+  function wireLinks(tab) {
+    let raf = 0;
+    const probe = (e) => {
+      if (!linkMods(e)) { clearLink(tab); return; }
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const l = linkAt(tab, e.clientX, e.clientY);
+        tab.link = l;
+        tab.el.classList.toggle('linkhover', !!l);
+        if (!hasHL) return;
+        if (l && l.ranges.length) CSS.highlights.set('wlink', new Highlight(...l.ranges)); else CSS.highlights.delete('wlink');
+      });
+    };
+    tab.el.addEventListener('mousemove', probe);
+    tab.el.addEventListener('mouseleave', () => clearLink(tab));
+    // capture: keep the terminal from also treating the click as a selection or a mouse report
+    tab.el.addEventListener('click', (e) => {
+      if (!linkMods(e)) return;
+      const l = linkAt(tab, e.clientX, e.clientY) || tab.link;
+      if (!l) return;
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(l.url, '_blank', 'noopener,noreferrer');
+    }, true);
+  }
+  window.addEventListener('keyup', () => { const t = tabs.get(active); if (t) clearLink(t); });
+
   // --- tabs ---------------------------------------------------------------------------------
   function renderTabLabel(tab) {
     tab.btn.textContent = '';
@@ -256,6 +359,7 @@
     const firstShell = [...tabs.values()].find((t) => t !== tab && t.kind === 'shell');
     if (s.kind === 'run' && firstShell) tabsEl.insertBefore(btn, firstShell.btn); else tabsEl.appendChild(btn);
     emptyEl.hidden = true;
+    wireLinks(tab);
 
     Engine.create(el, {
       cols: 80, rows: 24,
@@ -489,6 +593,23 @@
       shellBtn.disabled = false;
     }
   });
+
+
+  // --- shortcuts: Cmd+1..9 pick a tab by position (9 = last), Shift+Cmd+N opens a shell.
+  // Browsers keep some of these for themselves; installed as an app they all reach the page.
+  window.addEventListener('keydown', (e) => {
+    if (!e.metaKey || e.altKey || e.ctrlKey) return;
+    const m = /^Digit([1-9])$/.exec(e.code);
+    if (m && !e.shiftKey) {
+      const btns = [...tabsEl.children];
+      const b = m[1] === '9' ? btns[btns.length - 1] : btns[Number(m[1]) - 1];
+      if (b) { e.preventDefault(); e.stopPropagation(); b.click(); const t = tabs.get(active); if (t && t.h && controlling) t.h.focus(); }
+    } else if (e.code === 'KeyN' && e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      shellBtn.click();
+    }
+  }, true);
 
   // --- viewport: shrink above the on-screen keyboard (iOS does not resize the layout) -------------
   let fitRaf = 0;

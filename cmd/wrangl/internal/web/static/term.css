@@ -82,6 +82,12 @@ body.termpage { padding-left: 0; padding-bottom: 0; }
 .tkeys button[aria-pressed="true"] { background: var(--prog); color: var(--c0); border-color: var(--prog); }
 .tkeys button.danger { color: var(--attn); }
 
+/* a real keyboard needs no extra-keys bar */
+@media (hover: hover) and (pointer: fine) { #termapp.controlling .tkeys { display: none; } }
+
+::highlight(wlink) { color: var(--term-color-6, #56b4e9); text-decoration: underline; }
+.tterm.linkhover, .tterm.linkhover * { cursor: pointer !important; }
+
 @media (max-width: 560px) {
   .tname { display: none; }
   .tbar { gap: 6px; padding: 6px 8px; }
