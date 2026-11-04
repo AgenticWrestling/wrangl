@@ -258,6 +258,12 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 			return
 		}
 		reply(proto.StackReply{OK: true})
+	case "checkpoint":
+		if err := s.Stack.RecordCheckpoint(ctx, req.RunID, req.Sqid, req.Commit); err != nil {
+			fail(err)
+			return
+		}
+		reply(proto.StackReply{OK: true})
 	case "tool":
 		var tr proto.ToolRequest
 		json.Unmarshal(m.Data, &tr)

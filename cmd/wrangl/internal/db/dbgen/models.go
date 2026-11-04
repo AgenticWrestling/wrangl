@@ -309,6 +309,14 @@ type Task struct {
 	TargetDate        sql.NullString   `json:"target_date"`
 }
 
+type TaskCheckpoint struct {
+	ID     int64  `json:"id"`
+	TaskID int64  `json:"task_id"`
+	RunID  int64  `json:"run_id"`
+	Sha    string `json:"sha"`
+	At     string `json:"at"`
+}
+
 type TaskDependency struct {
 	TaskID      int64  `json:"task_id"`
 	DependsOnID int64  `json:"depends_on_id"`

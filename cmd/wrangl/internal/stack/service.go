@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1011,6 +1012,34 @@ func composePrompt(ctx context.Context, q *dbgen.Queries, t dbgen.Task, runID in
 		"(if you have that tool), then end your turn.\n", t.Sqid.String)
 	return b.String(), nil
 }
+
+// RecordCheckpoint remembers the commit a runner had checked out when it checkpointed a task of
+// its run, so the task can link to its changes. sha must look like a git object id.
+func (s *Service) RecordCheckpoint(ctx context.Context, runID int64, sqid, sha string) error {
+	if !validSha.MatchString(sha) {
+		return invalid("not a commit id: %q", sha)
+	}
+	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+		run, err := q.GetRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		t, err := s.Task(ctx, q, sqid)
+		if err != nil {
+			return err
+		}
+		in, err := q.IsAncestorOrSelf(ctx, dbgen.IsAncestorOrSelfParams{NodeID: t.ID, AncestorID: run.TaskID})
+		if err != nil {
+			return err
+		}
+		if in != 1 {
+			return fmt.Errorf("%w: %s is outside run %d's subtree", errs.Forbidden, sqid, runID)
+		}
+		return q.UpsertTaskCheckpoint(ctx, dbgen.UpsertTaskCheckpointParams{TaskID: t.ID, RunID: runID, Sha: sha})
+	})
+}
+
+var validSha = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
 // AgentComplete records that the agent finished a leaf in its run (-> in_review).
 func (s *Service) AgentComplete(ctx context.Context, runID int64, sqid, summary string) error {

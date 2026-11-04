@@ -226,6 +226,17 @@ agent:
 	if want := fmt.Sprintf("[%s] task c\n[%s] task b\ninitial", c, b); logOut != want {
 		t.Fatalf("commits on %s:\n%s\nwant:\n%s", branch, logOut, want)
 	}
+	// Each checkpointed task recorded the commit it ended on (b = branch~1, c = branch), and a
+	// task's compare base is the previous task's checkpoint in the run.
+	for sq, rev := range map[string]string{b: branch + "~1", c: branch} {
+		var got string
+		if err := srv.Fleet.DB.R.QueryRowContext(ctx, `SELECT c.sha FROM task_checkpoint c JOIN task t ON t.id = c.task_id WHERE t.sqid = ? AND c.run_id = ?`, sq, runID).Scan(&got); err != nil {
+			t.Fatalf("no checkpoint recorded for %s: %v", sq, err)
+		}
+		if want := strings.TrimSpace(git(t, dir, "--git-dir", bare, "rev-parse", rev)); got != want {
+			t.Fatalf("checkpoint for %s = %s, want %s", sq, got, want)
+		}
+	}
 	notes := git(t, dir, "--git-dir", bare, "show", branch+":NOTES.md")
 	if !strings.Contains(notes, "You are working on task "+b) || !strings.Contains(notes, "You are working on task "+c) {
 		t.Fatalf("NOTES.md: %q", notes)

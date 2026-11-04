@@ -542,6 +542,9 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
 		d["Kids"] = kids
+		if cp, err := db.RQ.LatestTaskCheckpoint(ctx, t.ID); err == nil {
+			d["Checkpoint"] = checkpointLinks(cp)
+		}
 		// Queue is offered on every live task; if nothing is runnable the refusal says why (e.g.
 		// subtasks still in review).
 		d["CanQueue"] = t.State != "done" && t.State != "cancelled"
@@ -809,6 +812,24 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"
 	}
 	return d, nil
+}
+
+// checkpointView links a task to the commit its run checkpointed it at.
+type checkpointView struct{ Short, Commit, Compare string }
+
+// checkpointLinks builds the GitHub commit and compare URLs. The compare base is the previous
+// task's checkpoint in the same run, or the default branch for the first task.
+func checkpointLinks(cp dbgen.LatestTaskCheckpointRow) checkpointView {
+	repo := "https://github.com/" + cp.Owner + "/" + cp.Repo
+	base := cp.PrevSha
+	if base == "" {
+		base = cp.DefaultBranch
+	}
+	short := cp.Sha
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	return checkpointView{Short: short, Commit: repo + "/commit/" + cp.Sha, Compare: repo + "/compare/" + base + "..." + cp.Sha}
 }
 
 // threadMsg is one message of a task's conversation with a controller agent.

@@ -13,6 +13,7 @@
   <h2>{{$t.Title}}</h2>
   <div class="prose">{{if $t.Prompt}}{{md $t.Prompt}}{{else}}<p class="empty">No prompt.</p>{{end}}</div>
   {{if $t.CompletionSummary}}<h3>Completion summary</h3><div class="prose">{{md $t.CompletionSummary}}</div>{{end}}
+  {{with .Checkpoint}}<p class="changes"><a class="btn small" href="{{.Commit}}" target="_blank" rel="noopener noreferrer" title="the checkpoint commit for this task">{{faicon "edit"}}Changes <code>{{.Short}}</code></a> <a class="btn small" href="{{.Compare}}" target="_blank" rel="noopener noreferrer" title="compare with the previous task's checkpoint (or the base branch)">Compare</a></p>{{end}}
   <div class="actions wrap">
     {{if .CanQueue}}<button class="btn primary" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
     <button class="btn" onclick="openSheet('sheet-edit')">{{faicon "edit"}}Edit</button>
