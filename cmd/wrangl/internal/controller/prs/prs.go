@@ -37,12 +37,12 @@ import (
 // Service is the PR flow.
 type Service struct {
 	DB            *db.DB
-	Author        gh.API // creates PRs
-	Reviewer      gh.API // reviews, approves, merges (nil: owner merges by hand)
+	Author        gh.API // the account's App: creates PRs, and merges them
+	Reviewer      gh.API // optional reviewer App: approves where approving reviews are required (nil: none)
 	Stack         *stack.Service
 	Runs          *runs.Service
 	WebhookSecret []byte
-	// WebhookSecrets, when set, adds the secrets of per-account reviewer Apps.
+	// WebhookSecrets, when set, adds the secrets of the per-account Apps.
 	WebhookSecrets func() [][]byte
 	// HasReviewer reports whether owner has a reviewer App. Nil: a Reviewer, if set, serves every owner.
 	HasReviewer func(owner string) bool
@@ -419,8 +419,11 @@ func (s *Service) RefreshMergeable(ctx context.Context, prID int64) error {
 
 // autoMergeable: the App that opened the PR can merge it, so auto-merge needs no reviewer App.
 func (s *Service) autoMergeable(ctx context.Context, pr dbgen.PullRequest) bool {
+	if s.Author == nil {
+		return false
+	}
 	_, _, err := s.repo(ctx, pr.RepoID)
-	return err == nil && s.Author != nil
+	return err == nil
 }
 
 func (s *Service) projectFor(ctx context.Context, pr dbgen.PullRequest) (dbgen.Project, error) {
@@ -779,7 +782,7 @@ func (s *Service) secrets() [][]byte {
 	return out
 }
 
-// Webhook handles POST /gh/webhook (reviewer App): HMAC-verified, deduplicated.
+// Webhook handles POST /gh/webhook: HMAC-verified, deduplicated.
 func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
 	secrets := s.secrets()
 	if len(secrets) == 0 {
