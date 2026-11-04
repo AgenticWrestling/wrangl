@@ -33,6 +33,44 @@ new MutationObserver(() => {
   toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
 }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
 
+// --- keep <details> and modal <dialog>s open across live patches ---------------------------
+// A live patch morphs #main from server HTML, which has no `open` attribute for anything the
+// user opened, so it would snap closed. Remember what the user chose and put it back before the
+// browser paints. Details are remembered by a stable key; dialogs by id.
+const detailOpen = new Map();
+const openDialogs = new Set();
+function detailKey(d) {
+  const sum = d.querySelector(':scope > summary');
+  const txt = sum ? sum.textContent.trim() : '';
+  const scope = (d.parentElement && d.parentElement.closest('[id]')) || document.body;
+  const same = Array.from(scope.querySelectorAll('details')).filter((x) => {
+    const s = x.querySelector(':scope > summary');
+    return (s ? s.textContent.trim() : '') === txt;
+  });
+  return (d.id || (scope.id || location.pathname) + '|' + txt + '#' + same.indexOf(d));
+}
+// The click handler runs before the summary's own toggle, so the new state is the inverse.
+document.addEventListener('click', (e) => {
+  const s = e.target.closest && e.target.closest('summary');
+  const d = s && s.parentElement;
+  if (!d || d.tagName !== 'DETAILS' || d.classList.contains('pmore')) return;
+  detailOpen.set(detailKey(d), !d.open);
+}, true);
+const showModalOrig = HTMLDialogElement.prototype.showModal;
+HTMLDialogElement.prototype.showModal = function () { if (this.id) openDialogs.add(this.id); return showModalOrig.call(this); };
+document.addEventListener('close', (e) => {
+  const d = e.target;
+  if (d && d.tagName === 'DIALOG' && !d.open) openDialogs.delete(d.id); // a user close; a morph's is undone below
+}, true);
+function restoreOpen() {
+  document.querySelectorAll('details').forEach((d) => {
+    if (d.classList.contains('pmore')) return;
+    const want = detailOpen.get(detailKey(d));
+    if (want !== undefined && d.open !== want) d.open = want;
+  });
+  openDialogs.forEach((id) => { const d = document.getElementById(id); if (d && d.isConnected && !d.open) showModalOrig.call(d); });
+}
+
 // --- drag and drop -----------------------------------------------------------------------
 
 let dragging = false;
@@ -503,6 +541,7 @@ function boot() {
       clearTimeout(t); t = setTimeout(() => { initSortables(); initQueueSort(); markFs(); }, 50);
       if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
     }).observe(main, { childList: true, subtree: true });
+    new MutationObserver(restoreOpen).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ['open'] });
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
 }
