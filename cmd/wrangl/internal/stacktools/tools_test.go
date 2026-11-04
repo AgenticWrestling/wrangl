@@ -28,7 +28,7 @@ func TestIssueReadToolsForEveryKindAndOnlyReads(t *testing.T) {
 	}
 }
 
-var writes = []string{"issue_comment", "issue_create", "issue_edit", "issue_close"}
+var writes = []string{"issue_comment", "issue_create", "issue_edit", "issue_close", "issue_link_task"}
 
 func contains(l []string, s string) bool {
 	for _, v := range l {
@@ -53,7 +53,7 @@ func TestIssueToolDefinitions(t *testing.T) {
 			t.Errorf("%s: invalid schema", tool.Name)
 		}
 	}
-	if seen != 7 {
-		t.Fatalf("want 7 issue tools, got %d", seen)
+	if seen != 8 {
+		t.Fatalf("want 8 issue tools, got %d", seen)
 	}
 }

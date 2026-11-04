@@ -313,3 +313,49 @@ func TestInjectedTextStaysData(t *testing.T) {
 		t.Fatal("injected text caused further action")
 	}
 }
+
+func TestLinkTaskIsExplicitAndIndependentOfState(t *testing.T) {
+	e := wsetup(t)
+	e.runs.ToolHandlers["issue_link_task"] = e.svc.LinkTask
+	linked := func() (v any) {
+		e.d.R.QueryRow(`SELECT issue_id FROM task WHERE sqid = 'TSK1'`).Scan(&v)
+		return
+	}
+	if _, err := e.call(e.web, "issue_link_task", `{"task":"TSK1","ref":"acme/app#1"}`); err != nil {
+		t.Fatal(err)
+	}
+	if linked() == nil {
+		t.Fatal("not linked")
+	}
+	// Closing the issue on GitHub (the owner) leaves the task as it is, and vice versa.
+	var state0 string
+	e.d.R.QueryRow(`SELECT state FROM task WHERE sqid = 'TSK1'`).Scan(&state0)
+	if _, err := e.call(runs.UserScope(), "issue_close", `{"project":"web","ref":"acme/app#1"}`); err != nil {
+		t.Fatal(err)
+	}
+	var state1 string
+	e.d.R.QueryRow(`SELECT state FROM task WHERE sqid = 'TSK1'`).Scan(&state1)
+	if state0 != state1 {
+		t.Fatalf("task state changed with the issue: %s -> %s", state0, state1)
+	}
+	before := len(e.fake.Writes())
+	e.d.W.Exec(`UPDATE task SET state = 'done' WHERE sqid = 'TSK1'`)
+	if len(e.fake.Writes()) != before {
+		t.Fatal("task state change wrote to GitHub")
+	}
+	if len(e.fake.Writes()) != 1 {
+		t.Fatalf("linking wrote to GitHub: %+v", e.fake.Writes())
+	}
+	// Other project's repo, and tasks outside the assignment, are refused.
+	if _, err := e.call(e.web, "issue_link_task", `{"task":"TSK1","ref":"acme/secret#5"}`); !errors.Is(err, errs.NotFound) {
+		t.Fatalf("cross-project: %v", err)
+	}
+	var other int64
+	e.d.W.QueryRow(`INSERT INTO task (sqid, project_id, rank, title) VALUES ('TSK2', ?, 'b', 'sibling') RETURNING id`, e.web.ProjectID).Scan(&other)
+	if _, err := e.call(e.web, "issue_link_task", `{"task":"TSK2","ref":"acme/app#1"}`); !errors.Is(err, errs.Forbidden) {
+		t.Fatalf("outside assignment: %v", err)
+	}
+	if _, err := e.call(e.web, "issue_link_task", `{"task":"TSK1","unlink":true}`); err != nil || linked() != nil {
+		t.Fatalf("unlink: %v %v", err, linked())
+	}
+}

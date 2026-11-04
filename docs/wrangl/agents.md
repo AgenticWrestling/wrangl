@@ -80,6 +80,10 @@ Writes (work and revise runs only; they need `issues: write` on the Apps, see IN
 | `issue_edit` | `ref` or `repo` + `number`, `title?`, `body?`, `labels?` (`{add, remove}`) | the updated issue |
 | `issue_close` | `ref` or `repo` + `number`, `reason?`, `state_reason?` | `pending_approval` and a `question_id`; the issue is closed only if the owner approves |
 
+`issue_link_task` (`task`, `ref`, `unlink?`) sets or clears the explicit task-to-issue link (a task in your assignment, an issue of the task's project). It writes nothing to GitHub; task state and issue state never follow each other.
+
+**Sync.** GitHub is the source of truth and the table is a cache. Every write stores GitHub's answer (with its `updated_at`); the `issues` webhook applies an event only if its `updated_at` is newer, so the echo of our own write, duplicates and reordered deliveries change nothing. `deleted` and `transferred` events drop the row (linked tasks stay, unlinked). `wrangl issue drift <project> [--repair]` compares every synced issue with GitHub and lists `missing_local`, `stale`, `differs` and `missing_remote` ones (a missed webhook shows up there); `--repair` re-syncs them.
+
 There is no tool to delete an issue (GitHub's REST API cannot, and the GraphQL way needs admin rights the App does not have).
 
 - Searches and reads come from the synced `issue` table (full-text search, stemmed). A row older than

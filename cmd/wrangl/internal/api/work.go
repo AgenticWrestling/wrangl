@@ -170,6 +170,14 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusOK, map[string]int{"synced": n})
 	})
+	mux.HandleFunc("GET /api/v1/projects/{slug}/issues/drift", func(w http.ResponseWriter, r *http.Request) {
+		out, err := d.Projects.IssueDrift(r.Context(), r.PathValue("slug"), r.URL.Query().Get("repair") == "1")
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("GET /api/v1/issues", func(w http.ResponseWriter, r *http.Request) {
 		var pid int64
 		if slug := r.URL.Query().Get("project"); slug != "" {

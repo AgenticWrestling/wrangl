@@ -318,6 +318,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Runs.ToolHandlers["issue_create"] = issueTools.Create
 	s.Runs.ToolHandlers["issue_edit"] = issueTools.Edit
 	s.Runs.ToolHandlers["issue_close"] = issueTools.Close
+	s.Runs.ToolHandlers["issue_link_task"] = issueTools.LinkTask
 	s.Runs.ApprovalHandlers["issue_close"] = issueTools.CloseApproved
 	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
 	s.Runs.ToolHandlers["issue_get"] = issueTools.Get

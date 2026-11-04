@@ -69,3 +69,68 @@ func TestProjectsReposIssues(t *testing.T) {
 		t.Fatalf("no github: %v", err)
 	}
 }
+
+func TestIssueDriftFindsMissedWebhooksAndRepairs(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	fake := gh.NewFake()
+	repo := gh.Repo{Owner: "acme", Name: "app", DefaultBranch: "main", CloneURL: "file:///tmp/app.git"}
+	fake.AddRepo(repo,
+		gh.Issue{Number: 1, Title: "one", State: "open", UpdatedAt: "2026-11-04T10:00:00Z", Labels: []string{"b", "a"}},
+		gh.Issue{Number: 2, Title: "two", State: "open", UpdatedAt: "2026-11-04T10:00:00Z"},
+		gh.Issue{Number: 3, Title: "three", State: "open", UpdatedAt: "2026-11-04T10:00:00Z"})
+	sq, _ := stack.NewSqids(stack.DefaultSqidsAlphabet)
+	s := &Service{DB: d, GH: fake, Stack: &stack.Service{DB: d, Sqids: sq}, Now: time.Now}
+	if _, err := s.Create(ctx, "web", ProjectParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LinkRepo(ctx, "web", "acme/app", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SyncIssues(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if ds, err := s.IssueDrift(ctx, "web", false); err != nil || len(ds) != 0 {
+		t.Fatalf("in sync, label order ignored: %+v %v", ds, err)
+	}
+	// While webhooks were missed: 2 was edited, 3 was removed, 4 was created, and 1 was closed through the API.
+	title := "two (edited)"
+	if _, err := fake.EditIssue(ctx, repo, 2, gh.IssueEdit{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.CreateIssue(ctx, repo, "four", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.CloseIssue(ctx, repo, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	fake.AddRepo(repo, fake.MustIssues(repo, 1, 2, 4)...) // #3 was deleted on GitHub
+	ds, err := s.IssueDrift(ctx, "web", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	for _, x := range ds {
+		kinds[x.Ref] = x.Kind
+	}
+	want := map[string]string{"acme/app#1": "stale", "acme/app#2": "stale", "acme/app#3": "missing_remote", "acme/app#4": "missing_local"}
+	for k, v := range want {
+		if kinds[k] != v {
+			t.Errorf("%s: got %q want %q (all: %+v)", k, kinds[k], v, ds)
+		}
+	}
+	// Reporting does not change anything.
+	if ds2, _ := s.IssueDrift(ctx, "web", false); len(ds2) != len(ds) {
+		t.Fatal("a check must not repair")
+	}
+	if _, err := s.IssueDrift(ctx, "web", true); err != nil {
+		t.Fatal(err)
+	}
+	if ds, err := s.IssueDrift(ctx, "web", false); err != nil || len(ds) != 0 {
+		t.Fatalf("after repair: %+v %v", ds, err)
+	}
+}

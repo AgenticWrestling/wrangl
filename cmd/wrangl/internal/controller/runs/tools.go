@@ -82,6 +82,11 @@ func (s *Service) writable(ctx context.Context, sc Scope, sqid string) (dbgen.Ta
 	return t, nil
 }
 
+// Writable is writable for other services: the task, if it is inside the caller's subtree.
+func (s *Service) Writable(ctx context.Context, sc Scope, sqid string) (dbgen.Task, error) {
+	return s.writable(ctx, sc, sqid)
+}
+
 type posArg struct {
 	First  bool   `json:"first"`
 	After  string `json:"after"`
@@ -444,7 +449,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
 
 	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments",
-		"issue_comment", "issue_create", "issue_edit", "issue_close":
+		"issue_comment", "issue_create", "issue_edit", "issue_close", "issue_link_task":
 		h := s.ToolHandlers[tool]
 		if h == nil {
 			return nil, fmt.Errorf("%s is not available on this controller", tool)

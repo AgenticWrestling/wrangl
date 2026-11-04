@@ -223,3 +223,18 @@ func (f *Fake) CloseIssue(_ context.Context, r Repo, n int64, _ string) (Issue, 
 	f.writes = append(f.writes, FakeWrite{Op: "close", Repo: r.Owner + "/" + r.Name, Number: n})
 	return *i, nil
 }
+
+// MustIssues returns the fake's issues of r with the given numbers (test helper).
+func (f *Fake) MustIssues(r Repo, numbers ...int64) []Issue {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Issue
+	for _, i := range f.issues[r.Owner+"/"+r.Name] {
+		for _, n := range numbers {
+			if i.Number == n {
+				out = append(out, i)
+			}
+		}
+	}
+	return out
+}

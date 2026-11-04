@@ -2,6 +2,7 @@ package issuetools
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -374,4 +375,52 @@ func (s *Service) CloseApproved(ctx context.Context, payload json.RawMessage) er
 	}
 	_, err = s.doClose(ctx, sc, t, *r, p.Number, p.StateReason)
 	return err
+}
+
+// LinkTask implements issue_link_task: set (or clear) task.issue_id. It changes nothing on GitHub
+// and never touches task or issue state. The task must be inside the caller's assignment and the
+// issue's repo must be linked to the task's project.
+func (s *Service) LinkTask(ctx context.Context, sc runs.Scope, raw json.RawMessage) (any, error) {
+	var a struct {
+		writeArgs
+		Task   string `json:"task"`
+		Unlink bool   `json:"unlink"`
+	}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return nil, fmt.Errorf("%w: arguments: %v", errs.Invalid, err)
+		}
+	}
+	if s.Runs == nil {
+		return nil, fmt.Errorf("%w: task links are not available", errs.Invalid)
+	}
+	if strings.TrimSpace(a.Task) == "" {
+		return nil, fmt.Errorf("%w: task is required", errs.Invalid)
+	}
+	task, err := s.Runs.Writable(ctx, sc, a.Task)
+	if err != nil {
+		return nil, err
+	}
+	if a.Unlink {
+		return map[string]any{"ok": true, "task": a.Task, "issue": nil},
+			s.DB.Q.SetTaskIssue(ctx, dbgen.SetTaskIssueParams{ID: task.ID})
+	}
+	// The issue is resolved in the task's own project, so a link can never cross projects.
+	t, err := s.scope(ctx, runs.Scope{ProjectID: task.ProjectID}, a.base())
+	if err != nil {
+		return nil, err
+	}
+	r, n, err := t.repoAndNumber(a.base())
+	if err != nil {
+		return nil, err
+	}
+	row, _, err := s.issue(ctx, t, *r, n, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.DB.Q.SetTaskIssue(ctx, dbgen.SetTaskIssueParams{ID: task.ID, IssueID: sql.NullInt64{Int64: row.ID, Valid: true}}); err != nil {
+		return nil, err
+	}
+	s.audit(sc, "issue_link_task", ref(row), row.URL)
+	return map[string]any{"ok": true, "task": a.Task, "issue": ref(row), "url": row.URL}, nil
 }
