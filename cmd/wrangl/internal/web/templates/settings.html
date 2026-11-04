@@ -32,7 +32,7 @@
   {{range .CAgents}}<div class="row"><b>{{.Name}}</b>{{if eq .IsDefault 1}} <span class="pill">default</span>{{end}}{{if eq .Enabled 0}} <span class="pill">disabled</span>{{end}} <span class="dim">{{.Command}}{{if .Model}} · {{.Model}}{{end}} · {{if eq .Auth "secret"}}secret {{.AuthSecret}} → {{.AuthEnv}}{{else}}installed CLI login{{end}} · {{.MaxTurns}} turns · {{.TimeoutS}}s</span><span class="grow"></span>
     <button class="btn small" data-on:click="$agname={{json .Name}}; $agcmd={{json .Command}}; $agmodel={{json .Model}}; $agauth={{json .Auth}}; $agsecret={{json .AuthSecret}}; $agenv={{json .AuthEnv}}; $agturns='{{.MaxTurns}}'; $agtimeout='{{.TimeoutS}}'; $agdefault={{if eq .IsDefault 1}}true{{else}}false{{end}}">Edit</button>
     <button class="btn small danger" data-confirm="Remove agent {{.Name}}?" data-confirm-yes="Remove" data-on:click="@post('/ui/act/agent-delete?name={{.Name}}')">Remove</button></div>{{end}}
-  <details><summary>Add or edit an agent</summary>
+  <details data-preserve-attr="open"><summary>Add or edit an agent</summary>
     <label>Name<input data-bind="agname" autocomplete="off" autocapitalize="off"></label>
     <label>Command<input data-bind="agcmd" autocomplete="off" autocapitalize="off"></label>
     <label>Model <span class="dim">(blank = the CLI's default)</span><input data-bind="agmodel" autocomplete="off" autocapitalize="off"></label>

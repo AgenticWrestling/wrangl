@@ -87,7 +87,7 @@
   </div>
 </td></tr>
 </tbody>{{end}}</table></div>{{end}}
-{{if .ArchivedProjects}}<details class="card archived"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
+{{if .ArchivedProjects}}<details data-preserve-attr="open" class="card archived"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
   {{range .ArchivedProjects}}<div class="row"><a href="/projects/{{.Slug}}"><b>{{.Slug}}</b></a> <span class="dim">{{.Name}}</span><span class="grow"></span><button class="btn small" data-on:click="@post('/ui/act/project-restore?slug={{.Slug}}')">Restore</button></div>{{end}}</details>{{end}}
 {{end}}
 {{define "cnt"}}{{if .}}{{.}}{{else}}<span class="dim">0</span>{{end}}{{end}}
@@ -111,7 +111,7 @@
   {{if and .CurrentTitle (not .Flat)}}<div class="now small dim">working on <a href="/task/{{.Current}}">{{.CurrentTitle}}</a></div>{{end}}
   {{if and $n.Awaits $n.Kids}}<div class="banner" role="note">{{template "bannertext" $n}}</div>{{end}}
   <div class="detail" id="d-{{$n.Sqid}}">{{$n.Detail}}</div>
-  {{if and $n.Kids (not .Flat)}}<details class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
+  {{if and $n.Kids (not .Flat)}}<details data-preserve-attr="open" class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
     <ul class="tasks" data-parent="{{$n.Sqid}}">{{template "tasklist" $n.Kids}}</ul></details>{{end}}
 </li>{{end}}
 
@@ -138,7 +138,7 @@
 </li>{{end}}{{end}}
 
 {{define "post-tasks"}}{{template "sheet-project" .}}{{if .Project}}
-<dialog id="sheet-new" class="sheet" data-signals:ttype="'code'" data-signals:ttarget="''">
+<dialog data-preserve-attr="open" id="sheet-new" class="sheet" data-signals:ttype="'code'" data-signals:ttarget="''">
   <h2>New task in {{.Project}}</h2>
   <label>Title<input data-bind="title" placeholder="What needs doing?" autocomplete="off"></label>
   {{template "typepick" .Types}}

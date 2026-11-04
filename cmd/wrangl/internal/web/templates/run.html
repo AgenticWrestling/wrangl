@@ -44,7 +44,7 @@
   {{if .Logs}}<pre class="log">{{range .Logs}}<span class="lv-{{.Level}}"><span class="dim">{{.Stream}}</span> {{.Message}}</span>
 {{end}}</pre>{{else}}<p class="empty">No log lines{{if .Q}} match{{end}}.</p>{{end}}
 </section>
-{{if .Hooks}}<details class="card"><summary>Hook events ({{len .Hooks}})</summary>
+{{if .Hooks}}<details data-preserve-attr="open" class="card"><summary>Hook events ({{len .Hooks}})</summary>
   {{range .Hooks}}<div class="row small"><span class="dim">{{ago .Ts}}</span> <b>{{.Name}}</b></div>{{end}}
 </details>{{end}}
 {{end}}
@@ -55,7 +55,7 @@
 {{if .Truncated}}<p class="hint">Diff truncated.</p>{{end}}
 {{if and (not .Files) (not .Err)}}<p class="empty">No changes.</p>{{end}}
 {{if .Files}}<section class="card"><h3>{{len .Files}} files</h3>{{range $i, $f := .Files}}<a class="row link small" href="#f{{$i}}">{{$f.Name}} <span class="grow"></span><span class="add">+{{$f.Add}}</span> <span class="del">−{{$f.Del}}</span></a>{{end}}</section>{{end}}
-{{range $i, $f := .Files}}<details class="card diff" id="f{{$i}}" open>
+{{range $i, $f := .Files}}<details data-preserve-attr="open" class="card diff" id="f{{$i}}" open>
   <summary><code>{{$f.Name}}</code> <span class="add">+{{$f.Add}}</span> <span class="del">−{{$f.Del}}</span></summary>
   <pre>{{range $f.Lines}}<span class="d-{{.Kind}}">{{.Text}}</span>
 {{end}}</pre>

@@ -57,7 +57,7 @@
 {{end}}
 
 {{define "post-runners"}}{{if .Spend}}
-<dialog id="sheet-adopt" class="sheet" data-signals:adopttpl="''">
+<dialog data-preserve-attr="open" id="sheet-adopt" class="sheet" data-signals:adopttpl="''">
   <h2>Adopt <span id="adopt-name"></span></h2>
   <p class="hint">Turns this running instance into a runner. wrangl creates a one-time token; you run one command on the instance.</p>
   <label>Runner template
@@ -97,7 +97,7 @@
   <a class="row link" href="/run/{{.ID}}">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</a>
   {{if $.Progress}}<ul class="progress">{{range $.Progress}}<li class="st-{{.State}}" style="padding-left: {{.Depth}}em"><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .ID $.Run.CurrentTaskID.Int64}} <span class="pill">current</span>{{end}}</li>{{end}}</ul>{{end}}
 </section>{{end}}
-{{if $r.TemplateLog}}<details class="card"><summary>Template apply log</summary><pre class="log">{{$r.TemplateLog}}</pre></details>{{end}}
+{{if $r.TemplateLog}}<details data-preserve-attr="open" class="card"><summary>Template apply log</summary><pre class="log">{{$r.TemplateLog}}</pre></details>{{end}}
 {{if .Recent}}<section class="card"><h3>Recent runs</h3>{{template "runrows" .Recent}}</section>{{end}}
 {{end}}
 

@@ -49,7 +49,7 @@
             <button class="btn small" type="submit" data-confirm="Create a new App for {{.Login}}? It replaces this one here; the old one stays on GitHub until you delete it." data-confirm-yes="Re-authorize" title="Replace the stored App with a freshly created one">Re-authorize…</button></form>{{end}}
           <button class="btn small danger" data-confirm="Unlink {{.Login}}? Its repositories stop working until you add it again." data-confirm-yes="Unlink" data-on:click="@post('/ui/act/account-remove?login={{.Login}}')">Remove</button>
         </div>
-        <details class="adv"><summary>Advanced: reviewer App</summary>
+        <details data-preserve-attr="open" class="adv"><summary>Advanced: reviewer App</summary>
           <p class="hint">Only needed if a repository <em>requires approving reviews</em> before merging (an App cannot approve its own pull request). Otherwise leave it: the App above merges for you. Alternatively add that App to the repository ruleset's bypass list.</p>
           {{if .Reviewer}}<p class="small"><span class="dim">Reviewer App</span> <a href="{{.Reviewer.HTMLURL}}" target="_blank" rel="noopener">{{.Reviewer.Slug}}</a> <code class="sqid">{{.Reviewer.ID}}</code> · <a href="{{.Reviewer.InstallURL}}" target="_blank" rel="noopener">install</a></p>
           {{else if .RManifestErr}}<p class="err">{{.RManifestErr}}</p>

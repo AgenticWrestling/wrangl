@@ -43,7 +43,7 @@
 {{end}}
 
 {{define "post-project"}}{{$p := .P}}
-<dialog id="sheet-edit-project" class="sheet" data-signals:pname="{{json $p.Name}}" data-signals:pgoals="{{json $p.Description}}" data-signals:ptemplate="{{json .Template}}" data-signals:pautomerge="{{json (gt $p.AutoMerge 0)}}" data-signals:pautoqueue="{{json (gt $p.AutoQueue 0)}}" data-signals:pautoresolve="{{json .AutoResolve}}">
+<dialog data-preserve-attr="open" id="sheet-edit-project" class="sheet" data-signals:pname="{{json $p.Name}}" data-signals:pgoals="{{json $p.Description}}" data-signals:ptemplate="{{json .Template}}" data-signals:pautomerge="{{json (gt $p.AutoMerge 0)}}" data-signals:pautoqueue="{{json (gt $p.AutoQueue 0)}}" data-signals:pautoresolve="{{json .AutoResolve}}">
   <h2>Edit {{$p.Slug}}</h2>
   <label>Name<input data-bind="pname" autocomplete="off"></label>
   <label>Goals &amp; definition of done (markdown)<textarea data-bind="pgoals" rows="12" placeholder="## Goal&#10;What this project is for.&#10;&#10;## Done when&#10;- [ ] ..."></textarea></label>
@@ -56,7 +56,7 @@
     <button class="btn primary" data-on:click="@post('/ui/act/project-save?slug={{$p.Slug}}')" data-close>Save</button>
   </div>
 </dialog>
-<dialog id="sheet-repo" class="sheet" data-signals:repoadd="''" data-signals:repoother="''">
+<dialog data-preserve-attr="open" id="sheet-repo" class="sheet" data-signals:repoadd="''" data-signals:repoother="''">
   <h2>Link a repository</h2>
   {{if .Pick}}
   <label>Choose a repository
@@ -66,7 +66,7 @@
   {{range .Pick}}{{if .NoApp}}<p class="hint warn"><b>{{.Login}}</b> has no GitHub App yet. <a href="{{.SetupURL}}">Set it up</a> to link its repositories.</p>
   {{else if .Problem}}<p class="hint warn"><b>{{.Login}}</b>: {{.Problem}}. <a href="{{.InstallURL}}" target="_blank" rel="noopener">Install the App</a>.</p>
   {{else if not .Repos}}<p class="hint"><b>{{.Login}}</b>: no more repositories to offer. <a href="{{.InstallURL}}" target="_blank" rel="noopener">Give the App access to more</a>.</p>{{end}}{{end}}
-  <details><summary class="dim small">A repository that isn't listed</summary>
+  <details data-preserve-attr="open"><summary class="dim small">A repository that isn't listed</summary>
     <label>owner/name<input data-bind="repoother" placeholder="owner/name" autocapitalize="off" autocomplete="off"></label>
     <p class="hint">If it belongs to an account that isn't linked, you'll be taken to set that up.</p></details>
   {{else}}
@@ -80,7 +80,7 @@
 </dialog>
 {{end}}
 
-{{define "sheet-project"}}<dialog id="sheet-project" class="sheet">
+{{define "sheet-project"}}<dialog data-preserve-attr="open" id="sheet-project" class="sheet">
   <h2>New project</h2>
   <label>Slug<input data-bind="slug" autocapitalize="off" autocomplete="off" placeholder="my-app"></label>
   <label>Name (optional)<input data-bind="pname" autocomplete="off"></label>
