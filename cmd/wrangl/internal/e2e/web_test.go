@@ -108,7 +108,9 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/settings", "enablePush", "tiny", "sheet-project", "Appearance", `id="fs-seg"`, `data-fs="1.15"`)
 	get("/static/app.css", "calc(16px * var(--fs, 1))")
 	get("/projects/web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/projects/web/settings", `class="pmore ppill"`, "All projects")
-	get("/projects", "Projects", "＋ New project", `href="/projects/web"`, "sheet-project")
+	get("/projects", "Projects", "＋ New project", `href="/projects/web"`)
+	get("/projects", `class="logs plist"`, `id="proj-web"`, `data-label="Inbox"`, "Runners now", "Recent activity", `href="/projects/web/settings"`,
+		`data-confirm="Archive web?`, "＋ New project", `data-bind="slug"`)
 	get("/", "Projects") // follows the redirect to /projects
 	if page := get("/projects/web", `<span>☰</span>Projects`); strings.Contains(page, "</span>Tasks</a>") {
 		t.Fatal("left panel still says Tasks")
@@ -135,6 +137,12 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/projects/goalproj/settings", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
 	post("/ui/act/project-save?slug=goalproj", `{"pname":"Renamed","pgoals":"new **goals**","ptemplate":"","pautomerge":false,"pautoqueue":true}`)
 	get("/projects/goalproj/settings", "Renamed", "<strong>goals</strong>", "auto-queue")
+	post("/ui/act/project-archive?slug=goalproj", `{}`)
+	if page := get("/projects", "Archived projects", `/ui/act/project-restore?slug=goalproj`); strings.Contains(page, `id="proj-goalproj"`) {
+		t.Fatal("archived project still in the active table")
+	}
+	post("/ui/act/project-restore?slug=goalproj", `{}`)
+	get("/projects", `id="proj-goalproj"`)
 	get("/static/vendor/fonts/red-hat-display-latin.woff2")
 	get("/static/app.css", "Red Hat Display", "min-width: 900px")
 	get("/static/vendor/fonts/ibm-plex-mono-latin.woff2")

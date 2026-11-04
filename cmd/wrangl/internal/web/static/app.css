@@ -489,3 +489,32 @@ section.card.k-running { border-left: 4px solid var(--prog); }
 .ppill .menu a.all { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; color: var(--link); }
 @media (max-width: 899px) { .projbar { display: none; } }
 @media (min-width: 900px) { .ppill { display: none; } }
+
+/* Projects list: a table on desktop, expandable cards on a phone (same markup). */
+table.plist th.num, table.plist td.num { text-align: right; white-space: nowrap; }
+table.plist td.pname .caret { display: inline-block; color: var(--dim); transition: transform .12s; }
+table.plist tbody.open .caret { transform: rotate(90deg); }
+table.plist tr.more { display: none; }
+table.plist tbody.open tr.more { display: table-row; }
+table.plist tr.more > td { background: var(--raised); padding: 8px 14px 14px; }
+table.plist .about { margin: 0 0 8px; }
+table.plist .pcols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin-bottom: 8px; }
+table.plist .pcols h4 { margin: 4px 0; font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+table.plist .pcols p { margin: 2px 0; }
+.newproj label { display: block; margin: 6px 0; }
+.newproj input, .newproj textarea, .newproj select { display: block; width: 100%; }
+details.archived summary { cursor: pointer; }
+@media (max-width: 700px) {
+  .logwrap:has(table.plist) { border: 0; background: none; overflow: visible; }
+  table.plist, table.plist tbody, table.plist tr, table.plist td { display: block; }
+  table.plist thead { display: none; }
+  table.plist tbody.prow { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+  table.plist tr.expandable { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 10px 12px; }
+  table.plist tr.expandable td { border: 0; padding: 0; }
+  table.plist td.pname { flex: 1 0 100%; font-size: 1rem; }
+  table.plist td.num { text-align: left; }
+  table.plist td.num::before { content: attr(data-label) " "; color: var(--dim); font-size: 0.75rem; }
+  table.plist tbody.open tr.more { display: block; }
+  table.plist tr.more > td { padding: 8px 12px 12px; }
+  table.plist .pcols { grid-template-columns: 1fr; }
+}

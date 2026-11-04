@@ -33,13 +33,46 @@
 {{end}}{{end}}
 
 {{define "main-projects"}}
-<div class="bar"><span class="grow"></span><button class="btn primary" onclick="openSheet('sheet-project')">＋ New project</button></div>
-{{if not .Projects}}<p class="empty">No projects yet. Tap ＋ New project to create one.</p>{{end}}
-<section class="card plist">{{range .Projects}}<a class="row link" href="/projects/{{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{end}}</section>
-{{if .ArchivedProjects}}<details class="card"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
-  {{range .ArchivedProjects}}<a class="row link" href="/projects/{{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span></a>{{end}}</details>{{end}}
+<div class="bar"><span class="grow"></span><button class="btn primary" data-signals:newproj__ifmissing="false" data-on:click="$newproj = !$newproj" data-attr:aria-expanded="$newproj">＋ New project</button></div>
+<section class="card newproj" data-show="$newproj" style="display:none">
+  <h3>New project</h3>
+  <label>Slug<input data-bind="slug" autocapitalize="off" autocomplete="off" placeholder="my-app"></label>
+  <label>Name (optional)<input data-bind="pname" autocomplete="off"></label>
+  <label>Goals &amp; definition of done (markdown, optional)<textarea data-bind="pgoals" rows="4" placeholder="What is this for, and what does done look like?"></textarea></label>
+  <label>Repositories (owner/name, one per line)<textarea data-bind="prepos" rows="2" placeholder="you/your-repo" autocapitalize="off"></textarea></label>
+  <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
+  <div class="actions"><button class="btn" data-on:click="$newproj = false">Cancel</button><button class="btn primary" data-on:click="@post('/ui/act/project-new')">Create</button></div>
+</section>
+{{if not .Rows}}<p class="empty">No projects yet. Use ＋ New project to create one.</p>{{else}}
+<div class="logwrap"><table class="logs plist">
+<thead><tr><th>Project</th><th class="num">Runners</th><th class="num">In progress</th><th class="num">Queued</th><th class="num">Backlog</th><th class="num">Inbox</th></tr></thead>
+{{range $i, $p := .Rows}}{{$k := print "pj" $i}}<tbody class="lrow prow" id="proj-{{$p.Slug}}" data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}">
+<tr class="expandable" data-on:click="if (!evt.target.closest('a,button')) {{sig "" $k}} = !{{sig "" $k}}" title="Show details" tabindex="0" data-on:keydown="(evt.key == 'Enter' || evt.key == ' ') && !evt.target.closest('a,button') && (evt.preventDefault(), {{sig "" $k}} = !{{sig "" $k}})">
+<td class="pname"><span class="caret" aria-hidden="true">▸</span> <a href="/projects/{{$p.Slug}}"><b>{{if $p.Name}}{{$p.Name}}{{else}}{{$p.Slug}}{{end}}</b></a> <code class="sqid">{{$p.Slug}}</code></td>
+<td class="num" data-label="Runners">{{template "cnt" $p.Runners}}</td>
+<td class="num" data-label="In progress">{{template "cnt" $p.InProgress}}</td>
+<td class="num" data-label="Queued">{{template "cnt" $p.Queued}}</td>
+<td class="num" data-label="Backlog">{{template "cnt" $p.Backlog}}</td>
+<td class="num inbox" data-label="Inbox">{{if $p.Inbox}}<a class="tag attn" href="/projects/{{$p.Slug}}" title="Needs you">{{$p.Inbox}}</a>{{else}}<span class="dim">0</span>{{end}}</td>
+</tr>
+<tr class="more" data-show="{{sig "" $k}}" style="display:none"><td colspan="6">
+  {{with about $p.Description}}<p class="about"><span class="dim">About</span> {{.}}</p>{{else}}<p class="about dim">No description yet.</p>{{end}}
+  <div class="pcols">
+    <div><h4>Runners now</h4>{{range $p.RunnerList}}<p><a href="/runner/{{.Name}}">{{.Name}}</a> <span class="dim small">{{.Sessions}} session{{if ne .Sessions 1}}s{{end}}</span>{{if .Also}} <span class="tag wait">also serving {{range $j, $o := .Also}}{{if $j}}, {{end}}{{$o}}{{end}}</span>{{end}}</p>{{else}}<p class="dim">None running.</p>{{end}}</div>
+    <div><h4>Recent activity</h4>{{range $p.Recent}}<p><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid}}">{{.Title}}</a> <span class="dim small">{{ago .At}}</span></p>{{else}}<p class="dim">Nothing yet.</p>{{end}}</div>
+  </div>
+  <div class="actions wrap">
+    <a class="btn primary small" href="/projects/{{$p.Slug}}">Open</a>
+    <a class="btn small" href="/projects/{{$p.Slug}}" title="Project chat is coming; opens the project for now">Comment</a>
+    <a class="btn small" href="/projects/{{$p.Slug}}/settings">Edit</a>
+    <button class="btn small danger" data-confirm="Archive {{$p.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{$p.Slug}}')">Archive</button>
+  </div>
+</td></tr>
+</tbody>{{end}}</table></div>{{end}}
+{{if .ArchivedProjects}}<details class="card archived"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
+  {{range .ArchivedProjects}}<div class="row"><a href="/projects/{{.Slug}}"><b>{{.Slug}}</b></a> <span class="dim">{{.Name}}</span><span class="grow"></span><button class="btn small" data-on:click="@post('/ui/act/project-restore?slug={{.Slug}}')">Restore</button></div>{{end}}</details>{{end}}
 {{end}}
-{{define "post-projects"}}{{template "sheet-project" .}}{{end}}
+{{define "cnt"}}{{if .}}{{.}}{{else}}<span class="dim">0</span>{{end}}{{end}}
 
 {{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
   <div class="row">

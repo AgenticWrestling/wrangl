@@ -35,6 +35,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
@@ -80,6 +81,7 @@ func New(d api.Deps) (*Handler, error) {
 		"glyph":  func(s string) string { return glyph[s] },
 		"dict":   func(k, v string) map[string]string { return map[string]string{k: v} },
 		"ago":    ago,
+		"about":  firstLine,
 		"md":     markdown,
 		"pct":    func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 		"spark":  sparkline,
@@ -732,7 +734,12 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 	case "projects": // the project list (counts and expandable rows come later, see ADR 0005)
 		d["Title"] = "Projects"
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		d["Projects"], _ = db.RQ.ListProjects(ctx, "active")
+		active, _ := db.RQ.ListProjects(ctx, "active")
+		rows, err := projectRows(ctx, db, active)
+		if err != nil {
+			return nil, err
+		}
+		d["Projects"], d["Rows"] = active, rows
 		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 	case "task":
 		sqid := reqValue(r, "sqid")
@@ -1523,6 +1530,16 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 			msg = "project created; not linked: " + strings.Join(failed, "; ")
 		}
 		reset = map[string]any{"slug": "", "pname": "", "pgoals": "", "prepos": "", "ptemplate": ""}
+	case "project-archive":
+		_, _, err = h.D.Projects.Archive(ctx, q.Get("slug"))
+		var are *db.ActiveRunsError
+		if errors.As(err, &are) {
+			err = fmt.Errorf("%w: %s", errs.Conflict, are.Error())
+		}
+		msg, nav = "archived "+q.Get("slug"), "/projects"
+	case "project-restore":
+		_, err = h.D.Projects.Restore(ctx, q.Get("slug"))
+		msg, nav = "restored "+q.Get("slug"), "/projects"
 	case "project-save":
 		slug := q.Get("slug")
 		name, goals, tmpl := str("pname"), str("pgoals"), str("ptemplate")
