@@ -380,3 +380,21 @@ type TargetView struct {
 	LastError   string `json:"last_error,omitempty"`
 	Project     string `json:"project,omitempty"` // the project whose demand launched it
 }
+
+// ProjectRunner is a runner with at least one active session for a project (GET /api/v1/projects/{slug}/runners).
+// A runner may serve several projects: AlsoServing names the others, so the UI can tag it as shared.
+type ProjectRunner struct {
+	Name        string           `json:"name"`
+	State       string           `json:"state"`
+	Template    string           `json:"template"`
+	Sessions    []ProjectSession `json:"sessions"`
+	AlsoServing []string         `json:"also_serving,omitempty"`
+}
+
+// ProjectSession is one active run of the project on a runner.
+type ProjectSession struct {
+	Run   int64  `json:"run"`
+	Task  string `json:"task"`
+	Title string `json:"title"`
+	State string `json:"state"`
+}

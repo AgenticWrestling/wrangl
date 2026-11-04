@@ -11,10 +11,24 @@
   </details>{{end}}
   <button class="pbtn add" onclick="openSheet('sheet-project')" aria-label="New project" title="New project">＋</button>
 </div>
-{{if .Project}}<div class="bar">
-  <a class="chip" href="/projects/{{.Project}}{{if not .All}}?all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
+{{if .Project}}{{with .P}}<header class="phead">
+  <h1>{{if .Name}}{{.Name}}{{else}}{{.Slug}}{{end}} <code class="sqid">{{.Slug}}</code>{{if $.Archived}} <span class="tag wait">archived</span>{{end}}</h1>
+  {{with $.About}}<p class="about">{{.}}</p>{{end}}
+</header>
+<div class="pstrip" role="toolbar" aria-label="Project">
+  {{range $.Repos}}{{with .Repo}}<span class="chip" title="Linked repository">{{.Owner}}/{{.Name}}</span>{{end}}{{else}}<a class="chip dim" href="/projects/{{.Slug}}/settings#repos">no repos linked</a>{{end}}
+  <details class="pmore rchip"><summary class="chip{{if $.ProjectRunners}} on{{end}}" title="Runners with a session for this project">runners {{len $.ProjectRunners}} active</summary>
+    <div class="menu rlist">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> <span class="tag">{{.State}}</span>{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
+      {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
+  </details>
+  <a class="chip" href="/projects/{{.Slug}}/settings#limits" title="How many runner instances this project may start, per template">concurrency {{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
+  {{if .AutoMerge}}<span class="chip on" title="Passing PRs merge without review">auto-merge</span>{{end}}
+  <a class="chip" href="/projects/{{.Slug}}/settings">Edit goals &amp; repos</a>
+  <span class="grow"></span>
+  {{if not $.Archived}}<button class="btn small danger" data-confirm="Archive {{.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{.Slug}}')">Archive</button>{{end}}
+</div>{{end}}
+<div class="bar">
   <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
-  <a class="chip" href="/projects/{{.Project}}/settings">Project goals &amp; repos</a>
   <span class="grow"></span>
   <button class="btn primary" data-key="n" onclick="openSheet('sheet-new')">＋ New task</button>
 </div>{{end}}
@@ -29,7 +43,8 @@
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
   <ul class="tasks runs queue-sort" role="tree" aria-label="Queue">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 <section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
-<ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul></section>
+<ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul>
+<p class="showdone"><a class="chip" href="/projects/{{.Project}}{{if not .All}}?all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a></p></section>
 {{end}}{{end}}
 
 {{define "main-projects"}}

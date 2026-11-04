@@ -107,6 +107,14 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		writeJSON(w, http.StatusOK, projectView(r.Context(), p))
 	})
+	mux.HandleFunc("GET /api/v1/projects/{slug}/runners", func(w http.ResponseWriter, r *http.Request) {
+		rs, err := d.Projects.Runners(r.Context(), r.PathValue("slug"))
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, rs)
+	})
 	mux.HandleFunc("PATCH /api/v1/projects/{slug}", func(w http.ResponseWriter, r *http.Request) {
 		var req proto.ProjectRequest
 		if err := decode(r, &req); err != nil {

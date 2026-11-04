@@ -518,3 +518,19 @@ details.archived summary { cursor: pointer; }
   table.plist tr.more > td { padding: 8px 12px 12px; }
   table.plist .pcols { grid-template-columns: 1fr; }
 }
+
+/* Project page header and strip */
+.phead h1 { margin: 4px 0 2px; font-size: 1.4rem; }
+.phead .about { margin: 0 0 10px; color: var(--ink2); }
+.pstrip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.pstrip .chip { white-space: nowrap; }
+details.rchip { position: relative; }
+details.rchip > summary { list-style: none; cursor: pointer; }
+details.rchip > summary::-webkit-details-marker { display: none; }
+details.rchip .menu.rlist { position: absolute; z-index: 8; top: calc(100% + 6px); left: 0; width: min(440px, 92vw); max-height: 60vh; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.rlist .rr { padding: 6px 0; border-top: 1px solid var(--line); }
+.rlist .rr:first-child { border-top: 0; }
+.rlist .rs { margin: 2px 0 0 12px; }
+.showdone { margin: 10px 0 0; }
+@media (max-width: 700px) { details.rchip .menu.rlist { position: fixed; left: 8px; right: 8px; width: auto; top: auto; bottom: calc(var(--tabs-h) + 8px); } }
+.chip.on { border-color: var(--prog); color: var(--ink); }

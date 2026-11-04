@@ -24,6 +24,13 @@ func (c *Client) Projects(ctx context.Context) ([]proto.ProjectView, error) {
 	return c.ProjectsFiltered(ctx, "")
 }
 
+// ProjectRunners lists the runners with an active session for the project (several may serve it,
+// and one may serve several projects).
+func (c *Client) ProjectRunners(ctx context.Context, slug string) ([]proto.ProjectRunner, error) {
+	var out []proto.ProjectRunner
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects/"+esc(slug)+"/runners", nil, &out)
+}
+
 // ProjectsFiltered lists projects; archived is "" or "active" (default), "archived" or "all".
 func (c *Client) ProjectsFiltered(ctx context.Context, archived string) ([]proto.ProjectView, error) {
 	var out []proto.ProjectView

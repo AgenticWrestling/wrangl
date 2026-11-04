@@ -145,6 +145,15 @@ agent:
 	if strings.Count(page, `class="task run `) != 2 || strings.Contains(page, `id="queue"`) || !strings.Contains(page, "▶ ") {
 		t.Fatalf("want two run entries with a runner tag and nothing queued:\n%.1500s", page)
 	}
+	// The project page strip says one runner is active, and the API lists it with both sessions.
+	for _, want := range []string{`class="phead"`, `class="pstrip"`, "runners 1 active", "Edit goals &amp; repos", `data-confirm="Archive web?`, `class="showdone"`} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("project page missing %q", want)
+		}
+	}
+	if prs, err := api.ProjectRunners(ctx, "web"); err != nil || len(prs) != 1 || len(prs[0].Sessions) != 2 || len(prs[0].AlsoServing) != 0 {
+		t.Fatalf("project runners = %+v, %v; want one runner with two sessions", prs, err)
+	}
 	// A third task has no free slot (one runner at its max): it waits in Queue.
 	c := e.mk(proto.TaskCreateRequest{Title: "third independent task", Prompt: "do c"})
 	runC, _, err := api.QueueTask(ctx, c)
