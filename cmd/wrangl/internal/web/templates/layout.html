@@ -59,7 +59,7 @@
   <h1>{{.Title}}</h1>
 </header>
 <div id="detail-sheets"></div>
-<div id="live" data-init="@get('{{.LiveURL}}')"></div>
+<div id="live" data-init="@get('{{.LiveURL}}', {retry: 'always', retryMaxCount: 100000, retryMaxWait: 15000})"></div>
 {{.Pre}}
 <main id="main">{{.Main}}</main>
 {{.Post}}

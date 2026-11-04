@@ -500,7 +500,7 @@ function boot() {
     let t;
     let rt;
     new MutationObserver((muts) => {
-      clearTimeout(t); t = setTimeout(() => { initSortables(); initQueueSort(); markFs(); markSections(); }, 50);
+      clearTimeout(t); t = setTimeout(() => { initSortables(); initQueueSort(); markFs(); }, 50);
       if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
     }).observe(main, { childList: true, subtree: true });
   }
