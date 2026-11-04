@@ -6,6 +6,8 @@
 package web
 
 import (
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -79,7 +81,7 @@ func New(d api.Deps) (*Handler, error) {
 	t, err := template.New("").Funcs(template.FuncMap{
 		"glyph":  func(s string) string { return glyph[s] },
 		"dict":   func(k, v string) map[string]string { return map[string]string{k: v} },
-		"ago":    ago,
+		"ago":    func(ts string) string { return dbtime.Ago(ts, time.Now()) },
 		"md":     markdown,
 		"pct":    func(v float64) string { return fmt.Sprintf("%.0f%%", v) },
 		"spark":  sparkline,
@@ -1638,26 +1640,6 @@ func (h *Handler) logRows(ctx context.Context, kind string) ([]logRow, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At > out[j].At })
 	return out, nil
-}
-
-func ago(ts string) string {
-	if ts == "" {
-		return "-"
-	}
-	t, err := time.Parse(time.RFC3339Nano, ts)
-	if err != nil {
-		return ts
-	}
-	d := time.Since(t).Round(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds ago", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%.1fh ago", d.Hours())
-	}
-	return t.Format("2 Jan")
 }
 
 // sparkline renders values (0-100) as an inline SVG polyline.

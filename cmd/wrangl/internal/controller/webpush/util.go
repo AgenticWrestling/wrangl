@@ -2,9 +2,10 @@ package webpush
 
 import (
 	"database/sql"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"time"
 )
 
 func sqlNow() sql.NullString {
-	return sql.NullString{String: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"), Valid: true}
+	return sql.NullString{String: dbtime.Format(time.Now()), Valid: true}
 }

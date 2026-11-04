@@ -6,7 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"strings"
 	"time"
 
@@ -17,8 +18,6 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
-
-func nstr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
 
 // Assign hands queued runs to idle runners. It returns the run ids assigned.
 func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
@@ -48,7 +47,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 			open, err := q.RQ.CountOpenLeaves(ctx, r.TaskID)
 			if err == nil && open == 0 {
 				// Everything was finished or cancelled since it was queued.
-				q.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: nstr(s.Now().UTC().Format(time.RFC3339Nano)), ID: r.ID})
+				q.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: dbnull.Str(dbtime.Format(s.Now())), ID: r.ID})
 			}
 			continue // waiting on outside precursors
 		} else if err != nil {
@@ -182,8 +181,8 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	release := func() {
 		d.Q.UnbindRunTarget(context.WithoutCancel(ctx), r.ID)
 		d.Q.UnassignRun(context.WithoutCancel(ctx), r.ID)
-		d.Q.ReleaseRunner(context.WithoutCancel(ctx), dbgen.ReleaseRunnerParams{Now: nstr(s.Now().UTC().Format("2006-01-02T15:04:05.000Z")), ID: runner.ID})
-		s.Fleet.Bus.Publish("run", strconv.FormatInt(r.ID, 10)) // back to queued
+		d.Q.ReleaseRunner(context.WithoutCancel(ctx), dbgen.ReleaseRunnerParams{Now: dbnull.Str(dbtime.Format(s.Now())), ID: runner.ID})
+		s.Fleet.Bus.Run(r.ID) // back to queued
 	}
 	session := runner.Name + ":" + r.TaskSqid
 	n, err := d.Q.AssignRun(ctx, dbgen.AssignRunParams{RunnerID: sql.NullInt64{Int64: runner.ID, Valid: true}, SessionName: session, ID: r.ID})
@@ -194,7 +193,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		return err
 	}
-	s.Fleet.Bus.Publish("run", strconv.FormatInt(r.ID, 10)) // queued -> assigned: live pages move it from Queue to In progress
+	s.Fleet.Bus.Run(r.ID) // queued -> assigned: live pages move it from Queue to In progress
 	if target != nil {
 		if err := d.Q.BindRunTarget(ctx, r.ID, targetRow.ID); err != nil {
 			release()

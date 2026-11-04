@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,7 +36,8 @@ func AgentActor(runID int64) Actor { return Actor("agent:" + strconv.FormatInt(r
 type Service struct {
 	DB    *db.DB
 	Sqids *Sqids
-	Bus   *events.Bus // change notices (nil = none)
+	Bus   *events.Bus      // change notices (nil = none)
+	Now   func() time.Time // clock (nil = time.Now)
 }
 
 // Position says where among its siblings a task goes. Zero value = last.
@@ -51,20 +54,21 @@ func conflict(f string, a ...any) error {
 	return fmt.Errorf("%w: "+f, append([]any{errs.Conflict}, a...)...)
 }
 
-func nstr(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }
-
 // completedAt is set for terminal-ish states and cleared otherwise.
-func completedAt(state string) sql.NullString {
+func (s *Service) completedAt(state string) sql.NullString {
 	if state == "in_review" || state == "done" {
-		return nstr(time.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
+		now := time.Now
+		if s.Now != nil {
+			now = s.Now
+		}
+		return dbnull.Str(dbtime.Format(now()))
 	}
 	return sql.NullString{}
 }
-func nint(v int64) sql.NullInt64 { return sql.NullInt64{Int64: v, Valid: v != 0} }
 
 // Task loads a task by sqid.
 func (s *Service) Task(ctx context.Context, q *dbgen.Queries, sqid string) (dbgen.Task, error) {
-	t, err := q.GetTaskBySqid(ctx, nstr(sqid))
+	t, err := q.GetTaskBySqid(ctx, dbnull.Str(sqid))
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, fmt.Errorf("%w: task %q", errs.NotFound, sqid)
 	}
@@ -80,22 +84,22 @@ func (s *Service) project(ctx context.Context, q *dbgen.Queries, slug string) (d
 }
 
 func hasChildren(ctx context.Context, q *dbgen.Queries, id int64) (bool, error) {
-	c, err := q.ChildStateCounts(ctx, nint(id))
+	c, err := q.ChildStateCounts(ctx, dbnull.Int(id))
 	return c.Total > 0, err
 }
 
 // Changed publishes a task change notice (called by writes; also usable by other services).
-func (s *Service) Changed(sqid string) { s.Bus.Publish("task", sqid) }
+func (s *Service) Changed(sqid string) { s.Bus.Task(sqid) }
 
 // event records an audit entry and publishes a change notice. Subscribers may refetch a
 // moment before the surrounding transaction commits, so they debounce (see events).
 func (s *Service) event(ctx context.Context, q *dbgen.Queries, sqid string, actor Actor, op string, diff map[string]any) error {
-	defer s.Bus.Publish("task", sqid)
+	defer s.Bus.Task(sqid)
 	b, _ := json.Marshal(diff)
 	var runID sql.NullInt64
 	if strings.HasPrefix(string(actor), "agent:") {
 		if id, err := strconv.ParseInt(strings.TrimPrefix(string(actor), "agent:"), 10, 64); err == nil {
-			runID = nint(id)
+			runID = dbnull.Int(id)
 		}
 	}
 	return q.InsertTaskEvent(ctx, dbgen.InsertTaskEventParams{TaskSqid: sqid, RunID: runID, Actor: string(actor), Op: op, DiffJson: string(b)})
@@ -109,7 +113,7 @@ func (s *Service) rankFor(ctx context.Context, q *dbgen.Queries, projectID, pare
 	if parentID == 0 {
 		sibs, err = q.ListRootTasks(ctx, projectID)
 	} else {
-		sibs, err = q.ListChildren(ctx, nint(parentID))
+		sibs, err = q.ListChildren(ctx, dbnull.Int(parentID))
 	}
 	if err != nil {
 		return "", err
@@ -169,7 +173,7 @@ func (s *Service) newTask(ctx context.Context, q *dbgen.Queries, p dbgen.CreateT
 	if err != nil {
 		return dbgen.Task{}, err
 	}
-	if err := q.SetTaskSqid(ctx, dbgen.SetTaskSqidParams{Sqid: nstr(sq), ID: id}); err != nil {
+	if err := q.SetTaskSqid(ctx, dbgen.SetTaskSqidParams{Sqid: dbnull.Str(sq), ID: id}); err != nil {
 		return dbgen.Task{}, err
 	}
 	if err := s.event(ctx, q, sq, actor, "create", map[string]any{"title": p.Title}); err != nil {
@@ -293,13 +297,13 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 				} // (a release, milestone or feature's children are ordinary tasks)
 			}
 		}
-		params := dbgen.CreateTaskParams{ProjectID: p.ID, ParentID: nint(parentID), Rank: rank, Title: c.Title, Prompt: c.Prompt, TaskType: tt}
+		params := dbgen.CreateTaskParams{ProjectID: p.ID, ParentID: dbnull.Int(parentID), Rank: rank, Title: c.Title, Prompt: c.Prompt, TaskType: tt}
 		if c.Repo != "" {
 			r, err := projectRepo(ctx, q, p.ID, c.Repo)
 			if err != nil {
 				return err
 			}
-			params.RepoID = nint(r.ID)
+			params.RepoID = dbnull.Int(r.ID)
 		}
 		if c.Template != "" {
 			t, err := q.GetTemplateByName(ctx, c.Template)
@@ -308,7 +312,7 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 			} else if err != nil {
 				return err
 			}
-			params.TemplateID = nint(t.ID)
+			params.TemplateID = dbnull.Int(t.ID)
 		}
 		if out, err = s.newTask(ctx, q, params, c.Actor); err != nil {
 			return err
@@ -325,10 +329,10 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 				return err
 			}
 			// Inside the transaction: never use s.DB.W here (one writer connection, held by us).
-			if err := q.SetTaskIssue(ctx, dbgen.SetTaskIssueParams{IssueID: nint(iss.ID), ID: out.ID}); err != nil {
+			if err := q.SetTaskIssue(ctx, dbgen.SetTaskIssueParams{IssueID: dbnull.Int(iss.ID), ID: out.ID}); err != nil {
 				return err
 			}
-			out.IssueID = nint(iss.ID)
+			out.IssueID = dbnull.Int(iss.ID)
 		}
 		for _, pre := range c.Needs {
 			if err := s.addNeed(ctx, q, out, pre, c.Actor); err != nil {
@@ -503,7 +507,7 @@ func (s *Service) Move(ctx context.Context, sqid string, newParent *string, pos 
 		if err != nil {
 			return err
 		}
-		if err := q.MoveTask(ctx, dbgen.MoveTaskParams{ParentID: nint(parentID), Rank: rank, ID: t.ID}); err != nil {
+		if err := q.MoveTask(ctx, dbgen.MoveTaskParams{ParentID: dbnull.Int(parentID), Rank: rank, ID: t.ID}); err != nil {
 			return err
 		}
 		if err := s.event(ctx, q, sqid, actor, op, map[string]any{"parent_id": parentID, "rank": rank}); err != nil {
@@ -512,7 +516,7 @@ func (s *Service) Move(ctx context.Context, sqid string, newParent *string, pos 
 		if err := recompute(ctx, q, t.ParentID); err != nil {
 			return err
 		}
-		if err := recompute(ctx, q, nint(parentID)); err != nil {
+		if err := recompute(ctx, q, dbnull.Int(parentID)); err != nil {
 			return err
 		}
 		out, err = q.GetTask(ctx, t.ID)
@@ -604,7 +608,7 @@ func (s *Service) setLeafState(ctx context.Context, sqid, state, summary string,
 		} else if kids {
 			return invalid("%s has subtasks; its state follows them", sqid)
 		}
-		if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: state, Summary: summary, CompletedAt: completedAt(state), ID: t.ID}); err != nil {
+		if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: state, Summary: summary, CompletedAt: s.completedAt(state), ID: t.ID}); err != nil {
 			return err
 		}
 		if err := s.event(ctx, q, sqid, actor, op, map[string]any{"state": state}); err != nil {
@@ -619,7 +623,7 @@ func (s *Service) Complete(ctx context.Context, sqid, summary string, actor Acto
 	// "Ship it": the owner confirms a release whose work is all done.
 	if t, err := s.Task(ctx, s.DB.RQ, sqid); err == nil && t.TaskType == dbtypes.TaskRelease && t.State == "in_review" {
 		return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-			if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: "done", Summary: summary, CompletedAt: completedAt("done"), ID: t.ID}); err != nil {
+			if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: "done", Summary: summary, CompletedAt: s.completedAt("done"), ID: t.ID}); err != nil {
 				return err
 			}
 			return s.event(ctx, q, sqid, actor, "complete", map[string]any{"state": "done", "shipped": true})
@@ -650,7 +654,7 @@ func (s *Service) Cancel(ctx context.Context, sqid, reason string, actor Actor) 
 			if kids, _ := hasChildren(ctx, q, r.ID); kids || r.State == "done" || r.State == "cancelled" {
 				continue
 			}
-			if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: "cancelled", Summary: reason, CompletedAt: completedAt("cancelled"), ID: r.ID}); err != nil {
+			if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: "cancelled", Summary: reason, CompletedAt: s.completedAt("cancelled"), ID: r.ID}); err != nil {
 				return err
 			}
 			if err := s.event(ctx, q, r.Sqid.String, actor, "cancel", map[string]any{"reason": reason}); err != nil {
@@ -779,7 +783,7 @@ func (s *Service) Split(ctx context.Context, sqid string, nodes []SplitNode, cha
 						return invalid("%v", err)
 					}
 				}
-				t, err := s.newTask(ctx, q, dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: nint(parentID), Rank: rank, Title: n.Title, Prompt: prompt, TaskType: tt}, actor)
+				t, err := s.newTask(ctx, q, dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: dbnull.Int(parentID), Rank: rank, Title: n.Title, Prompt: prompt, TaskType: tt}, actor)
 				if err != nil {
 					return err
 				}
@@ -801,7 +805,7 @@ func (s *Service) Split(ctx context.Context, sqid string, nodes []SplitNode, cha
 		if err := add(parent.ID, nodes, true); err != nil {
 			return err
 		}
-		return recompute(ctx, q, nint(parent.ID))
+		return recompute(ctx, q, dbnull.Int(parent.ID))
 	})
 	return created, err
 }
@@ -918,7 +922,7 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 			return err
 		}
 		run, err = q.QueueRun(ctx, dbgen.QueueRunParams{
-			TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: nint(templateID), RepoID: nint(repoID),
+			TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: dbnull.Int(templateID), RepoID: dbnull.Int(repoID),
 			Branch: fmt.Sprintf("wrangl/%s-%d", sqid, n+1), SessionUuid: uuid,
 		})
 		if err == nil && chosen != nil {
@@ -965,7 +969,7 @@ func (s *Service) NextForRun(ctx context.Context, runID int64) (Next, error) {
 			out = Next{Sqid: root.Sqid.String, Title: run.Kind + " " + root.Title, Prompt: run.PromptOverride}
 			return nil
 		}
-		leaf, err := q.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: run.TaskID, RunID: nint(runID)})
+		leaf, err := q.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: run.TaskID, RunID: dbnull.Int(runID)})
 		if errors.Is(err, sql.ErrNoRows) {
 			open, err := q.CountOpenLeaves(ctx, run.TaskID)
 			if err != nil {
@@ -988,7 +992,7 @@ func (s *Service) NextForRun(ctx context.Context, runID int64) (Next, error) {
 				return err
 			}
 		}
-		if err := q.SetRunCurrentTask(ctx, dbgen.SetRunCurrentTaskParams{TaskID: nint(t.ID), ID: runID}); err != nil {
+		if err := q.SetRunCurrentTask(ctx, dbgen.SetRunCurrentTaskParams{TaskID: dbnull.Int(t.ID), ID: runID}); err != nil {
 			return err
 		}
 		prompt, err := composePrompt(ctx, q, t, runID)
@@ -1025,7 +1029,7 @@ func composePrompt(ctx context.Context, q *dbgen.Queries, t dbgen.Task, runID in
 			b.WriteString("\n")
 		}
 	}
-	done, err := q.CompletedInRun(ctx, nint(runID))
+	done, err := q.CompletedInRun(ctx, dbnull.Int(runID))
 	if err != nil {
 		return "", err
 	}
@@ -1102,7 +1106,7 @@ func (s *Service) AgentComplete(ctx context.Context, runID int64, sqid, summary 
 		if len(summary) > 2000 {
 			summary = summary[:2000]
 		}
-		if err := q.CompleteTask(ctx, dbgen.CompleteTaskParams{CompletionSummary: summary, CompletedRunID: nint(runID), ID: t.ID}); err != nil {
+		if err := q.CompleteTask(ctx, dbgen.CompleteTaskParams{CompletionSummary: summary, CompletedRunID: dbnull.Int(runID), ID: t.ID}); err != nil {
 			return err
 		}
 		if err := s.event(ctx, q, sqid, AgentActor(runID), "complete", map[string]any{"summary": summary}); err != nil {

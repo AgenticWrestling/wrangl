@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"io"
 	"log/slog"
 	"net"
@@ -95,12 +96,10 @@ func (s *Service) note(ctx context.Context, kind, level, subject, title, detail 
 		s.Log.Error("log entry", "err", err)
 		return
 	}
-	if s.Bus != nil {
-		s.Bus.Publish("log", subject)
-	}
+	s.Bus.Log(subject)
 }
 
-func ts(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
+func ts(t time.Time) string { return dbtime.Format(t) }
 
 func nullStr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
 
@@ -315,7 +314,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 	}
 	s.Log.Info("launched runner", "runner", name, "instance", inst.ID, "type", inst.Type)
 	s.note(ctx, "runner", "info", name, "Runner launched", fmt.Sprintf("%s · %s · template %s", inst.Type, inst.ID, t.Name))
-	s.Bus.Publish("runner", name)
+	s.Bus.Runner(name)
 	return r, nil
 }
 
@@ -345,7 +344,7 @@ func (s *Service) terminate(ctx context.Context, id int64, name, instanceID, rea
 	}
 	s.Log.Info("terminated runner", "runner", name, "instance", instanceID, "reason", reason)
 	s.note(ctx, "runner", "info", name, "Runner terminated", reason+" · "+instanceID)
-	defer s.Bus.Publish("runner", name)
+	defer s.Bus.Runner(name)
 	return s.DB.Q.MarkTerminated(ctx, dbgen.MarkTerminatedParams{TerminatedAt: nullStr(ts(s.now())), ID: id})
 }
 
@@ -480,7 +479,9 @@ func (s *Service) Heartbeat(ctx context.Context, subject string, data []byte) er
 		return err
 	}
 	s.hist.add(id, hb, s.now())
-	s.Bus.Publish("runner", strconv.FormatInt(id, 10))
+	if r, err := s.DB.RQ.GetRunner(ctx, id); err == nil {
+		s.Bus.Runner(r.Name)
+	}
 	if err := s.reconcileBinary(ctx, id, hb); err != nil {
 		s.Log.Warn("runner upgrade", "runner", id, "err", err)
 	}
@@ -496,7 +497,7 @@ func (s *Service) SweepOffline(ctx context.Context) error {
 	for _, r := range rows {
 		s.Log.Warn("runner offline", "runner", r.Name)
 		s.note(ctx, "runner", "warn", r.Name, "Runner offline", "no heartbeat")
-		s.Bus.Publish("runner", r.Name)
+		s.Bus.Runner(r.Name)
 		if s.OnOffline != nil {
 			s.OnOffline(r.Name)
 		}

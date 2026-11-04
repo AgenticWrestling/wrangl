@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -178,7 +179,7 @@ func TerminateOther(ctx context.Context, d Deps, region, id string) (name string
 		return "", err
 	}
 	_ = d.Fleet.DB.Q.AddLogEntry(context.WithoutCancel(ctx), dbgen.AddLogEntryParams{
-		At: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"), Kind: "runner", Level: "warn", Subject: name,
+		At: dbtime.Format(time.Now()), Kind: "runner", Level: "warn", Subject: name,
 		Title: "Instance terminated", Detail: fmt.Sprintf("%s in %s, %s (not a runner), from the web UI", id, region, in.Type),
 	})
 	return name, nil

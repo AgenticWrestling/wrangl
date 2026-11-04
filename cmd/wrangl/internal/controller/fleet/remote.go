@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"net"
 	"strconv"
 	"strings"
@@ -122,7 +123,7 @@ func (s *Service) LaunchTarget(ctx context.Context, template string, project int
 	}
 	s.Log.Info("launched remote target", "target", name, "instance", inst.ID, "type", inst.Type)
 	s.note(ctx, "runner", "info", name, "Remote target launched", fmt.Sprintf("%s · %s · template %s", inst.Type, inst.ID, t.Name))
-	s.Bus.Publish("runner", name)
+	s.Bus.Runner(name)
 	return g, nil
 }
 
@@ -191,7 +192,7 @@ func (s *Service) reconcileTarget(ctx context.Context, g dbgen.RemoteTarget) err
 	sessions, _ := s.DB.RQ.CountTargetSessions(ctx, g.ID)
 	perr := s.probeTarget(ctx, g, conn)
 	set := func(state string, fails int64, msg string, idle, off sql.NullString) error {
-		defer s.Bus.Publish("runner", g.Name)
+		defer s.Bus.Runner(g.Name)
 		return s.DB.Q.SetRemoteTargetState(ctx, dbgen.SetRemoteTargetStateParams{State: state, ProbeFailures: fails, LastError: msg, Now: now, IdleSince: idle, OfflineSince: off, ID: g.ID})
 	}
 	switch {
@@ -201,7 +202,7 @@ func (s *Service) reconcileTarget(ctx context.Context, g dbgen.RemoteTarget) err
 		}
 		s.note(ctx, "runner", "error", g.Name, "Remote target is gone", "its instance no longer exists")
 		s.failTargetRuns(ctx, g, "target lost: the instance is gone")
-		s.Bus.Publish("runner", g.Name)
+		s.Bus.Runner(g.Name)
 		return nil
 	case perr != nil:
 		fails := g.ProbeFailures + 1
@@ -217,7 +218,7 @@ func (s *Service) reconcileTarget(ctx context.Context, g dbgen.RemoteTarget) err
 			return err
 		}
 		if off.Valid && sessions > 0 {
-			if since, e := time.Parse("2006-01-02T15:04:05.000Z", off.String); e == nil && s.now().Sub(since) > OfflineGrace {
+			if since, e := time.Parse(dbtime.Layout, off.String); e == nil && s.now().Sub(since) > OfflineGrace {
 				s.failTargetRuns(ctx, g, "target lost: unreachable for "+OfflineGrace.String())
 			}
 		}
@@ -244,7 +245,7 @@ func (s *Service) reconcileTarget(ctx context.Context, g dbgen.RemoteTarget) err
 		s.note(ctx, "runner", "info", g.Name, "Remote target ready", "")
 	}
 	if idle.Valid && sessions == 0 {
-		if since, e := time.Parse("2006-01-02T15:04:05.000Z", idle.String); e == nil && s.now().Sub(since) >= time.Duration(t.IdleTimeoutS)*time.Second {
+		if since, e := time.Parse(dbtime.Layout, idle.String); e == nil && s.now().Sub(since) >= time.Duration(t.IdleTimeoutS)*time.Second {
 			return s.terminateTarget(ctx, g, fmt.Sprintf("idle for over %s", time.Duration(t.IdleTimeoutS)*time.Second))
 		}
 	}
@@ -262,7 +263,7 @@ func (s *Service) terminateTarget(ctx context.Context, g dbgen.RemoteTarget, rea
 	}
 	s.Log.Info("terminated remote target", "target", g.Name, "reason", reason)
 	s.note(ctx, "runner", "info", g.Name, "Remote target terminated", reason)
-	defer s.Bus.Publish("runner", g.Name)
+	defer s.Bus.Runner(g.Name)
 	return s.DB.Q.MarkRemoteTargetTerminated(ctx, g.ID, ts(s.now()))
 }
 

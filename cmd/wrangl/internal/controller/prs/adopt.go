@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"regexp"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
@@ -83,7 +83,7 @@ func (s *Service) AdoptRepo(ctx context.Context, repoID int64) error {
 }
 
 func (s *Service) adopt(ctx context.Context, repo dbgen.Repo, p gh.OpenPR, sqid string) (int64, bool, error) {
-	t, err := s.DB.RQ.GetTaskBySqid(ctx, nstr(sqid))
+	t, err := s.DB.RQ.GetTaskBySqid(ctx, dbnull.Str(sqid))
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	} else if err != nil {
@@ -119,6 +119,6 @@ ORDER BY r.id DESC LIMIT 1`, t.ID).Scan(&runID, &rootID)
 		return 0, false, err
 	}
 	s.Log.Info("adopted agent-opened PR", "pr", p.URL, "task", sqid, "run", runID)
-	s.Bus.Publish("pr", fmt.Sprint(pr.ID))
+	s.Bus.PR(pr.ID)
 	return pr.ID, true, nil
 }

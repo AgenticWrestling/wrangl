@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -902,10 +903,10 @@ func sinceParam(v string) (string, error) {
 		return "", nil
 	}
 	if d, err := time.ParseDuration(v); err == nil {
-		return time.Now().Add(-d).UTC().Format("2006-01-02T15:04:05.000Z"), nil
+		return dbtime.Format(time.Now().Add(-d)), nil
 	}
 	if t, err := time.Parse(time.RFC3339, v); err == nil {
-		return t.UTC().Format("2006-01-02T15:04:05.000Z"), nil
+		return dbtime.Format(t), nil
 	}
 	return "", fmt.Errorf("%w: since %q: want a duration like 15m or an RFC 3339 time", errs.Invalid, v)
 }

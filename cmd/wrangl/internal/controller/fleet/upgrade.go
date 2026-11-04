@@ -42,7 +42,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 		if r.UpgradeSha != "" {
 			s.Log.Info("runner upgraded", "runner", r.Name, "sha256", short(want))
 			s.note(ctx, "upgrade", "info", r.Name, "Runner binary upgraded", short(want))
-			s.Bus.Publish("runner", r.Name)
+			s.Bus.Runner(r.Name)
 			return s.DB.Q.ClearUpgrade(ctx, id)
 		}
 		return nil
@@ -52,7 +52,7 @@ func (s *Service) reconcileBinary(ctx context.Context, id int64, hb proto.Heartb
 		if err := s.DB.Q.RequestUpgrade(ctx, dbgen.RequestUpgradeParams{UpgradeSha: want, ID: id}); err != nil {
 			return err
 		}
-		s.Bus.Publish("runner", r.Name)
+		s.Bus.Runner(r.Name)
 	}
 	if hb.RunID != 0 || hb.Applying || hb.Upgrading || s.NC == nil {
 		return nil // after the run / apply; or it is already on it

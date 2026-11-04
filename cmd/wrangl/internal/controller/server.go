@@ -266,7 +266,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	s.Bus = &events.Bus{}
 	s.Fleet.Bus = s.Bus
-	s.Stack = &stack.Service{DB: s.db, Sqids: sq, Bus: s.Bus}
+	s.Stack = &stack.Service{DB: s.db, Sqids: sq, Bus: s.Bus, Now: now}
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
 		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, ApprovalHandlers: map[string]func(context.Context, json.RawMessage) error{}, Bus: s.Bus}

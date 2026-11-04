@@ -2,10 +2,8 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -49,26 +47,6 @@ func emit(cmd *cobra.Command, g *Global, v any, table func(w io.Writer)) error {
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	table(tw)
 	return tw.Flush()
-}
-
-// ago renders an RFC 3339 timestamp as a short relative duration.
-func ago(ts string, now time.Time) string {
-	if ts == "" {
-		return "-"
-	}
-	t, err := time.Parse(time.RFC3339Nano, ts)
-	if err != nil {
-		return ts
-	}
-	d := now.Sub(t).Round(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	default:
-		return fmt.Sprintf("%.1fh", d.Hours())
-	}
 }
 
 func dash(s string) string {

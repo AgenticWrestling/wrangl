@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"strings"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
@@ -46,7 +47,7 @@ func (s *Service) NewQuestion(ctx context.Context, q dbgen.CreateQuestionParams,
 	})
 	if err == nil {
 		s.Log.Info("question asked", "id", out.ID, "kind", out.Kind, "prompt", out.Prompt)
-		s.Bus.Publish("question", fmt.Sprint(out.ID))
+		s.Bus.Question(out.ID)
 		if s.OnQuestion != nil {
 			s.OnQuestion(out)
 		}
@@ -91,7 +92,7 @@ func (s *Service) Answer(ctx context.Context, id int64, value, text string) erro
 		}
 		return fmt.Errorf("%w: choose one of the options", errs.Invalid)
 	}
-	n, err := s.DB.Q.AnswerQuestion(ctx, dbgen.AnswerQuestionParams{OptionID: optID, Text: text, Now: nstr(s.ts()), ID: id})
+	n, err := s.DB.Q.AnswerQuestion(ctx, dbgen.AnswerQuestionParams{OptionID: optID, Text: text, Now: dbnull.Str(s.ts()), ID: id})
 	if err != nil {
 		return err
 	}
@@ -102,7 +103,7 @@ func (s *Service) Answer(ctx context.Context, id int64, value, text string) erro
 		s.DB.Q.SetRunState(ctx, dbgen.SetRunStateParams{State: "running", ID: q.RunID.Int64, FromState: "needs_input"})
 	}
 	s.Log.Info("question answered", "id", id, "kind", q.Kind, "value", value)
-	s.Bus.Publish("question", fmt.Sprint(id))
+	s.Bus.Question(id)
 	switch q.Kind {
 	case "agent", "system":
 		return s.sendAnswer(ctx, q, proto.Answer{QuestionID: id, Value: value, Text: text})

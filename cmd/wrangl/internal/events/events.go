@@ -4,8 +4,20 @@
 package events
 
 import (
+	"strconv"
 	"sync"
 	"time"
+)
+
+// Event kinds.
+const (
+	KindRun      = "run"
+	KindPR       = "pr"
+	KindQuestion = "question"
+	KindTask     = "task"
+	KindThread   = "thread"
+	KindRunner   = "runner"
+	KindLog      = "log"
 )
 
 // Event is a change notice.
@@ -36,6 +48,27 @@ func (b *Bus) Publish(kind, id string) {
 		}
 	}
 }
+
+// Run notes a change to a run (by id).
+func (b *Bus) Run(id int64) { b.Publish(KindRun, strconv.FormatInt(id, 10)) }
+
+// PR notes a change to a pull request (by id).
+func (b *Bus) PR(id int64) { b.Publish(KindPR, strconv.FormatInt(id, 10)) }
+
+// Question notes a change to a question (by id).
+func (b *Bus) Question(id int64) { b.Publish(KindQuestion, strconv.FormatInt(id, 10)) }
+
+// Task notes a change to a task (by sqid).
+func (b *Bus) Task(sqid string) { b.Publish(KindTask, sqid) }
+
+// Thread notes a change to a task's controller-agent thread (by task sqid).
+func (b *Bus) Thread(sqid string) { b.Publish(KindThread, sqid) }
+
+// Runner notes a change to a runner (by name).
+func (b *Bus) Runner(name string) { b.Publish(KindRunner, name) }
+
+// Log notes a new log entry (by subject).
+func (b *Bus) Log(subject string) { b.Publish(KindLog, subject) }
 
 // Subscribe returns a channel of events and a function to unsubscribe.
 func (b *Bus) Subscribe() (<-chan Event, func()) {
