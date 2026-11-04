@@ -454,3 +454,9 @@ section.card.k-running { border-left: 4px solid var(--prog); }
   color: var(--attn); background: color-mix(in srgb, var(--attn) 14%, transparent); border: 1px solid var(--attn); }
 .k-failed > .banner, section.card.k-failed > .banner { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); border-color: var(--err); }
 .k-review > .banner, section.card.k-review > .banner { color: var(--review); background: color-mix(in srgb, var(--review) 14%, transparent); border-color: var(--review); }
+
+/* A card whose action is in flight: dimmed and inert until the server answers. */
+.card.busy { opacity: 0.65; pointer-events: none; }
+.spin { display: inline-block; width: 0.8em; height: 0.8em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -0.1em; animation: wspin .7s linear infinite; }
+@keyframes wspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s; } }

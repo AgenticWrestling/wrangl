@@ -12,16 +12,16 @@
   </div>
 </section>{{end}}
 {{if .PRs}}<h2 class="section">Open pull requests</h2>{{end}}
-{{range .PRs}}{{$p := .PullRequest}}<section class="card pr k-review">
+{{range .PRs}}{{$p := .PullRequest}}<section class="card pr k-review" id="pr-{{$p.ID}}" data-signals:prbusy{{$p.ID}}="false" data-class:busy="$prbusy{{$p.ID}}">
   <div class="meta"><span class="tag k-review">◐ in review</span> <a href="{{$p.Url}}" target="_blank" rel="noopener">{{.Repo}}#{{$p.GhNumber}} ↗</a> <span class="pill">{{$p.State}}</span>{{if $p.Risk.Valid}}<span class="pill risk-{{$p.Risk.String}}">risk: {{$p.Risk.String}}</span>{{end}}{{if $p.Checks}}<span class="pill">checks: {{$p.Checks}}</span>{{end}}</div>
   <h3><a href="/task/{{.TaskSqid}}">{{.TaskTitle}}</a></h3>
   <div class="row small"><a href="/run/{{$p.RunID}}/diff">diff</a> · <code>{{$p.HeadBranch}}</code></div>
   {{if $p.ReviewSummaryMd}}<details><summary>Review</summary><div class="prose">{{md $p.ReviewSummaryMd}}</div></details>{{end}}
   <textarea data-bind="pr{{$p.ID}}" rows="2" placeholder="What should change? (for Request changes)"></textarea>
   <div class="actions wrap">
-    <button class="btn primary" data-on:click="confirm('Approve and merge?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=approve')">Approve &amp; merge</button>
-    <button class="btn" data-on:click="@post('/ui/act/pr?id={{$p.ID}}&amp;op=request-changes')">Request changes</button>
-    <button class="btn danger" data-on:click="confirm('Close without merging?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=close')">Close</button>
+    <button class="btn primary" data-indicator:prbusy{{$p.ID}} data-attr:disabled="$prbusy{{$p.ID}}" data-on:click="confirm('Approve and merge?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=approve')"><span data-show="!$prbusy{{$p.ID}}">Approve &amp; merge</span><span data-show="$prbusy{{$p.ID}}" style="display:none"><span class="spin" aria-hidden="true"></span> Merging…</span></button>
+    <button class="btn" data-indicator:prbusy{{$p.ID}} data-attr:disabled="$prbusy{{$p.ID}}" data-on:click="@post('/ui/act/pr?id={{$p.ID}}&amp;op=request-changes')">Request changes</button>
+    <button class="btn danger" data-indicator:prbusy{{$p.ID}} data-attr:disabled="$prbusy{{$p.ID}}" data-on:click="confirm('Close without merging?') && @post('/ui/act/pr?id={{$p.ID}}&amp;op=close')">Close</button>
   </div>
 </section>{{end}}
 {{end}}

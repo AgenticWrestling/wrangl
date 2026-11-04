@@ -1258,7 +1258,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(q.Get("id"), 10, 64)
 	var msg string
 	var err error
-	nav := ""
+	nav, dropEl := "", ""
 	var reset map[string]any // signals to clear on success
 	switch r.PathValue("action") {
 	case "task-new":
@@ -1381,12 +1381,15 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		switch q.Get("op") {
 		case "approve":
 			err = h.D.PRs.Approve(ctx, id)
+			msg = "Merged ✓ the task is done"
 		case "request-changes":
 			err = h.D.PRs.RequestChanges(ctx, id, str(fmt.Sprintf("pr%d", id)))
+			msg = "Changes requested: a revise run is queued"
 		case "close":
 			err = h.D.PRs.Close(ctx, id)
+			msg = "PR closed"
 		}
-		msg = "PR: " + q.Get("op")
+		dropEl = fmt.Sprintf("pr-%d", id) // gone from the Inbox now, not at the next live patch
 	case "run-cancel":
 		err = h.D.Runs.Cancel(ctx, id)
 		msg = "cancelling"
@@ -1502,6 +1505,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	toast(w, msg, false)
 	if reset != nil {
 		mergeSignals(w, reset)
+	}
+	if dropEl != "" {
+		executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", dropEl))
 	}
 	if nav != "" {
 		executeScript(w, fmt.Sprintf("window.location.assign(%q)", nav))
