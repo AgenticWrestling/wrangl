@@ -497,3 +497,38 @@ func (q *Queries) UpsertIssue(ctx context.Context, arg UpsertIssueParams) (Issue
 	)
 	return i, err
 }
+
+const getNotesRepoID = `-- name: GetNotesRepoID :one
+SELECT repo_id FROM project_notes_repo WHERE project_id = ?
+`
+
+func (q *Queries) GetNotesRepoID(ctx context.Context, projectID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNotesRepoID, projectID)
+	var repo_id int64
+	err := row.Scan(&repo_id)
+	return repo_id, err
+}
+
+const setNotesRepo = `-- name: SetNotesRepo :exec
+INSERT INTO project_notes_repo (project_id, repo_id) VALUES (?, ?)
+ON CONFLICT (project_id) DO UPDATE SET repo_id = excluded.repo_id
+`
+
+type SetNotesRepoParams struct {
+	ProjectID int64 `json:"project_id"`
+	RepoID    int64 `json:"repo_id"`
+}
+
+func (q *Queries) SetNotesRepo(ctx context.Context, arg SetNotesRepoParams) error {
+	_, err := q.db.ExecContext(ctx, setNotesRepo, arg.ProjectID, arg.RepoID)
+	return err
+}
+
+const clearNotesRepo = `-- name: ClearNotesRepo :exec
+DELETE FROM project_notes_repo WHERE project_id = ?
+`
+
+func (q *Queries) ClearNotesRepo(ctx context.Context, projectID int64) error {
+	_, err := q.db.ExecContext(ctx, clearNotesRepo, projectID)
+	return err
+}

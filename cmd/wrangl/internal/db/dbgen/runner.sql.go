@@ -752,3 +752,21 @@ func (q *Queries) UpdateRunnerState(ctx context.Context, arg UpdateRunnerStatePa
 	_, err := q.db.ExecContext(ctx, updateRunnerState, arg.State, arg.ID)
 	return err
 }
+
+const countFailedEnrolments = `-- name: CountFailedEnrolments :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner
+WHERE template_id = ? AND launched = 1 AND nkey_public IS NULL AND state = 'terminated' AND terminated_at >= ?
+`
+
+type CountFailedEnrolmentsParams struct {
+	TemplateID   int64  `json:"template_id"`
+	TerminatedAt string `json:"terminated_at"`
+}
+
+// Controller-launched runners of a template that never enrolled and were terminated since a time.
+func (q *Queries) CountFailedEnrolments(ctx context.Context, arg CountFailedEnrolmentsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countFailedEnrolments, arg.TemplateID, arg.TerminatedAt)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
+}

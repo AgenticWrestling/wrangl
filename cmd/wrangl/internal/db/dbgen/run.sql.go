@@ -841,3 +841,51 @@ func (q *Queries) UpdateRunProgress(ctx context.Context, arg UpdateRunProgressPa
 	)
 	return err
 }
+
+const countLostRunsForTask = `-- name: CountLostRunsForTask :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM run WHERE task_id = ? AND kind = 'work' AND state = 'failed' AND error = 'runner lost'
+`
+
+// Runs of a task that failed because their runner was lost.
+func (q *Queries) CountLostRunsForTask(ctx context.Context, taskID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLostRunsForTask, taskID)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
+}
+
+const stuckRuns = `-- name: StuckRuns :many
+SELECT r.id, r.task_id, r.current_task_id FROM run r
+WHERE r.state = 'running'
+  AND MAX(
+        COALESCE((SELECT MAX(ts) FROM log_line WHERE run_id = r.id), ''),
+        COALESCE((SELECT MAX(ts) FROM hook_event WHERE run_id = r.id), ''),
+        COALESCE(r.started_at, r.queued_at)) <= ?1
+  AND NOT EXISTS (SELECT 1 FROM question q WHERE q.run_id = r.id AND q.kind = 'approval'
+                  AND json_extract(q.payload_json, '$.op') = 'cancel_run' AND q.created_at > ?1)
+`
+
+type StuckRunsRow struct {
+	ID            int64         `json:"id"`
+	TaskID        int64         `json:"task_id"`
+	CurrentTaskID sql.NullInt64 `json:"current_task_id"`
+}
+
+// Running runs with no log line, hook event or start since the cutoff, that the owner has not
+// been asked about since the cutoff either.
+func (q *Queries) StuckRuns(ctx context.Context, cutoff string) ([]StuckRunsRow, error) {
+	rows, err := q.db.QueryContext(ctx, stuckRuns, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []StuckRunsRow{}
+	for rows.Next() {
+		var i StuckRunsRow
+		if err := rows.Scan(&i.ID, &i.TaskID, &i.CurrentTaskID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}

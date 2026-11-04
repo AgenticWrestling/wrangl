@@ -19,6 +19,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner/runnertest"
@@ -43,6 +44,10 @@ case "$1" in *CANCELOTHER*)
   for target in $(printf '%s' "$1" | sed -n 's/.*CANCELOTHER \([A-Za-z0-9]*\).*/\1/p'); do
     echo "cancel attempt: $(tool task_cancel "{\"sqid\":\"$target\",\"reason\":\"redundant\"}")"
   done;;
+esac
+case "$1" in *DELIVER*)
+  echo "deliver: $(tool submit_deliverable '{"kind":"image","title":"home, phone","image_base64":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}')"
+  echo "deliver: $(tool submit_deliverable '{"kind":"prototype_html","title":"static proto","content_html":"<!doctype html><title>p</title><h1>proto</h1>"}')";;
 esac
 case "$1" in *FORGET*) echo "forgot to complete"; exit 0;; esac
 curl -s --unix-socket "$WRANGL_SOCK" -d '{"event":"PostToolUse","payload":{"tool_name":"Edit"}}' http://x/hook >/dev/null
@@ -80,6 +85,7 @@ type workEnv struct {
 	api  *client.Client
 	bare string
 	t    *testing.T
+	db   *db.DB // the controller's database, for setting up states a test cannot reach otherwise
 }
 
 func (e *workEnv) run(id int64) proto.RunView {
@@ -156,7 +162,7 @@ func TestWorkLoopEndToEnd(t *testing.T) {
 	go func() { srvDone <- srv.Run(ctx) }()
 	<-srv.Ready()
 	api, _ := client.New("unix://"+cfg.Listen.Unix, nil)
-	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t}
+	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t, db: srv.Fleet.DB}
 
 	// Template whose "agent" is the fake script; secrets resolved from the controller.
 	if err := controller.SecretSet(cfg.DataDir, "fake_token", strings.NewReader("s3cret")); err != nil {
@@ -318,6 +324,25 @@ agent:
 	run3, _, _ := api.QueueTask(ctx, issueTask.Sqid)
 	if v := e.waitRun(run3, "succeeded", "failed"); v.State != "succeeded" {
 		t.Fatalf("issue run: %+v", v)
+	}
+
+	// A fake agent hands back a mockup and a static prototype with submit_deliverable.
+	deliver := e.mk(proto.TaskCreateRequest{Title: "design it", Prompt: "DELIVER"})
+	runD, _, _ := api.QueueTask(ctx, deliver)
+	e.waitRun(runD, "succeeded", "failed")
+	var kinds []string
+	rows, err := srv.Fleet.DB.R.QueryContext(ctx, `SELECT d.kind FROM deliverable d JOIN task t ON t.id = d.task_id WHERE t.sqid = ? AND d.run_id = ? ORDER BY d.id`, deliver, runD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var k string
+		rows.Scan(&k)
+		kinds = append(kinds, k)
+	}
+	rows.Close()
+	if strings.Join(kinds, ",") != "image,prototype_html" {
+		t.Fatalf("deliverables from the fake agent: %v", kinds)
 	}
 
 	// Cancel a slow run: the agent is killed and the leaf goes back to open.

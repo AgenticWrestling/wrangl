@@ -148,6 +148,11 @@ func (s *Service) resolveApproval(ctx context.Context, q dbgen.Question, value s
 	}
 	actor := stackActor(p.RunID)
 	switch p.Op {
+	case "requeue": // a run lost its runner twice: the owner chose to try again
+		_, err := s.Stack.Queue(ctx, p.Sqid)
+		return err
+	case "cancel_run": // a run went silent: the owner chose to cancel it
+		return s.Cancel(ctx, p.RunID)
 	case "task_cancel":
 		return s.Stack.Cancel(ctx, p.Sqid, p.Reason, actor)
 	case "task_delete":

@@ -78,7 +78,7 @@ func TestPRFlowEndToEnd(t *testing.T) {
 	go func() { srvDone <- srv.Run(ctx) }()
 	<-srv.Ready()
 	api, _ := client.New("unix://"+cfg.Listen.Unix, nil)
-	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t}
+	e := &workEnv{ctx: ctx, api: api, bare: bare, t: t, db: srv.Fleet.DB}
 	var kindsMu sync.Mutex
 	kinds := map[string]int{}
 	go api.Events(ctx, func(ev client.Event) { kindsMu.Lock(); kinds[ev.Kind]++; kindsMu.Unlock() })

@@ -1,0 +1,107 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wrangl Ask panel: close control — prototype (EQu2ry)</title>
+<style>
+@font-face{font-family:"Red Hat Display";font-weight:300 900;src:url(fonts/red-hat-display-latin.woff2)}
+@font-face{font-family:"IBM Plex Mono";src:url(fonts/ibm-plex-mono-latin.woff2)}
+:root{--mono:"IBM Plex Mono",ui-monospace,monospace;--bg:#0f1115;--card:#171a21;--raised:#1f232b;--line:#2c313c;--faint:#4b5261;--dim:#8a919e;--ink2:#c5cad3;--ink:#eef0f3;--brand:#0072b2;--prog:#56b4e9;--ok:#009e73;--attn:#e69f00;--review:#cc79a7}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:300 16px/1.45 "Red Hat Display",system-ui,sans-serif}
+.app{display:flex;min-height:100vh}
+nav.side{width:188px;border-right:1px solid var(--line);padding:16px 12px;flex:none}nav.side b{display:block;margin-bottom:14px}nav.side div{padding:6px 8px;color:var(--dim)}nav.side div.on{color:var(--ink)}
+main{flex:1;min-width:0;padding:16px 20px 90px;max-width:900px}
+.crumb{color:var(--dim);font-size:.85rem}h1{font-size:1.25rem;margin:.2rem 0 .6rem}
+.btn{font:inherit;font-size:.9rem;color:var(--ink);background:var(--raised);border:1px solid var(--line);border-radius:8px;padding:5px 12px;cursor:pointer;min-height:34px}.btn.p{background:var(--brand);border-color:var(--brand)}
+.btn:focus-visible,.x:focus-visible,textarea:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+kbd{font:500 .72rem var(--mono);border:1px solid var(--faint);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--ink2);background:var(--bg)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px}
+.card h3{margin:0;font-size:1rem}.row{display:flex;align-items:center;gap:10px}.grow{flex:1}.dim{color:var(--dim)}.small{font-size:.85rem}
+.sub{padding:8px 0;border-top:1px solid var(--line)}.sub:first-of-type{border-top:0}.sq{font:.8rem var(--mono);color:#b4bac4}
+.msg{padding:.5rem 0 .5rem .6rem;border-top:1px solid var(--line)}.msg:first-of-type{border-top:0}.msg.agent{border-left:3px solid var(--ok)}
+.who{font-size:.8rem;font-weight:600}.prop{margin:6px 6px 0 0}
+.reply{display:flex;gap:.5rem;align-items:flex-end;margin-top:.6rem}.reply textarea{flex:1;min-width:0;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit}
+.x{font:inherit;background:transparent;color:var(--ink2);border:1px solid var(--line);border-radius:8px;min-width:36px;min-height:36px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 8px}
+.x:hover{background:var(--raised);color:var(--ink)}
+.hintline{font-size:.78rem;color:var(--dim);margin-top:6px}
+[hidden]{display:none!important}
+.vs{position:fixed;top:8px;right:12px;display:flex;gap:6px;z-index:30}.vs a{color:var(--ink2);background:var(--raised);border:1px solid var(--line);border-radius:8px;padding:2px 10px;text-decoration:none;font-size:.85rem}.vs a.on{border-color:var(--ink);color:var(--ink)}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--raised);border:1px solid var(--faint);border-radius:10px;padding:6px 12px;font-size:.85rem;z-index:40}
+/* --- Variant A: header close button, closed = slim reopen bar ------------------------- */
+.bar{display:none}.A.closed .bar{display:flex}.A.closed #panel{display:none}
+.bar{align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 14px;margin:0 0 12px}
+/* --- Variant B: docked drawer (desktop) / bottom sheet (phone) + floating Ask button --- */
+.B #panel{position:fixed;right:0;top:0;bottom:0;width:380px;margin:0;border-radius:14px 0 0 14px;z-index:20;display:flex;flex-direction:column;box-shadow:-12px 0 32px #0008}
+.B #panel .scroll{flex:1;overflow:auto}.B.closed #panel{display:none}
+.B .fab{display:none;position:fixed;right:18px;bottom:18px;z-index:19;border-radius:99px;padding:8px 16px;background:var(--brand);border-color:var(--brand)}
+.B.closed .fab{display:inline-flex;align-items:center;gap:8px}
+.B .scrim{display:none}
+.B .fab .dot{width:9px;height:9px;border-radius:50%;background:var(--attn)}
+/* --- Variant C: collapsible card with last-message preview ----------------------------- */
+.preview{display:none}.C .preview{display:none;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
+.C.closed #panel .body{display:none}.C.closed .preview{display:block}.C.closed #cnt{display:none}.C #panel .chev{transition:transform .15s}.C.closed .chev{transform:rotate(-90deg)}
+.C #panel header{cursor:pointer}
+@media (max-width:760px){
+  .desk{display:none}
+  nav.side{display:none}main{padding:12px 12px 90px}
+  .B #panel{top:auto;left:0;width:auto;max-height:78vh;border-radius:16px 16px 0 0;box-shadow:0 -12px 32px #0009}
+  .B .scrim{display:block;position:fixed;inset:0;background:#0007;z-index:15}.B.closed .scrim{display:none}
+  .B .grab{display:block}
+  .vs{top:auto;bottom:8px;right:8px}.hintline.desk{display:none}
+}
+.grab{display:none;width:40px;height:4px;border-radius:2px;background:var(--faint);margin:0 auto 8px}
+.B .grab{display:none}@media (max-width:760px){.B .grab{display:block}}
+code{font-family:var(--mono);color:var(--ink2);font-size:.9em}</style>
+<body class="A"><div class="vs" id="vs"><a href="#A">A Header ✕</a><a href="#B">B Drawer</a><a href="#C">C Collapse</a></div>
+<div class="app"><nav class="side"><b>wrangl</b><div class="on">Tasks</div><div>Inbox</div><div>Runners</div><div>Settings</div></nav>
+<main>
+<div class="crumb">pnp › Billing rewrite</div><h1>Choose the invoice numbering scheme</h1>
+<div class="row" style="margin-bottom:12px"><button class="btn p">Queue</button><button class="btn" id="ask">Ask <kbd class="desk">a</kbd></button><button class="btn">Edit</button></div>
+
+<div class="bar" id="bar"><b>Conversation</b><span class="dim small">· 4 messages</span><span class="grow"></span><button class="btn" id="reopen">Reopen <kbd class="desk">a</kbd></button></div>
+
+<section class="card" id="panel" aria-label="Conversation with the controller agent">
+  <div class="grab"></div>
+  <header class="row"><button class="x chev" id="chev" aria-label="Collapse conversation" hidden><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 4.5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><h3>Conversation</h3><span class="dim small" id="cnt">· 4 messages</span><span class="grow"></span>
+    <button class="x" id="close" aria-label="Close conversation (Esc)" title="Close (Esc)"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><kbd class="desk">Esc</kbd></button></header>
+  <div class="preview" id="prev"><b>planner:</b> I'd split it into three subtasks — numbering, migration and PDF layout.</div>
+  <div class="body scroll">
+    <div class="msg user"><div class="who">You <span class="dim">2h ago</span></div><div>Which numbering scheme should invoices use?</div></div>
+    <div class="msg agent"><div class="who">planner <span class="dim">2h ago</span></div><div>Two real options: gapless yearly sequence (INV-2026-0001) or a per-customer counter. Tax rules in most EU states want gapless, so I'd take the yearly sequence.</div></div>
+    <div class="msg user"><div class="who">You <span class="dim">1h ago</span></div><div>Split it up then.</div></div>
+    <div class="msg agent"><div class="who">planner <span class="dim">1h ago</span></div><div>I'd split it into three subtasks — numbering, migration and PDF layout.</div>
+      <div><button class="btn prop">Split into 3 subtasks</button><button class="btn prop">Set type: architecture</button></div></div>
+    <div class="reply"><textarea id="reply" rows="2" placeholder="Reply…"></textarea><button class="btn p">Send</button></div>
+    <div class="hintline desk"><kbd>Esc</kbd> in the box leaves it (draft kept); <kbd>Esc</kbd> again closes. Closing keeps the thread — <code>wrangl task thread</code> still shows it.</div>
+  </div>
+</section>
+
+<section class="card"><div class="row"><h3>Subtasks</h3><span class="grow"></span><button class="btn">Split</button><button class="btn">Subtask</button></div>
+  <div class="sub row"><span class="sq">Ab3dEf</span><span>Gapless yearly sequence</span></div>
+  <div class="sub row"><span class="sq">Gh4jKl</span><span>Backfill existing invoices</span></div></section>
+</main></div>
+<button class="btn fab" id="fab"><span class="dot"></span>Ask · 4</button><div class="scrim" id="scrim"></div>
+<div class="toast" id="toast" hidden></div>
+<script>
+const $=s=>document.querySelector(s),b=document.body,ta=$('#reply');
+let variant='A';
+function toast(t){const e=$('#toast');e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,2200)}
+function apply(){const h=(location.hash||'#A').slice(1),[v,st]=h.split('-');variant=v||'A';
+  b.className=variant+(st==='closed'?' closed':'');
+  document.querySelectorAll('#vs a').forEach(a=>a.classList.toggle('on',a.hash.slice(1)===variant));
+  $('#chev').hidden=variant!=='C';
+  $('#close').hidden=variant==='C';
+  $('#close').setAttribute('aria-label','Close conversation (Esc)');
+  $('#chev').setAttribute('aria-label','Collapse conversation (Esc)');}
+const isClosed=()=>b.classList.contains('closed');
+function setClosed(c){b.classList.toggle('closed',c);if(c){$('#ask').focus()}else{ta.focus()}}
+// Esc rule: in the reply box, first Esc only leaves the box (the draft stays); a second Esc closes.
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!isClosed()){
+    if(document.activeElement===ta){ta.blur();toast(ta.value?'Draft kept — Esc again to close':'Esc again to close');e.preventDefault();return}
+    setClosed(true);e.preventDefault();return}
+  if(e.key==='a'&&isClosed()&&document.activeElement.tagName!=='TEXTAREA'){setClosed(false);e.preventDefault()}
+});
+$('#close').onclick=()=>setClosed(true);$('#reopen').onclick=()=>setClosed(false);$('#fab').onclick=()=>setClosed(false);
+$('#ask').onclick=()=>setClosed(!isClosed());$('#scrim').onclick=()=>setClosed(true);
+$('#chev').onclick=e=>{e.stopPropagation();setClosed(!isClosed())};
+$('#panel header').addEventListener('click',e=>{if(variant==='C'&&!e.target.closest('textarea'))setClosed(!isClosed())});
+addEventListener('hashchange',apply);apply();
+</script></html>

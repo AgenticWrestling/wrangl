@@ -68,3 +68,13 @@ WHERE r.project_id = sqlc.arg(project_id) AND r.owner = sqlc.arg(owner) AND r.na
 
 -- name: GetIssue :one
 SELECT * FROM issue WHERE id = ?;
+
+-- name: GetNotesRepoID :one
+SELECT repo_id FROM project_notes_repo WHERE project_id = ?;
+
+-- name: SetNotesRepo :exec
+INSERT INTO project_notes_repo (project_id, repo_id) VALUES (?, ?)
+ON CONFLICT (project_id) DO UPDATE SET repo_id = excluded.repo_id;
+
+-- name: ClearNotesRepo :exec
+DELETE FROM project_notes_repo WHERE project_id = ?;

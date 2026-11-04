@@ -63,6 +63,20 @@ func ParseTaskType(s string) (TaskType, error) {
 	return t, nil
 }
 
+// researchContract is the prompt contract for research tasks (and what the report page parses:
+// the "Sources" heading becomes the Sources panel).
+const researchContract = `This is a research task: non-code knowledge work. Do not change application code.
+Write the report as ONE markdown file at research/<task sqid>-<short-slug>.md in the repo you were given (the project's notes repo; commit only under research/ so the PR can merge itself), AND submit the same markdown with submit_deliverable (kind report_md, a short title) so the owner reads it on the task page.
+Use exactly these level-2 headings, in this order:
+## Question - the question as you understood it, in one or two sentences.
+## Recommendation - first, at most ten lines: what to do and why. Lead with the answer, not the method.
+## Analysis - the reasoning; options compared; numbers with units.
+## Sources - a numbered list. Each entry: title, URL or document, the date you accessed it and the date it was published or last updated, and the passage you relied on. Cite them in the text as [1], [2]. Every factual claim needs a source; never invent one. Say plainly what you could not find or verify.
+## Assumptions - what you took as given.
+## Open questions - what would change the answer.
+## Confidence - high, medium or low, with one sentence of why.
+For legal topics, open the Recommendation with the jurisdiction (country, state/province) the answer applies to, and state that this is research for counsel to review and not legal advice.`
+
 // Guidance is the block added to an agent's prompt for this type ("" for code).
 func (t TaskType) Guidance() string {
 	switch t {
@@ -75,7 +89,7 @@ func (t TaskType) Guidance() string {
 	case TaskDocs:
 		return "This is a documentation task (README, guides, specifications, comments). Change documentation only, and verify every command, path and behaviour you describe against the code."
 	case TaskResearch:
-		return "This is a research task: non-code knowledge work. Deliver a markdown report in the repo's notes/research area with: the question; a recommendation up front (at most ten lines); the analysis; a Sources list (URL or document, access date, and the passage relied on); your assumptions; open questions; and your confidence. Cite every factual claim and never invent a source; say plainly what you could not find or verify. For legal topics state the jurisdiction and that this is research for counsel to review, not legal advice. Do not change application code."
+		return researchContract
 	case TaskReview:
 		return "This is a code review task: read the code in question and report severity-ranked findings with file:line references; do not rewrite it unless the task asks you to."
 	case TaskRelease:

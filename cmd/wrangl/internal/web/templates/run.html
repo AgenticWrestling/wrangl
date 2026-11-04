@@ -32,6 +32,7 @@
   {{if not (or (eq $run.State "succeeded") (eq $run.State "failed") (eq $run.State "cancelled") (eq $run.State "blocked"))}}
   <div class="actions"><button class="btn danger" data-on:click="confirm('Cancel run {{$run.ID}}?') && @post('/ui/act/run-cancel?id={{$run.ID}}')">Cancel run</button></div>{{end}}
 </section>
+{{if .Deliverables}}<section class="card" id="deliverables"><h3>Deliverables</h3>{{template "gallery" .Deliverables}}</section>{{end}}
 <section class="card">
   <form class="bar" method="get" action="/run/{{$run.ID}}">
     <input type="search" name="q" value="{{.Q}}" placeholder="Filter log lines">

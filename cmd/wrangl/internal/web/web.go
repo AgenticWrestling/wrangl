@@ -172,6 +172,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/detail", h.detail)
 	mux.HandleFunc("POST /ui/expand", h.expand)
 	mux.HandleFunc("GET /deliverable/{id}", h.deliverable)
+	mux.HandleFunc("GET /deliverable/{id}/proto", h.deliverable)
 	mux.HandleFunc("POST /ui/act/{action}", h.act)
 }
 
@@ -253,14 +254,46 @@ func (h *Handler) deliverable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", d.Mime)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
+	if d.Kind == "prototype_html" {
+		if strings.HasSuffix(r.URL.Path, "/proto") {
+			// A committed static prototype: it may run its own inline script and style, but it
+			// has an opaque origin (sandbox without allow-same-origin), no network, no forms,
+			// no popups, no navigation of the app, and can only load data: images and fonts.
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+		} else { // the plain URL shows the source, never runs it
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
+	} else if strings.HasSuffix(r.URL.Path, "/proto") {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	io.Copy(w, f)
+}
+
+// deliverableViews loads deliverables for the task or run page, rendering reports.
+func (h *Handler) deliverableViews(ctx context.Context, rows []dbgen.Deliverable) []deliverableView {
+	var dv []deliverableView
+	for _, x := range rows {
+		v := deliverableView{Deliverable: x}
+		if x.Kind == "report_md" {
+			if _, path, err := h.D.Deliverables.Open(ctx, x.ID); err == nil && path != "" {
+				if b, err := os.ReadFile(path); err == nil {
+					v.Report = markdown(string(b))
+				}
+			}
+		}
+		dv = append(dv, v)
+	}
+	return dv
 }
 
 // deliverableView is a deliverable ready for the task page.
 type deliverableView struct {
 	dbgen.Deliverable
-	Report template.HTML // rendered markdown, for reports
+	Report  template.HTML // rendered markdown, for reports (without the Sources section)
+	Sources template.HTML // the report's Sources section, shown as a panel
 }
 
 // taskPart renders one part of the task page ("main-task": the card; "post-task": its edit
@@ -462,8 +495,50 @@ func toast(w http.ResponseWriter, msg string, isErr bool) {
 type node struct {
 	proto.TaskNode
 	Attention bool          // an open question, or its latest run failed / is blocked
+	Crumbs    []crumb       // "Now" view: ancestors, root first
+	Mockups   int           // deliverables (mockups, prototypes, reports) handed back on this task
 	Detail    template.HTML // the expanded task's card, when this page has it open
 	Kids      []*node
+}
+
+// crumb is one ancestor in a breadcrumb.
+type crumb struct{ Sqid, Title string }
+
+// nowLeaves lists leaf tasks whose state is in_progress (in_review ones belong in the inbox),
+// each with its ancestors as a breadcrumb. within, if non-zero, limits it to that task's subtree.
+func nowLeaves(rows []dbgen.ProjectTreeRow, within int64) []*node {
+	byID := map[int64]dbgen.ProjectTreeRow{}
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	var out []*node
+	for _, r := range rows {
+		if r.State != "in_progress" || r.Children != 0 {
+			continue
+		}
+		var up []crumb
+		inside := within == 0
+		for p := r; p.ParentID.Valid; {
+			par, ok := byID[p.ParentID.Int64]
+			if !ok {
+				break
+			}
+			if par.ID == within {
+				inside = true
+			}
+			up = append([]crumb{{par.Sqid, par.Title}}, up...)
+			p = par
+		}
+		if !inside {
+			continue
+		}
+		n := &node{TaskNode: proto.TaskNode{Sqid: r.Sqid, Title: r.Title, State: r.State, Type: string(r.TaskType), Depth: r.Depth, Children: r.Children}, Crumbs: up}
+		if len(up) > 0 {
+			n.Parent = up[len(up)-1].Sqid
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // runEntry is an active run shown in the In progress or Queue section: its root task (with the
@@ -482,6 +557,7 @@ type runEntry struct {
 type taskSections struct {
 	Progress, Queue []*runEntry
 	Backlog         []*node
+	Now             []*node // in-progress leaf tasks, with breadcrumbs
 }
 
 func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[string]any, error) {
@@ -509,6 +585,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 				return nil, err
 			}
 			d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
+			d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
 		}
 	case "task":
 		sqid := reqValue(r, "sqid")
@@ -522,18 +599,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["Types"] = dbtypes.TaskTypes
 		if h.D.Deliverables != nil {
 			rows, _ := db.RQ.ListDeliverablesForTask(ctx, t.ID)
-			var dv []deliverableView
-			for _, x := range rows {
-				v := deliverableView{Deliverable: x}
-				if x.Kind == "report_md" {
-					if _, path, err := h.D.Deliverables.Open(ctx, x.ID); err == nil && path != "" {
-						if b, err := os.ReadFile(path); err == nil {
-							v.Report = markdown(string(b))
-						}
-					}
-				}
-				dv = append(dv, v)
-			}
+			dv := h.deliverableViews(ctx, rows)
 			d["Deliverables"] = dv
 		}
 		if t.ParentID.Valid {
@@ -543,6 +609,11 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		kids, _ := db.RQ.ListChildren(ctx, sql.NullInt64{Int64: t.ID, Valid: true})
 		d["Kids"] = kids
+		if len(kids) > 0 { // a container: what is being worked on beneath it right now
+			if rows, err := db.RQ.ProjectTree(ctx, t.ProjectID); err == nil {
+				d["Now"] = nowLeaves(rows, t.ID)
+			}
+		}
 		if cp, err := db.RQ.LatestTaskCheckpoint(ctx, t.ID); err == nil {
 			d["Checkpoint"] = checkpointLinks(cp)
 		}
@@ -682,6 +753,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			}
 			d["Logs"], d["Q"], d["Stream"] = logs, q.Get("q"), q.Get("stream")
 			d["Hooks"], _ = db.RQ.RunHookEvents(ctx, id)
+			if h.D.Deliverables != nil {
+				rows, _ := db.RQ.ListDeliverablesForRun(ctx, sql.NullInt64{Int64: id, Valid: true})
+				d["Deliverables"] = h.deliverableViews(ctx, rows)
+			}
 		case "diff":
 			out, err := h.D.Runs.Inspect(ctx, id, "diff", "", false)
 			d["Err"] = errString(err)
@@ -734,6 +809,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			return nil, err
 		}
 		d["P"], d["Repos"], d["Title"] = p, repos, p.Name
+		d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
 		d["GitHub"] = h.D.Projects.GH != nil
 		d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
@@ -909,7 +985,14 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 	for _, r := range active {
 		locks[r.Run.TaskID] = map[bool]string{true: r.RunnerName, false: "queued"}[r.RunnerName != ""]
 	}
+	secs.Now = nowLeaves(rows, 0)
 	attn := h.attention(ctx, slug)
+	mockups := map[int64]int{}
+	if cs, err := db.RQ.CountDeliverablesForTasks(ctx, p.ID); err == nil {
+		for _, c := range cs {
+			mockups[c.TaskID] = int(c.N)
+		}
+	}
 	byID := map[int64]*node{}
 	bySqid := map[string]*node{}
 	order := map[string]int{} // tree position, for ordering the queue
@@ -917,7 +1000,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 	lockOf := map[int64]string{}
 	for _, t := range rows {
 		n := &node{TaskNode: proto.TaskNode{Sqid: t.Sqid, Title: t.Title, State: t.State, Type: string(t.TaskType), Target: t.TargetDate.String, Depth: t.Depth, Unmet: t.Unmet, Children: t.Children},
-			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled"}
+			Attention: attn[t.Sqid] && t.State != "done" && t.State != "cancelled", Mockups: mockups[t.ID]}
 		if t.TaskType.Planning() {
 			if full, err := db.RQ.GetTask(ctx, t.ID); err == nil {
 				n.Done, n.Total, n.Slip, _ = h.D.Stack.Rollup(ctx, full)
@@ -1220,6 +1303,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		am, aq := flag("pautomerge"), flag("pautoqueue")
 		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq})
 		msg = "saved " + slug
+	case "repo-notes": // repo=owner/name gives it the notes role; empty repo clears
+		err = h.D.Projects.SetNotesRepo(ctx, q.Get("slug"), q.Get("repo"))
+		msg = "notes repo saved"
 	case "repo-link":
 		ref := str("repoadd")
 		if ref == "" {

@@ -76,6 +76,7 @@ func (s *Service) Submit(ctx context.Context, sc runs.Scope, raw json.RawMessage
 		Title       string `json:"title"`
 		URL         string `json:"url"`
 		ContentMD   string `json:"content_md"`
+		ContentHTML string `json:"content_html"`
 		ImageBase64 string `json:"image_base64"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
@@ -128,8 +129,16 @@ func (s *Service) Submit(ctx context.Context, sc runs.Scope, raw json.RawMessage
 			return nil, invalid("report is %d bytes; the limit is %d", len(a.ContentMD), MaxReport)
 		}
 		data, ext, p.Mime = []byte(a.ContentMD), "md", "text/markdown; charset=utf-8"
+	case "prototype_html":
+		if strings.TrimSpace(a.ContentHTML) == "" {
+			return nil, invalid("content_html is required for a prototype_html")
+		}
+		if len(a.ContentHTML) > MaxReport {
+			return nil, invalid("prototype is %d bytes; the limit is %d", len(a.ContentHTML), MaxReport)
+		}
+		data, ext, p.Mime = []byte(a.ContentHTML), "html", "text/html; charset=utf-8"
 	default:
-		return nil, invalid("kind must be image, artifact_url, link or report_md")
+		return nil, invalid("kind must be image, artifact_url, link, report_md or prototype_html")
 	}
 
 	if data != nil {

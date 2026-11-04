@@ -394,7 +394,11 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		s.Push.Notify(webpush.Notification{Title: "GitHub App needed for " + owner, Body: "Work on " + owner + "/" + repo + " is waiting: " + cause.Error(),
 			URL: "/setup?account=" + url.QueryEscape(owner) + "&repo=" + url.QueryEscape(owner+"/"+repo), Tag: "ghapp-" + strings.ToLower(owner)})
 	}
-	sched := &scheduler.Scheduler{OnNeedApp: needApp, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
+	launchStuck := func(template string, failed int64) {
+		s.Push.Notify(webpush.Notification{Title: "Runners are not enrolling", Body: fmt.Sprintf("%d %s runners in a row never enrolled; launching is paused for an hour. Check the template's image, user-data and network.", failed, template),
+			URL: "/runners", Tag: "enrol-" + template})
+	}
+	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
 	reconcile := s.ReconcileInterval
 	if reconcile == 0 {
@@ -436,6 +440,9 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			case <-t.C:
 				if err := s.Runs.SweepLost(loopCtx); err != nil && loopCtx.Err() == nil {
 					s.log.Error("lost-run sweep", "err", err)
+				}
+				if err := s.Runs.SweepStuck(loopCtx); err != nil && loopCtx.Err() == nil {
+					s.log.Error("stuck-run sweep", "err", err)
 				}
 			}
 		}

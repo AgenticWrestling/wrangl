@@ -27,6 +27,10 @@ import (
 // LostAfter: an active run fails once its runner has been offline this long (spec §13).
 const LostAfter = 10 * time.Minute
 
+// StuckAfter: a running run that has logged nothing, fired no hook and not started anything for
+// this long is reported to the owner.
+const StuckAfter = 30 * time.Minute
+
 // Service handles runs on the controller side.
 type Service struct {
 	DB    *db.DB
@@ -371,6 +375,73 @@ func (s *Service) SweepLost(ctx context.Context) error {
 			s.recomputeTask(ctx, r.CurrentTaskID.Int64)
 		}
 		s.Log.Warn("run failed: runner lost", "run", r.ID)
+		s.afterLost(ctx, r.ID)
 	}
 	return nil
+}
+
+// afterLost recovers a work run whose runner died: the first loss for a task queues a fresh run
+// (its workspace is gone, so it starts over); a second loss means something is wrong with the
+// task or the fleet, so the owner is asked instead of looping.
+func (s *Service) afterLost(ctx context.Context, runID int64) {
+	run, err := s.DB.RQ.GetRun(ctx, runID)
+	if err != nil || run.Kind != "work" || s.Stack == nil {
+		return
+	}
+	t, err := s.DB.RQ.GetTask(ctx, run.TaskID)
+	if err != nil || !t.Sqid.Valid {
+		return
+	}
+	lost, err := s.DB.RQ.CountLostRunsForTask(ctx, run.TaskID)
+	if err != nil {
+		return
+	}
+	if lost <= 1 {
+		if nr, err := s.Stack.Queue(ctx, t.Sqid.String); err != nil {
+			s.Log.Warn("retry after lost runner", "run", runID, "task", t.Sqid.String, "err", err)
+		} else {
+			s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: fmt.Sprintf("runner lost; retrying as run %d", nr.ID), ID: runID})
+			s.Log.Info("runner lost; run requeued", "run", runID, "new_run", nr.ID)
+			s.Bus.Publish("run", fmt.Sprint(runID))
+		}
+		return
+	}
+	s.askOwner(ctx, t, runID, "requeue", "Try again", "Leave it",
+		fmt.Sprintf("Run %d on %q lost its runner, and so did an earlier run of this task. Try again?", runID, t.Title))
+}
+
+// SweepStuck asks the owner about running runs that have been silent for StuckAfter: they may be
+// hung (waiting on a prompt, a dead process, a deadlocked tool). The owner can cancel the run or
+// keep waiting; a kept-waiting run is raised again after another StuckAfter of silence.
+func (s *Service) SweepStuck(ctx context.Context) error {
+	cutoff := s.Now().Add(-StuckAfter).UTC().Format("2006-01-02T15:04:05.000Z")
+	stuck, err := s.DB.RQ.StuckRuns(ctx, cutoff)
+	if err != nil {
+		return err
+	}
+	for _, r := range stuck {
+		taskID := r.TaskID
+		if r.CurrentTaskID.Valid {
+			taskID = r.CurrentTaskID.Int64
+		}
+		t, err := s.DB.RQ.GetTask(ctx, taskID)
+		if err != nil {
+			continue
+		}
+		s.askOwner(ctx, t, r.ID, "cancel_run", "Cancel the run", "Keep waiting",
+			fmt.Sprintf("Run %d on %q has shown no activity for %s. Cancel it?", r.ID, t.Title, StuckAfter))
+	}
+	return nil
+}
+
+// askOwner raises an approval question about a run; approving performs op (see resolveApproval).
+func (s *Service) askOwner(ctx context.Context, t dbgen.Task, runID int64, op, yes, no, prompt string) {
+	payload, _ := json.Marshal(approvalPayload{Op: op, Sqid: t.Sqid.String, RunID: runID})
+	_, err := s.NewQuestion(ctx, dbgen.CreateQuestionParams{
+		TaskID: t.ID, RunID: sql.NullInt64{Int64: runID, Valid: true}, Kind: "approval",
+		Prompt: prompt, PayloadJson: string(payload),
+	}, []proto.QuestionOption{{Label: yes, Value: "approve"}, {Label: no, Value: "deny"}})
+	if err != nil {
+		s.Log.Error("raise question", "run", runID, "op", op, "err", err)
+	}
 }

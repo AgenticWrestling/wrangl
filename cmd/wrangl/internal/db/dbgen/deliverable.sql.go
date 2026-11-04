@@ -225,3 +225,27 @@ func (q *Queries) OpenDeliverableQuestion(ctx context.Context, runID int64) (int
 	err := row.Scan(&column_1)
 	return column_1, err
 }
+
+const listDeliverablesForRun = `-- name: ListDeliverablesForRun :many
+SELECT id, task_id, run_id, kind, title, url, file, mime, created_at FROM deliverable WHERE run_id = ? ORDER BY id
+`
+
+func (q *Queries) ListDeliverablesForRun(ctx context.Context, runID sql.NullInt64) ([]Deliverable, error) {
+	rows, err := q.db.QueryContext(ctx, listDeliverablesForRun, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Deliverable{}
+	for rows.Next() {
+		var i Deliverable
+		if err := rows.Scan(&i.ID, &i.TaskID, &i.RunID, &i.Kind, &i.Title, &i.Url, &i.File, &i.Mime, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
