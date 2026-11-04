@@ -933,13 +933,22 @@ func streamPTY(w http.ResponseWriter, r *http.Request, d Deps, runID int64) {
 	if last, err := strconv.ParseUint(r.Header.Get("Last-Event-ID"), 10, 64); sse && err == nil && last > 0 {
 		occ.DeliverPolicy, occ.OptStartSeq = jetstream.DeliverByStartSequencePolicy, last+1 // resume
 	}
+	// ?tail=N (KB) replays only the last N KB of output (the task card; phones); full=1 or no tail
+	// replays everything. A resuming reconnect (Last-Event-ID) already knows where it is.
+	truncated := false
+	if kb, _ := strconv.Atoi(r.URL.Query().Get("tail")); kb > 0 && occ.DeliverPolicy == jetstream.DeliverAllPolicy && r.URL.Query().Get("full") != "1" {
+		if seq := ptyTailStart(ctx, d, occ.FilterSubjects[0], kb<<10); seq > 1 {
+			occ.DeliverPolicy, occ.OptStartSeq = jetstream.DeliverByStartSequencePolicy, seq
+			truncated = true
+		}
+	}
 	cons, err := d.JS.OrderedConsumer(ctx, "WR_PTY", occ)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	if sse {
-		streamPTYSSE(w, r, d, runID, cons)
+		streamPTYSSE(w, r, d, runID, cons, truncated)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -966,11 +975,50 @@ func streamPTY(w http.ResponseWriter, r *http.Request, d Deps, runID int64) {
 	}
 }
 
+// ptyTailStart returns the stream sequence from which about maxBytes of the subject's most recent
+// output remain, or 0 to replay everything. It walks back from the subject's last message; other
+// subjects interleave in the stream, so the walk is bounded.
+func ptyTailStart(ctx context.Context, d Deps, subject string, maxBytes int) uint64 {
+	st, err := d.JS.Stream(ctx, "WR_PTY")
+	if err != nil {
+		return 0
+	}
+	last, err := st.GetLastMsgForSubject(ctx, subject)
+	if err != nil {
+		return 0
+	}
+	total, start := 0, last.Sequence
+	for seq, n := last.Sequence, 0; seq > 0 && n < 4000; seq, n = seq-1, n+1 {
+		m, err := st.GetMsg(ctx, seq)
+		if err != nil {
+			if errors.Is(err, jetstream.ErrMsgNotFound) {
+				continue // deleted or expired gap
+			}
+			return 0
+		}
+		if m.Subject != subject {
+			continue
+		}
+		total += len(m.Data)
+		start = seq
+		if total >= maxBytes {
+			return start
+		}
+	}
+	return 0 // fewer than maxBytes (or the walk gave up): replay all
+}
+
 // streamPTYSSE sends terminal output as SSE: each event's id is the stream sequence (so a
 // reconnect resumes with Last-Event-ID) and data is base64; "end" when the run is over.
-func streamPTYSSE(w http.ResponseWriter, r *http.Request, d Deps, runID int64, cons jetstream.Consumer) {
+func streamPTYSSE(w http.ResponseWriter, r *http.Request, d Deps, runID int64, cons jetstream.Consumer, truncated bool) {
 	ctx := r.Context()
 	fl := sseStart(w)
+	if truncated { // the client offers "load full history"
+		fmt.Fprint(w, "event: tail\ndata: {}\n\n")
+		if fl != nil {
+			fl.Flush()
+		}
+	}
 	idle := time.Now()
 	for {
 		msg, err := cons.Next(jetstream.FetchMaxWait(time.Second))

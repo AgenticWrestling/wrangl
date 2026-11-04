@@ -624,6 +624,16 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		if h.D.Agents != nil {
 			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
 		}
+		// The live PTY: the in-progress run working on this task (or its subtasks). The PTY is the
+		// run's own session on whichever runner hosts it, so it is keyed by the run, not the runner.
+		if runs, err := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: "active", Lim: 1000}); err == nil {
+			for _, x := range runs {
+				if (x.TaskSqid == sqid || x.CurrentSqid == sqid) && x.Run.RunnerID.Valid && x.Run.State != "queued" {
+					d["LiveRun"] = x.Run.ID
+					break
+				}
+			}
+		}
 		d["Pre"], _ = db.RQ.ListPrecursors(ctx, t.ID)
 		d["Dep"], _ = db.RQ.ListDependents(ctx, t.ID)
 		d["Runs"], _ = db.RQ.RunsForTask(ctx, t.ID)
