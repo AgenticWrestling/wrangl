@@ -92,7 +92,7 @@ func TestArchiveProjectEndToEnd(t *testing.T) {
 		t.Fatal("a refused archive hid the project")
 	}
 
-	// Once the run ends, archiving works: hidden from /tasks, the left panel and /inbox.
+	// Once the run ends, archiving works: hidden from /projects, the left panel and /inbox.
 	db.W.Exec(`UPDATE run SET state='succeeded' WHERE id=?`, runID)
 	if _, err := api.ArchiveProject(ctx, "old"); err != nil {
 		t.Fatal(err)

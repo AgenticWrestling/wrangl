@@ -121,6 +121,13 @@ and merges PRs, and receives webhooks), created through GitHub's manifest flow w
 account on the Setup page. A separate reviewer App is an optional advanced step, only for repos that
 require approving reviews.
 
+**Projects.** The web app is organised by project: the Projects list shows live counts (runners, in
+progress, queued, backlog, inbox) per project, and a project page holds its "Needs you" items, the
+queue (queue, dequeue, reorder, stop) and backlog, the runners working for it, and a project-level
+chat with a controller agent that proposes changes you approve with a button. Design mockups for
+these screens are in [`docs/design/`](docs/design/) (one folder per task, each with a README and a
+self-contained `prototype.html`); the older `/tasks` and `/project/<slug>` URLs redirect.
+
 **Inbox.** Agent questions, approvals, plan proposals and deliverables (mockup images, prototype
 links, markdown reports) arrive in one place, with web push on the installed app.
 
