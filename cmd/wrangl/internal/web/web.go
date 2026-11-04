@@ -567,6 +567,9 @@ type runEntry struct {
 	CurrentTitle string
 	Rank         sql.NullFloat64 // owner-chosen queue_rank (Queue only)
 	Crumb        string          // "parent > " for a queued task that is not a root
+	Flat         bool            // In progress: Node is the leaf being worked, listed on its own
+	ParentSqid   string          // Flat: the leaf's parent, for the jump button
+	ParentTitle  string
 }
 
 // taskSections is what the Tasks page lists: running, queued and the rest.
@@ -1148,6 +1151,18 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 		if r.Run.State == "queued" {
 			secs.Queue = append(secs.Queue, e)
 		} else {
+			// In progress is a flat list of the leaves being worked (not the run's whole subtree);
+			// a run with no current leaf yet is listed by its root task.
+			if c := bySqid[r.CurrentSqid]; c != nil && len(c.Kids) == 0 {
+				e.Node, e.Flat = c, true
+			} else if len(n.Kids) == 0 {
+				e.Flat = true
+			}
+			if e.Flat && e.Node.Parent != "" {
+				if p := bySqid[e.Node.Parent]; p != nil {
+					e.ParentSqid, e.ParentTitle = p.Sqid, p.Title
+				}
+			}
 			secs.Progress = append(secs.Progress, e)
 		}
 	}

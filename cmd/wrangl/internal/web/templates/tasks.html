@@ -36,16 +36,17 @@
     <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
     {{if $n.Mockups}}<a class="tag mock" href="/task/{{$n.Sqid}}#deliverables" title="{{$n.Mockups}} deliverable{{if gt $n.Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{$n.Mockups}}</a>{{end}}
     {{template "kindtag" $n}}{{template "rollchips" $n}}
+    {{if .ParentSqid}}<a class="tag" href="/task/{{.ParentSqid}}" title="Go to the parent task: {{.ParentTitle}}">↑ {{.ParentTitle}}</a>{{end}}
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
     <a class="dim small" href="/run/{{.RunID}}">run #{{.RunID}}</a>
     <code class="sqid">{{$n.Sqid}}</code>
   </div>
-  {{if .CurrentTitle}}<div class="now small dim">working on <a href="/task/{{.Current}}">{{.CurrentTitle}}</a></div>{{end}}
+  {{if and .CurrentTitle (not .Flat)}}<div class="now small dim">working on <a href="/task/{{.Current}}">{{.CurrentTitle}}</a></div>{{end}}
   {{if and $n.Awaits $n.Kids}}<div class="banner" role="note">{{template "bannertext" $n}}</div>{{end}}
   <div class="detail" id="d-{{$n.Sqid}}">{{$n.Detail}}</div>
-  {{if $n.Kids}}<details class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
+  {{if and $n.Kids (not .Flat)}}<details class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
     <ul class="tasks" data-parent="{{$n.Sqid}}">{{template "tasklist" $n.Kids}}</ul></details>{{end}}
 </li>{{end}}
 
