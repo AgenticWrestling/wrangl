@@ -27,6 +27,7 @@
   <span class="grow"></span>
   {{if not $.Archived}}<button class="btn small danger" data-confirm="Archive {{.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{.Slug}}')">Archive</button>{{end}}
 </div>{{end}}
+{{template "needsyou" .Needs}}
 <div class="bar">
   <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
   <span class="grow"></span>

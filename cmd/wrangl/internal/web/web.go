@@ -731,6 +731,28 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
 			d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
 			d["ProjectRunners"], _ = h.D.Projects.Runners(ctx, slug)
+			// Needs you: this project's open questions, task/plan reviews and PRs, as Inbox cards.
+			var qs []proto.QuestionView
+			if all, qerr := h.D.Runs.Questions(ctx, false); qerr == nil {
+				for _, q := range all {
+					if q.Project == slug {
+						qs = append(qs, q)
+					}
+				}
+			}
+			var prs []dbgen.ListPRsRow
+			if all, perr := db.RQ.ListPRs(ctx, "open"); perr == nil {
+				for _, p := range all {
+					if _, ok := secs.Index[p.TaskSqid]; ok {
+						prs = append(prs, p)
+					}
+				}
+			}
+			var pid int64
+			if cur, cerr := db.RQ.GetProjectBySlug(ctx, slug); cerr == nil {
+				pid = cur.ID
+			}
+			d["Needs"] = h.inboxItems(ctx, qs, prs, h.changeLinks(ctx, pid))
 			if p, err := h.D.Projects.Project(ctx, slug); err == nil {
 				d["P"], d["About"] = p, firstLine(p.Description)
 				d["Repos"], _ = db.RQ.ListRepos(ctx, p.ID)

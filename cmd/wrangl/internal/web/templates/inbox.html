@@ -3,6 +3,10 @@
 {{range .Items}}{{template "icard" .}}{{end}}
 {{end}}
 
+{{/* The Inbox cards for one project, as a strip on the project page; empty means no strip. */}}
+{{define "needsyou"}}{{if .}}<section class="needsyou" id="needs-you" aria-label="Needs you"><h3>Needs you <span class="badge inline">{{len .}}</span></h3>
+{{range .}}{{template "icard" .}}{{end}}</section>{{end}}{{end}}
+
 {{define "icard"}}{{$k := .Key}}<section class="card icard q-{{.Kind}} {{.TagClass}}" id="{{.DOM}}" data-signals:b{{$k}}__ifmissing="false" data-signals:c{{$k}}__ifmissing="false" data-class:busy="{{sig "b" $k}}">
   <div class="meta"><span class="tag {{.TagClass}}">{{.Tag}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}{{range .Links}} · <a href="{{.URL}}"{{if .External}} target="_blank" rel="noopener noreferrer"{{end}}>{{.Text}}{{if .External}} ↗{{end}}</a>{{end}}{{if .Changes.URL}} · <a href="{{.Changes.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Changes.Title}}">{{faicon "edit"}}{{.Changes.Label}} ↗</a>{{end}}{{range .Pills}}<span class="pill {{.Class}}">{{.Text}}</span>{{end}}<span class="grow"></span><span class="dim">{{.Age}}</span></div>
   <h3>{{.Title}}</h3>

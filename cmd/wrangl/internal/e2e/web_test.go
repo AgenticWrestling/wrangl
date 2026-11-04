@@ -46,6 +46,8 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/projects/web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
 	get("/projects/web", `class="subnav"`, `href="/projects/web"`, `id="backlog"`)
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
+	// Needs you: the project's open Inbox items (plan proposals, PRs) show on its page as cards; other projects have none.
+	get("/projects/web", `id="needs-you"`, `class="card icard`)
 	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals:outline=")
 	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)
 	get("/ui/detail?sqid="+big+"&part=sheets", "sheet-edit", `data-bind="etarget"`, "Target date")
@@ -137,6 +139,9 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/projects/goalproj/settings", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
 	post("/ui/act/project-save?slug=goalproj", `{"pname":"Renamed","pgoals":"new **goals**","ptemplate":"","pautomerge":false,"pautoqueue":true}`)
 	get("/projects/goalproj/settings", "Renamed", "<strong>goals</strong>", "auto-queue")
+	if page := get("/projects/goalproj"); strings.Contains(page, `id="needs-you"`) {
+		t.Fatal("a project with nothing waiting must not show the Needs you strip")
+	}
 	post("/ui/act/project-archive?slug=goalproj", `{}`)
 	if page := get("/projects", "Archived projects", `/ui/act/project-restore?slug=goalproj`); strings.Contains(page, `id="proj-goalproj"`) {
 		t.Fatal("archived project still in the active table")
