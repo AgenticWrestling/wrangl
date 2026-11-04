@@ -211,3 +211,32 @@ type failingGH struct{ gh.API }
 func (failingGH) RepoToken(_ context.Context, r gh.Repo) (string, time.Time, error) {
 	return "", time.Time{}, &gh.NotInstalledError{Owner: r.Owner, Name: r.Name}
 }
+
+func TestRepeatedEnrolFailuresPauseLaunching(t *testing.T) {
+	s, fake, clk, d := setup(t, 5)
+	ctx := context.Background()
+	var asked []int64
+	s.OnLaunchStuck = func(template string, failed int64) { asked = append(asked, failed) }
+	queue(t, d, 1)
+	for i := 0; i < MaxEnrolFailures; i++ {
+		if got, err := s.Tick(ctx); err != nil || got["go"] != 1 {
+			t.Fatalf("launch %d: %v %v", i, got, err)
+		}
+		clk.Advance(fleet.EnrollDeadline + time.Minute)
+		if reaped, err := s.Fleet.Reap(ctx); err != nil || len(reaped) != 1 {
+			t.Fatalf("reap %d: %v %v", i, reaped, err)
+		}
+	}
+	if got, _ := s.Tick(ctx); len(got) != 0 || len(fake.Runs) != MaxEnrolFailures {
+		t.Fatalf("launched after %d failed enrolments: %v runs=%d", MaxEnrolFailures, got, len(fake.Runs))
+	}
+	s.Tick(ctx)
+	if len(asked) != 1 || asked[0] != MaxEnrolFailures {
+		t.Fatalf("owner asked %v, want once with %d", asked, MaxEnrolFailures)
+	}
+	// The failures age out of the window: launching resumes.
+	clk.Advance(EnrolFailWindow + time.Minute)
+	if got, _ := s.Tick(ctx); got["go"] != 1 {
+		t.Fatalf("did not resume after the window: %v", got)
+	}
+}

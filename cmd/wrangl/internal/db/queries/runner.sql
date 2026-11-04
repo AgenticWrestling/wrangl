@@ -155,3 +155,8 @@ WHERE id = sqlc.arg(id) AND state = 'idle' AND upgrade_sha <> ''
 
 -- name: ClearUpgrade :exec
 UPDATE runner SET upgrade_sha = '', upgrade_sent_at = NULL WHERE id = sqlc.arg(id);
+
+-- name: CountFailedEnrolments :one
+-- Controller-launched runners of a template that never enrolled and were terminated since a time.
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner
+WHERE template_id = ? AND launched = 1 AND nkey_public IS NULL AND state = 'terminated' AND terminated_at >= ?;

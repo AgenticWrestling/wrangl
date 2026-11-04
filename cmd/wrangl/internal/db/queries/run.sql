@@ -168,3 +168,19 @@ SELECT * FROM hook_event WHERE run_id = ? ORDER BY seq;
 
 -- name: SetRunGuidance :exec
 UPDATE run SET guidance = ? WHERE id = ?;
+
+-- name: CountLostRunsForTask :one
+-- Runs of a task that failed because their runner was lost.
+SELECT CAST(COUNT(*) AS INTEGER) FROM run WHERE task_id = ? AND kind = 'work' AND state = 'failed' AND error = 'runner lost';
+
+-- name: StuckRuns :many
+-- Running runs with no log line, hook event or start since the cutoff, that the owner has not
+-- been asked about since the cutoff either.
+SELECT r.id, r.task_id, r.current_task_id FROM run r
+WHERE r.state = 'running'
+  AND MAX(
+        COALESCE((SELECT MAX(ts) FROM log_line WHERE run_id = r.id), ''),
+        COALESCE((SELECT MAX(ts) FROM hook_event WHERE run_id = r.id), ''),
+        COALESCE(r.started_at, r.queued_at)) <= sqlc.arg(cutoff)
+  AND NOT EXISTS (SELECT 1 FROM question q WHERE q.run_id = r.id AND q.kind = 'approval'
+                  AND json_extract(q.payload_json, '$.op') = 'cancel_run' AND q.created_at > sqlc.arg(cutoff));

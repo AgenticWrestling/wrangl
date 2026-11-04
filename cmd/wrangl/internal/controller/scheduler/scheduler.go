@@ -11,6 +11,7 @@ import (
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 )
 
 // Backoff after a failed launch, per template: doubles from MinBackoff to MaxBackoff.
@@ -35,11 +36,22 @@ type Scheduler struct {
 	// repository owner has no GitHub App, or it is not installed on the repository.
 	OnNeedApp func(owner, repo string, cause error)
 
-	mu       sync.Mutex
-	backoff  map[int64]*backoff
-	warned   map[int64]int64 // template id -> failed version already logged
-	askedApp map[string]time.Time
+	// OnLaunchStuck is called (at most hourly per template) when launching is paused because
+	// recent runners of the template never enrolled.
+	OnLaunchStuck func(template string, failed int64)
+
+	mu         sync.Mutex
+	askedStuck map[int64]time.Time
+	backoff    map[int64]*backoff
+	warned     map[int64]int64 // template id -> failed version already logged
+	askedApp   map[string]time.Time
 }
+
+// MaxEnrolFailures never-enrolled runners within EnrolFailWindow pause launching for a template.
+const (
+	MaxEnrolFailures = 3
+	EnrolFailWindow  = time.Hour
+)
 
 // Tick runs one scale-up pass and returns how many runners it launched per template.
 func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
@@ -74,6 +86,23 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 		}
 		b := s.backoff[t.ID]
 		if b != nil && now.Before(b.until) {
+			continue
+		}
+		// Launch, wait, reap, launch... forever costs money and tells nobody: after
+		// MaxEnrolFailures never-enrolled runners within EnrolFailWindow, stop and ask the owner.
+		failed, ferr := s.Fleet.DB.RQ.CountFailedEnrolments(ctx, dbgen.CountFailedEnrolmentsParams{
+			TemplateID: t.ID, TerminatedAt: now.Add(-EnrolFailWindow).UTC().Format("2006-01-02T15:04:05.000Z")})
+		if ferr == nil && failed >= MaxEnrolFailures {
+			if s.askedStuck == nil {
+				s.askedStuck = map[int64]time.Time{}
+			}
+			if now.Sub(s.askedStuck[t.ID]) > time.Hour {
+				s.askedStuck[t.ID] = now
+				s.Log.Error("not launching: runners of this template keep failing to enrol", "template", t.Name, "failed", failed)
+				if s.OnLaunchStuck != nil {
+					s.OnLaunchStuck(t.Name, failed)
+				}
+			}
 			continue
 		}
 		for i := int64(0); i < n; i++ {
