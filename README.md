@@ -110,6 +110,7 @@ propose the split and accept it from the inbox.
   limits and the agent command), installs it for an unprivileged `agent` user, and terminates it
   after 30 idle minutes. The controller host can enrol itself as a permanent runner.
 - The agent runs in a PTY, headless or as one interactive session with optional Remote Control.
+  The task card's Live output is the agent's own transcript (tailed on the runner, published over NATS) rendered as Markdown, with the PTY view as a fallback when there is no transcript; the interactive terminals and `wrangl run attach` still show the raw PTY.
   Templates ship for Claude Code, Codex, Gemini CLI and Antigravity.
 - Agents manage their own subtasks and ask you things through MCP tools. A checkpoint commit is made
   per subtask.
