@@ -20,7 +20,7 @@ func (q *Queries) DeleteGithubAccount(ctx context.Context, login string) error {
 }
 
 const getGithubAccount = `-- name: GetGithubAccount :one
-SELECT id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file FROM github_account WHERE login = ?
+SELECT id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file, hook_file FROM github_account WHERE login = ?
 `
 
 func (q *Queries) GetGithubAccount(ctx context.Context, login string) (GithubAccount, error) {
@@ -40,12 +40,13 @@ func (q *Queries) GetGithubAccount(ctx context.Context, login string) (GithubAcc
 		&i.ReviewerHtmlUrl,
 		&i.ReviewerKeyFile,
 		&i.ReviewerHookFile,
+		&i.HookFile,
 	)
 	return i, err
 }
 
 const listGithubAccounts = `-- name: ListGithubAccounts :many
-SELECT id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file FROM github_account ORDER BY CASE kind WHEN 'user' THEN 0 ELSE 1 END, login
+SELECT id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file, hook_file FROM github_account ORDER BY CASE kind WHEN 'user' THEN 0 ELSE 1 END, login
 `
 
 func (q *Queries) ListGithubAccounts(ctx context.Context) ([]GithubAccount, error) {
@@ -71,6 +72,7 @@ func (q *Queries) ListGithubAccounts(ctx context.Context) ([]GithubAccount, erro
 			&i.ReviewerHtmlUrl,
 			&i.ReviewerKeyFile,
 			&i.ReviewerHookFile,
+			&i.HookFile,
 		); err != nil {
 			return nil, err
 		}
@@ -86,15 +88,16 @@ func (q *Queries) ListGithubAccounts(ctx context.Context) ([]GithubAccount, erro
 }
 
 const setGithubAccountApp = `-- name: SetGithubAccountApp :exec
-UPDATE github_account SET app_id = ?, slug = ?, html_url = ?, key_file = ? WHERE login = ?
+UPDATE github_account SET app_id = ?, slug = ?, html_url = ?, key_file = ?, hook_file = ? WHERE login = ?
 `
 
 type SetGithubAccountAppParams struct {
-	AppID   sql.NullInt64 `json:"app_id"`
-	Slug    string        `json:"slug"`
-	HtmlUrl string        `json:"html_url"`
-	KeyFile string        `json:"key_file"`
-	Login   string        `json:"login"`
+	AppID    sql.NullInt64 `json:"app_id"`
+	Slug     string        `json:"slug"`
+	HtmlUrl  string        `json:"html_url"`
+	KeyFile  string        `json:"key_file"`
+	HookFile string        `json:"hook_file"`
+	Login    string        `json:"login"`
 }
 
 func (q *Queries) SetGithubAccountApp(ctx context.Context, arg SetGithubAccountAppParams) error {
@@ -103,6 +106,7 @@ func (q *Queries) SetGithubAccountApp(ctx context.Context, arg SetGithubAccountA
 		arg.Slug,
 		arg.HtmlUrl,
 		arg.KeyFile,
+		arg.HookFile,
 		arg.Login,
 	)
 	return err
@@ -136,7 +140,7 @@ func (q *Queries) SetGithubAccountReviewer(ctx context.Context, arg SetGithubAcc
 const upsertGithubAccount = `-- name: UpsertGithubAccount :one
 INSERT INTO github_account (login, kind) VALUES (?, ?)
 ON CONFLICT (login) DO UPDATE SET kind = excluded.kind
-RETURNING id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file
+RETURNING id, login, kind, app_id, slug, html_url, key_file, created_at, reviewer_app_id, reviewer_slug, reviewer_html_url, reviewer_key_file, reviewer_hook_file, hook_file
 `
 
 type UpsertGithubAccountParams struct {
@@ -161,6 +165,7 @@ func (q *Queries) UpsertGithubAccount(ctx context.Context, arg UpsertGithubAccou
 		&i.ReviewerHtmlUrl,
 		&i.ReviewerKeyFile,
 		&i.ReviewerHookFile,
+		&i.HookFile,
 	)
 	return i, err
 }

@@ -120,12 +120,12 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	// Accounts: a GitHub App lives in the account that owns the repositories, personal or org.
 	post("/ui/act/account-add", `{"acctlogin":"plank-pattern","acctkind":"org"}`)
 	post("/ui/act/account-add", `{"acctlogin":"@njreid","acctkind":"user"}`)
-	setup := get("/setup", "plank-pattern", "organisation", "njreid", "personal", "no App yet")
+	setup := get("/setup", "plank-pattern", "organisation", "njreid", "personal", "No App yet")
 	if !strings.Contains(setup, "https://github.com/organizations/plank-pattern/settings/apps/new?state=") ||
 		!strings.Contains(setup, "https://github.com/settings/apps/new?state=") {
 		t.Fatalf("the org and personal App forms must post to different GitHub URLs: %.1500s", setup)
 	}
-	get("/setup?account=somebody-else&repo=somebody-else/x&back=/project/web", "somebody-else is not set up yet", "somebody-else/x")
+	get("/setup?account=somebody-else&back=/project/web", "GitHub accounts", `placeholder="GitHub user or organisation`)
 	get("/settings", "GitHub accounts", "plank-pattern", "set up the App")
 	if out := post("/ui/act/repo-link?slug=web", `{"repoadd":"somebody-else/missing"}`); !strings.Contains(out, "/setup?account=") {
 		t.Fatalf("linking a repo the App cannot see must point at the fix: %s", out)

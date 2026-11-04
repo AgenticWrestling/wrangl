@@ -68,6 +68,7 @@ type GithubAccount struct {
 	ReviewerHtmlUrl  string        `json:"reviewer_html_url"`
 	ReviewerKeyFile  string        `json:"reviewer_key_file"`
 	ReviewerHookFile string        `json:"reviewer_hook_file"`
+	HookFile         string        `json:"hook_file"`
 }
 
 type HookEvent struct {

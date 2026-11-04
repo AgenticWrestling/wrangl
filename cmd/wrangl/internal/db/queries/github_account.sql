@@ -10,7 +10,7 @@ ON CONFLICT (login) DO UPDATE SET kind = excluded.kind
 RETURNING *;
 
 -- name: SetGithubAccountApp :exec
-UPDATE github_account SET app_id = ?, slug = ?, html_url = ?, key_file = ? WHERE login = ?;
+UPDATE github_account SET app_id = ?, slug = ?, html_url = ?, key_file = ?, hook_file = ? WHERE login = ?;
 
 -- name: DeleteGithubAccount :exec
 DELETE FROM github_account WHERE login = ?;

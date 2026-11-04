@@ -310,9 +310,10 @@ func (s *Service) Evaluate(ctx context.Context, prID int64) error {
 	return s.askOwner(ctx, pr, g)
 }
 
+// autoMergeable: the App that opened the PR can merge it, so auto-merge needs no reviewer App.
 func (s *Service) autoMergeable(ctx context.Context, pr dbgen.PullRequest) bool {
-	_, ghr, err := s.repo(ctx, pr.RepoID)
-	return err == nil && s.canReview(ghr.Owner)
+	_, _, err := s.repo(ctx, pr.RepoID)
+	return err == nil && s.Author != nil
 }
 
 func (s *Service) projectFor(ctx context.Context, pr dbgen.PullRequest) (dbgen.Project, error) {
@@ -454,15 +455,21 @@ func (s *Service) merge(ctx context.Context, pr dbgen.PullRequest, decision, not
 	if err != nil {
 		return err
 	}
-	if !s.canReview(ghr.Owner) {
-		// The web UI turns this into a link to create the reviewer App for that owner.
-		return &gh.NoAppError{Owner: ghr.Owner, Role: "reviewer"}
-	}
-	if err := s.Reviewer.Review(ctx, ghr, pr.GhNumber, "APPROVE", note); err != nil {
-		return fmt.Errorf("approve PR #%d: %w", pr.GhNumber, err)
+	// One App is enough: it merges. An approving review is only posted when the owner set up the
+	// optional reviewer App (needed only where GitHub requires approvals before a merge).
+	api, approve := s.Author, s.canReview(ghr.Owner)
+	if approve {
+		api = s.Reviewer
+		if err := api.Review(ctx, ghr, pr.GhNumber, "APPROVE", note); err != nil {
+			return fmt.Errorf("approve PR #%d: %w", pr.GhNumber, err)
+		}
 	}
 	root, _ := s.DB.RQ.GetTask(ctx, pr.TaskID)
-	if err := s.Reviewer.Merge(ctx, ghr, pr.GhNumber, fmt.Sprintf("[%s] %s (#%d)", root.Sqid.String, root.Title, pr.GhNumber)); err != nil {
+	if err := api.Merge(ctx, ghr, pr.GhNumber, fmt.Sprintf("[%s] %s (#%d)", root.Sqid.String, root.Title, pr.GhNumber)); err != nil {
+		var he *gh.HTTPError
+		if !approve && errors.As(err, &he) && (he.Status == 405 || he.Status == 409 || he.Status == 422) {
+			return fmt.Errorf("GitHub would not merge PR #%d (%v). If %s/%s requires approving reviews, add the wrangl App to its ruleset's bypass list, or set up the optional reviewer App in Settings > GitHub accounts", pr.GhNumber, he.Body, ghr.Owner, ghr.Name)
+		}
 		return fmt.Errorf("merge PR #%d: %w", pr.GhNumber, err)
 	}
 	return s.markMerged(ctx, pr, decision)

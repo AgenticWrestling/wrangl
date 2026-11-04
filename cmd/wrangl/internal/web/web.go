@@ -50,6 +50,7 @@ type Handler struct {
 	css  string // chroma styles (light + dark)
 
 	sessions sync.Map // page session id -> *liveSession
+	health   sync.Map // lowercase login -> cached App health (see appHealth)
 }
 
 // liveSession is one open page's live stream. The page says which backlog task it has
@@ -751,11 +752,15 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		seen := false
 		for _, ac := range accts {
 			v := acctView{Account: ac, AppName: ghsetup.AppName(ac.Login)}
-			if ac.App == nil {
-				v.State = h.D.Setup.NewState(ac.Login, back)
-				m, err := h.D.Setup.Manifest(v.AppName)
-				v.Manifest, v.ManifestErr = string(m), errString(err)
+			if ac.App != nil { // re-authorizing makes a new App: names are unique across GitHub
+				v.AppName = ghsetup.FreshAppName(ac.Login)
 			}
+			v.State = h.D.Setup.NewState(ac.Login, back)
+			m, err := h.D.Setup.Manifest(v.AppName)
+			v.Manifest, v.ManifestErr = string(m), errString(err)
+			v.Status, v.StatusText, v.NRepos = h.appHealth(ctx, ac)
+			v.Auto = ac.App == nil && strings.EqualFold(qv.Get("create"), ac.Login) || ac.App == nil && qv.Get("create") == "1" && strings.EqualFold(qv.Get("account"), ac.Login)
+			v.JustCreated = ac.App != nil && qv.Get("role") != "reviewer" && strings.EqualFold(qv.Get("created"), ac.Login) && v.Status == "noinstall"
 			if ac.Reviewer == nil {
 				v.RName = ghsetup.ReviewerName(ac.Login)
 				v.RState = h.D.Setup.NewRoleState(ac.Login, back, "reviewer")
@@ -770,7 +775,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["CreatedRole"] = qv.Get("role")
 		d["Repo"], d["Back"] = qv.Get("repo"), back
 		if f := qv.Get("account"); f != "" && !seen {
-			d["Suggest"] = f // the owner of a repo being linked, not set up yet
+			d["Suggest"] = f // an owner we could not add (GitHub did not know it): prefill the add box
 		}
 	case "template":
 		t, err := h.D.Fleet.Template(ctx, reqValue(r, "name"))
@@ -1086,6 +1091,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		if err = h.D.Agents.Apply(ctx, id, n); err == nil {
 			msg = "done"
 		}
+	case "account-check": // drop the cached health so the page re-checks, and reload it
+		h.health.Delete(strings.ToLower(q.Get("login")))
+		msg, nav = "checking…", "/setup?account="+url.QueryEscape(q.Get("login"))
 	case "agent-save":
 		ag := dbgen.ControllerAgent{Name: str("agname"), Command: str("agcmd"), Model: str("agmodel"), Auth: str("agauth"), AuthSecret: str("agsecret"), AuthEnv: str("agenv"), Enabled: 1}
 		ag.MaxTurns, _ = strconv.ParseInt(str("agturns"), 10, 64)
@@ -1238,7 +1246,8 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	case "account-add":
 		_, err = h.D.Setup.AddAccount(ctx, str("acctlogin"), str("acctkind"))
 		msg, reset = "account added", map[string]any{"acctlogin": ""}
-		nav = "/setup?account=" + url.QueryEscape(strings.TrimPrefix(str("acctlogin"), "@")) + "&back=" + url.QueryEscape(ghsetup.SafeBack(q.Get("back")))
+		// No App yet means create it now: the setup page goes straight on to GitHub.
+		nav = "/setup?account=" + url.QueryEscape(strings.TrimPrefix(str("acctlogin"), "@")) + "&create=1&back=" + url.QueryEscape(ghsetup.SafeBack(q.Get("back")))
 	case "account-remove":
 		err = h.D.Setup.RemoveAccount(ctx, q.Get("login"))
 		msg = "account removed"
@@ -1440,8 +1449,62 @@ type acctView struct {
 	Manifest    string
 	ManifestErr string
 	Focus       bool
+	Auto        bool // add-account just ran: submit the create-App form straight away
+	JustCreated bool // the App was created a moment ago: send the owner on to install it
+	// Status is what a live check of the App found: ok | noapp | noinstall | badcreds | error | unknown.
+	Status, StatusText string
+	NRepos             int
 	// The reviewer App's own form (only filled while it does not exist yet).
 	RName, RState, RManifest, RManifestErr string
+}
+
+// appHealth checks, with a short cache, that an account's App can really reach GitHub: it lists
+// the repositories the App is installed on. "App ready" used to mean only that credentials were
+// stored, which hid an installation that had gone away.
+func (h *Handler) appHealth(ctx context.Context, ac ghsetup.Account) (status, text string, n int) {
+	if ac.App == nil {
+		return "noapp", "No App yet", 0
+	}
+	type cached struct {
+		status, text string
+		n            int
+		at           time.Time
+	}
+	key := strings.ToLower(ac.Login)
+	if v, ok := h.health.Load(key); ok {
+		if c := v.(cached); time.Since(c.at) < 45*time.Second {
+			return c.status, c.text, c.n
+		}
+	}
+	if h.D.Projects == nil || h.D.Projects.GH == nil {
+		return "unknown", "not checked", 0
+	}
+	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	repos, err := h.D.Projects.GH.ListRepos(cctx, ac.Login)
+	var he *gh.HTTPError
+	switch {
+	case err == nil && len(repos) > 0:
+		status, text, n = "ok", fmt.Sprintf("Ready · %d repositor%s", len(repos), map[bool]string{true: "y", false: "ies"}[len(repos) == 1]), len(repos)
+	case err == nil:
+		status, text = "noinstall", "Installed on no repositories"
+	case errors.Is(err, gh.ErrNotInstalled) || (errors.As(err, &he) && he.Status == 404):
+		status, text = "noinstall", "Not installed"
+	case errors.As(err, &he) && (he.Status == 401 || he.Status == 403):
+		status, text = "badcreds", "Credentials rejected"
+	default:
+		status, text = "error", "Could not check: "+shortErr(err)
+	}
+	h.health.Store(key, cached{status, text, n, time.Now()})
+	return status, text, n
+}
+
+func shortErr(err error) string {
+	s := err.Error()
+	if len(s) > 80 {
+		s = s[:80] + "…"
+	}
+	return s
 }
 
 // repoGroup is one account's repositories for the link-a-repo picker.
@@ -1500,6 +1563,12 @@ func (h *Handler) githubToast(ctx context.Context, w http.ResponseWriter, err er
 	switch {
 	case errors.As(err, &na):
 		to := "/setup?account=" + url.QueryEscape(na.Owner)
+		if na.Role != "reviewer" { // an owner we have never seen: add it and go straight to creating its App
+			if _, ok := h.D.Setup.Account(ctx, na.Owner); !ok {
+				h.D.Setup.AddAccount(ctx, na.Owner, "")
+			}
+			to += "&create=1"
+		}
 		if b := ghsetup.SafeBack(back); b != "" {
 			to += "&back=" + url.QueryEscape(b)
 		}

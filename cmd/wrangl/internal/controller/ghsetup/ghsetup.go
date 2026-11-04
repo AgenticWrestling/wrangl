@@ -17,6 +17,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,7 +104,9 @@ type Service struct {
 	PublicURL string       // https://ctrl.example.com, no trailing slash
 	API       string       // GitHub API base; default https://api.github.com
 	HTTP      *http.Client // default: 20s timeout
-	Now       func() time.Time
+	// KindOf looks up whether an account is a user or an org (default: GitHub's public API).
+	KindOf func(ctx context.Context, login string) (string, error)
+	Now    func() time.Time
 	// Changed is called after an App is created or an account changes (drop cached clients).
 	Changed func()
 
@@ -156,6 +159,12 @@ func (s *Service) AddAccount(ctx context.Context, login, kind string) (Account, 
 	login = strings.TrimSpace(strings.TrimPrefix(login, "@"))
 	if !loginRe.MatchString(login) {
 		return Account{}, fmt.Errorf("%q is not a GitHub user or organisation name", login)
+	}
+	if kind == "" {
+		var err error
+		if kind, err = s.kindOf(ctx, login); err != nil {
+			return Account{}, err
+		}
 	}
 	if kind != "user" && kind != "org" {
 		return Account{}, errors.New("kind must be user or org")
@@ -229,8 +238,8 @@ func (s *Service) LookupReviewer(owner string) (gh.AppRef, bool) {
 	return gh.AppRef{AppID: r.ReviewerAppID.Int64, KeyPath: filepath.Join(s.DataDir, r.ReviewerKeyFile)}, true
 }
 
-// WebhookSecrets are the secrets of every reviewer App (GitHub generates one per App); a
-// delivery is accepted if it verifies against any.
+// WebhookSecrets are the secrets of every App (GitHub generates one per App); a delivery is
+// accepted if it verifies against any.
 func (s *Service) WebhookSecrets() [][]byte {
 	rows, err := s.DB.RQ.ListGithubAccounts(context.Background())
 	if err != nil {
@@ -238,12 +247,14 @@ func (s *Service) WebhookSecrets() [][]byte {
 	}
 	var out [][]byte
 	for _, r := range rows {
-		if r.ReviewerHookFile == "" {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(s.DataDir, r.ReviewerHookFile)); err == nil {
-			if t := strings.TrimSpace(string(b)); t != "" {
-				out = append(out, []byte(t))
+		for _, f := range []string{r.HookFile, r.ReviewerHookFile} {
+			if f == "" {
+				continue
+			}
+			if b, err := os.ReadFile(filepath.Join(s.DataDir, f)); err == nil {
+				if t := strings.TrimSpace(string(b)); t != "" {
+					out = append(out, []byte(t))
+				}
 			}
 		}
 	}
@@ -269,6 +280,19 @@ func AppName(login string) string {
 	return strings.TrimRight(n, "-")
 }
 
+// FreshAppName is AppName with a short random suffix, for creating a replacement App (GitHub App
+// names are unique across GitHub, so the original name is taken).
+func FreshAppName(login string) string {
+	b := make([]byte, 2)
+	rand.Read(b)
+	suffix := "-" + hex.EncodeToString(b)
+	n := "wrangl-" + strings.ToLower(login)
+	if len(n)+len(suffix) > 34 {
+		n = n[:34-len(suffix)]
+	}
+	return strings.TrimRight(n, "-") + suffix
+}
+
 // Manifest is the App manifest to submit to GitHub for an App called name.
 func (s *Service) Manifest(name string) ([]byte, error) { return s.ManifestFor(name, "") }
 
@@ -289,14 +313,17 @@ func (s *Service) ManifestFor(name, role string) ([]byte, error) {
 			"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "issues"},
 		})
 	}
+	// The one App per account: opens PRs, reads CI checks, merges and receives webhooks (GitHub
+	// generates the secret). It cannot approve a PR it opened itself; that is what the optional
+	// reviewer App is for, and only matters when a repository requires approving reviews.
 	return json.Marshal(map[string]any{
 		"name": name, "url": s.PublicURL, "public": false,
 		"redirect_url":    s.PublicURL + "/setup/github/callback",
-		"hook_attributes": map[string]any{"url": s.PublicURL + "/gh/webhook", "active": false},
+		"hook_attributes": map[string]any{"url": s.PublicURL + "/gh/webhook", "active": true},
 		"default_permissions": map[string]string{
-			"contents": "write", "pull_requests": "write", "issues": "read", "metadata": "read",
+			"contents": "write", "pull_requests": "write", "checks": "read", "issues": "read", "metadata": "read",
 		},
-		"default_events": []string{},
+		"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "issues"},
 	})
 }
 
@@ -387,13 +414,13 @@ func (s *Service) Exchange(ctx context.Context, code, state string) (Result, err
 		}
 		return Result{App: d.App, Login: login, Back: pend.back, Role: "reviewer"}, nil
 	}
-	if err := s.store(ctx, login, d.App, d.PEM); err != nil {
+	if err := s.store(ctx, login, d.App, d.PEM, d.WebhookSecret); err != nil {
 		return Result{}, err
 	}
 	return Result{App: d.App, Login: login, Back: pend.back}, nil
 }
 
-func (s *Service) store(ctx context.Context, login string, a App, pem string) error {
+func (s *Service) store(ctx context.Context, login string, a App, pem, hook string) error {
 	rel := "secrets/gh-" + strings.ToLower(login) + ".pem"
 	key := filepath.Join(s.DataDir, rel)
 	if err := os.MkdirAll(filepath.Dir(key), 0o750); err != nil {
@@ -402,6 +429,13 @@ func (s *Service) store(ctx context.Context, login string, a App, pem string) er
 	if err := writeFile(key, []byte(pem)); err != nil {
 		return err
 	}
+	hrel := ""
+	if hook != "" {
+		hrel = "secrets/gh-" + strings.ToLower(login) + "-webhook"
+		if err := writeFile(filepath.Join(s.DataDir, hrel), []byte(hook)); err != nil {
+			return err
+		}
+	}
 	// The account may be new (created under another login than the one we expected).
 	if _, err := s.DB.RQ.GetGithubAccount(ctx, login); err != nil {
 		if _, err := s.DB.Q.UpsertGithubAccount(ctx, dbgen.UpsertGithubAccountParams{Login: login, Kind: "user"}); err != nil {
@@ -409,7 +443,7 @@ func (s *Service) store(ctx context.Context, login string, a App, pem string) er
 		}
 	}
 	err := s.DB.Q.SetGithubAccountApp(ctx, dbgen.SetGithubAccountAppParams{
-		AppID: sql.NullInt64{Int64: a.ID, Valid: true}, Slug: a.Slug, HtmlUrl: a.HTMLURL, KeyFile: rel, Login: login})
+		AppID: sql.NullInt64{Int64: a.ID, Valid: true}, Slug: a.Slug, HtmlUrl: a.HTMLURL, KeyFile: rel, HookFile: hrel, Login: login})
 	if err == nil {
 		s.changed()
 	}
@@ -516,4 +550,43 @@ func (s *Service) MigrateLegacy(ctx context.Context, cfgAppID int64, cfgKeyPath 
 	}
 	return s.DB.Q.SetGithubAccountApp(ctx, dbgen.SetGithubAccountAppParams{
 		AppID: sql.NullInt64{Int64: appID, Valid: true}, Slug: slug, HtmlUrl: html, KeyFile: rel, Login: login})
+}
+
+// kindOf asks GitHub whether login is a personal account or an organisation (a public lookup,
+// no credentials), so the owner never has to say.
+func (s *Service) kindOf(ctx context.Context, login string) (string, error) {
+	if s.KindOf != nil {
+		return s.KindOf(ctx, login)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/users/"+login, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "wrangl")
+	req.Header.Set("Accept", "application/vnd.github+json")
+	hc := s.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: 15 * time.Second}
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("could not look %q up on GitHub: %w", login, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("GitHub has no user or organisation called %q", login)
+	}
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("could not look %q up on GitHub (HTTP %d)", login, resp.StatusCode)
+	}
+	var d struct {
+		Type string `json:"type"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&d) != nil {
+		return "", fmt.Errorf("unexpected reply from GitHub for %q", login)
+	}
+	if strings.EqualFold(d.Type, "Organization") {
+		return "org", nil
+	}
+	return "user", nil
 }

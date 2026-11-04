@@ -196,9 +196,11 @@ agent:
 		lresp.Body.Close()
 	}
 	os.WriteFile(filepath.Join(barrier, "release"), nil, 0o644)
-	_ = runC
 	va := e.waitRun(runA, "succeeded", "failed", "blocked")
 	vb := e.waitRun(runB, "succeeded", "failed", "blocked")
+	if vc := e.waitRun(runC, "succeeded", "failed", "blocked"); vc.State != "succeeded" { // C ran once a slot freed
+		t.Fatalf("run C: %+v", vc)
+	}
 	if va.State != "succeeded" || vb.State != "succeeded" {
 		t.Fatalf("runs: %+v / %+v", va, vb)
 	}

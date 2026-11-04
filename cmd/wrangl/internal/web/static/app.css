@@ -375,3 +375,26 @@ li.task > .row, li.task > .now { transition: opacity .15s ease; }
 #main:has(.detail:not(:empty)) li.task:has(> .detail:not(:empty)) > .row { opacity: 1; }
 #main:has(.detail:not(:empty)) li.task > .row:hover { opacity: .85; }
 #main .detail li.task > .row, #main .detail li.task > .now { opacity: 1 !important; }
+
+/* Setup: GitHub accounts as a table, rows expand for the rarely needed things. */
+table.accts { width: 100%; border-collapse: collapse; }
+table.accts th { text-align: left; color: var(--dim); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+table.accts td { padding: 10px; border-top: 1px solid var(--line); vertical-align: middle; }
+table.accts tbody:first-of-type td { border-top: 0; }
+table.accts tr.acct { cursor: pointer; }
+table.accts tr.acct:hover td { background: var(--raised); }
+table.accts td.act { text-align: right; white-space: nowrap; }
+table.accts td.act form { display: inline; }
+table.accts tr.more { display: none; }
+table.accts tbody.open tr.more { display: table-row; }
+table.accts tr.more > td { background: var(--raised); border-top: 0; padding: 4px 14px 14px; }
+table.accts tfoot td { border-top: 2px solid var(--line); }
+table.accts tfoot input { width: 100%; }
+.more-toggle { border: 0; background: none; color: var(--dim); font-size: 1.3rem; line-height: 1; padding: 2px 8px; cursor: pointer; border-radius: 8px; }
+.more-toggle:hover { background: var(--c3); color: var(--ink); }
+.stat { font-size: 0.9rem; }
+.stat.st-ok { color: var(--ok); }
+.stat.st-noinstall, .stat.st-noapp, .stat.st-unknown { color: var(--attn); }
+.stat.st-badcreds, .stat.st-error { color: var(--err); }
+details.adv { margin-top: 10px; }
+details.adv > summary { cursor: pointer; color: var(--dim); font-size: 0.86rem; }

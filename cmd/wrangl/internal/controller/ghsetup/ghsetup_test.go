@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"net/http"
@@ -199,5 +200,73 @@ func TestReviewerAppFlow(t *testing.T) {
 	}
 	if sec := s.WebhookSecrets(); len(sec) != 1 || string(sec[0]) != "s3cret" {
 		t.Fatalf("%q", sec)
+	}
+}
+
+// The one App per account does everything but approve: it reads checks, merges and receives
+// webhooks, so the reviewer App can stay optional.
+func TestSingleAppManifestIsComplete(t *testing.T) {
+	s := newSvc(t, "")
+	b, err := s.Manifest("wrangl-acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Hook struct {
+			URL    string `json:"url"`
+			Active bool   `json:"active"`
+		} `json:"hook_attributes"`
+		Perms  map[string]string `json:"default_permissions"`
+		Events []string          `json:"default_events"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if !m.Hook.Active || !strings.HasSuffix(m.Hook.URL, "/gh/webhook") {
+		t.Fatalf("webhook: %+v", m.Hook)
+	}
+	for perm, want := range map[string]string{"contents": "write", "pull_requests": "write", "checks": "read", "issues": "read", "metadata": "read"} {
+		if m.Perms[perm] != want {
+			t.Errorf("permission %s = %q, want %q", perm, m.Perms[perm], want)
+		}
+	}
+	if !strings.Contains(strings.Join(m.Events, ","), "pull_request") || !strings.Contains(strings.Join(m.Events, ","), "check_run") {
+		t.Fatalf("events: %v", m.Events)
+	}
+}
+
+// Nobody says whether an account is personal or an organisation: GitHub does.
+func TestAddAccountDetectsKind(t *testing.T) {
+	s := newSvc(t, "")
+	ctx := context.Background()
+	s.KindOf = func(_ context.Context, login string) (string, error) {
+		if login == "acme" {
+			return "org", nil
+		}
+		if login == "ghost" {
+			return "", fmt.Errorf("GitHub has no user or organisation called %q", login)
+		}
+		return "user", nil
+	}
+	if a, err := s.AddAccount(ctx, "acme", ""); err != nil || a.Kind != "org" {
+		t.Fatalf("org: %+v %v", a, err)
+	}
+	if a, err := s.AddAccount(ctx, "@someone", ""); err != nil || a.Kind != "user" {
+		t.Fatalf("user: %+v %v", a, err)
+	}
+	if _, err := s.AddAccount(ctx, "ghost", ""); err == nil || !strings.Contains(err.Error(), "no user or organisation") {
+		t.Fatalf("an unknown account must be refused with a reason: %v", err)
+	}
+	if a, err := s.AddAccount(ctx, "forced", "org"); err != nil || a.Kind != "org" { // an explicit kind skips the lookup
+		t.Fatalf("explicit kind: %+v %v", a, err)
+	}
+}
+
+func TestFreshAppNameStaysValid(t *testing.T) {
+	for _, login := range []string{"njreid", "AgenticWrestling", strings.Repeat("x", 39)} {
+		n := FreshAppName(login)
+		if len(n) > 34 || !strings.HasPrefix(n, "wrangl-") || strings.HasSuffix(n, "-") || n == AppName(login) {
+			t.Errorf("%s -> %q", login, n)
+		}
 	}
 }
