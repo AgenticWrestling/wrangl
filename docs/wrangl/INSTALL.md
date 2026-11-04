@@ -10,7 +10,7 @@ branch to GitHub. Do the steps in order. Each step ends with a check.
 > yet run against the real service, because the build sandbox had no access to it:
 > - EC2 (launch, tags, terminate)
 > - the IAM policy below
-> - the GitHub App
+> - the GitHub App (creation through the manifest flow, installation, merging)
 > - `mise install`
 > - Claude Code
 >
@@ -61,7 +61,7 @@ branch to GitHub. Do the steps in order. Each step ends with a check.
 | You need | For |
 |---|---|
 | An AWS account with an admin you can use from a laptop (`aws` CLI v2, the session-manager plugin) | steps 3–5 |
-| A GitHub account or org where you can create GitHub Apps and install them on repos | step 6 |
+| A GitHub account or org where you can create a GitHub App and install it on repos | step 6 |
 | A Claude Pro, Max, Team or Enterprise plan, with Claude Code installed on your laptop | step 7 |
 | A Cloudflare account with Zero Trust (the free plan is enough), and a domain on Cloudflare | step 10 (optional for now) |
 | Go 1.26+, [Task](https://taskfile.dev) and git on your laptop | step 2 |
@@ -244,11 +244,8 @@ aws:
   subnet_ids: [subnet-...]      # the private subnet from step 3
   security_group_id: sg-...     # the wrangl SG
   runner_instance_profile: wrangl-runner
-github:                         # filled in at step 6
-  author_app: { id: 0, private_key: secrets/gh-author.pem }
-  reviewer_app: { id: 0, private_key: secrets/gh-reviewer.pem, webhook_secret: secrets/gh-webhook }
 cloudflare: { team: "", aud: "", owner_email: "" }   # step 10 / M8
-web: { public_url: "" }
+web: { public_url: "" }            # required for GitHub setup, step 6
 ```
 
 You can read the private IP on the host with:
@@ -293,72 +290,78 @@ instead; it logs to `~/.local/share/wrangl/controller.log` and restarts on failu
 From here on, `wrangl` commands run on the controller host go to the local socket. Step 10
 covers running them from your laptop.
 
-## 6. GitHub Apps
+## 6. GitHub: one App per account
 
-wrangl uses **two** GitHub Apps, because GitHub won't let a PR's author approve it:
+wrangl needs one GitHub App for each GitHub account that owns repositories it works on (your
+personal account, and any organisation). A GitHub App lives in one account and by default can only
+be installed there, so a repo in another organisation needs that organisation added too. You
+don't create the App by hand: the web app creates it through GitHub's manifest flow.
 
-| App | Does | Used from |
-|---|---|---|
-| **author** | clones, pushes branches, opens PRs, reads issues | M4 (now) |
-| **reviewer** | reviews, approves and merges PRs; receives webhooks | M6 |
+The App clones and pushes branches, opens PRs, reads issues and CI checks, merges PRs, and
+receives webhooks. The controller mints a fresh installation token for each run, scoped to **one**
+repo with `contents:write` and `pull_requests:write`. Only the runner daemon (root) uses it for
+clone and push; the agent never sees it.
 
-### 6.1 The author App (needed now)
+### 6.1 Prerequisite: `web.public_url`
 
-GitHub → Settings (your account or org) → Developer settings → GitHub Apps → **New GitHub App**:
+GitHub redirects your browser back to the controller and sends webhooks to it, so the manifest
+carries the controller's public address. Set it in `/etc/wrangl/controller.yaml` and restart:
 
-- **Name:** `wrangl-author-<yourname>` (names are global on GitHub)
-- **Homepage URL:** anything, for example this repo's URL
-- **Webhook:** untick **Active**
-- **Repository permissions:**
-  - Contents: **Read and write**
-  - Pull requests: **Read and write**
-  - Issues: **Read-only**
-  - Metadata: **Read-only** (mandatory)
-- **Where can this App be installed:** Only on this account
-
-Create it, then:
-
-1. Note the **App ID** shown at the top of the App's page.
-2. **Generate a private key**, which downloads a `.pem` file.
-3. **Install App** → choose **Only select repositories** → pick the repos wrangl may work on.
-
-Put the key on the controller and set the ID:
-
-```sh
-# on the controller
-sudo install -o wrangl -g wrangl -m 0600 /tmp/wrangl-author.pem /var/lib/wrangl/secrets/gh-author.pem
-sudo -u wrangl sed -i 's/author_app: { id: 0/author_app: { id: 123456/' /etc/wrangl/controller.yaml
-sudo systemctl restart wrangl-controller
+```yaml
+web: { public_url: "https://wrangl.example.com" }   # the hostname from step 10
 ```
 
-Replace 123456 with your App ID. The controller logs a warning at start while
-`github.author_app` is unset.
+Without it the Setup page shows "web.public_url is not set in controller.yaml" instead of a
+Create App button. (Step 10 sets up the hostname and Cloudflare Access; do that first, or put in
+the address you will use.)
 
-The controller mints a fresh installation token for each run, scoped to **one** repo with
-`contents:write` and `pull_requests:write`. Only the runner daemon (root) uses it for clone
-and push; the agent never sees it.
+### 6.2 Add an account and create its App
 
-### 6.2 The reviewer App (create it now or at M6)
+1. In the web app open **Settings → GitHub accounts → Manage** (the `/setup` page).
+2. Type the GitHub user or organisation and press **Add account**. Adding an account with no App
+   sends you straight on to GitHub with the manifest prefilled.
+3. On GitHub, confirm the App's name (`wrangl-<login>`; names are global on GitHub) and press
+   **Create GitHub App**.
+4. GitHub returns you to wrangl, which stores the App's id and private key under the data
+   directory (`secrets/gh-<login>.pem`). It then **sends you on to install the App**: choose **Only select
+   repositories** and pick the repos wrangl may work on.
 
-Same steps, with these differences:
+**Check:** the account's row shows **✓ Ready · N repositories**. Other states:
 
-- **Name:** `wrangl-reviewer-<yourname>`
-- **Webhook:** **Active**. URL `https://<your-hostname>/gh/webhook` (step 10). Secret: the
-  output of `openssl rand -hex 32`, which you also store as `secrets/gh-webhook` on the
-  controller (mode 0600, owned by wrangl).
-- **Repository permissions:**
-  - Pull requests: **Read and write**
-  - Contents: **Read and write** (needed to merge)
-  - Checks: **Read-only**
-  - Issues: **Read-only**
-  - Metadata: **Read-only**
-- **Subscribe to events:** Check run, Check suite, Pull request, Pull request review, Issues
-- Install it on the same repos. Store its key as `secrets/gh-reviewer.pem` and set
-  `reviewer_app.id`.
+| Status | Meaning | What to do |
+|---|---|---|
+| ○ No App yet | account added, App not created | **Create App** |
+| ! Not installed / Installed on no repositories | the App exists but has no repos | **Install**, then pick repos |
+| ! Credentials rejected | GitHub refused the stored key (App deleted, key revoked) | **Re-authorize** |
+| ✓ Ready · N repositories | working | **Repositories** manages which repos |
 
-> **Branch protection (M6 caveat).** It hasn't been verified yet that an approval from a GitHub
-> App satisfies a "required approvals" rule. If it doesn't, add the reviewer App to the
-> ruleset's bypass list.
+**Re-authorize** creates a fresh App (with a new name) and replaces the stored one; the old App
+stays on GitHub until you delete it. Use it when credentials are rejected. The **⋯** menu on
+a row also has **Check again**, **Install on more repositories**, **Re-authorize…** and
+**Remove** (unlink the account; its repos stop working until it is added again).
+
+If you used an earlier version with a single App (the Setup page's, or `github.author_app` in
+`controller.yaml`), the controller adopts it into the account that owns it at start. No action
+is needed. Delete the legacy `github.author_app` block only if you like; it is no longer how
+Apps are set up.
+
+Then link repos with `wrangl repo link` (step 9). The webhook URL is `<public_url>/gh/webhook`;
+GitHub generates the secret for each App and wrangl verifies deliveries against it, so there is no
+webhook secret to create or paste. Step 10 (item 4, "Webhook bypass") lets that path through Cloudflare Access.
+
+### 6.3 Advanced: the reviewer App (optional)
+
+A GitHub App can't approve a PR it opened. That only matters when a repository **requires
+approving reviews** before merge. In that case either:
+
+- add the account's App to the repository ruleset's **bypass list** (nothing else to do), or
+- create a separate **reviewer App**: on the account's row open **⋯ → Advanced: reviewer App →
+  Create the reviewer App** and install it on the same repos. wrangl then uses it to approve,
+  merge and read PRs for that account, and the first App only authors.
+
+Skip this if your repos don't require approving reviews: the one App merges for you. It hasn't
+been verified yet whether an App's approval satisfies a "required approvals" rule, so the bypass
+list is the safer choice.
 
 ## 7. The Claude Code token
 
@@ -588,7 +591,7 @@ Template fields used here:
 
 ```sh
 wrangl project create web --template go-claude
-wrangl repo link web your-org/your-repo            # the author App must be installed on it
+wrangl repo link web your-org/your-repo            # the account's App must be installed on it
 wrangl issue sync web && wrangl issue list --project web
 
 # a task with two subtasks; the second waits for the first
@@ -604,14 +607,14 @@ wrangl run diff <run-id> --stat       # live from the runner's workspace
 ```
 
 When the run finishes, the branch `wrangl/<sqid>-<attempt>` is on GitHub with one commit per
-subtask (`[sqid] title`), and the controller opens a PR (as the author App). The subtasks
+subtask (`[sqid] title`), and the controller opens a PR (as the account's App). The subtasks
 show ◐ (in review) until it merges. What happens next:
 
 1. **Gates:** CI green (or no CI), changed lines ≤ the project's limit, no protected paths
    (`.github/**`, migrations, `go.mod`, `*.tf`, `Dockerfile*`).
 2. **Review:** a review run on a runner reads the PR and calls `submit_review` with a risk.
 3. **Decision:** with `--auto-merge` on the project, a low-risk PR that passes every gate is
-   approved and squash-merged by the reviewer App. Anything else becomes a question:
+   approved and squash-merged by wrangl (as the reviewer App if you made one, otherwise the account's App). Anything else becomes a question:
    ```sh
    wrangl question list                    # kind pr_review
    wrangl question answer <id> approve
@@ -661,7 +664,7 @@ Access, with no inbound ports.
    **Check:** `wrangl fleet list` from the laptop.
 4. **Webhook bypass (M6).** Add a second Access application for
    `wrangl.example.com/gh/webhook` with a **Bypass** policy (everyone). GitHub authenticates
-   with the HMAC secret from step 6.2 instead.
+   with the HMAC secret GitHub generated for the App (step 6.2) instead.
 
 5. **Let the controller verify Access itself.** Copy the application's **AUD tag**
    (Access → Applications → wrangl → Overview). Then in the controller config:
@@ -770,7 +773,7 @@ Watch these the first time and report anything odd:
 | IAM policy | controller log on launch/terminate | no `UnauthorizedOperation`; if you see one, the message names the missing action |
 | Enrolment | `fleet list` (enrolling → provisioning) | if stuck in `launching`: `ssm connect` to the runner, read `/var/log/cloud-init-output.log` |
 | `mise install` | `fleet show <runner>` template log | tools installed under `/home/agent/.local/share/mise` |
-| `repo link` | CLI output | base branch detected; otherwise the App isn't installed on that repo |
+| `repo link` | CLI output | base branch detected; otherwise the account's App isn't installed on that repo |
 | Claude Code | `wrangl run attach <id>` | the agent works in the repo; `exited N` failures show its output in `wrangl logs <id>` |
 | Idle shutdown | `fleet list` 30+ min after the last run | the runner disappears; the EC2 console shows it terminated |
 | Remote MCP (10.2) | `/mcp` in Claude Code | `wrangl` connected; with direct HTTP, a 401/403 means the service-token headers or the Access policy |
@@ -850,7 +853,7 @@ instance, the instance profiles and roles, the SG and the NAT gateway if you mad
 | Runner stuck `launching` | SG doesn't allow 4222–4223 from itself; subnet has no NAT (can't reach dnf/GitHub); look at cloud-init output on the runner |
 | Enrol rejected "request from X, but instance has private IP Y" | something between runner and controller rewrites the source IP (NAT, proxy, different VPC) |
 | Runner `idle (cordoned)` with "last error" | template apply failed; `wrangl fleet show <runner>` has the output tail. Fix with `wrangl template edit` |
-| `repo link`: "GitHub is not configured" / "not installed" | `github.author_app` unset, or the App isn't installed on that repo |
+| `repo link`: "GitHub is not configured" / "not installed" | no App for the repo's owner (add the account on the Setup page) or the App isn't installed on that repo |
 | Run `failed`, "agent exited N" | `wrangl logs <run>` and `wrangl run attach <run>` show what the agent printed |
 | Run `blocked` | remaining subtasks wait on tasks outside the run; finish those, then `wrangl task queue` again |
 | CLI from laptop: HTTP 403 from Cloudflare | the service-token policy is missing, or the `cf_service_token` id/secret are wrong |

@@ -71,7 +71,7 @@ flowchart LR
     mac["macOS runner<br/>EC2 Mac AMI<br/>(planned)"]
   end
 
-  gh["GitHub<br/>author + reviewer Apps"]
+  gh["GitHub<br/>one App per account"]
   aws["AWS<br/>EC2 and Cost Explorer"]
 
   phone -->|HTTPS| cf --> api
@@ -116,9 +116,10 @@ propose the split and accept it from the inbox.
 - Runners upgrade themselves when the controller does, and template edits roll out to live runners.
 
 **Review and merge.** A finished run opens a pull request and a separate review run assesses it.
-Low-risk work auto-merges, and the rest waits for you. Each GitHub account gets an author App (pushes
-and opens PRs) and a reviewer App (approves and merges, and receives webhooks), both created through
-GitHub's manifest flow from the Settings page.
+Low-risk work auto-merges, and the rest waits for you. Each GitHub account gets one App (pushes, opens
+and merges PRs, and receives webhooks), created through GitHub's manifest flow when you add the
+account on the Setup page. A separate reviewer App is an optional advanced step, only for repos that
+require approving reviews.
 
 **Inbox.** Agent questions, approvals, plan proposals and deliverables (mockup images, prototype
 links, markdown reports) arrive in one place, with web push on the installed app.

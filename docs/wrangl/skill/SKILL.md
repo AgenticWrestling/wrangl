@@ -36,14 +36,14 @@ Agents hand back non-PR results with the `submit_deliverable` tool (image, proto
 
 ## Projects and repos
 - `wrangl project list|show|create|edit|delete`; `project create SLUG --name N --template T [--auto-queue] [--auto-merge] [--priority N] [--description ...]`. Goals / definition-of-done markdown is edited on the web project page (`/project/SLUG`).
-- `wrangl repo link PROJECT owner/name [--branch B]` (the GitHub author App must be installed on the repo), `repo list`, `repo unlink`.
+- `wrangl repo link PROJECT owner/name [--branch B]` (the account's GitHub App must be installed on the repo; add the account and create the App on the Setup page), `repo list`, `repo unlink`.
 - `wrangl issue sync|list|show|to-task` - pull GitHub issues in and turn them into tasks.
 
 ## Runs, logs, questions, PRs
 - `wrangl run list|show ID`, `run attach ID` (read-only terminal, replays from start), `run diff|files|cat ID`, `run cancel ID`.
 - `wrangl logs RUN [-f] [--grep RE] [--since 15m] [--stream agent|runner]`; `wrangl logs search QUERY` (FTS5, all runs).
 - Agents ask questions and request approvals: `wrangl question list`, `question show ID`, `question answer ID [--option X] [--text ...]`. Check these first when a run seems stuck.
-- `wrangl pr list|show`, `pr approve` (merges; needs reviewer App), `pr request-changes` (queues a revise run), `pr close` (tasks reopen).
+- `wrangl pr list|show`, `pr approve` (approves and merges; a reviewer App is only needed if the repo requires approving reviews), `pr request-changes` (queues a revise run), `pr close` (tasks reopen).
 
 ## Runners and templates
 - `wrangl fleet list|show NAME`, `fleet launch --template T [--count N]` (new EC2), `fleet drain|cordon|terminate NAME`.
@@ -55,7 +55,7 @@ Agents hand back non-PR results with the `submit_deliverable` tool (image, proto
 - The controller host is a permanent runner (`host-*`, pinned first in the Runners view, never reaped); enrol it with `wrangl runner bootstrap --host`.
 
 ## Web app (PWA)
-Nav: Tasks / Runners / Logs / Inbox / Settings. **Tasks** (`/tasks`; `/backlog` redirects to `/tasks#backlog`) has three sections: *In progress* (runs assigned/running, with runner and the leaf being worked), *Queue* (queued runs, by tree position then FIFO) and *Backlog* (everything else). A queued or running task's whole subtree appears once in its section and not in Backlog. "Queue" is offered on every live task. Project buttons, `+` to create. Settings (text size, push, Setup: GitHub Apps, Projects, templates). Same data as the CLI; use whichever fits.
+Nav: Tasks / Runners / Logs / Inbox / Settings. **Tasks** (`/tasks`; `/backlog` redirects to `/tasks#backlog`) has three sections: *In progress* (runs assigned/running, with runner and the leaf being worked), *Queue* (queued runs, by tree position then FIFO) and *Backlog* (everything else). A queued or running task's whole subtree appears once in its section and not in Backlog. "Queue" is offered on every live task. Project buttons, `+` to create. Settings (text size, push, Setup: GitHub accounts, one App each, Projects, templates). Same data as the CLI; use whichever fits.
 
 ## Planned: wrangl 2 (not built yet; do not assume these flags exist)
 Release task `xTxoFH` (`wrangl task tree xTxoFH` for its milestones/subtasks). Check `wrangl <cmd> --help` before using anything below.
