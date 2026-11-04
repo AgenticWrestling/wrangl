@@ -315,12 +315,17 @@ body[data-view="logs"] main { max-width: none; }
 table.logs { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 table.logs th { text-align: left; font-weight: 600; color: var(--dim); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: var(--card); }
 table.logs td { padding: 7px 12px; border-top: 1px solid var(--line); vertical-align: top; }
-table.logs tr:first-child td { border-top: 0; }
+table.logs tbody:first-of-type tr:first-child td { border-top: 0; }
 table.logs td.nowrap { white-space: nowrap; }
 table.logs td.mono { font-family: var(--mono, ui-monospace, monospace); font-size: 0.82rem; }
-table.logs .logdetail { white-space: pre-wrap; word-break: break-word; max-width: 46ch; }
-table.logs tr.lv-error td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
-table.logs tr.lv-warn td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
+table.logs pre.logdetail { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 0.82rem; color: var(--dim); max-height: 28rem; overflow: auto; }
+table.logs tr.expandable { cursor: pointer; }
+table.logs tr.expandable:hover td { background: var(--raised); }
+table.logs .caret { display: inline-block; color: var(--dim); transition: transform .12s; }
+table.logs tbody.open .caret { transform: rotate(90deg); }
+table.logs tr.logd td { border-top: 0; padding-top: 0; }
+table.logs tbody.lv-error tr:first-child td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
+table.logs tbody.lv-warn tr:first-child td:first-child { box-shadow: inset 3px 0 0 var(--attn); }
 .rank { width: 1.6em; text-align: right; }
 
 #topcosts .row.other { flex-wrap: wrap; }

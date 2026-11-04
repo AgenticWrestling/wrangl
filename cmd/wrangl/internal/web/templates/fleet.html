@@ -110,15 +110,17 @@
 {{define "main-logs"}}
 <div class="logbar">{{range $k := list "" "run" "runner" "template" "upgrade"}}<a class="pill{{if eq $k $.Kind}} on{{end}}" href="/logs{{if $k}}?kind={{$k}}{{end}}">{{if $k}}{{$k}}{{else}}all{{end}}</a>{{end}}</div>
 {{if .Rows}}<div class="logwrap"><table class="logs">
-<thead><tr><th>When</th><th>Kind</th><th>Status</th><th>Subject</th><th>Event</th><th>Detail</th></tr></thead>
-<tbody>{{range .Rows}}<tr class="lv-{{.Level}}">
+<thead><tr><th>When</th><th>Kind</th><th>Status</th><th>Subject</th><th>Event</th></tr></thead>
+{{range .Rows}}{{$k := lkey .}}<tbody class="lrow lv-{{.Level}}"{{if .Detail}} data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}"{{end}}>
+<tr{{if .Detail}} class="expandable" data-on:click="if (!evt.target.closest('a,button')) {{sig "" $k}} = !{{sig "" $k}}" title="Show detail" tabindex="0" data-on:keydown="(evt.key == 'Enter' || evt.key == ' ') && !evt.target.closest('a,button') && (evt.preventDefault(), {{sig "" $k}} = !{{sig "" $k}})"{{end}}>
 <td class="dim nowrap" title="{{.At}}">{{ago .At}}</td>
 <td><span class="pill">{{.Kind}}</span></td>
 <td>{{if .State}}{{template "runtag" .State}}{{else if eq .Level "error"}}<span class="tag attn">! error</span>{{else if eq .Level "warn"}}<span class="tag attn">! warn</span>{{end}}</td>
 <td class="mono">{{if .Subject}}{{if eq .Kind "template"}}{{.Subject}}{{else if eq .Kind "run"}}{{.Subject}}{{else}}<a href="/runner/{{.Subject}}">{{.Subject}}</a>{{end}}{{end}}</td>
-<td>{{if .Link}}<a href="{{.Link}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</td>
-<td class="dim logdetail">{{.Detail}}</td>
-</tr>{{end}}</tbody></table></div>
+<td>{{if .Detail}}<span class="caret" aria-hidden="true">▸</span> {{end}}{{if .Link}}<a href="{{.Link}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</td>
+</tr>{{if .Detail}}
+<tr class="logd" data-show="{{sig "" $k}}" style="display:none"><td></td><td colspan="4"><pre class="logdetail">{{.Detail}}</pre></td></tr>{{end}}
+</tbody>{{end}}</table></div>
 {{else}}<p class="empty">Nothing logged yet.</p>{{end}}
 {{end}}
 

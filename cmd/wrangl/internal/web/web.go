@@ -18,6 +18,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/ghsetup"
 	"gopkg.in/yaml.v3"
+	"hash/fnv"
 	"html/template"
 	"io"
 	"io/fs"
@@ -100,9 +101,15 @@ func New(d api.Deps) (*Handler, error) {
 		"list":      func(v ...string) []string { return v },
 		"hasSuffix": strings.HasSuffix,
 		"lower":     strings.ToLower,
-		"outline":   outlineFromPayload,
-		"ticon":     typeIcon,
-		"termok":    termUsable,
+		"sig":       func(prefix, name string) template.JS { return template.JS("$" + prefix + name) }, // a Datastar signal in an on:* expression (html/template would quote a string there)
+		"lkey": func(r logRow) string { // stable per log row, so an expanded row stays open across live patches
+			f := fnv.New32a()
+			io.WriteString(f, r.Kind+"|"+r.At+"|"+r.Subject+"|"+r.Title)
+			return fmt.Sprintf("lg%08x", f.Sum32())
+		},
+		"outline": outlineFromPayload,
+		"ticon":   typeIcon,
+		"termok":  termUsable,
 		"faicon": func(n string) template.HTML {
 			return template.HTML(`<svg class="fa" aria-hidden="true"><use href="#fa-` + n + `"/></svg>`)
 		},
