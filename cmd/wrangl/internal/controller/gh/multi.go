@@ -183,6 +183,14 @@ func (m *Multi) OpenPRs(ctx context.Context, r Repo) ([]OpenPR, error) {
 	return c.OpenPRs(ctx, r)
 }
 
+func (m *Multi) UpdateBranch(ctx context.Context, r Repo, number int64) error {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return err
+	}
+	return c.UpdateBranch(ctx, r, number)
+}
+
 func (m *Multi) ClosePR(ctx context.Context, r Repo, number int64) error {
 	c, err := m.client(r.Owner)
 	if err != nil {

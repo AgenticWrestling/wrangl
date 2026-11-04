@@ -139,6 +139,34 @@ type PR struct {
 	HeadSHA string
 	State   string // open | closed
 	Merged  bool
+	// Mergeable is the stored mergeable state (see MergeableState); "" when not reported.
+	Mergeable string
+}
+
+// Mergeable states stored on a pull request.
+const (
+	MergeUnknown    = "unknown"    // GitHub has not computed it yet
+	MergeClean      = "clean"      // no conflicts (the base may still have moved)
+	MergeConflicted = "conflicted" // the head conflicts with the base
+	MergeBlocked    = "blocked"    // mergeable, but branch protection blocks it
+)
+
+// MergeableState maps GitHub's pull request `mergeable` (nil while GitHub is still
+// computing it) and `mergeable_state` to a stored state. "dirty" means conflicts.
+func MergeableState(mergeable *bool, state string) string {
+	if state == "dirty" || (mergeable != nil && !*mergeable) {
+		return MergeConflicted
+	}
+	if mergeable == nil {
+		return MergeUnknown
+	}
+	if state == "blocked" {
+		return MergeBlocked
+	}
+	if state == "unknown" {
+		return MergeUnknown
+	}
+	return MergeClean
 }
 
 // OpenPR is an open pull request as listed for a repository.
@@ -168,6 +196,9 @@ const (
 type PRAPI interface {
 	CreatePR(ctx context.Context, r Repo, head, base, title, body string) (PR, error)
 	GetPR(ctx context.Context, r Repo, number int64) (PR, error)
+	// UpdateBranch merges the PR's base branch into its head branch on GitHub (PUT /pulls/{n}/update-branch).
+	// It fails when the merge conflicts.
+	UpdateBranch(ctx context.Context, r Repo, number int64) error
 	PRFiles(ctx context.Context, r Repo, number int64) ([]PRFile, error)
 	PRDiff(ctx context.Context, r Repo, number int64) (string, error)
 	Checks(ctx context.Context, r Repo, sha string) (string, error)

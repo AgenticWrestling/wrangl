@@ -38,6 +38,7 @@ type ProjectParams struct {
 	Name, Description      *string
 	Template, PlanTemplate *string // template names; "" clears
 	AutoMerge, AutoQueue   *bool
+	AutoResolve            *bool // auto-merge queues Smart Merge for conflicted PRs
 	Priority               *int64
 	NotesRepo              *string          // owner/name of a linked repo that holds research reports; "" clears
 	Limits                 map[string]int64 // instance caps by template name
@@ -92,7 +93,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
+	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -143,6 +144,9 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 		up.Priority = *p.Priority
 	}
 	out, err := s.DB.Q.UpdateProject(ctx, up)
+	if err == nil && p.AutoResolve != nil {
+		err = s.DB.Q.SetProjectAutoResolve(ctx, b2i(*p.AutoResolve), cur.ID)
+	}
 	if err == nil && p.CitationAudit != nil {
 		err = s.DB.Q.SetProjectCitationAudit(ctx, b2i(*p.CitationAudit), cur.ID)
 	}

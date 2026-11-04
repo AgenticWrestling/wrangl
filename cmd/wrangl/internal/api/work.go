@@ -52,13 +52,14 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		limits, _ := d.Projects.Limits(ctx, p.Slug)
 		ca, _ := db.RQ.GetProjectCitationAudit(ctx, p.ID)
-		return proto.ProjectView{CitationAudit: ca == 1, Agent: d.Projects.DefaultAgent(ctx, p.ID), Limits: limits, NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
+		ar, _ := db.RQ.GetProjectAutoResolve(ctx, p.ID)
+		return proto.ProjectView{AutoResolve: ar == 1, CitationAudit: ca == 1, Agent: d.Projects.DefaultAgent(ctx, p.ID), Limits: limits, NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
 			Template: tmplName(ctx, p.DefaultTemplateID), PlanTemplate: tmplName(ctx, p.PlanTemplateID),
 			AutoMerge: p.AutoMerge == 1, AutoQueue: p.AutoQueue == 1, Priority: p.Priority}
 	}
 	params := func(r proto.ProjectRequest) projects.ProjectParams {
 		return projects.ProjectParams{Name: r.Name, Description: r.Description, Template: r.Template,
-			PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, Priority: r.Priority, NotesRepo: r.NotesRepo, Limits: r.Limits, Agent: r.Agent, CitationAudit: r.CitationAudit}
+			PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, AutoResolve: r.AutoResolve, Priority: r.Priority, NotesRepo: r.NotesRepo, Limits: r.Limits, Agent: r.Agent, CitationAudit: r.CitationAudit}
 	}
 
 	// --- projects ---
@@ -691,7 +692,7 @@ func registerWork(mux *http.ServeMux, d Deps) {
 		}
 		writeErr(w, fmt.Errorf("%w: PR %d", errs.NotFound, id))
 	})
-	for _, op := range []string{"approve", "request-changes", "close"} {
+	for _, op := range []string{"approve", "request-changes", "resolve", "close"} {
 		mux.HandleFunc("POST /api/v1/prs/{id}/"+op, func(w http.ResponseWriter, r *http.Request) {
 			id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 			if err != nil {
@@ -710,6 +711,8 @@ func registerWork(mux *http.ServeMux, d Deps) {
 				err = d.PRs.Approve(r.Context(), id)
 			case "request-changes":
 				err = d.PRs.RequestChanges(r.Context(), id, req.Message)
+			case "resolve":
+				err = d.PRs.ResolveConflicts(r.Context(), id)
 			case "close":
 				err = d.PRs.Close(r.Context(), id)
 			}

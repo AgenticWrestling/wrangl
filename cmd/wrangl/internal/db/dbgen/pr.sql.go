@@ -57,7 +57,7 @@ func (q *Queries) ClosePRRow(ctx context.Context, arg ClosePRRowParams) error {
 const createPR = `-- name: CreatePR :one
 INSERT INTO pull_request (task_id, repo_id, run_id, gh_number, url, head_branch, head_sha)
 VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha
+RETURNING id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha, mergeable
 `
 
 type CreatePRParams struct {
@@ -99,12 +99,13 @@ func (q *Queries) CreatePR(ctx context.Context, arg CreatePRParams) (PullRequest
 		&i.HeadSha,
 		&i.Checks,
 		&i.ReviewedSha,
+		&i.Mergeable,
 	)
 	return i, err
 }
 
 const getPR = `-- name: GetPR :one
-SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha FROM pull_request WHERE id = ?
+SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha, mergeable FROM pull_request WHERE id = ?
 `
 
 func (q *Queries) GetPR(ctx context.Context, id int64) (PullRequest, error) {
@@ -128,6 +129,7 @@ func (q *Queries) GetPR(ctx context.Context, id int64) (PullRequest, error) {
 		&i.HeadSha,
 		&i.Checks,
 		&i.ReviewedSha,
+		&i.Mergeable,
 	)
 	return i, err
 }
@@ -191,7 +193,7 @@ func (q *Queries) LatestBlockedRuns(ctx context.Context) ([]Run, error) {
 }
 
 const listPRs = `-- name: ListPRs :many
-SELECT pr.id, pr.task_id, pr.repo_id, pr.run_id, pr.gh_number, pr.url, pr.head_branch, pr.state, pr.risk, pr.review_summary_md, pr.gates_json, pr.decision, pr.created_at, pr.updated_at, pr.head_sha, pr.checks, pr.reviewed_sha, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
+SELECT pr.id, pr.task_id, pr.repo_id, pr.run_id, pr.gh_number, pr.url, pr.head_branch, pr.state, pr.risk, pr.review_summary_md, pr.gates_json, pr.decision, pr.created_at, pr.updated_at, pr.head_sha, pr.checks, pr.reviewed_sha, pr.mergeable, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(r.owner || '/' || r.name AS TEXT) AS repo
 FROM pull_request pr JOIN task t ON t.id = pr.task_id JOIN repo r ON r.id = pr.repo_id
 WHERE CAST(?1 AS TEXT) = 'all' OR pr.state = CAST(?1 AS TEXT)
@@ -232,6 +234,7 @@ func (q *Queries) ListPRs(ctx context.Context, state string) ([]ListPRsRow, erro
 			&i.PullRequest.HeadSha,
 			&i.PullRequest.Checks,
 			&i.PullRequest.ReviewedSha,
+			&i.PullRequest.Mergeable,
 			&i.TaskSqid,
 			&i.TaskTitle,
 			&i.Repo,
@@ -250,7 +253,7 @@ func (q *Queries) ListPRs(ctx context.Context, state string) ([]ListPRsRow, erro
 }
 
 const openPRForBranch = `-- name: OpenPRForBranch :one
-SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha FROM pull_request WHERE repo_id = ? AND head_branch = ? AND state = 'open'
+SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha, mergeable FROM pull_request WHERE repo_id = ? AND head_branch = ? AND state = 'open'
 `
 
 type OpenPRForBranchParams struct {
@@ -279,12 +282,13 @@ func (q *Queries) OpenPRForBranch(ctx context.Context, arg OpenPRForBranchParams
 		&i.HeadSha,
 		&i.Checks,
 		&i.ReviewedSha,
+		&i.Mergeable,
 	)
 	return i, err
 }
 
 const openPRForTask = `-- name: OpenPRForTask :one
-SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha FROM pull_request WHERE task_id = ? AND state = 'open' ORDER BY id DESC LIMIT 1
+SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha, mergeable FROM pull_request WHERE task_id = ? AND state = 'open' ORDER BY id DESC LIMIT 1
 `
 
 func (q *Queries) OpenPRForTask(ctx context.Context, taskID int64) (PullRequest, error) {
@@ -308,12 +312,13 @@ func (q *Queries) OpenPRForTask(ctx context.Context, taskID int64) (PullRequest,
 		&i.HeadSha,
 		&i.Checks,
 		&i.ReviewedSha,
+		&i.Mergeable,
 	)
 	return i, err
 }
 
 const openPRs = `-- name: OpenPRs :many
-SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha FROM pull_request WHERE state = 'open' ORDER BY id
+SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha, mergeable FROM pull_request WHERE state = 'open' ORDER BY id
 `
 
 func (q *Queries) OpenPRs(ctx context.Context) ([]PullRequest, error) {
@@ -343,6 +348,7 @@ func (q *Queries) OpenPRs(ctx context.Context) ([]PullRequest, error) {
 			&i.HeadSha,
 			&i.Checks,
 			&i.ReviewedSha,
+			&i.Mergeable,
 		); err != nil {
 			return nil, err
 		}
@@ -358,7 +364,7 @@ func (q *Queries) OpenPRs(ctx context.Context) ([]PullRequest, error) {
 }
 
 const openPRsByHeadSHA = `-- name: OpenPRsByHeadSHA :many
-SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha FROM pull_request WHERE head_sha = ? AND state = 'open'
+SELECT id, task_id, repo_id, run_id, gh_number, url, head_branch, state, risk, review_summary_md, gates_json, decision, created_at, updated_at, head_sha, checks, reviewed_sha, mergeable FROM pull_request WHERE head_sha = ? AND state = 'open'
 `
 
 func (q *Queries) OpenPRsByHeadSHA(ctx context.Context, headSha string) ([]PullRequest, error) {
@@ -388,6 +394,7 @@ func (q *Queries) OpenPRsByHeadSHA(ctx context.Context, headSha string) ([]PullR
 			&i.HeadSha,
 			&i.Checks,
 			&i.ReviewedSha,
+			&i.Mergeable,
 		); err != nil {
 			return nil, err
 		}
@@ -415,7 +422,7 @@ func (q *Queries) OpenQuestionForPR(ctx context.Context, prID int64) (int64, err
 }
 
 const pRByNumber = `-- name: PRByNumber :one
-SELECT pr.id, pr.task_id, pr.repo_id, pr.run_id, pr.gh_number, pr.url, pr.head_branch, pr.state, pr.risk, pr.review_summary_md, pr.gates_json, pr.decision, pr.created_at, pr.updated_at, pr.head_sha, pr.checks, pr.reviewed_sha FROM pull_request pr JOIN repo r ON r.id = pr.repo_id
+SELECT pr.id, pr.task_id, pr.repo_id, pr.run_id, pr.gh_number, pr.url, pr.head_branch, pr.state, pr.risk, pr.review_summary_md, pr.gates_json, pr.decision, pr.created_at, pr.updated_at, pr.head_sha, pr.checks, pr.reviewed_sha, pr.mergeable FROM pull_request pr JOIN repo r ON r.id = pr.repo_id
 WHERE r.owner = ? AND r.name = ? AND pr.gh_number = ?
 ORDER BY pr.id DESC LIMIT 1
 `
@@ -447,6 +454,7 @@ func (q *Queries) PRByNumber(ctx context.Context, arg PRByNumberParams) (PullReq
 		&i.HeadSha,
 		&i.Checks,
 		&i.ReviewedSha,
+		&i.Mergeable,
 	)
 	return i, err
 }
@@ -588,7 +596,7 @@ func (q *Queries) ReposByName(ctx context.Context, arg ReposByNameParams) ([]Rep
 }
 
 const runsForPR = `-- name: RunsForPR :many
-SELECT id FROM run WHERE repo_id = ? AND branch = ? AND kind IN ('work', 'revise')
+SELECT id FROM run WHERE repo_id = ? AND branch = ? AND kind IN ('work', 'revise', 'resolve')
 `
 
 type RunsForPRParams struct {
@@ -711,4 +719,18 @@ func (q *Queries) UseOverride(ctx context.Context, id int64) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setPRMergeable = `-- name: SetPRMergeable :exec
+UPDATE pull_request SET mergeable = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?
+`
+
+type SetPRMergeableParams struct {
+	Mergeable string `json:"mergeable"`
+	ID        int64  `json:"id"`
+}
+
+func (q *Queries) SetPRMergeable(ctx context.Context, arg SetPRMergeableParams) error {
+	_, err := q.db.ExecContext(ctx, setPRMergeable, arg.Mergeable, arg.ID)
+	return err
 }

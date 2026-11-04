@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestClientPRFlow(t *testing.T) {
@@ -102,5 +103,91 @@ func TestClientPRFlow(t *testing.T) {
 	defer mu.Unlock()
 	if !strings.Contains(strings.Join(calls, "\n"), "PUT /repos/acme/app/pulls/5/merge") {
 		t.Fatalf("calls: %v", calls)
+	}
+}
+
+func TestMergeableState(t *testing.T) {
+	yes, no := true, false
+	for _, c := range []struct {
+		m     *bool
+		state string
+		want  string
+	}{
+		{nil, "unknown", MergeUnknown},
+		{nil, "", MergeUnknown},
+		{&yes, "clean", MergeClean},
+		{&yes, "unstable", MergeClean},
+		{&yes, "behind", MergeClean},
+		{&yes, "blocked", MergeBlocked},
+		{&no, "dirty", MergeConflicted},
+		{&no, "", MergeConflicted},
+		{nil, "dirty", MergeConflicted},
+		{&yes, "unknown", MergeUnknown},
+	} {
+		if got := MergeableState(c.m, c.state); got != c.want {
+			t.Errorf("MergeableState(%v,%q) = %q, want %q", c.m, c.state, got, c.want)
+		}
+	}
+}
+
+func TestGetPRRetriesWhileMergeableNull(t *testing.T) {
+	defer func(r int, w time.Duration) { mergeableRetries, mergeableWait = r, w }(mergeableRetries, mergeableWait)
+	mergeableWait = time.Millisecond
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	for _, c := range []struct {
+		nulls     int // responses with mergeable null before the real one
+		wantState string
+		wantGets  int
+	}{
+		{0, MergeConflicted, 1},
+		{2, MergeConflicted, 3},
+		{99, MergeUnknown, 5}, // gives up after mergeableRetries retries
+	} {
+		gets := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/repos/acme/app/installation":
+				fmt.Fprint(w, `{"id": 909}`)
+			case r.URL.Path == "/app/installations/909/access_tokens":
+				fmt.Fprint(w, `{"token":"t","expires_at":"2030-01-01T00:00:00Z"}`)
+			case r.URL.Path == "/repos/acme/app/pulls/5":
+				gets++
+				if gets <= c.nulls {
+					fmt.Fprint(w, `{"number":5,"state":"open","mergeable":null,"mergeable_state":"unknown","head":{"sha":"abc"}}`)
+					return
+				}
+				fmt.Fprint(w, `{"number":5,"state":"open","mergeable":false,"mergeable_state":"dirty","head":{"sha":"abc"}}`)
+			default:
+				http.Error(w, "unexpected "+r.URL.Path, 500)
+			}
+		}))
+		cl := &Client{AppID: 7, Key: key, BaseURL: srv.URL, HTTP: srv.Client(), Now: time.Now}
+		pr, err := cl.GetPR(context.Background(), Repo{Owner: "acme", Name: "app"}, 5)
+		srv.Close()
+		if err != nil || pr.Mergeable != c.wantState || gets != c.wantGets {
+			t.Errorf("nulls=%d: mergeable=%q gets=%d err=%v; want %q after %d gets", c.nulls, pr.Mergeable, gets, err, c.wantState, c.wantGets)
+		}
+	}
+}
+
+func TestClientUpdateBranch(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/acme/app/installation":
+			fmt.Fprint(w, `{"id": 909}`)
+		case r.URL.Path == "/app/installations/909/access_tokens":
+			fmt.Fprint(w, `{"token":"t","expires_at":"2030-01-01T00:00:00Z"}`)
+		default:
+			got = r.Method + " " + r.URL.Path
+			w.WriteHeader(202)
+			fmt.Fprint(w, `{"message":"Updating pull request branch."}`)
+		}
+	}))
+	defer srv.Close()
+	cl := &Client{AppID: 7, Key: key, BaseURL: srv.URL, HTTP: srv.Client(), Now: time.Now}
+	if err := cl.UpdateBranch(context.Background(), Repo{Owner: "acme", Name: "app"}, 5); err != nil || got != "PUT /repos/acme/app/pulls/5/update-branch" {
+		t.Fatalf("%q %v", got, err)
 	}
 }

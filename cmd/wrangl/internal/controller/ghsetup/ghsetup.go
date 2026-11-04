@@ -310,7 +310,7 @@ func (s *Service) ManifestFor(name, role string) ([]byte, error) {
 			"default_permissions": map[string]string{
 				"contents": "write", "pull_requests": "write", "checks": "read", "issues": "read", "metadata": "read",
 			},
-			"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "issues"},
+			"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "push", "issues"},
 		})
 	}
 	// The one App per account: opens PRs, reads CI checks, merges and receives webhooks (GitHub
@@ -325,7 +325,7 @@ func (s *Service) ManifestFor(name, role string) ([]byte, error) {
 		"default_permissions": map[string]string{
 			"contents": "write", "pull_requests": "write", "checks": "read", "issues": "write", "metadata": "read",
 		},
-		"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "issues"},
+		"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "push", "issues"},
 	})
 }
 
