@@ -49,6 +49,9 @@ type Worker struct {
 	// secretRefs counts the sessions using each secret file written to a shared path, so the
 	// last one out removes it (a template's secrets are the same for every session).
 	secretRefs map[string]int
+	// repoLocks serialises git operations that touch a repo's shared object store (fetch,
+	// worktree add/remove): one lock per mirror path.
+	repoLocks sync.Map // mirror path -> *sync.Mutex
 }
 
 // runState is one run in progress on this runner.
@@ -234,6 +237,8 @@ type session struct {
 	interactive bool
 	onStop      func(ctx context.Context) (string, bool)
 	secretPaths []string // secret files to remove when the run ends
+	mirror      string   // the shared bare clone this run's worktree belongs to
+	cleanup     bool     // remove the worktree when the run ends (set once its work is safely pushed)
 	// agentSession is the agent's own session id, for agents that cannot be given one up
 	// front (Codex, agy, Gemini): read from its JSON output, else from a hook payload.
 	agentSession      string
@@ -380,6 +385,7 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 		fail(err)
 		return
 	}
+	defer s.removeWorktree(pubCtx) // only acts once cleanup is set: failed runs keep theirs for inspection
 	s.state(pubCtx, proto.RunState{State: "preparing", Status: "cloning " + a.Repo})
 	base, err := w.prepare(ctx, s)
 	if err != nil {
@@ -484,6 +490,7 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	if blocked {
 		final.State, final.Status = "blocked", "remaining tasks wait on precursors outside this run"
 	}
+	s.cleanup = !blocked
 	s.state(pubCtx, final)
 }
 
@@ -497,14 +504,13 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 	if err := chownTree(filepath.Dir(dir), id); err != nil {
 		return "", err
 	}
-	os.RemoveAll(dir) // a retried run starts clean
 	cloneBranch := a.BaseBranch
 	if a.Continue {
 		cloneBranch = a.Branch // revise / continuation: build on the existing branch
 	}
-	s.logf("runner", "cloning %s (%s)", a.Repo, cloneBranch)
-	if out, err := gitAsDaemon(ctx, filepath.Dir(dir), a.GitToken, "clone", "--branch", cloneBranch, a.CloneURL, dir); err != nil {
-		return "", fmt.Errorf("clone: %w: %s", err, out)
+	s.logf("runner", "preparing worktree of %s (%s)", a.Repo, cloneBranch)
+	if err := w.addWorktree(ctx, s, cloneBranch); err != nil {
+		return "", err
 	}
 	if err := chownTree(dir, id); err != nil {
 		return "", err
@@ -512,9 +518,6 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 	setup := [][]string{
 		{"config", "user.name", "wrangl agent (" + a.SessionName + ")"},
 		{"config", "user.email", "agent@wrangl.invalid"},
-	}
-	if !a.Continue {
-		setup = append([][]string{{"checkout", "-b", a.Branch}}, setup...)
 	}
 	for _, args := range setup {
 		if out, err := gitAsAgent(ctx, id, dir, args...); err != nil {
@@ -529,7 +532,7 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 			return "", fmt.Errorf("merge-base: %w: %s", err, mb)
 		}
 		head, _ := gitAsAgent(ctx, id, dir, "rev-parse", "HEAD")
-		os.WriteFile(filepath.Join(dir, ".git", "wrangl-base"), []byte(mb+"\n"), 0o644)
+		os.WriteFile(filepath.Join(gitDir(dir), "wrangl-base"), []byte(mb+"\n"), 0o644)
 		s.continuedFrom = head
 	}
 	base, err := gitAsAgent(ctx, id, dir, "rev-parse", "HEAD")
@@ -537,7 +540,7 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 		return "", err
 	}
 	if !a.Continue {
-		os.WriteFile(filepath.Join(dir, ".git", "wrangl-base"), []byte(base+"\n"), 0o644)
+		os.WriteFile(filepath.Join(gitDir(dir), "wrangl-base"), []byte(base+"\n"), 0o644)
 	}
 	vars := s.vars("")
 	for _, f := range a.Agent.Files {
@@ -918,7 +921,7 @@ func (w *Worker) Inspect(ctx context.Context, kind string, ref proto.RunRef) pro
 	}
 	switch kind {
 	case "diff":
-		base, _ := os.ReadFile(filepath.Join(dir, ".git", "wrangl-base"))
+		base, _ := os.ReadFile(filepath.Join(gitDir(dir), "wrangl-base"))
 		args := []string{"diff", strings.TrimSpace(string(base))}
 		if ref.Stat {
 			args = append(args, "--stat")
