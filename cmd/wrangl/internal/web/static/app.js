@@ -285,6 +285,31 @@ async function startLiveTerm() {
   open(false);
 }
 
+// Transcript panel (Live output as Markdown): follow the tail while the reader is at the bottom,
+// stop when they scroll up; "load earlier" prepends older entries without moving the view.
+function startLiveTx() {
+  const box = document.querySelector('.detail .livetx');
+  if (!box || box.dataset.ready) return;
+  box.dataset.ready = '1';
+  const body = box.querySelector('.txbody'), list = box.querySelector('[id^="txl-"]');
+  let follow = true;
+  const atBottom = () => body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+  body.addEventListener('scroll', () => { follow = atBottom(); });
+  new MutationObserver(() => { if (follow) body.scrollTop = body.scrollHeight; }).observe(list, { childList: true });
+  body.scrollTop = body.scrollHeight;
+  box.addEventListener('click', async (e) => {
+    const a = e.target.closest('.txearlier');
+    if (!a) return;
+    e.preventDefault();
+    const r = await fetch('/ui/transcript?run=' + box.dataset.run + '&before=' + a.dataset.before, { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const h = body.scrollHeight - body.scrollTop;
+    a.remove();
+    list.insertAdjacentHTML('afterbegin', await r.text());
+    body.scrollTop = body.scrollHeight - h;
+  });
+}
+
 function closeDetails() {
   stopLiveTerm();
   const sh = sheetsBox();
@@ -312,6 +337,7 @@ async function loadDetail(sqid) {
     const a = box.parentElement.querySelector(':scope > .row .title');
     if (a) a.setAttribute('aria-expanded', 'true');
     startLiveTerm();
+    startLiveTx();
   } catch (_) {
     box.innerHTML = '';
     openDetail = null;

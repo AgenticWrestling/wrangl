@@ -120,6 +120,12 @@ func streamTranscript(w http.ResponseWriter, r *http.Request, d Deps, runID int6
 	}
 }
 
+// TranscriptTail is the newest `limit` entries of a run's transcript with seq < before (0: no
+// bound), oldest first; used by the web card for stored entries.
+func TranscriptTail(ctx context.Context, js jetstream.JetStream, runnerID, runID int64, before, limit int) (TranscriptPage, error) {
+	return transcriptTail(ctx, js, natsd.RunTranscriptSubject(runnerID, runID), before, limit)
+}
+
 // transcriptTail returns the newest `limit` entries with seq < before (0: no bound).
 func transcriptTail(ctx context.Context, js jetstream.JetStream, subj string, before, limit int) (TranscriptPage, error) {
 	page := TranscriptPage{Entries: []transcript.Entry{}}
