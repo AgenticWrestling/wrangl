@@ -546,14 +546,8 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 	if err := chownTree(dir, id); err != nil {
 		return "", err
 	}
-	setup := [][]string{
-		{"config", "user.name", "wrangl agent (" + a.SessionName + ")"},
-		{"config", "user.email", "agent@wrangl.invalid"},
-	}
-	for _, args := range setup {
-		if out, err := gitAsAgent(ctx, id, dir, args...); err != nil {
-			return "", fmt.Errorf("git %s: %w: %s", args[0], err, out)
-		}
+	if err := w.setIdentity(ctx, s); err != nil {
+		return "", err
 	}
 	if a.Continue {
 		// Base = where the branch left the base branch, so diffs and "ahead" count only
