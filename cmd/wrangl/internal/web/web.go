@@ -499,6 +499,7 @@ type node struct {
 	Attention                bool          // an open question, or its latest run failed / is blocked
 	AttnKind                 string        // "questions" or "failed" when Attention is set
 	Kind                     string        // the one state shown by colour + glyph + label (see stateKind)
+	Queueable int // open leaves in the subtree (or itself) that are neither queued nor running
 	RollRev, RollQ, RollFail int           // descendants awaiting review / answers / failed (containers)
 	Crumbs                   []crumb       // "Now" view: ancestors, root first
 	Mockups                  int           // deliverables (mockups, prototypes, reports) handed back on this task
@@ -589,8 +590,13 @@ func stateKind(state, attn, lock string) string {
 
 // rollup fills the descendant counts of n and reports its subtree's totals including itself.
 func rollup(n *node) (rev, q, fail int) {
+	n.Queueable = 0
+	if n.Children == 0 && n.State == "open" && (n.Kind == "open" || n.Kind == "failed" || n.Kind == "questions") && n.LockedBy == "" {
+		n.Queueable = 1
+	}
 	for _, k := range n.Kids {
 		r, qq, f := rollup(k)
+		n.Queueable += k.Queueable
 		n.RollRev, n.RollQ, n.RollFail = n.RollRev+r, n.RollQ+qq, n.RollFail+f
 	}
 	rev, q, fail = n.RollRev, n.RollQ, n.RollFail
@@ -679,7 +685,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		}
 		// Queue is offered on every live task; if nothing is runnable the refusal says why (e.g.
 		// subtasks still in review).
-		d["CanQueue"] = t.State != "done" && t.State != "cancelled"
+		d["CanQueue"] = false
+		if n, ok := d["TNode"].(*node); ok {
+			d["CanQueue"] = n.Queueable > 0
+		}
 		if h.D.Agents != nil {
 			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
 		}

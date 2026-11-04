@@ -249,6 +249,35 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		get("/task/"+kid, `card k-review awaits`, `tag k-review`)
 		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid = ?`, kid)
 	}
+	// The Queue button only appears when the subtree has an open leaf to run.
+	{
+		const q = `data-key="q"`
+		kids := e.task(sqid).Children
+		a, b := kids[0].Sqid, kids[1].Sqid // "one" (leaf), "two" (parent of two.a)
+		if p := get("/task/" + a); !strings.Contains(p, q) {
+			t.Fatal("an open leaf must offer Queue")
+		}
+		if p := get("/task/" + sqid); !strings.Contains(p, q) {
+			t.Fatal("a parent with an open leaf must offer Queue")
+		}
+		e.db.W.Exec(`UPDATE task SET state='done' WHERE sqid = ?`, a)
+		if p := get("/task/" + a); strings.Contains(p, q) {
+			t.Fatal("a childless done task must not offer Queue")
+		}
+		e.db.W.Exec(`UPDATE task SET state='done' WHERE parent_id = (SELECT id FROM task WHERE sqid = ?)`, b)
+		e.db.W.Exec(`UPDATE task SET state='done' WHERE sqid = ?`, b)
+		if p := get("/task/" + b); strings.Contains(p, q) {
+			t.Fatal("a parent with only done children must not offer Queue")
+		}
+		if p := get("/task/" + sqid); strings.Contains(p, q) {
+			t.Fatal("a tree with nothing left to run must not offer Queue")
+		}
+		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid = ? OR parent_id = (SELECT id FROM task WHERE sqid = ?) OR sqid = ?`, b, b, sqid)
+		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid = ?`, a)
+		if p := get("/task/" + sqid); !strings.Contains(p, q) {
+			t.Fatal("reopened tree must offer Queue again")
+		}
+	}
 	// Queueing takes the task out of Backlog: it shows once, as a run entry, in Queue (waiting) or
 	// In progress (a runner with a free session slot took it straight away), ahead of Backlog.
 	if out := post("/ui/act/task-queue?sqid="+sqid, `{}`); strings.Contains(out, "toast show err") {
