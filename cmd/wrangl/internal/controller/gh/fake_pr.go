@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -13,6 +14,8 @@ type fakePR struct {
 	PR
 	repo       string
 	head, base string
+	title      string
+	fork       bool
 	reviews    []string // "EVENT: body"
 }
 
@@ -73,7 +76,7 @@ func (f *Fake) CreatePR(_ context.Context, r Repo, head, base, title, body strin
 	}
 	f.nextPR++
 	p := &fakePR{PR: PR{Number: f.nextPR, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", r.Owner, r.Name, f.nextPR), State: "open"},
-		repo: r.Owner + "/" + r.Name, head: head, base: base}
+		repo: r.Owner + "/" + r.Name, head: head, base: base, title: title}
 	f.prs[p.Number] = p
 	f.refresh(p)
 	return p.PR, nil
@@ -197,4 +200,28 @@ func (f *Fake) ClosePR(_ context.Context, _ Repo, n int64) error {
 	}
 	p.State = "closed"
 	return nil
+}
+
+// SetFork marks a PR as coming from a fork.
+func (f *Fake) SetFork(n int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p := f.prs[n]; p != nil {
+		p.fork = true
+	}
+}
+
+// OpenPRs implements PRAPI.
+func (f *Fake) OpenPRs(_ context.Context, r Repo) ([]OpenPR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []OpenPR
+	for _, p := range f.prs {
+		if p.repo == r.Owner+"/"+r.Name && p.State == "open" {
+			f.refresh(p)
+			out = append(out, OpenPR{PR: p.PR, Title: p.title, HeadBranch: p.head, Fork: p.fork})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Number < out[j].Number })
+	return out, nil
 }

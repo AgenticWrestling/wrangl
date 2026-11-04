@@ -811,7 +811,13 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 	case "pull_request", "pull_request_review":
 		pr, err := s.DB.RQ.PRByNumber(ctx, dbgen.PRByNumberParams{Owner: owner, Name: name, GhNumber: p.PullRequest.Number})
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil // not a wrangl PR
+			// Maybe an agent opened it: adopt it if it names one of our tasks.
+			if repos, rerr := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name}); rerr == nil && event == "pull_request" && p.Action != "closed" {
+				for _, r := range repos {
+					s.AdoptRepo(ctx, r.ID)
+				}
+			}
+			return nil
 		} else if err != nil {
 			return err
 		}
@@ -842,6 +848,9 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 
 // Reconcile re-evaluates every open PR (missed webhooks, CI finishing, merges on GitHub).
 func (s *Service) Reconcile(ctx context.Context) {
+	if s.Author != nil {
+		s.AdoptAll(ctx)
+	}
 	prs, err := s.DB.RQ.OpenPRs(ctx)
 	if err != nil {
 		s.Log.Error("reconcile PRs", "err", err)

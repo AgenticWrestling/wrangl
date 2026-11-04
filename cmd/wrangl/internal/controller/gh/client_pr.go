@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -205,4 +206,39 @@ func (c *Client) ClosePR(ctx context.Context, r Repo, n int64) error {
 	}
 	_, err = c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/pulls/%d", repoPath(r), n), "token "+tok, map[string]string{"state": "closed"}, nil)
 	return err
+}
+
+// OpenPRs implements PRAPI.
+func (c *Client) OpenPRs(ctx context.Context, r Repo) ([]OpenPR, error) {
+	tok, err := c.tokenFor(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	var out []OpenPR
+	for page := 1; page <= 5; page++ {
+		var raw []struct {
+			ghPR
+			Title string `json:"title"`
+			Head  struct {
+				SHA  string `json:"sha"`
+				Ref  string `json:"ref"`
+				Repo *struct {
+					FullName string `json:"full_name"`
+				} `json:"repo"`
+			} `json:"head"`
+		}
+		if _, err := c.do(ctx, http.MethodGet, fmt.Sprintf("%s/pulls?state=open&per_page=100&page=%d", repoPath(r), page), "token "+tok, nil, &raw); err != nil {
+			return out, err
+		}
+		for _, p := range raw {
+			pr := p.pr()
+			pr.HeadSHA = p.Head.SHA
+			out = append(out, OpenPR{PR: pr, Title: p.Title, HeadBranch: p.Head.Ref,
+				Fork: p.Head.Repo == nil || !strings.EqualFold(p.Head.Repo.FullName, r.Owner+"/"+r.Name)})
+		}
+		if len(raw) < 100 {
+			break
+		}
+	}
+	return out, nil
 }

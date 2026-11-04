@@ -153,6 +153,7 @@ FROM run r JOIN task t ON t.id = r.task_id
 WHERE r.state IN ('failed', 'blocked') AND r.kind IN ('work', 'revise') AND r.error <> 'runner lost'
   AND r.id = (SELECT MAX(x.id) FROM run x WHERE x.task_id = r.task_id)
   AND t.state IN ('open', 'in_progress')
+  AND NOT EXISTS (SELECT 1 FROM pull_request pr WHERE pr.task_id = t.id AND pr.state = 'open')
   AND NOT EXISTS (SELECT 1 FROM question q WHERE q.kind = 'task_review' AND q.state = 'open' AND q.task_id = t.id)`)
 	if err != nil {
 		return err
@@ -235,7 +236,9 @@ func (s *Service) closeStale(ctx context.Context) error {
 			} else {
 				var latest int64
 				s.DB.R.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM run WHERE task_id = ?`, o.task).Scan(&latest)
-				live = latest == p.RunID && (t.State == "open" || t.State == "in_progress")
+				var prs int
+				s.DB.R.QueryRowContext(ctx, `SELECT COUNT(*) FROM pull_request WHERE task_id = ? AND state = 'open'`, o.task).Scan(&prs)
+				live = latest == p.RunID && prs == 0 && (t.State == "open" || t.State == "in_progress")
 			}
 		}
 		if live {
