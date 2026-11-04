@@ -1,16 +1,20 @@
 {{define "main-tasks"}}
+<details class="pmore ppill">
+  <summary class="pbtn on" aria-label="Switch project">{{.Project}} <span aria-hidden="true">▾</span></summary>
+  <div class="menu">{{range .Projects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>{{end}}<a class="all" href="/projects">All projects</a></div>
+</details>
 <div class="projbar" role="toolbar" aria-label="Projects">
-  {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
+  {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
   {{if .Rest}}<details class="pmore">
     <summary class="pbtn{{range .Rest}}{{if eq .Slug $.Project}} on{{end}}{{end}}" aria-label="More projects">…</summary>
-    <div class="menu">{{range .Rest}}<a href="/tasks?project={{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
+    <div class="menu">{{range .Rest}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
   </details>{{end}}
   <button class="pbtn add" onclick="openSheet('sheet-project')" aria-label="New project" title="New project">＋</button>
 </div>
 {{if .Project}}<div class="bar">
-  <a class="chip" href="/tasks?project={{.Project}}{{if not .All}}&amp;all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
-  <a class="chip{{if .NowOnly}} on{{end}}" href="/tasks?project={{.Project}}{{if not .NowOnly}}&amp;now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
-  <a class="chip" href="/project/{{.Project}}">Project goals &amp; repos</a>
+  <a class="chip" href="/projects/{{.Project}}{{if not .All}}?all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a>
+  <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
+  <a class="chip" href="/projects/{{.Project}}/settings">Project goals &amp; repos</a>
   <span class="grow"></span>
   <button class="btn primary" data-key="n" onclick="openSheet('sheet-new')">＋ New task</button>
 </div>{{end}}
@@ -27,6 +31,15 @@
 <section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
 <ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul></section>
 {{end}}{{end}}
+
+{{define "main-projects"}}
+<div class="bar"><span class="grow"></span><button class="btn primary" onclick="openSheet('sheet-project')">＋ New project</button></div>
+{{if not .Projects}}<p class="empty">No projects yet. Tap ＋ New project to create one.</p>{{end}}
+<section class="card plist">{{range .Projects}}<a class="row link" href="/projects/{{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{end}}</section>
+{{if .ArchivedProjects}}<details class="card"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
+  {{range .ArchivedProjects}}<a class="row link" href="/projects/{{.Slug}}"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span></a>{{end}}</details>{{end}}
+{{end}}
+{{define "post-projects"}}{{template "sheet-project" .}}{{end}}
 
 {{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
   <div class="row">

@@ -1,0 +1,53 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>aJcOIb navigation</title>
+<style>
+@font-face{font-family:'Red Hat Display';src:url(fonts/red-hat-display-latin.woff2) format('woff2');font-weight:300 900}
+:root{--bg:#0f1115;--card:#171a21;--raised:#1f232b;--line:#2c313c;--ink:#eef0f3;--ink2:#c5cad3;--dim:#8a919e;--prog:#56b4e9;--attn:#e69f00;--link:#a6d8f5;--brand:#0072b2}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:300 16px/1.45 'Red Hat Display',system-ui,sans-serif;min-height:100vh}
+a{color:inherit;text-decoration:none}
+.app{display:flex;min-height:100vh}
+.side{width:200px;flex:none;border-right:1px solid var(--line);padding:14px 10px;background:var(--card)}
+.side .brand{font-size:1.25rem;font-weight:600;padding:2px 8px 14px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.side a.n{display:flex;gap:12px;padding:9px 12px;border-radius:10px;color:var(--dim);align-items:center}.side a.on{background:color-mix(in srgb,var(--prog) 14%,transparent);color:var(--prog);font-weight:600}
+.sub{display:flex;flex-direction:column;margin:0 0 4px 34px}.sub a{padding:4px 10px;border-radius:8px;font-size:.86rem;color:var(--dim)}.sub a.on{color:var(--ink);background:var(--raised)}.sub a.all{color:var(--link)}
+.sub i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--attn);margin-left:6px}
+.badge{background:var(--attn);color:#0f1115;border-radius:9px;font-size:.7rem;padding:0 6px;margin-left:auto;font-weight:600}
+main{flex:1;padding:18px;max-width:760px}
+h1{font-size:1.3rem;margin:0 0 2px}.meta{color:var(--dim);font-size:.85rem;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:8px}.card b{font-weight:600}.dim{color:var(--dim)}
+.pbtn{display:inline-block;border:1px solid var(--line);background:var(--raised);color:var(--ink2);padding:7px 14px;border-radius:999px;font-size:.9rem;margin:0 6px 10px 0}.pbtn.on{border-color:var(--prog);color:var(--ink);background:color-mix(in srgb,var(--prog) 14%,transparent)}
+.menu{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;box-shadow:0 8px 24px #000a}.menu a{display:flex;align-items:center;padding:11px 12px;border-radius:8px;color:var(--ink2)}.menu a.on{background:var(--raised);color:var(--ink)}.menu a.all{border-top:1px solid var(--line);margin-top:4px;color:var(--link)}.menu small{margin-left:auto;color:var(--dim)}
+.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);height:58px}.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.72rem;color:var(--dim)}.tabs a.on{color:var(--prog);font-weight:600}.tabs span{font-size:1.2rem;line-height:1.2}
+.sheet{position:fixed;left:0;right:0;bottom:58px;background:var(--card);border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding:10px 10px 6px;box-shadow:0 -8px 30px #000a}.sheet input{width:100%;background:var(--raised);border:1px solid var(--line);border-radius:10px;color:var(--ink);padding:10px;font:inherit;margin-bottom:6px}
+.scrim{position:fixed;inset:0 0 58px;background:#0008}
+.pop{position:relative}.pop .menu{position:absolute;top:0;left:0;min-width:230px;z-index:5}
+.tag{font-size:.75rem;padding:1px 8px;border-radius:9px;background:var(--raised);color:var(--dim)}
+.bar{position:fixed;left:8px;top:8px;background:#000c;padding:6px 8px;border-radius:8px;font-size:12px;display:flex;gap:6px;z-index:99}.bar a{color:var(--link)}body.shot .bar{display:none}
+.desk{display:none}.phone{display:none}
+@media(min-width:900px){.desk{display:flex}}@media(max-width:899px){.phone{display:block}.side{display:none}main{padding:12px 14px 80px}}
+</style></head><body>
+<div class="bar"><a href="#A-closed">A</a><a href="#B-closed">B</a><a href="#C-closed">C</a>|<a href="#A-open">open</a></div>
+<div id="app"></div>
+<script>
+const P=[['wrangl',2],['web',0],['mobile-app',1],['infra',0],['docs',0]];
+const side=(v,open)=>`<div class="side"><div class="brand">wrangl</div>
+ <a class="n on" href="#"><span>☰</span>Projects</a>
+ <div class="sub">${P.map((p,i)=>`<a class="${i==0?'on':''}">${p[0]}${v=='C'&&p[1]?'<i></i>':''}</a>`).join('')}<a class="all">All projects${v=='B'?' · 8':''}</a></div>
+ <a class="n"><span>⚙</span>Runners</a><a class="n"><span>▤</span>Logs</a><a class="n"><span>✉</span>Inbox<span class="badge">3</span></a><a class="n"><span>⚙</span>Settings</a></div>`;
+const body=`<h1 id="h">wrangl</h1><div class="meta">Self-hosted agent fleet · 2 runners active</div>
+ <div class="card"><b>In progress</b> <span class="dim">2</span></div><div class="card"><b>Queue</b> <span class="dim">4</span></div><div class="card"><b>Backlog</b> <span class="dim">11</span></div>`;
+const tabs=(a)=>`<div class="tabs"><a class="${a?'on':''}"><span>☰</span>Projects</a><a><span>⚙</span>Runners</a><a><span>▤</span>Logs</a><a><span>✉</span>Inbox</a><a><span>⚙</span>Settings</a></div>`;
+function pillMenu(v){
+ if(v=='A')return `<div class="pop"><div class="menu">${P.map((p,i)=>`<a class="${i==0?'on':''}">${p[0]}</a>`).join('')}<a class="all">All projects</a></div></div>`;
+ if(v=='B')return `<div class="scrim"></div><div class="sheet"><input placeholder="Find a project" aria-label="Find a project"><div class="menu" style="box-shadow:none;border:0">${P.map((p,i)=>`<a class="${i==0?'on':''}">${p[0]}<small>${p[1]?p[1]+' need you':'quiet'}</small></a>`).join('')}<a class="all">All projects (8)</a></div></div>`;
+ return '';}
+function render(){const [v,st]=(location.hash.slice(1)||'A-closed').split('-');const open=st=='open';
+ document.body.className=location.search.includes('shot')?'shot':'';
+ const desc={A:'Pill at the top of the project page opens a dropdown; tab bar "Projects" goes to the list.',B:'Pill opens a bottom sheet with search and "needs you" counts.',C:'No pill: tapping the Projects tab opens the switcher sheet; desktop gets activity dots.'}[v];
+ const pill=v=='C'?`<span class="pbtn on">wrangl ▾</span>`:`<span class="pbtn on">wrangl ▾</span>`;
+ const isDesk=innerWidth>=900;
+ let h='';
+ if(isDesk) h=`<div class="app">${side(v,open)}<main><div class="meta" style="margin:0 0 10px">${desc}</div>${body}</main></div>`;
+ else h=`<main><div class="pop" style="height:44px">${pill}${open&&v=='A'?pillMenu(v).replace('class="pop"','class="pop" style="position:absolute;top:46px;left:0"'):''}</div>${body}</main>${open&&v=='B'?pillMenu(v):''}${open&&v=='C'?`<div class="scrim"></div><div class="sheet"><div class="menu" style="box-shadow:none;border:0">${P.map((p,i)=>`<a class="${i==0?'on':''}">${p[0]}<small>${p[1]?p[1]+' need you':''}</small></a>`).join('')}<a class="all">All projects</a></div></div>`:''}${tabs(true)}`;
+ app.innerHTML=h;}
+addEventListener('hashchange',render);render();
+</script></body></html>

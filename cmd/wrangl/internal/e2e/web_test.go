@@ -43,8 +43,8 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		return string(b)
 	}
 
-	get("/tasks?project=web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
-	get("/tasks?project=web", `class="subnav"`, `href="/tasks?project=web"`, `id="backlog"`)
+	get("/projects/web", `id="main"`, "big job", `data-sqid="`+big+`"`, "sheet-new", `/ui/live?`, "datastar-1.0.4.js")
+	get("/projects/web", `class="subnav"`, `href="/projects/web"`, `id="backlog"`)
 	get("/task/"+big, "design it", "sheet-split", "Plan with agent", "do the whole thing", `id="fa-queue"`, `id="subtasks"`, `<code class="sqid">`)
 	get(fmt.Sprintf("/task/%s?split=%d#split", other, planQ), "data-signals:outline=")
 	get("/ui/detail?sqid="+big, "design it", `id="subtasks"`)
@@ -89,7 +89,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	}
 	post("/ui/act/task-edit?sqid="+big, `{"etitle":"design it","eprompt":"do the whole thing","etype":"milestone","etarget":"2026-12-31"}`)
 	get("/task/"+big, "2026-12-31", "Milestone")
-	get("/tasks?project=web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
+	get("/projects/web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
 	get("/static/app.css", ".ty-milestone > .row .title", "font-weight: 600")
 	get("/runners", runner, "tiny")
 	get("/runner/"+runner, "Cordon", "Recent runs")
@@ -107,11 +107,34 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/inbox", "plan_review", "another big job", `pre class="outline"`)
 	get("/settings", "enablePush", "tiny", "sheet-project", "Appearance", `id="fs-seg"`, `data-fs="1.15"`)
 	get("/static/app.css", "calc(16px * var(--fs, 1))")
-	get("/tasks?project=web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/project/web")
+	get("/projects/web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/projects/web/settings", `class="pmore ppill"`, "All projects")
+	get("/projects", "Projects", "＋ New project", `href="/projects/web"`, "sheet-project")
+	get("/", "Projects") // follows the redirect to /projects
+	if page := get("/projects/web", `<span>☰</span>Projects`); strings.Contains(page, "</span>Tasks</a>") {
+		t.Fatal("left panel still says Tasks")
+	}
+	// Old URLs redirect (not followed here) to the project page and its settings page.
+	nf := &http.Client{Transport: hc.Transport, Jar: hc.Jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for from, to := range map[string]string{
+		"/tasks": "/projects", "/tasks?project=web": "/projects/web", "/tasks?project=web&all=1": "/projects/web?all=1",
+		"/tasks?project=web&now=1": "/projects/web?now=1", "/backlog?project=web": "/projects/web#backlog", "/project/web": "/projects/web/settings",
+	} {
+		resp, err := nf.Get("http://x" + from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if loc := resp.Header.Get("Location"); resp.StatusCode != http.StatusFound || loc != to {
+			t.Fatalf("GET %s: %d -> %q, want 302 -> %q", from, resp.StatusCode, loc, to)
+		}
+	}
+	if resp, err := nf.Get("http://x/projects/nosuch"); err != nil || resp.StatusCode != 404 {
+		t.Fatalf("unknown project: %v %v", resp, err)
+	}
 	post("/ui/act/project-new", `{"slug":"goalproj","pname":"Goal project","pgoals":"## Done when\n- it ships"}`)
-	get("/project/goalproj", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
+	get("/projects/goalproj/settings", "Goal project", "Done when", "it ships", "Custom tools", "coming soon", "sheet-repo", `id="repos"`)
 	post("/ui/act/project-save?slug=goalproj", `{"pname":"Renamed","pgoals":"new **goals**","ptemplate":"","pautomerge":false,"pautoqueue":true}`)
-	get("/project/goalproj", "Renamed", "<strong>goals</strong>", "auto-queue")
+	get("/projects/goalproj/settings", "Renamed", "<strong>goals</strong>", "auto-queue")
 	get("/static/vendor/fonts/red-hat-display-latin.woff2")
 	get("/static/app.css", "Red Hat Display", "min-width: 900px")
 	get("/static/vendor/fonts/ibm-plex-mono-latin.woff2")
@@ -125,7 +148,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		!strings.Contains(setup, "https://github.com/settings/apps/new?state=") {
 		t.Fatalf("the org and personal App forms must post to different GitHub URLs: %.1500s", setup)
 	}
-	get("/setup?account=somebody-else&back=/project/web", "GitHub accounts", `placeholder="GitHub user or organisation`)
+	get("/setup?account=somebody-else&back=/projects/web/settings", "GitHub accounts", `placeholder="GitHub user or organisation`)
 	get("/settings", "GitHub accounts", "plank-pattern", "set up the App")
 	if out := post("/ui/act/repo-link?slug=web", `{"repoadd":"somebody-else/missing"}`); !strings.Contains(out, "/setup?account=") {
 		t.Fatalf("linking a repo the App cannot see must point at the fix: %s", out)
@@ -209,7 +232,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	if d := e.task(sqid); d.Type != "review" {
 		t.Fatalf("task-edit type: %q", d.Type)
 	}
-	get("/tasks?project=web", `id="ti-review"`, `class="ticon ti-review"`)
+	get("/projects/web", `id="ti-review"`, `class="ticon ti-review"`)
 	if out := post("/ui/act/task-split?sqid="+sqid, `{"outline":"- one\n- two\n  - two.a","chain":true}`); !strings.Contains(out, "split into 2") {
 		t.Fatalf("split: %s", out)
 	}
@@ -224,7 +247,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		if _, err := e.db.W.Exec(`UPDATE task SET state='in_progress' WHERE sqid IN (?, ?)`, leaf, review); err != nil {
 			t.Fatal(err)
 		}
-		page := get("/tasks?project=web&now=1", `id="now"`, `data-sqid="`+leaf+`"`, `href="/task/`+sqid+`"`, "↑ parent", "from the phone")
+		page := get("/projects/web?now=1", `id="now"`, `data-sqid="`+leaf+`"`, `href="/task/`+sqid+`"`, "↑ parent", "from the phone")
 		if strings.Contains(page, `data-sqid="`+review+`"`) {
 			t.Fatal("a task with subtasks is not a leaf and must not be listed in the In progress view")
 		}
@@ -234,7 +257,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		if _, err := e.db.W.Exec(`UPDATE task SET state='in_review' WHERE sqid = ?`, leaf); err != nil {
 			t.Fatal(err)
 		}
-		if page := get("/tasks?project=web&now=1", `id="now"`); strings.Contains(page, `data-sqid="`+leaf+`"`) {
+		if page := get("/projects/web?now=1", `id="now"`); strings.Contains(page, `data-sqid="`+leaf+`"`) {
 			t.Fatal("in_review tasks belong in the inbox, not the In progress view")
 		}
 		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid IN (?, ?)`, leaf, review)
@@ -246,7 +269,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		if _, err := e.db.W.Exec(`UPDATE task SET state='in_review' WHERE sqid = ?`, kid); err != nil {
 			t.Fatal(err)
 		}
-		get("/tasks?project=web", `k-review`, `tag k-review`, `chip-roll k-review`, `class="banner"`, `awaits`, "in review")
+		get("/projects/web", `k-review`, `tag k-review`, `chip-roll k-review`, `class="banner"`, `awaits`, "in review")
 		get("/task/"+sqid, `card k-`, `class="banner"`, `chip-roll k-review`)
 		get("/task/"+kid, `card k-review awaits`, `tag k-review`)
 		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid = ?`, kid)
@@ -285,7 +308,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	if out := post("/ui/act/task-queue?sqid="+sqid, `{}`); strings.Contains(out, "toast show err") {
 		t.Fatalf("task-queue: %s", out)
 	}
-	page := get("/tasks?project=web", `class="subnav"`, `class="task run `, "run #")
+	page := get("/projects/web", `class="subnav"`, `class="task run `, "run #")
 	if n := strings.Count(page, `data-sqid="`+sqid+`"`); n != 1 {
 		t.Fatalf("a queued task is listed once (as a run entry), found %d times", n)
 	}

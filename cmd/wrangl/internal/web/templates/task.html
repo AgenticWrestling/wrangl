@@ -7,7 +7,7 @@
     <span class="typechip">{{ticon $t.TaskType}} {{tlabel (print $t.TaskType)}}</span>
     {{if $t.TargetDate.Valid}}<span class="tag target" title="target date">{{$t.TargetDate.String}}</span>{{end}}
     <code class="sqid">{{$t.Sqid.String}}</code>
-    <a href="/tasks?project={{.Project}}">{{.Project}}</a>
+    <a href="/projects/{{.Project}}">{{.Project}}</a>
     {{with .Parent}}› <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{end}}
   </div>
   <h2>{{$t.Title}}</h2>

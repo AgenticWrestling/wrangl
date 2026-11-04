@@ -1,11 +1,11 @@
 {{define "main-project"}}{{$p := .P}}
 <section class="card">
-  <div class="meta"><a href="/tasks?project={{$p.Slug}}">‹ Tasks</a><code>{{$p.Slug}}</code>
+  <div class="meta"><a href="/projects/{{$p.Slug}}">‹ Project</a><code>{{$p.Slug}}</code>
     {{if .Template}}<span class="pill">runs on {{.Template}}</span>{{end}}
     {{if $p.AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if $p.AutoQueue}}<span class="pill">auto-queue</span>{{end}}</div>
   <h2>{{$p.Name}}</h2>
   <div class="actions wrap">
-    <a class="btn primary" href="/tasks?project={{$p.Slug}}">Open tasks</a>
+    <a class="btn primary" href="/projects/{{$p.Slug}}">Open tasks</a>
     <button class="btn" onclick="openSheet('sheet-edit-project')">Edit project</button>
   </div>
 </section>

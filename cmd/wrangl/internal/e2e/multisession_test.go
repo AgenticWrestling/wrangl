@@ -131,7 +131,7 @@ agent:
 		return n == 2, fmt.Sprintf("%d of 2 started", n)
 	})
 	hc := runner.SocketClient(cfg.Listen.Unix)
-	resp, err := hc.Get("http://x/tasks?project=web")
+	resp, err := hc.Get("http://x/projects/web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ agent:
 		t.Fatal(err)
 	}
 	waitFor(t, "task C in Queue", 10*time.Second, func() (bool, string) {
-		r, _ := hc.Get("http://x/tasks?project=web")
+		r, _ := hc.Get("http://x/projects/web")
 		b, _ := io.ReadAll(r.Body)
 		r.Body.Close()
 		return strings.Contains(string(b), `id="queue"`), "not queued yet"

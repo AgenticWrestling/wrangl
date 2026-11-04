@@ -154,21 +154,36 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/css")
 		io.WriteString(w, h.css)
 	})
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/tasks", http.StatusFound) })
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/projects", http.StatusFound) })
 	for path, view := range map[string]string{
-		"/tasks": "tasks", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
+		"/projects": "projects", "/projects/{slug}": "tasks", "/projects/{slug}/settings": "project", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
 		"/logs": "logs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
-		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/project/{slug}": "project", "/setup": "setup",
+		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
 	}
-	mux.HandleFunc("GET /backlog", func(w http.ResponseWriter, r *http.Request) { // the old name of /tasks
-		to := "/tasks"
-		if r.URL.RawQuery != "" {
-			to += "?" + r.URL.RawQuery
+	// Old URLs keep working: /tasks (and its old name /backlog) is the project page, /project/{slug}
+	// (goals & repos) is that project's settings page.
+	toProject := func(frag string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			slug := q.Get("project")
+			q.Del("project")
+			to := "/projects"
+			if slug != "" {
+				to += "/" + url.PathEscape(slug)
+			}
+			if len(q) > 0 && slug != "" {
+				to += "?" + q.Encode()
+			}
+			http.Redirect(w, r, to+frag, http.StatusFound)
 		}
-		http.Redirect(w, r, to+"#backlog", http.StatusFound)
+	}
+	mux.HandleFunc("GET /tasks", toProject(""))
+	mux.HandleFunc("GET /backlog", toProject("#backlog"))
+	mux.HandleFunc("GET /project/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(r.PathValue("slug"))+"/settings", http.StatusFound)
 	})
 	mux.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/logs", http.StatusMovedPermanently)
@@ -384,7 +399,7 @@ func reqValue(r *http.Request, k string) string {
 // live is the page's Datastar stream: it re-renders #main on every change notice.
 func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	view := r.URL.Query().Get("view")
-	if _, ok := map[string]bool{"tasks": true, "task": true, "runners": true, "runner": true, "logs": true, "run": true, "inbox": true, "settings": true, "project": true}[view]; !ok {
+	if _, ok := map[string]bool{"tasks": true, "task": true, "runners": true, "runner": true, "logs": true, "run": true, "inbox": true, "settings": true, "project": true, "projects": true}[view]; !ok {
 		w.WriteHeader(http.StatusNoContent) // static pages (diff, files) are not live
 		return
 	}
@@ -690,11 +705,14 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["Projects"] = projects
 		d["Recent"], d["Rest"] = recentProjects(projects, 4)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
-		slug := r.URL.Query().Get("project")
-		if slug == "" && len(projects) > 0 {
-			slug = projects[0].Slug
+		slug := reqValue(r, "slug")
+		if slug == "" {
+			slug = reqValue(r, "project")
 		}
-		d["Project"], d["Title"] = slug, "Tasks"
+		d["Project"], d["Title"] = slug, slug
+		if _, err := db.RQ.GetProjectBySlug(ctx, slug); err != nil {
+			return nil, fmt.Errorf("%w: project %q", errs.NotFound, slug)
+		}
 		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 		if slug != "" { // a direct link to an archived project still works, with its actions disabled
 			if cur, err := db.RQ.GetProjectBySlug(ctx, slug); err == nil {
@@ -711,6 +729,11 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
 			d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
 		}
+	case "projects": // the project list (counts and expandable rows come later, see ADR 0005)
+		d["Title"] = "Projects"
+		d["Templates"], _ = db.RQ.ListTemplates(ctx)
+		d["Projects"], _ = db.RQ.ListProjects(ctx, "active")
+		d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 	case "task":
 		sqid := reqValue(r, "sqid")
 		t, err := h.D.Stack.Task(ctx, db.RQ, sqid)
@@ -1428,7 +1451,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		if err = terr; err == nil {
 			p, _ := h.D.Fleet.DB.RQ.GetProject(ctx, t.ProjectID)
 			err = h.D.Stack.Delete(ctx, sqid, stack.User)
-			msg, nav = "deleted", "/tasks?project="+url.QueryEscape(p.Slug)
+			msg, nav = "deleted", "/projects/"+url.PathEscape(p.Slug)
 		}
 	case "task-needs":
 		err = h.D.Stack.NeedsAdd(ctx, sqid, str("precursor"), stack.User)
@@ -1489,7 +1512,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		if _, err = h.D.Projects.Create(ctx, slug, pp); err != nil {
 			break
 		}
-		msg, nav = "project created", "/project/"+url.PathEscape(slug)
+		msg, nav = "project created", "/projects/"+url.PathEscape(slug)+"/settings"
 		var failed []string
 		for _, ref := range strings.FieldsFunc(str("prepos"), func(r rune) bool { return r == ',' || r == '\n' || r == ' ' }) {
 			if _, lerr := h.D.Projects.LinkRepo(ctx, slug, ref, ""); lerr != nil {
@@ -1524,7 +1547,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err = h.D.Projects.LinkRepo(ctx, q.Get("slug"), ref, "")
 		msg, reset = "repo linked", map[string]any{"repoadd": "", "repoother": ""}
-		if err != nil && h.githubToast(ctx, w, err, "/project/"+q.Get("slug")) {
+		if err != nil && h.githubToast(ctx, w, err, "/projects/"+q.Get("slug")+"/settings") {
 			return
 		}
 	case "template-save":
@@ -1562,7 +1585,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		case "pr", "pr-resolve", "answer":
 			back = "/inbox"
 		case "task-queue", "task-plan":
-			back = "/tasks"
+			back = "/projects"
 		}
 		if h.githubToast(ctx, w, err, back) {
 			return
@@ -1833,7 +1856,7 @@ func (h *Handler) repoChoices(ctx context.Context, slug string, linked []dbgen.L
 	accts, _ := h.D.Setup.Accounts(ctx)
 	var out []repoGroup
 	for _, ac := range accts {
-		g := repoGroup{Login: ac.Login, Kind: ac.Kind, SetupURL: "/setup?account=" + url.QueryEscape(ac.Login) + "&back=" + url.QueryEscape("/project/"+slug)}
+		g := repoGroup{Login: ac.Login, Kind: ac.Kind, SetupURL: "/setup?account=" + url.QueryEscape(ac.Login) + "&back=" + url.QueryEscape("/projects/"+slug+"/settings")}
 		if ac.App == nil {
 			g.NoApp = true
 			out = append(out, g)

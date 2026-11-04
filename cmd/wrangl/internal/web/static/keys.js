@@ -97,7 +97,7 @@
   }
 
   // --- projects & nav ---
-  function projectLinks() { return [...document.querySelectorAll('.projbar a[href^="/tasks?project="], .projbar .menu a')]; }
+  function projectLinks() { return [...document.querySelectorAll('.projbar a[href^="/projects/"], .projbar .menu a')]; }
   function goProject(i) { const l = projectLinks(); if (l[i]) location.href = l[i].href; }
   function stepProject(d) {
     const l = projectLinks(); if (!l.length) return;
@@ -105,7 +105,7 @@
     if (cur < 0) cur = 0;
     goProject((cur + d + l.length) % l.length);
   }
-  const GO = { t: '/tasks', b: '/tasks#backlog', q: '/tasks#queue', p: '/tasks#in-progress', r: '/runners', l: '/logs', i: '/inbox', m: '/settings' };
+  const GO = { t: '/projects', b: '/projects#backlog', q: '/projects#queue', p: '/projects#in-progress', r: '/runners', l: '/logs', i: '/inbox', m: '/settings' };
 
   // --- reorder ---
   async function reorder(x, dir) {
