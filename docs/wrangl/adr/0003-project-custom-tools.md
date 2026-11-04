@@ -1,204 +1,278 @@
-# ADR 0003: Per-project custom tools (MCP servers and HTTP tools) with credentials
+# ADR 0003: Custom tools: controller-executed, defined in KDL, a system-wide library
 
-- Status: **Proposed** (the owner decides before the UI and injection work starts)
-- Task: AJzSQY. Parts 2 (project page UI) and 3 (injection into runs) follow once this is accepted.
-- Builds on: the controller secret store (`<data>/secrets`, write-only over the API; `wrangl secret set`), agent definitions and their hook/MCP files ([ADR 0001](0001-agent-definitions-vs-templates.md)), the work-stack MCP shim (`wrangl runner mcp`), run scopes (`runs.Scope`: kind, project, root)
-- Touches (future work): `project` data model, `runs.ExecTool`, the runner's agent socket (`GET /tools`, tool relay), the assignment (`proto.Assignment`), `web/templates/project.html` ("Custom tools" placeholder), Setup credentials status
+- Status: **Proposed** (the owner's decisions below are settled; this document awaits the owner's sign-off on the plan before phase 1 starts)
+- Task: 4VL3d2 (plan: Q1rp6C). Supersedes the earlier per-project draft of this ADR (task AJzSQY).
+- Builds on: the controller secret store (`<data>/secrets`, write-only over the API; `wrangl secret set`), the work-stack MCP shim (`wrangl runner mcp`), run scopes (`runs.Scope`: kind, project, root), approval questions (`ask_question`), [ADR 0001](0001-agent-definitions-vs-templates.md)
+- Touches (future work): a `tool` library table and per-project enablement, `runs.ExecTool`, the runner's agent socket (`GET /tools`, tool relay), `proto.Assignment` (declarations only), Settings > Tools, the project page ("Custom tools" card), the run page (audit), Setup credentials status, `SKILL.md`, `INSTALL.md`
 
 ## Context
 
-A project's agents sometimes need more than the repo and the work-stack tools: an issue tracker, a
-deploy API, a database console, a documentation search. Today the owner can only edit the agent
-definition (global to every project using it) or bake files into a template. The project page already
-has a disabled "Custom tools" card ("Register tools for this project's agents (MCP servers, HTTP APIs,
-CLIs) and store the credentials they authenticate with").
+A project's agents sometimes need more than the repo and the work-stack tools: a deploy API, an
+issue tracker, `kubectl`, a documentation search. Today the owner can only edit the agent definition
+(global to every project using it) or bake files into a template.
 
 What exists and constrains the design:
 
 - Agents reach wrangl through `wrangl runner mcp`, a stdio MCP server that every agent definition
-  already registers (`.mcp.json`, `~/.codex/config.toml`, ...). The daemon answers `GET /tools` with
-  `stacktools.For(kind)` and relays each `tools/call` to the controller (`ToolFor` -> NATS ->
-  `runs.ExecTool`), which enforces scope (`Allowed(kind)`, run id, project). A new tool needs no new
-  agent configuration if it is served through this shim.
-- Secrets are files in the controller's secret store, referenced by name. Agent secrets are resolved
-  at assignment and travel to the runner in `cmd.assign` (env, or 0600 files removed at run end).
-  Values are never returned by the API. The agent process can read its own environment and files.
-- Per-agent MCP config formats differ (JSON `.mcp.json`, TOML `config.toml`, `settings.json`), and
-  home-directory config is shared by concurrent sessions on a runner (ADR 0001, section 4).
+  already registers. The daemon answers `GET /tools` with `stacktools.For(kind)` and relays each
+  `tools/call` to the controller (`ToolFor` -> NATS -> `runs.ExecTool`, `cmd/wrangl/internal/controller/runs/tools.go`),
+  which enforces scope (`stacktools.Allowed(kind)`, run id, project). A tool served through this shim
+  needs no new agent configuration.
+- Secrets are files in the controller's secret store, referenced by name and never returned by the
+  API. Agent secrets are resolved at assignment and travel to the runner in `cmd.assign`.
+- **An agent can read the environment and files of anything that runs as its user** (`/proc/<pid>/environ`,
+  its own env, files it can open). Anything placed on a runner is therefore visible to the agent.
+- Per-agent MCP config formats differ and home-directory config is shared between concurrent
+  sessions on a runner (ADR 0001, section 4). Serving tools through the shim avoids all of it.
+- Relayed calls are bounded by a 30 s context (`ToolFor`, NATS request/reply).
 - Review and plan runs are read-only and must not gain write-capable tools by accident.
+- The runner pushes the run branch at every checkpoint (commit d452f51), so the controller can fetch
+  the run's committed work.
 
-The questions: what is a "tool", where do its credentials live and who can read them, how does a tool
-reach an agent of any kind, and how do we stop a registered tool becoming a hole (SSRF, secret
-exfiltration, a tool that mutates things in a review run).
+## Decisions (settled by the owner)
 
-## Options
+1. **The controller host is the primary executor.** A runner sees only tool *declarations*: name,
+   description, input schema, run kinds. Credentials, argv and URLs stay on the controller and are
+   never shipped to runners. Calls use the existing path: agent -> MCP shim -> daemon -> NATS ->
+   `runs.ExecTool`, where scope (run, kind, project) is enforced. The project comes from the run,
+   never from arguments.
+2. **Executor kinds, all on the controller:**
+   - `http`: the controller makes the request.
+   - `mcp_remote`: the controller is the MCP client of a remote (Streamable HTTP) server.
+   - `exec`: a CLI run in a sandbox on the controller.
+   - `mcp_stdio`: a stdio MCP server hosted (sandboxed) on the controller.
 
-### Q1. How does a registered tool reach the agent?
+   A **runner-side executor** is an explicit, per-tool opt-in escape hatch for things that must run
+   next to the checkout. It never carries secrets, and the UI states why: the process runs as the
+   agent's user, and an agent can read the environment of anything that runs as its user. It is not
+   in the phase plan below; it needs its own ADR before it is built.
+3. **The sandbox is mandatory before `exec` and `mcp_stdio` exist** (phase 2 ships it first). See
+   "Sandbox".
+4. **Arguments are untrusted.** The command is argv-only, never a shell. `{{input.x}}` fills a whole
+   argv element only, never part of one. Inputs are validated by the declared schema (enum, pattern,
+   integer, length). A value starting with `-` is rejected unless the schema allows it. The binary
+   and fixed args belong to the owner.
+5. **Repo-dependent tools take an input ref** (the run branch). The controller checks the pushed commit
+   out into scratch space. Uncommitted work is not visible, and the tool help says so.
+6. **Results:** size cap (default 64 KB), exact-value scrubbing of the tool's secrets from output, and
+   an async pattern for calls over the 30 s NATS bound (accept, progress, result later).
+7. **Effect:** each tool declares `read | write | destructive`. Destructive asks the owner first
+   (reusing the approval question). Review and plan runs only get `read` tools. One audit row per call
+   (run, tool, status, duration, bytes), shown on the run page.
+8. **A system-wide library** (Settings > Tools), **enabled per project** with **per-project secrets**.
+   Projects do not redefine tools. The project page shows enabled tools with `set` / `missing` per
+   secret, like Setup > Agent credentials.
+9. **Definition syntax is KDL v2**, parsed with `github.com/njreid/gokdl2` behind one small package.
 
-**A. Write it into each agent's MCP config** (new `tools` rendering rules per agent definition: JSON
-merge into `.mcp.json`, TOML for Codex, ...).
-- Pros: agents talk to the real MCP server directly; works for stdio servers, which are the common
-  packaging for community MCP servers.
-- Cons: every agent needs a renderer and the formats drift; credentials land in config files or
-  process environments on the runner, readable by the agent user and, for home-directory files, by
-  other sessions; a remote HTTP tool would need the agent to hold its token.
+## Definition syntax (KDL v2)
 
-**B. Proxy through the work-stack shim (recommended for HTTP and remote-MCP tools).** The project's
-tools are served by `wrangl runner mcp` like `task_get`: the daemon lists them, the call goes to the
-controller, the controller resolves credentials and calls the upstream, and returns the result.
-- Pros: nothing to render per agent; works for every agent that already has the shim; credentials
-  never leave the controller; one choke point for scope, rate limits, logging and SSRF rules.
-- Cons: the controller makes outbound calls on the agent's behalf (needs egress controls); cannot
-  serve a stdio server that must run next to the repo; one more hop of latency.
+```kdl
+tool "deploy_status" {
+  description "Show the deployment status of an environment"
+  effect "read"
+  run-kinds "work" "revise"
+  input {
+    param "env" type="string" { enum "staging" "prod" }
+  }
+  exec {
+    argv "kubectl" "get" "deploy" "-n" "{{input.env}}" "-o" "json"
+    secret "KUBECONFIG" name="kube.prod" as="file"
+    network "full"
+    timeout 60
+  }
+}
+```
 
-**C. A per-project tool gateway as a separate MCP endpoint** with a per-run token in each agent's
-config (like the controller's own `/mcp`).
-- Pros: standard MCP over HTTP; agents could use it without the shim.
-- Cons: needs a per-agent config entry carrying a bearer token the agent can read; duplicates the
-  shim's scoping; no benefit over B for agents that already have the shim.
+- `http` tools use `http { method; url; header; body }`; `mcp_remote` tools use
+  `mcp-remote { url; header; allow-tool }`. Exactly one executor node per tool.
+- Secrets are referenced **by name only**, never inline (`secret "ENV_VAR" name="store.name" as="env"|"file"`;
+  `header "Authorization" "Bearer {{secret.api_token}}"` for http). A definition containing something
+  that looks like an inline credential is rejected at validation where detectable.
+- `name`: `[a-z0-9_]{1,40}`, exposed to agents as `ext_<name>` so it can never shadow a stack tool.
+  `run-kinds` defaults to `work revise`; review/plan are added only for `effect "read"` tools.
+- Secret store names are `tool.<tool>.<key>` for the library default placeholder and
+  `tool.<project>.<tool>.<key>` for the per-project value; a project's value is what is used.
+  Names stay `[a-z0-9_.-]+`, which the store requires.
 
-### Q2. Where do credentials live and who can read them?
+### KDL parser: `github.com/njreid/gokdl2` (researched)
 
-**A. In the existing secret store, referenced by name from the tool definition.** The definition holds
-`{{secret.NAME}}` placeholders, never values. Values are written through the write-only API and CLI.
-**B. A new encrypted per-project store in the database.**
-- Pros: per-project isolation, rotation history.
-- Cons: a second secret store with its own key management (no key material is managed today); the
-  secret files are already 0600 and backed up with the data dir. Not worth it before the first tool.
-**C. The tool carries inline values** (Rejected: they would appear in API responses, exports and logs).
+- **Licence:** MIT, so compatible with our use. It is a fork of `sblinch/kdl-go`.
+- **API (from the README):** package `kdl`; `kdl.Parse(reader)` parses with automatic version
+  selection (v2 first, then v1); `ParseVersionV2` / `ParseVersionV1` / `ParseVersionAuto` pick a
+  version explicitly; the result is a document with `Version` and `Nodes`, with node names read via
+  `NodeNameStringV2()`; also struct/map marshal and unmarshal, custom marshaler interfaces and
+  document generation. Exact signatures were not visible in the README and must be confirmed against
+  the source before phase 1.
+- **Maturity:** the README shows no releases or tags, 46 commits, 16 stars, one open issue. Last-commit date
+  was not visible. It vendors the official KDL v1 and v2 compliance suites.
+- **Consequences:** pin by commit in `go.mod`; always call `ParseVersionV2` (never auto, so a v1 file is
+  a clear error, not a silent reinterpretation); decode into our own structs from the node tree rather
+  than relying on reflection-based unmarshal; wrap everything in one package (`internal/toolkdl`:
+  `Parse([]byte) (Definition, error)` and `Format(Definition) []byte`) so the parser can be swapped.
+  Fuzz and golden-file tests live in that package. Check `go mod vendor`/licence listing at phase 1.
 
-### Q3. What can a tool be?
+## Architecture
 
-**A. HTTP tool**: a request template (method, URL, headers, JSON body) with a declared input schema.
-**B. Remote MCP server** (Streamable HTTP URL plus headers) that the controller connects to.
-**C. Local stdio MCP server** (a command run on the runner).
-**D. Allow only whole-agent-config edits** (status quo).
-
-## Decision
-
-**Hybrid: Q1-B for HTTP tools and remote MCP servers, Q1-A (narrowly) for stdio servers; Q2-A;
-phased delivery.**
-
-### 1. Data model
+### Data model
 
 ```
-project_tool (id, project_id -> project ON DELETE CASCADE, name, kind, spec_json,
-              enabled, run_kinds, created_at, updated_at, UNIQUE (project_id, name))
+tool            (id, name UNIQUE, kind, effect, description, spec_kdl, spec_json,
+                 run_kinds, created_at, updated_at)            -- the system-wide library
+project_tool    (project_id -> project ON DELETE CASCADE, tool_id -> tool, enabled,
+                 PRIMARY KEY (project_id, tool_id))
+tool_audit      (id, run_id, project_id, tool, status, duration_ms, bytes, at)
 ```
-- `name`: `[a-z0-9_]{1,40}`; exposed to agents as `ext_<name>` (a prefix no built-in tool uses, so
-  a project tool can never shadow `task_complete` or another stack tool).
-- `kind`: `http` | `mcp_remote` | `mcp_stdio`.
-- `spec_json` per kind:
-  - `http`: `{description, method, url, headers{K: "{{secret.KEY}}" | literal}, body_template?,
-    input_schema, timeout_s?, max_response_kb?}`.
-  - `mcp_remote`: `{url, headers{...}, allow_tools? [names]}`. The controller lists the server's tools
-    at registration and on a refresh button, and exposes the allowed ones as `ext_<name>_<tool>`.
-  - `mcp_stdio`: `{command, args, env{K: "{{secret.KEY}}"|literal}, setup?}` (see section 4).
-- `run_kinds`: which run kinds see the tool; default `work,revise`. Review and plan runs get none
-  unless the owner ticks them, and tools marked `read_only` (a registration-time claim by the owner,
-  not verified) are the only ones offered by default to them.
-- Secret names: a tool's placeholders `{{secret.KEY}}` resolve to the secret named
-  `tool.<project>.<tool>.<key>`. They are set with `PUT /api/v1/secrets/{name}` (already write-only)
-  or `PUT /api/v1/projects/{slug}/tools/{tool}/secrets/{key}` (a convenience that builds the name).
-  Names stay `[a-z0-9_.-]+`, which the store already requires. Deleting a tool does not delete its
-  secrets silently: the UI offers it, and `wrangl secret list` shows them.
 
-### 2. Reaching the agent (phases 1 and 2: proxied tools)
+The KDL text is the source of truth (`spec_kdl`, for `wrangl tool show`/`edit`); `spec_json` is the
+validated form the executor uses. Editing a tool applies to runs assigned afterwards; running sessions
+keep the declarations they were given, but the controller always executes the current definition and
+re-checks that the tool is still enabled (a removed tool returns "tool not available", the run continues).
 
-- At assignment the controller computes the run's tool list (project, run kind, enabled) and includes
-  it in `cmd.assign` as declarations only: name, description, JSON input schema. **No credentials.**
-- The daemon's `GET /tools` appends those declarations to `stacktools.For(kind)`; `tools/call` for an
-  `ext_` name is relayed to the controller like any stack tool.
-- `runs.ExecTool` resolves `ext_` names from the run's project (taken from the run, never from
-  arguments), enforces `run_kinds`, resolves secrets, performs the call, and returns the body
-  (truncated to `max_response_kb`, default 64) or a clear error.
-- The controller **never** includes secret values in tool results it logs; headers and bodies are
-  redacted in the audit log by the placeholder values.
+### Call path
 
-### 3. Safety rules for the controller's outbound calls
+1. At assignment the controller computes the run's list (project's enabled tools, filtered by run
+   kind and effect) and puts **declarations only** in `cmd.assign`.
+2. The daemon's `GET /tools` appends them to `stacktools.For(kind)`; `tools/call` for an `ext_` name is
+   relayed like any stack tool.
+3. `runs.ExecTool` resolves the tool from the run's project, enforces `run_kinds` and effect, validates
+   the input against the declared schema, asks for approval if destructive, resolves secrets, runs the
+   executor, scrubs and caps the output, writes the audit row and returns the result.
 
-- `https` only (`http` only for loopback in tests); URLs are fixed at registration apart from
-  declared path/query placeholders filled from arguments after URL-encoding; the **host cannot come
-  from tool arguments**.
-- Deny private, loopback, link-local and metadata ranges after DNS resolution (and re-check on
-  redirects, at most 3, same host only) unless the owner sets `allow_private: true` on that tool
-  with a warning in the UI.
-- Per-call timeout (default 30 s, max 120), response cap, per-tool and per-run rate limit.
-- One audit row per call (run, tool, status, duration, bytes), no bodies or headers.
-- The tool test button in the UI calls with owner-supplied arguments and shows the response, so the
-  owner learns what the agent will see.
+### Effect and approval
 
-### 4. stdio MCP servers (phase 3)
+`read` tools are offered to all their `run-kinds`; `write` to work/revise only; `destructive` to
+work/revise and each call first asks the owner through the existing approval question
+(`SystemQuestionTool` path) naming the tool and its arguments; no answer, no call. The effect is the
+owner's claim and is not verified; the library UI says so.
 
-A stdio server must run on the runner, next to the checkout. It is the only kind that places a
-credential on the runner:
+### Results, scrubbing, async
 
-- The agent's MCP config gets one entry per stdio tool, rendered by a **new optional section of the
-  agent definition** (`tools.render`: the file path and the JSON/TOML fragment for one server). Agents
-  without it cannot use stdio tools, and the project page says so.
-- The entry does not contain the secret. It runs `wrangl runner tool-run <name>`; the daemon, which
-  holds the assignment, starts the real command with the resolved environment. The secret is never in
-  a file, but **the server process runs as the agent user, so the agent can read its environment**.
-  This is inherent; the UI says so next to the option ("this tool's credentials are visible to the
-  agent"). Use a proxied tool where the credential is sensitive.
-- Config files are per run where the agent allows it (Claude's `.mcp.json` is in the worktree). For
-  home-directory formats, ADR 0001's rule applies: refuse a run whose rendered content conflicts with
-  a live session's on the same runner.
-- Installing the server's package is the template's job (`mise_toml` / `setup_script`), as for agent
-  binaries. `setup` in the spec is documentation only.
+- Output is capped (default 64 KB, per-tool override with a hard maximum) and marked truncated.
+- Every resolved secret value of the call is removed from output and error text by exact match
+  (also its base64 and URL-encoded forms) before the result is logged, audited or returned.
+  Values never appear in logs, audit rows or assignments (tested).
+- Calls over the 30 s bound use accept / progress / result: `ExecTool` returns a call id at once
+  (`status: running`), the tool is then polled through an `ext_result` companion tool with that id, and
+  progress lines are retained for the poll. Tools declare `timeout` (default 30 s, max 600 s); those
+  above 25 s are always async. Results are held in memory with a TTL and in the audit row's status.
+  Details are fixed in the phase 1 PR; the 30 s relay bound itself is not raised.
 
-### 5. Project page and CLI (part 2)
+### http tools: SSRF rules
 
-The "Custom tools" card lists tools with kind, enabled toggle, run kinds, and per-secret `✓ set` /
-`! missing` (the same pattern as Setup > Agent credentials). Add/edit is a sheet with a form per kind
-and a Test button. CLI: `wrangl tool list|show|add -f spec.yaml|edit|rm|test` per project and
-`wrangl tool secret set PROJECT TOOL KEY` (stdin). API under `/api/v1/projects/{slug}/tools`.
-Editing a tool applies to runs assigned afterwards; running sessions keep what they were given.
+`https` only (`http` to loopback only in tests); the URL is fixed by the owner apart from declared
+path/query placeholders filled after URL-encoding; the **host never comes from arguments**. Private,
+loopback, link-local and metadata ranges are denied **after DNS resolution** (the dialer connects to
+the checked IP, which defeats rebinding), at most 3 redirects, same host only. Timeout default 30 s
+and a per-tool and per-run rate limit. A per-tool `allow-private` flag is not in this plan (private
+addresses stay forbidden); it can be added later by the owner's decision.
 
-### 6. Failure modes
+### repo-dependent tools
+
+A tool with a `ref` input (the run's branch, defaulted by the controller) gets the pushed commit
+checked out by the controller into its scratch directory (`git fetch` of the run branch from the
+project's remote, `git worktree`/archive at the resolved sha, removed after the call). Commit
+d452f51 makes the runner push the branch at each checkpoint; **uncommitted work is not visible** and
+the tool's help text says so. A ref that does not resolve to a pushed commit is an error naming it.
+
+### Sandbox (before `exec` and `mcp_stdio`)
+
+Every tool process runs:
+
+- as a separate unprivileged user (never the wrangl service user), in its own process group;
+- under bubblewrap or `systemd-run` (see the host check below) with a read-only root and a private
+  scratch dir that is the working directory and is removed afterwards;
+- with **no access to the wrangl data dir or secret store** (not mounted, and the data dir is also 0700
+  to that user);
+- with a minimal environment containing only the declared secrets (as env var, or as a 0600 temp file in
+  scratch for the call only);
+- with network **none** by default, enabled per tool by `network "full"` (anything else needs a new
+  mode in the spec; there is no per-host filtering in this plan);
+- with CPU, memory, PID and wall-clock limits (the declared `timeout`, hard-capped), the whole process
+  group killed on timeout, cancel or controller shutdown;
+- under a global cap on concurrent tool processes (default 4, configurable; excess calls queue briefly then
+  fail with a clear error) so tools cannot starve the scheduler and web UI.
+
+`mcp_stdio` servers use the same sandbox and are long-lived per run (started on first call, stopped at run end
+or after idle), subject to the same cap.
+
+**Host check (this build host, Amazon Linux 2023, aarch64, kernel 6.1, systemd 252):**
+
+- `bubblewrap` 0.12.0 is available from the Amazon Linux repo (`dnf install bubblewrap`) and is not installed by default.
+  Unprivileged user namespaces are enabled (`user.max_user_namespaces` = 30614), so `bwrap` works without root.
+  It provides read-only bind mounts, `--unshare-net`, `--unshare-pid`, `--die-with-parent`, `--clearenv` and tmpfs scratch
+  directly; it has no cgroup limits, so CPU/memory/wall-clock come from `ulimit`/`prlimit` and our own timeout.
+- `systemd-run` 252 is present, but with no user session bus in this environment (`systemd-run --user` fails with
+  "Failed to connect to bus"). A system-scope `systemd-run` needs root or polkit, and the wrangl service should not
+  be root. It offers real cgroup limits (`MemoryMax`, `CPUQuota`, `TasksMax`) and `DynamicUser=`, but only if the controller
+  may call it.
+- **Recommendation:** bubblewrap as the primary primitive, with limits via `prlimit` and a timeout/process-group kill
+  in our code; use `systemd-run` as an optional wrapper for cgroup limits where the service is allowed to (a unit file
+  running the controller with `Delegate=yes` is the clean way). The sandbox code sits behind a small interface
+  (`sandbox.Run(spec)`), and `wrangl doctor`/startup checks refuse to enable `exec`/`mcp_stdio` if `bwrap` is missing or
+  fails a self-test (it runs `bwrap ... true`, and checks the data dir is not visible). INSTALL.md gets the
+  `dnf install bubblewrap` step. This must be re-verified on the actual controller host before phase 2; the check above
+  was done on the machine this plan was written on.
+
+### CLI, API, UI
+
+- CLI: `wrangl tool list|show|add -f tool.kdl|edit|rm|enable|disable|test` and `wrangl tool secret set` (value
+  from stdin, never an argument). `enable`/`disable` take `--project`. `test` runs a call with owner-given
+  arguments as the owner, shows the exact result the agent would see, and writes an audit row without a run.
+- API: `/api/v1/tools` (library), `/api/v1/projects/{slug}/tools` (enablement), secret set under the project
+  tool. Secrets are write-only.
+- UI: Settings > Tools (list, KDL editor with validation, Test); the project "Custom tools" card (enable toggle, run
+  kinds, `set` / `missing` per secret); the run page shows the audit rows.
+
+### Failure modes
 
 | Failure | Behaviour |
 |---|---|
-| Secret missing at call time | The call returns a clear error naming the secret; the run is not failed. The project page shows `! missing`. Optionally (follow-up) a missing secret on an `enabled` tool holds a run, like a missing agent secret. |
-| Upstream slow or 5xx | Error with status, no retry by default (tools may not be idempotent). |
-| Upstream response huge or hostile | Truncated; returned as data inside a tool result. Prompt injection through tool output is possible and is not solved here; see consequences. |
-| Tool removed or disabled mid-run | Calls return "tool not available"; the run continues. |
-| Redirect to a private host / DNS rebinding | Blocked by the post-resolution check and the same-host redirect rule. |
-| Controller restart | Tool definitions are in the database; nothing is held in memory. |
+| Secret missing at call time | The call errors naming the secret; the run is not failed. The project page shows `missing`. |
+| Upstream slow or 5xx | Error with status, no retry (tools may not be idempotent). |
+| Output huge or hostile | Truncated and scrubbed; returned as data. Prompt injection through tool output is not solved. |
+| Tool removed or disabled mid-run | "tool not available"; the run continues. |
+| Redirect to a private host / DNS rebinding | Blocked by the post-resolution check and the same-host rule. |
+| Sandbox unavailable | exec/mcp_stdio refuse to enable; calls fail closed, never run unsandboxed. |
+| Controller restart | Definitions are in the DB; in-flight async calls are marked failed (`controller restarted`). |
 
 ## Consequences
 
-Good:
-- Registering an HTTP or remote-MCP tool needs no per-agent work and exposes no credential to the
-  runner or the agent.
-- One enforcement point for scope, SSRF rules, limits and audit.
-- Names are namespaced; read-only runs do not gain tools by default.
+Good: no per-agent rendering, no credential on any runner, one enforcement point for scope, SSRF, limits,
+approval and audit; names are namespaced; review/plan runs only get read tools.
 
 Costs and risks:
-- The controller becomes an HTTP client for owner-registered URLs: the egress rules above are
-  essential, and a controller in a VPC can reach internal services unless `allow_private` is off.
-- A remote-MCP proxy needs an MCP client in the controller (sessions, `tools/list`, notifications);
-  streaming and long-running tools are limited by the request/response relay and its 30 s NATS
-  timeout today (`ToolFor` uses a 30 s context). Long calls need either a larger bound or an
-  async pattern.
-- Stdio tools put credentials in a process the agent can inspect; they also depend on per-agent
-  renderers. They are the last phase for a reason.
-- Tool output is untrusted input to the agent: a tool that returns attacker-controlled text can
-  steer it. The owner chooses the tools; wrangl labels tool results but cannot sanitise them.
-- A second naming convention for secrets (`tool.<project>.<tool>.<key>`) lives in the global store.
+- The controller becomes an outbound HTTP client and a process host for owner-defined commands. The SSRF
+  rules and the sandbox are essential, and the sandbox is the largest piece of work.
+- Controller capacity is shared with tool processes (hence the concurrency cap).
+- `mcp_remote` needs an MCP client (sessions, `tools/list`, notifications) in the controller.
+- Tool output is untrusted input to the agent; wrangl labels results but cannot sanitise them.
+- The KDL library is young and unreleased; mitigated by pinning and the wrapper package.
+- Tools that must run in the checkout cannot see uncommitted work; the ref model trades that for safety.
 
-## Phasing
+## Phase plan and PRs (one PR each, with tests)
 
-1. `http` tools: table, API/CLI, secrets, project card, proxy through the shim, audit, SSRF rules.
-2. `mcp_remote`: MCP client in the controller, tool discovery and the allow list.
-3. `mcp_stdio`: `tools.render` in agent definitions, `wrangl runner tool-run`, conflict rule.
+1. **Library, KDL, CLI, API, UI, http proxy, audit, SSRF.** PRs, in order:
+   1a. `internal/toolkdl`: gokdl2 wrapper, definition structs, validation, golden/fuzz tests.
+   1b. DB migration + queries (`tool`, `project_tool`, `tool_audit`) and the service layer with scope/effect rules.
+   1c. API + CLI (`wrangl tool ...`, `tool secret set`) and secret naming.
+   1d. Declarations in `cmd.assign` / `GET /tools`; `ExecTool` dispatch, schema validation, audit, scrubbing, size cap.
+   1e. `http` executor with SSRF rules (dialer, redirects) and the async pattern.
+   1f. Web: Settings > Tools, project enable card with secret status, audit on the run page.
+   1g. Approval for destructive tools; SKILL.md and INSTALL.md.
+   Tests: e2e with a fake upstream; a test that no secret value reaches a runner assignment, a log or an audit row;
+   review/plan runs see only read tools.
+2. **Sandbox + `exec` kind.** Sandbox package (bwrap, limits, process-group kill, concurrency cap, self-test), exec
+   executor, repo `ref` checkout. Tests include a **hostile-argument test** (leading `-`, spaces, quotes, `;`, `$()`,
+   newlines, path traversal, oversized values: none reaches a shell or alters argv structure) and sandbox escape checks
+   (data dir and secret store invisible, no network by default, fork bomb and memory limits).
+3. **`mcp_remote`.** MCP client, discovery, `allow-tool`, namespacing, SSRF rules reused. e2e with a fake MCP server.
+4. **`mcp_stdio`.** Controller-hosted sandboxed server lifecycle, reuse of sandbox and cap. e2e with a fake stdio server.
 
-## Questions for the owner
+SKILL.md, INSTALL.md and this ADR's status are updated in the PR that completes each phase, and the status moves to
+Accepted when phase 1 merges.
 
-1. Is the hybrid right, or should stdio servers be out of scope (phases 1-2 only)?
-2. Should project tools be allowed in review/plan runs at all, or never (simpler, safer)?
-3. Is `allow_private` (internal services reachable from the controller) wanted, or should private
-   addresses stay forbidden everywhere?
-4. Should a missing tool secret hold the run (like a missing agent secret) or only fail the call?
-5. Do you want per-tool approval for calls with side effects (an `ask_question`-style confirmation),
-   as a later phase?
+## Open points (not blocking sign-off)
+
+- A runner-side executor opt-in needs its own ADR.
+- A missing tool secret fails the call only; holding runs on it (like agent secrets) is a possible follow-up.
+- `allow-private` for internal services is deliberately absent; revisit on request.
