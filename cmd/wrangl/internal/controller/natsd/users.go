@@ -111,3 +111,10 @@ func (k *Keys) controllerUser() (userJWT string, kp nkeys.KeyPair, err error) {
 
 // RunHookSubject carries agent hook events for run x on runner r (JetStream WR_EVT).
 func RunHookSubject(r, x int64) string { return fmt.Sprintf("wr.evt.%d.%d.hook", r, x) }
+
+// RunTranscriptSubject carries normalised agent transcript entries for run x on
+// runner r (JetStream WR_EVT, so a late subscriber replays recent entries then follows).
+func RunTranscriptSubject(r, x int64) string { return fmt.Sprintf("wr.evt.%d.%d.transcript", r, x) }
+
+// RunTranscriptWildcard matches every run's transcript entries.
+const RunTranscriptWildcard = "wr.evt.*.*.transcript"

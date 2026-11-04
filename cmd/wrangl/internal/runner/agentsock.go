@@ -139,8 +139,9 @@ func (w *Worker) HookFor(runID int64, event string, payload json.RawMessage) err
 		payload, _ = json.Marshal(string(payload))
 	}
 	var ids struct {
-		SessionID      string `json:"session_id"`     // Claude Code, Codex, Gemini CLI
-		ConversationID string `json:"conversationId"` // Antigravity (agy)
+		TranscriptPath string `json:"transcript_path"` // Claude Code
+		SessionID      string `json:"session_id"`      // Claude Code, Codex, Gemini CLI
+		ConversationID string `json:"conversationId"`  // Antigravity (agy)
 	}
 	if json.Unmarshal(payload, &ids) == nil {
 		w.mu.Lock()
@@ -148,6 +149,7 @@ func (w *Worker) HookFor(runID int64, event string, payload json.RawMessage) err
 		w.mu.Unlock()
 		if sess != nil {
 			sess.noteSession(ids.SessionID+ids.ConversationID, false)
+			sess.noteTranscriptPath(ids.TranscriptPath)
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"seq": seq, "ts": time.Now().UTC(), "event": event, "payload": payload})
