@@ -32,7 +32,7 @@ func (s *Service) UpdateTemplate(ctx context.Context, name string, yamlBody []by
 	t, err := s.DB.Q.UpdateTemplate(ctx, dbgen.UpdateTemplateParams{
 		Description: p.Description, MiseToml: p.MiseToml, SetupScript: p.SetupScript, AgentJson: p.AgentJson,
 		MinVcpu: p.MinVcpu, MinRamMib: p.MinRamMib, MinDiskGib: p.MinDiskGib, Arch: p.Arch,
-		InstanceTypes: p.InstanceTypes, Ami: p.Ami, MaxRunners: p.MaxRunners, IdleTimeoutS: p.IdleTimeoutS, Name: name,
+		InstanceTypes: p.InstanceTypes, Ami: p.Ami, MaxRunners: p.MaxRunners, IdleTimeoutS: p.IdleTimeoutS, MaxSessions: p.MaxSessions, Name: name,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, fmt.Errorf("%w: template %q", ErrNotFound, name)

@@ -309,7 +309,7 @@ func runnerView(r dbgen.Runner, template string, idleTimeout int64) proto.Runner
 func templateView(t dbgen.RunnerTemplate) proto.TemplateView {
 	v := proto.TemplateView{
 		Name: t.Name, Description: t.Description, Arch: t.Arch, MinVCPU: t.MinVcpu, MinRAMMiB: t.MinRamMib,
-		MinDiskGiB: t.MinDiskGib, AMI: t.Ami, MaxRunners: t.MaxRunners, IdleTimeoutS: t.IdleTimeoutS,
+		MinDiskGiB: t.MinDiskGib, AMI: t.Ami, MaxRunners: t.MaxRunners, MaxSessions: t.MaxSessions, IdleTimeoutS: t.IdleTimeoutS,
 		Version: t.Version, FailedVersion: t.FailedVersion, MiseTOML: t.MiseToml, SetupScript: t.SetupScript, Agent: json.RawMessage(t.AgentJson),
 	}
 	json.Unmarshal([]byte(t.InstanceTypes), &v.InstanceTypes)

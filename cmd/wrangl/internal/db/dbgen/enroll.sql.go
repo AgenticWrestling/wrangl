@@ -95,7 +95,7 @@ func (q *Queries) GetEnrollmentToken(ctx context.Context, tokenHash []byte) (Enr
 }
 
 const getTemplate = `-- name: GetTemplate :one
-SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version FROM runner_template WHERE id = ?
+SELECT id, name, description, mise_toml, setup_script, agent_json, min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami, max_runners, idle_timeout_s, version, created_at, updated_at, failed_version, max_sessions FROM runner_template WHERE id = ?
 `
 
 func (q *Queries) GetTemplate(ctx context.Context, id int64) (RunnerTemplate, error) {
@@ -120,6 +120,7 @@ func (q *Queries) GetTemplate(ctx context.Context, id int64) (RunnerTemplate, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FailedVersion,
+		&i.MaxSessions,
 	)
 	return i, err
 }

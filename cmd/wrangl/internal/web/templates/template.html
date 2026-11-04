@@ -1,7 +1,7 @@
 {{define "main-template"}}{{$t := .T}}
 <div class="crumbs dim small"><a href="/settings">Settings</a> › Runner templates › {{$t.Name}}</div>
 <div id="tpl" class="tpl" data-name="{{$t.Name}}" data-arch="{{$t.Arch}}" data-img="{{.ImgMode}}"
-  data-signals:tpdesc="{{json $t.Description}}" data-signals:tpmax="{{json .MaxStr}}" data-signals:tpidle="{{json .IdleStr}}"
+  data-signals:tpdesc="{{json $t.Description}}" data-signals:tpmax="{{json .MaxStr}}" data-signals:tpsess="{{json .SessStr}}" data-signals:tpidle="{{json .IdleStr}}"
   data-signals:tparch="{{json $t.Arch}}" data-signals:tpvcpu="{{json .VcpuStr}}" data-signals:tpram="{{json .RamStr}}" data-signals:tpdisk="{{json .DiskStr}}"
   data-signals:tptypes="{{json .TypesCSV}}" data-signals:tpimg="{{json .ImgMode}}" data-signals:tpami="{{json .AmiStr}}"
   data-signals:tpmise="{{json $t.MiseToml}}" data-signals:tpsetup="{{json $t.SetupScript}}">
@@ -15,6 +15,7 @@
   <div class="grid3">
     <label>Description<input data-bind="tpdesc" autocomplete="off"></label>
     <label>Max runners<input data-bind="tpmax" inputmode="numeric" autocomplete="off"><span class="hint" id="tp-maxcost"></span></label>
+    <label>Sessions per runner<input data-bind="tpsess" inputmode="numeric" autocomplete="off"><span class="hint">concurrent agent sessions on one runner, each in its own git worktree (default 4)</span></label>
     <label>Idle timeout<input data-bind="tpidle" autocomplete="off"><span class="hint">terminated after this long idle (e.g. 30m)</span></label>
   </div>
 </section>

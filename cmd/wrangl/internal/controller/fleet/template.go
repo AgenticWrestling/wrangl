@@ -38,6 +38,7 @@ type TemplateFile struct {
 	InstanceTypes []string `yaml:"instance_types"`
 	AMI           string   `yaml:"ami"`
 	MaxRunners    *int     `yaml:"max_runners"`
+	MaxSessions   *int     `yaml:"max_sessions"` // concurrent agent sessions per runner (default 4)
 	IdleTimeout   string   `yaml:"idle_timeout"`
 	MiseTOML      string   `yaml:"mise_toml"`
 	SetupScript   string   `yaml:"setup_script"`
@@ -88,6 +89,13 @@ func ParseTemplate(b []byte) (dbgen.CreateTemplateParams, error) {
 	if maxRunners < 0 {
 		return p, fmt.Errorf("max_runners must be >= 0")
 	}
+	maxSessions := 4
+	if f.MaxSessions != nil {
+		maxSessions = *f.MaxSessions
+	}
+	if maxSessions < 1 {
+		return p, fmt.Errorf("max_sessions must be >= 1")
+	}
 	if f.AMI == "" {
 		f.AMI = defaultAMI[f.Arch]
 	}
@@ -110,7 +118,7 @@ func ParseTemplate(b []byte) (dbgen.CreateTemplateParams, error) {
 		Name: f.Name, Description: f.Description, MiseToml: f.MiseTOML, SetupScript: f.SetupScript,
 		AgentJson: string(agent), MinVcpu: int64(f.Min.VCPU), MinRamMib: ram, MinDiskGib: disk,
 		Arch: f.Arch, InstanceTypes: string(it), Ami: f.AMI, MaxRunners: int64(maxRunners),
-		IdleTimeoutS: int64(idle / time.Second),
+		IdleTimeoutS: int64(idle / time.Second), MaxSessions: int64(maxSessions),
 	}, nil
 }
 

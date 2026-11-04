@@ -4,6 +4,7 @@ name: go-claude
 arch: arm64
 min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
 max_runners: 2
+max_sessions: 4          # concurrent agent sessions per runner (default 4), each in its own git worktree
 setup_script: |
   dnf install -y git make gcc
 mise_toml: |

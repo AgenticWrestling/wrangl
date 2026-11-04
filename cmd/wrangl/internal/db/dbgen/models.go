@@ -285,6 +285,7 @@ type RunnerTemplate struct {
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 	FailedVersion int64  `json:"failed_version"`
+	MaxSessions   int64  `json:"max_sessions"`
 }
 
 type Task struct {

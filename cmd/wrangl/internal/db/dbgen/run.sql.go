@@ -111,6 +111,18 @@ func (q *Queries) ClaimIdleRunner(ctx context.Context, templateID int64) (ClaimI
 	return i, err
 }
 
+const countActiveRunsForRunner = `-- name: CountActiveRunsForRunner :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM run
+WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+`
+
+func (q *Queries) CountActiveRunsForRunner(ctx context.Context, runnerID sql.NullInt64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countActiveRunsForRunner, runnerID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countRunsForTask = `-- name: CountRunsForTask :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM run WHERE task_id = ?
 `

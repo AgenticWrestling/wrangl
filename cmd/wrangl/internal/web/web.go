@@ -574,6 +574,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			Spark   []float64
 			Run     *dbgen.Run
 			IdleFor string
+			Used    int64 // agent sessions in use (active runs); the limit is T.MaxSessions
 		}
 		var cards []card
 		for _, x := range rows {
@@ -586,6 +587,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			if run, err := db.RQ.ActiveRunForRunner(ctx, sql.NullInt64{Int64: x.Runner.ID, Valid: true}); err == nil {
 				c.Run = &run
 			}
+			c.Used, _ = db.RQ.CountActiveRunsForRunner(ctx, sql.NullInt64{Int64: x.Runner.ID, Valid: true})
 			cards = append(cards, c)
 		}
 		// Machines the fleet doesn't launch (the controller host) are permanent: pin them first.
@@ -783,6 +785,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			ticked[x] = true
 		}
 		d["Ticked"], d["TypesList"], d["TypesCSV"] = ticked, types, strings.Join(types, ",")
+		d["SessStr"] = strconv.FormatInt(t.MaxSessions, 10)
 		d["MaxStr"], d["IdleStr"] = strconv.FormatInt(t.MaxRunners, 10), shortDuration(time.Duration(t.IdleTimeoutS)*time.Second)
 		d["VcpuStr"], d["RamStr"], d["DiskStr"] = strconv.FormatInt(t.MinVcpu, 10), fmt.Sprintf("%gGiB", float64(t.MinRamMib)/1024), fmt.Sprintf("%dGiB", t.MinDiskGib)
 		d["ImgMode"], d["AmiStr"] = "al", ""
@@ -1568,6 +1571,12 @@ func templateYAMLFromForm(t dbgen.RunnerTemplate, str func(string) string, _ fun
 	if err != nil {
 		return nil, fmt.Errorf("max runners %q is not a number", str("tpmax"))
 	}
+	maxS := int(t.MaxSessions) // a form without the field keeps the current value
+	if v := str("tpsess"); v != "" {
+		if maxS, err = strconv.Atoi(v); err != nil || maxS < 1 {
+			return nil, fmt.Errorf("sessions per runner %q should be a number of at least 1", v)
+		}
+	}
 	var types []string
 	for _, x := range strings.Split(str("tptypes"), ",") {
 		if x = strings.TrimSpace(x); x != "" {
@@ -1580,7 +1589,7 @@ func templateYAMLFromForm(t dbgen.RunnerTemplate, str func(string) string, _ fun
 	doc := map[string]any{
 		"name": t.Name, "description": str("tpdesc"), "arch": str("tparch"),
 		"min":            map[string]any{"vcpu": vcpu, "ram": str("tpram"), "disk": str("tpdisk")},
-		"instance_types": types, "max_runners": maxR, "idle_timeout": str("tpidle"),
+		"instance_types": types, "max_runners": maxR, "max_sessions": maxS, "idle_timeout": str("tpidle"),
 		"mise_toml": str("tpmise"), "setup_script": str("tpsetup"),
 	}
 	if str("tpimg") == "ami" {

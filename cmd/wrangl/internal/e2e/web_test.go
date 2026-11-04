@@ -139,12 +139,12 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		t.Fatal(err)
 	}
 	get("/settings", `href="/settings/templates/edme"`)
-	get("/settings/templates/edme", "Basics", "Machine", "Image", "Tools (mise)", "Setup script", "Save as v2", `data-signals:tpmax="&#34;0&#34;"`, "tp-img", "Search the AWS Marketplace", "runs /bin/true")
-	if out := post("/ui/act/template-save?name=edme", `{"tpdesc":"edited in the web","tpmax":"2","tpidle":"15m","tparch":"`+arch+`","tpvcpu":"2","tpram":"4GiB","tpdisk":"20GiB","tptypes":"m7g.large,m7g.xlarge","tpimg":"ami","tpami":"ami-0123456789abcdef0","tpmise":"[tools]\nnode = \"24\"\n","tpsetup":"echo hi"}`); !strings.Contains(out, "edme is now v2") {
+	get("/settings/templates/edme", "Basics", "Machine", "Image", "Tools (mise)", "Setup script", "Save as v2", `data-signals:tpmax="&#34;0&#34;"`, `data-signals:tpsess="&#34;4&#34;"`, "Sessions per runner", "tp-img", "Search the AWS Marketplace", "runs /bin/true")
+	if out := post("/ui/act/template-save?name=edme", `{"tpdesc":"edited in the web","tpmax":"2","tpsess":"3","tpidle":"15m","tparch":"`+arch+`","tpvcpu":"2","tpram":"4GiB","tpdisk":"20GiB","tptypes":"m7g.large,m7g.xlarge","tpimg":"ami","tpami":"ami-0123456789abcdef0","tpmise":"[tools]\nnode = \"24\"\n","tpsetup":"echo hi"}`); !strings.Contains(out, "edme is now v2") {
 		t.Fatalf("saving the template: %s", out)
 	}
 	tv, err := e.api.Template(e.ctx, "edme")
-	if err != nil || tv.Version != 2 || tv.Description != "edited in the web" || tv.MaxRunners != 2 || tv.IdleTimeoutS != 900 || tv.AMI != "ami-0123456789abcdef0" ||
+	if err != nil || tv.Version != 2 || tv.Description != "edited in the web" || tv.MaxRunners != 2 || tv.MaxSessions != 3 || tv.IdleTimeoutS != 900 || tv.AMI != "ami-0123456789abcdef0" ||
 		tv.MinVCPU != 2 || tv.MinRAMMiB != 4096 || strings.Join(tv.InstanceTypes, ",") != "m7g.large,m7g.xlarge" || !strings.Contains(tv.MiseTOML, "node") || !strings.Contains(string(tv.Agent), "/bin/true") {
 		t.Fatalf("saved template: %+v %v", tv, err)
 	}

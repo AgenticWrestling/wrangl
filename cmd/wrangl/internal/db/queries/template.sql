@@ -1,8 +1,8 @@
 -- name: CreateTemplate :one
 INSERT INTO runner_template (name, description, mise_toml, setup_script, agent_json,
                              min_vcpu, min_ram_mib, min_disk_gib, arch, instance_types, ami,
-                             max_runners, idle_timeout_s)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             max_runners, idle_timeout_s, max_sessions)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetTemplateByName :one
@@ -23,6 +23,7 @@ SET description = sqlc.arg(description), mise_toml = sqlc.arg(mise_toml),
     min_disk_gib = sqlc.arg(min_disk_gib), arch = sqlc.arg(arch),
     instance_types = sqlc.arg(instance_types), ami = sqlc.arg(ami),
     max_runners = sqlc.arg(max_runners), idle_timeout_s = sqlc.arg(idle_timeout_s),
+    max_sessions = sqlc.arg(max_sessions),
     version = version + 1, failed_version = 0,
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE name = sqlc.arg(name)
