@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -231,5 +232,35 @@ func TestProposalGoesStale(t *testing.T) {
 	}
 	if err := s.Apply(ctx, msg.ID, 0); !errors.Is(err, errs.Conflict) || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("stale: %v", err)
+	}
+}
+
+// fleet.launch reaches the launcher with the task's project, the template and the count, and an
+// error from it (the cap refusal) is shown on the proposal.
+func TestFleetLaunchProposal(t *testing.T) {
+	s, root, _ := setup(t)
+	ctx := context.Background()
+	var got string
+	s.Launch = func(_ context.Context, project, template string, n int) ([]string, error) {
+		got = fmt.Sprintf("%s/%s/%d", project, template, n)
+		if template == "mac" {
+			return nil, fmt.Errorf("%w: project p may run at most 0 instance(s) of template mac (project limit 0, template max_runners 2)", errs.Conflict)
+		}
+		return []string{"r1"}, nil
+	}
+	s.Exec = func(context.Context, Spec) (Result, error) {
+		return Result{Text: "ok\n```wrangl-proposals\n[{\"label\":\"Start Android\",\"action\":\"fleet.launch\",\"args\":{\"template\":\"android\",\"count\":2}},{\"label\":\"Start Mac\",\"action\":\"fleet.launch\",\"args\":{\"template\":\"mac\"}}]\n```"}, nil
+	}
+	s.Ask(ctx, root, "", "need a device")
+	msg := waitDone(t, s, root)[1]
+	if err := s.Apply(ctx, msg.ID, 0); err != nil || got != "p/android/2" {
+		t.Fatalf("launch: %v %q", err, got)
+	}
+	err := s.Apply(ctx, msg.ID, 1)
+	if err == nil || !strings.Contains(err.Error(), "project limit 0") {
+		t.Fatalf("refusal must carry the cap: %v", err)
+	}
+	if !strings.Contains(schemaHelp(), "fleet.launch") {
+		t.Fatal("system prompt must document fleet.launch")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
@@ -37,7 +38,10 @@ type ProjectParams struct {
 	Template, PlanTemplate *string // template names; "" clears
 	AutoMerge, AutoQueue   *bool
 	Priority               *int64
-	NotesRepo              *string // owner/name of a linked repo that holds research reports; "" clears
+	NotesRepo              *string          // owner/name of a linked repo that holds research reports; "" clears
+	Limits                 map[string]int64 // instance caps by template name
+	Agent                  *string          // default agent definition by name; "" clears
+	CitationAudit          *bool            // audit research PRs' citations before merge
 }
 
 func (s *Service) templateID(ctx context.Context, name string) (sql.NullInt64, error) {
@@ -87,7 +91,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
+	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.Priority != nil {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -138,10 +142,93 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 		up.Priority = *p.Priority
 	}
 	out, err := s.DB.Q.UpdateProject(ctx, up)
+	if err == nil && p.CitationAudit != nil {
+		err = s.DB.Q.SetProjectCitationAudit(ctx, b2i(*p.CitationAudit), cur.ID)
+	}
+	if err == nil && p.Agent != nil {
+		err = s.SetDefaultAgent(ctx, slug, *p.Agent)
+	}
+	if err == nil && len(p.Limits) > 0 {
+		err = s.SetLimits(ctx, slug, p.Limits)
+	}
 	if err == nil && p.NotesRepo != nil {
 		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
 	}
 	return out, err
+}
+
+// SetDefaultAgent sets (or with "" clears) the project's default agent definition.
+func (s *Service) SetDefaultAgent(ctx context.Context, slug, name string) error {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return err
+	}
+	var id sql.NullInt64
+	if name != "" {
+		a, err := s.DB.RQ.GetAgentByName(ctx, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: agent %q (see `wrangl agent list`)", errs.NotFound, name)
+		} else if err != nil {
+			return err
+		}
+		id = sql.NullInt64{Int64: a.ID, Valid: true}
+	}
+	return s.DB.Q.SetProjectDefaultAgent(ctx, dbgen.SetProjectDefaultAgentParams{AgentID: id, ID: p.ID})
+}
+
+// DefaultAgent names the project's default agent ("" = none).
+func (s *Service) DefaultAgent(ctx context.Context, projectID int64) string {
+	id, err := s.DB.RQ.GetProjectDefaultAgent(ctx, projectID)
+	if err != nil || !id.Valid {
+		return ""
+	}
+	a, _ := s.DB.RQ.GetAgent(ctx, id.Int64)
+	return a.Name
+}
+
+// Limits lists the project's instance cap on every template. A template with no stored cap
+// shows the default: 1 for the project's default template, 0 for the rest.
+func (s *Service) Limits(ctx context.Context, slug string) ([]proto.ProjectLimit, error) {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.DB.RQ.ListProjectTemplateLimits(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]proto.ProjectLimit, 0, len(rows))
+	for _, r := range rows {
+		m := r.Stored.Int64
+		if !r.Stored.Valid {
+			m = r.IsDefault
+		}
+		out = append(out, proto.ProjectLimit{Template: r.TemplateName, Max: m, Ceiling: r.MaxRunners, Default: r.IsDefault == 1})
+	}
+	return out, nil
+}
+
+// SetLimits stores instance caps by template name.
+func (s *Service) SetLimits(ctx context.Context, slug string, limits map[string]int64) error {
+	p, err := s.Project(ctx, slug)
+	if err != nil {
+		return err
+	}
+	for name, n := range limits {
+		if n < 0 {
+			return fmt.Errorf("%w: limit for %s must be >= 0", errs.Invalid, name)
+		}
+		t, err := s.DB.RQ.GetTemplateByName(ctx, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: template %q", errs.NotFound, name)
+		} else if err != nil {
+			return err
+		}
+		if err := s.DB.Q.UpsertProjectTemplateLimit(ctx, dbgen.UpsertProjectTemplateLimitParams{ProjectID: p.ID, TemplateID: t.ID, MaxInstances: n}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetNotesRepo gives one of the project's linked repos the "notes" role ("" clears it).

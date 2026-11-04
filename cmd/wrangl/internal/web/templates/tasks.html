@@ -23,13 +23,14 @@
 {{if .Progress}}<section class="tsec" id="in-progress"><h3>In progress <span class="dim small">{{len .Progress}}</span></h3>
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
-  <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
+  <ul class="tasks runs queue-sort" role="tree" aria-label="Queue">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 <section class="tsec" id="backlog">{{if or .Progress .Queue}}<h3>Backlog</h3>{{end}}
 <ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul></section>
 {{end}}{{end}}
 
-{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
+{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
   <div class="row">
+    {{if not .Runner}}<span class="handle" aria-label="Drag to reorder the queue">⠿</span>{{end}}
     <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
     {{ticon $n.Type}}
     <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>

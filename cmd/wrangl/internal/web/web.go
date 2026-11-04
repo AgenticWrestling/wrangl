@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
@@ -550,7 +551,8 @@ type runEntry struct {
 	Runner       string
 	Current      string // sqid of the leaf being worked
 	CurrentTitle string
-	Crumb        string // "parent > " for a queued task that is not a root
+	Rank         sql.NullFloat64 // owner-chosen queue_rank (Queue only)
+	Crumb        string          // "parent > " for a queued task that is not a root
 }
 
 // taskSections is what the Tasks page lists: running, queued and the rest.
@@ -622,6 +624,16 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["CanQueue"] = t.State != "done" && t.State != "cancelled"
 		if h.D.Agents != nil {
 			d["Thread"], d["Agents"] = h.threadView(ctx, t.ID)
+		}
+		// The live PTY: the in-progress run working on this task (or its subtasks). The PTY is the
+		// run's own session on whichever runner hosts it, so it is keyed by the run, not the runner.
+		if runs, err := db.RQ.ListRuns(ctx, dbgen.ListRunsParams{State: "active", Lim: 1000}); err == nil {
+			for _, x := range runs {
+				if (x.TaskSqid == sqid || x.CurrentSqid == sqid) && x.Run.RunnerID.Valid && x.Run.State != "queued" {
+					d["LiveRun"] = x.Run.ID
+					break
+				}
+			}
 		}
 		d["Pre"], _ = db.RQ.ListPrecursors(ctx, t.ID)
 		d["Dep"], _ = db.RQ.ListDependents(ctx, t.ID)
@@ -811,6 +823,7 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 		d["P"], d["Repos"], d["Title"] = p, repos, p.Name
 		d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
 		d["Templates"], _ = db.RQ.ListTemplates(ctx)
+		d["Limits"], _ = h.D.Projects.Limits(ctx, p.Slug)
 		d["GitHub"] = h.D.Projects.GH != nil
 		d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
 		d["Template"] = ""
@@ -846,6 +859,10 @@ func (h *Handler) data(ctx context.Context, view string, r *http.Request) (map[s
 			v.Focus = strings.EqualFold(qv.Get("account"), ac.Login)
 			seen = seen || v.Focus
 			views = append(views, v)
+		}
+		if h.D.Secrets != nil {
+			defs, _ := db.RQ.ListAgentDefs(ctx)
+			d["Creds"] = agentdef.Credentials(defs, h.D.Secrets.Has)
 		}
 		d["Accounts"], d["Created"], d["Error"] = views, qv.Get("created"), qv.Get("error")
 		d["CreatedRole"] = qv.Get("role")
@@ -1034,7 +1051,7 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			continue
 		}
 		taken[n] = true
-		e := &runEntry{Node: n, RunID: r.Run.ID, Kind: r.Run.Kind, State: r.Run.State, Runner: r.RunnerName, Current: r.CurrentSqid}
+		e := &runEntry{Node: n, RunID: r.Run.ID, Rank: r.Run.QueueRank, Kind: r.Run.Kind, State: r.Run.State, Runner: r.RunnerName, Current: r.CurrentSqid}
 		if c := bySqid[r.CurrentSqid]; c != nil {
 			e.CurrentTitle = c.Title
 		}
@@ -1049,7 +1066,15 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			secs.Progress = append(secs.Progress, e)
 		}
 	}
-	sort.SliceStable(secs.Queue, func(a, b int) bool { // tree order (project priority/rank), then FIFO
+	// Owner-ranked runs first (by queue_rank), then tree order (project priority/rank), then FIFO.
+	sort.SliceStable(secs.Queue, func(a, b int) bool {
+		ra, rb := secs.Queue[a].Rank, secs.Queue[b].Rank
+		if ra.Valid != rb.Valid {
+			return ra.Valid
+		}
+		if ra.Valid && ra.Float64 != rb.Float64 {
+			return ra.Float64 < rb.Float64
+		}
 		return order[secs.Queue[a].Node.Sqid] < order[secs.Queue[b].Node.Sqid]
 	})
 	var strip func(ns []*node) []*node
@@ -1303,6 +1328,14 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		am, aq := flag("pautomerge"), flag("pautoqueue")
 		_, err = h.D.Projects.Update(ctx, slug, projects.ProjectParams{Name: &name, Description: &goals, Template: &tmpl, AutoMerge: &am, AutoQueue: &aq})
 		msg = "saved " + slug
+	case "project-limit":
+		var n int64
+		if n, err = strconv.ParseInt(q.Get("n"), 10, 64); err != nil || n < 0 {
+			err = fmt.Errorf("limit must be a whole number, 0 or more")
+			break
+		}
+		err = h.D.Projects.SetLimits(ctx, q.Get("slug"), map[string]int64{q.Get("template"): n})
+		msg = fmt.Sprintf("%s limit on %s: %d", q.Get("slug"), q.Get("template"), n)
 	case "repo-notes": // repo=owner/name gives it the notes role; empty repo clears
 		err = h.D.Projects.SetNotesRepo(ctx, q.Get("slug"), q.Get("repo"))
 		msg = "notes repo saved"

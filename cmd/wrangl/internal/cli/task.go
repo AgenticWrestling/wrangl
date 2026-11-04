@@ -363,6 +363,7 @@ func taskCmd(g *Global) *cobra.Command {
 	sf.String("guidance", "", "guidance for the planning agent (with --agent)")
 	split.MarkFlagsMutuallyExclusive("file", "title", "agent")
 
+	var agentFlag string
 	queue := &cobra.Command{
 		Use: "queue <sqid>", Short: "Queue a work run for this subtree", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -370,7 +371,7 @@ func taskCmd(g *Global) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, branch, err := c.QueueTask(cmd.Context(), args[0])
+			id, branch, err := c.QueueTaskWith(cmd.Context(), args[0], agentFlag)
 			if err != nil {
 				return err
 			}
@@ -378,6 +379,7 @@ func taskCmd(g *Global) *cobra.Command {
 			return nil
 		},
 	}
+	queue.Flags().StringVar(&agentFlag, "agent", "", "run with this agent definition instead of the project's default (see `wrangl agent list`)")
 	ask := &cobra.Command{
 		Use: "ask <sqid> <question>", Short: "Ask a controller agent about a task and its subtree", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

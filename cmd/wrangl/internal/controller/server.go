@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -47,6 +48,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/mcp"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stacktools"
@@ -84,6 +86,8 @@ type Server struct {
 	LoopInterval        time.Duration // offline sweep + reaper cadence (default 30s)
 	SchedulerInterval   time.Duration // scale-up cadence (default 10s)
 	AllowLoopbackEnroll bool
+	// ProbeTarget replaces the remote-target health probe (tests); nil = EC2 state check.
+	ProbeTarget func(ctx context.Context, g dbgen.RemoteTarget, conn proto.Connection) error
 
 	mu         sync.Mutex
 	httpAddr   string
@@ -242,6 +246,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		Prov: prov, ControllerID: controllerID, EnrollURL: "http://" + enrollLn.Addr().String(),
 		SubnetID: subnet, SecurityGroupID: s.cfg.AWS.SecurityGroupID, InstanceProfile: s.cfg.AWS.RunnerInstanceProfile,
 		BinDir: filepath.Join(s.cfg.DataDir, "bin"), Now: now, Log: s.log, AllowLoopbackEnroll: s.AllowLoopbackEnroll,
+		ProbeTarget: s.ProbeTarget,
 	}
 
 	ghAPI, err := s.github(ctx)
@@ -308,6 +313,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		s.Push.Notify(webpush.Notification{Title: "Agent needs attention", Body: message, URL: fmt.Sprintf("/run/%d", r.ID), Tag: fmt.Sprintf("notice-run%d", r.ID)})
 	}
 	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
+	s.Runs.ToolHandlers["submit_citation_audit"] = s.PRs.SubmitCitationAudit
 	s.Deliverables = &deliverables.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "deliverables"), Bus: s.Bus, Log: s.log}
 	s.Runs.ToolHandlers["submit_deliverable"] = s.Deliverables.Submit
 	s.Runs.AnswerHandlers["deliverable_review"] = s.Deliverables.Answer(s.review())
@@ -400,6 +406,10 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	if s.Agents != nil {
+		s.Agents.Launch = sched.LaunchFor
+	}
+	s.Fleet.OnTargetLost = s.Runs.FailRun
 	reconcile := s.ReconcileInterval
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
@@ -534,7 +544,11 @@ func (s *Server) routes() http.Handler {
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
 	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
-		Setup: s.setupService()}
+		Setup: s.setupService(), Secrets: &api.SecretStore{
+			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
+			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },
+			Has:  func(name string) bool { _, err := SecretGet(s.cfg.DataDir, name); return err == nil },
+		}}
 	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)
 	ui, err := web.New(deps)

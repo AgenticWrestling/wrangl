@@ -1,5 +1,9 @@
 # Claude Code, headless drive (the default; verified shape, see INSTALL.md section 8).
 # One `claude -p` process per subtask, all resuming one session id.
+#
+# The `agent:` block becomes a named agent definition (here `claude`) allowed on this template.
+# To share one agent across templates instead, create it once (`wrangl agent create`) and list
+# it here with `agents: [claude]` in place of the `agent:` block. See INSTALL.md section 8.0.
 name: go-claude
 arch: arm64
 min: { vcpu: 2, ram: 8GiB, disk: 40GiB }
@@ -19,6 +23,10 @@ agent:
   start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  auth:                                     # how the owner collects it; shown on Setup and by `wrangl agent auth claude`
+    secret: claude_oauth_token
+    command: claude setup-token
+    note: a year-long inference token for Pro/Max/Team/Enterprise plans
   turn_timeout: 2h
   files:
     - path: .mcp.json

@@ -48,10 +48,16 @@ var All = []mcp.Tool{
 		InputSchema: raw(`{"type":"object","required":["prompt"],"properties":{"prompt":{"type":"string"},"detail_md":{"type":"string"},"allow_free_text":{"type":"boolean"},"options":{"type":"array","items":{"type":"object","required":["label","value"],"properties":{"label":{"type":"string"},"value":{"type":"string"},"description":{"type":"string"}}}}}}`)},
 	{Name: "report_status", Description: "Report progress (shown to the owner in the TUI and web app).",
 		InputSchema: mcp.Schema(map[string]string{"summary": "string", "percent": "integer"}, "summary")},
+	{Name: "target_exec", Description: "Remote runs only: run a shell command on the remote target (a Mac, an Android emulator host) over SSH, or an adb shell command for Android, and return its output and exit code. The repo is checked out LOCALLY, not on the target: edit files here, copy what the target needs with target_put, and use the target to build, test and run. Fails with \"target lost\" if the machine goes away.",
+		InputSchema: raw(`{"type":"object","required":["cmd"],"properties":{"cmd":{"type":"string"},"timeout_s":{"type":"integer","description":"default 600, max 3600"}}}`)},
+	{Name: "target_put", Description: "Remote runs only: copy a file or directory from the local checkout to the target (scp, or adb push). path is relative to the checkout; dest is the path on the target.",
+		InputSchema: mcp.Schema(map[string]string{"path": "string", "dest": "string"}, "path", "dest")},
 	{Name: "submit_deliverable", Description: "Hand the owner something besides a pull request: a mockup image (kind image, image_base64 PNG/JPEG/WebP/GIF up to 5 MB), a prototype or Claude Artifact link (artifact_url), any other link (link), or a markdown report (report_md, content_md). If you cannot publish a Claude Artifact, hand back the prototype as one self-contained HTML file (prototype_html, content_html up to 1 MB; inline CSS/JS, no network) and the owner opens it in a sandboxed frame. Give each a short title. Shown on the task.",
 		InputSchema: raw(`{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["image","artifact_url","link","report_md","prototype_html"]},"title":{"type":"string"},"url":{"type":"string"},"content_md":{"type":"string"},"content_html":{"type":"string"},"image_base64":{"type":"string"}}}`)},
 	{Name: "submit_review", Description: "Review runs only: submit your review of the pull request. risk is low, medium or high.",
 		InputSchema: raw(`{"type":"object","required":["risk","summary_md"],"properties":{"risk":{"type":"string","enum":["low","medium","high"]},"summary_md":{"type":"string"},"concerns":{"type":"array","items":{"type":"string"}}}}`)},
+	{Name: "submit_citation_audit", Description: "Citation audit review runs only: report, for every URL you were asked to check, whether it is verified (loads and supports the claim it is cited for), unsupported (loads but does not) or unreachable (did not load). Call once.",
+		InputSchema: raw(`{"type":"object","required":["citations"],"properties":{"citations":{"type":"array","items":{"type":"object","required":["url","status"],"properties":{"url":{"type":"string"},"status":{"type":"string","enum":["verified","unsupported","unreachable"]},"note":{"type":"string","description":"what the page says instead, or why it did not load"}}}},"summary_md":{"type":"string"}}}`)},
 	{Name: "propose_split", Description: "Plan runs only: propose subtasks for the task. Nested children allowed. This ends the plan run.",
 		InputSchema: raw(`{"type":"object","required":["children"],"properties":{"chain":{"type":"boolean","description":"each top-level subtask needs the previous"},"rationale_md":{"type":"string"},"children":{"type":"array","items":{"type":"object","required":["title"],"properties":{"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"children":{"type":"array"}}}}}}`)},
 }
@@ -82,7 +88,7 @@ func Allowed(kind string) map[string]bool {
 	switch kind {
 	case "work", "revise", "user":
 		for _, t := range All {
-			if t.Name != "submit_review" && t.Name != "propose_split" {
+			if t.Name != "submit_review" && t.Name != "propose_split" && t.Name != "submit_citation_audit" {
 				m[t.Name] = true
 			}
 		}
@@ -96,6 +102,7 @@ func Allowed(kind string) map[string]bool {
 		}
 	case "review":
 		m["submit_review"] = true
+		m["submit_citation_audit"] = true
 	case "plan":
 		m["propose_split"] = true
 	}

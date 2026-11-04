@@ -39,6 +39,7 @@ var Actions = map[string]string{
 	"task.queue":       `{"sqid"}`,
 	"task.complete":    `{"sqid","summary"?}`,
 	"task.reopen":      `{"sqid"}`,
+	"fleet.launch":     `{"template" (runner template name, e.g. a Mac or Android one),"count"? (1-5, default 1)}; only works within this task's project's cap for that template (refused otherwise, with the cap). A Mac template bills a 24-hour Dedicated Host minimum: say so in the description`,
 }
 
 const fence = "```wrangl-proposals"
@@ -184,6 +185,19 @@ func (s *Service) run(ctx context.Context, p Proposal, project string) (string, 
 			return "", fmt.Errorf("%w: queueing is unavailable", errs.Invalid)
 		}
 		return "queued", s.Queue(ctx, a.str("sqid"))
+	case "fleet.launch":
+		if s.Launch == nil {
+			return "", fmt.Errorf("%w: launching runners is unavailable", errs.Invalid)
+		}
+		n := 1
+		if f, ok := p.Args["count"].(float64); ok {
+			n = int(f)
+		}
+		names, err := s.Launch(ctx, project, a.str("template"), n)
+		if err != nil {
+			return "", err
+		}
+		return "launching " + strings.Join(names, ", "), nil
 	case "task.complete":
 		return "completed", st.Complete(ctx, a.str("sqid"), a.str("summary"), u)
 	case "task.reopen":
@@ -216,9 +230,9 @@ func (a argv) strs(k string) []string {
 func schemaHelp() string {
 	var b strings.Builder
 	b.WriteString("\n\nProposing actions: when you recommend changes, end your reply with ONE fenced block the owner can approve with a click each (at most 5; label them so they read as buttons):\n\n" + fence + "\n[{\"label\":\"Split Child A in three\",\"description\":\"optional one line\",\"action\":\"task.split\",\"args\":{\"sqid\":\"abc123\",\"titles\":[\"a\",\"b\",\"c\"]}}]\n```\n\nActions and their args (sqids are the short ids shown in the tree):\n")
-	for _, k := range []string{"task.create", "task.edit", "task.move", "task.split", "task.type", "task.target_date", "task.needs_add", "task.needs_rm", "task.queue", "task.complete", "task.reopen"} {
+	for _, k := range []string{"task.create", "task.edit", "task.move", "task.split", "task.type", "task.target_date", "task.needs_add", "task.needs_rm", "task.queue", "task.complete", "task.reopen", "fleet.launch"} {
 		fmt.Fprintf(&b, "- %s %s\n", k, Actions[k])
 	}
-	b.WriteString("Only propose what you did not already do yourself. Anything not in this list (delete, cancel, merge, terminate) can only be described in prose.")
+	b.WriteString("Only propose what you did not already do yourself. Propose fleet.launch only when the owner needs a special-purpose runner (a Mac or Android template) for this project's work: it is refused unless the project's limit for that template allows it, so mention the limit if you know it. Anything not in this list (delete, cancel, merge, terminate) can only be described in prose.")
 	return b.String()
 }

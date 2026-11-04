@@ -54,6 +54,11 @@ func uuid4() string {
 // no subtasks yet gets a plan run that proposes them (its work is its subtasks); anything else
 // gets an ordinary work run over its subtree.
 func (s *Service) QueueWork(ctx context.Context, sqid string) (dbgen.Run, error) {
+	return s.QueueWorkWith(ctx, sqid, "")
+}
+
+// QueueWorkWith is QueueWork with an agent override by name.
+func (s *Service) QueueWorkWith(ctx context.Context, sqid, agent string) (dbgen.Run, error) {
 	t, err := s.Stack.Task(ctx, s.DB.RQ, sqid)
 	if err != nil {
 		return dbgen.Run{}, err
@@ -67,7 +72,7 @@ func (s *Service) QueueWork(ctx context.Context, sqid string) (dbgen.Run, error)
 			return s.Queue(ctx, sqid, "")
 		}
 	}
-	return s.Stack.Queue(ctx, sqid)
+	return s.Stack.QueueWith(ctx, sqid, agent)
 }
 
 // Queue starts a plan run for an open task.

@@ -21,7 +21,7 @@ func (q *Queries) ClearUpgrade(ctx context.Context, id int64) error {
 
 const createAdoptedRunner = `-- name: CreateAdoptedRunner :one
 INSERT INTO runner (name, template_id, state, launched) VALUES (?, ?, 'enrolling', 0)
-RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at, launched_for_project
 `
 
 type CreateAdoptedRunnerParams struct {
@@ -65,6 +65,7 @@ func (q *Queries) CreateAdoptedRunner(ctx context.Context, arg CreateAdoptedRunn
 		&i.BinarySha,
 		&i.UpgradeSha,
 		&i.UpgradeSentAt,
+		&i.LaunchedForProject,
 	)
 	return i, err
 }
@@ -74,7 +75,7 @@ const createLaunchedRunner = `-- name: CreateLaunchedRunner :one
 INSERT INTO runner (name, template_id, instance_id, instance_type, az, arch, private_ip,
                     state, launched, launched_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'launching', 1, ?)
-RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at
+RETURNING id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at, launched_for_project
 `
 
 type CreateLaunchedRunnerParams struct {
@@ -136,6 +137,7 @@ func (q *Queries) CreateLaunchedRunner(ctx context.Context, arg CreateLaunchedRu
 		&i.BinarySha,
 		&i.UpgradeSha,
 		&i.UpgradeSentAt,
+		&i.LaunchedForProject,
 	)
 	return i, err
 }
@@ -215,7 +217,7 @@ func (q *Queries) EnrollRunner(ctx context.Context, arg EnrollRunnerParams) erro
 }
 
 const getRunner = `-- name: GetRunner :one
-SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at FROM runner WHERE id = ?
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at, launched_for_project FROM runner WHERE id = ?
 `
 
 func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
@@ -254,12 +256,13 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 		&i.BinarySha,
 		&i.UpgradeSha,
 		&i.UpgradeSentAt,
+		&i.LaunchedForProject,
 	)
 	return i, err
 }
 
 const getRunnerByName = `-- name: GetRunnerByName :one
-SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at FROM runner WHERE name = ?
+SELECT id, name, template_id, template_version, instance_id, instance_type, az, private_ip, arch, vcpu, ram_mib, disk_gib, nkey_public, state, max_concurrent, last_heartbeat_at, last_metrics_json, created_at, terminated_at, launched, launched_at, enrolled_at, idle_since, offline_since, cordoned, drain_requested, last_error, template_log, provisioning_since, binary_sha, upgrade_sha, upgrade_sent_at, launched_for_project FROM runner WHERE name = ?
 `
 
 func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, error) {
@@ -298,12 +301,13 @@ func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, err
 		&i.BinarySha,
 		&i.UpgradeSha,
 		&i.UpgradeSentAt,
+		&i.LaunchedForProject,
 	)
 	return i, err
 }
 
 const listRunners = `-- name: ListRunners :many
-SELECT r.id, r.name, r.template_id, r.template_version, r.instance_id, r.instance_type, r.az, r.private_ip, r.arch, r.vcpu, r.ram_mib, r.disk_gib, r.nkey_public, r.state, r.max_concurrent, r.last_heartbeat_at, r.last_metrics_json, r.created_at, r.terminated_at, r.launched, r.launched_at, r.enrolled_at, r.idle_since, r.offline_since, r.cordoned, r.drain_requested, r.last_error, r.template_log, r.provisioning_since, r.binary_sha, r.upgrade_sha, r.upgrade_sent_at, CAST(t.name AS TEXT) AS template_name
+SELECT r.id, r.name, r.template_id, r.template_version, r.instance_id, r.instance_type, r.az, r.private_ip, r.arch, r.vcpu, r.ram_mib, r.disk_gib, r.nkey_public, r.state, r.max_concurrent, r.last_heartbeat_at, r.last_metrics_json, r.created_at, r.terminated_at, r.launched, r.launched_at, r.enrolled_at, r.idle_since, r.offline_since, r.cordoned, r.drain_requested, r.last_error, r.template_log, r.provisioning_since, r.binary_sha, r.upgrade_sha, r.upgrade_sent_at, r.launched_for_project, CAST(t.name AS TEXT) AS template_name
 FROM runner r JOIN runner_template t ON t.id = r.template_id
 WHERE r.state <> 'terminated' OR ?1 = 1
 ORDER BY r.name
@@ -356,6 +360,7 @@ func (q *Queries) ListRunners(ctx context.Context, includeTerminated interface{}
 			&i.Runner.BinarySha,
 			&i.Runner.UpgradeSha,
 			&i.Runner.UpgradeSentAt,
+			&i.Runner.LaunchedForProject,
 			&i.TemplateName,
 		); err != nil {
 			return nil, err
@@ -508,9 +513,14 @@ UPDATE runner
 SET last_heartbeat_at = ?1, last_metrics_json = ?2,
     offline_since = NULL,
     idle_since = CASE WHEN state IN ('enrolling', 'provisioning') THEN ?1
-                      WHEN state = 'offline' THEN COALESCE(idle_since, ?1)
+                      WHEN state = 'offline' THEN CASE WHEN EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                                         THEN NULL ELSE COALESCE(idle_since, ?1) END
                       ELSE idle_since END,
-    state = CASE WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
+    state = CASE WHEN state = 'offline' AND EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                      THEN 'busy' -- sessions survived the blip: not idle until every one ends
+                 WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
                  ELSE state END
 WHERE id = ?3 AND state <> 'terminated'
 RETURNING state
@@ -651,7 +661,9 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
        CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
              JOIN project p ON p.id = k.project_id
              WHERE r.state = 'queued'
-               AND COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
+               AND (COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id
+                    OR COALESCE(r.template_id, k.template_id, p.default_template_id) IN
+                       (SELECT c.template_id FROM template_connection c WHERE c.mode = 'remote' AND c.driver_template_id = t.id))) AS INTEGER) AS demand,
        CAST((SELECT COALESCE(SUM(MAX(t.max_sessions - (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
                           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0)
              FROM runner n
@@ -769,4 +781,133 @@ func (q *Queries) CountFailedEnrolments(ctx context.Context, arg CountFailedEnro
 	var n int64
 	err := row.Scan(&n)
 	return n, err
+}
+
+const setRunnerLaunchedForProject = `-- name: SetRunnerLaunchedForProject :exec
+UPDATE runner SET launched_for_project = ?1 WHERE id = ?2
+`
+
+type SetRunnerLaunchedForProjectParams struct {
+	ProjectID sql.NullInt64 `json:"project_id"`
+	ID        int64         `json:"id"`
+}
+
+func (q *Queries) SetRunnerLaunchedForProject(ctx context.Context, arg SetRunnerLaunchedForProjectParams) error {
+	_, err := q.db.ExecContext(ctx, setRunnerLaunchedForProject, arg.ProjectID, arg.ID)
+	return err
+}
+
+const upsertProjectTemplateLimit = `-- name: UpsertProjectTemplateLimit :exec
+INSERT INTO project_template_limit (project_id, template_id, max_instances) VALUES (?1, ?2, ?3)
+ON CONFLICT (project_id, template_id) DO UPDATE SET max_instances = excluded.max_instances
+`
+
+type UpsertProjectTemplateLimitParams struct {
+	ProjectID    int64 `json:"project_id"`
+	TemplateID   int64 `json:"template_id"`
+	MaxInstances int64 `json:"max_instances"`
+}
+
+func (q *Queries) UpsertProjectTemplateLimit(ctx context.Context, arg UpsertProjectTemplateLimitParams) error {
+	_, err := q.db.ExecContext(ctx, upsertProjectTemplateLimit, arg.ProjectID, arg.TemplateID, arg.MaxInstances)
+	return err
+}
+
+const listProjectTemplateLimits = `-- name: ListProjectTemplateLimits :many
+SELECT t.id AS template_id, t.name AS template_name, t.max_runners,
+       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = t.id, 0) AS INTEGER) AS is_default
+FROM project p CROSS JOIN runner_template t
+LEFT JOIN project_template_limit l ON l.project_id = p.id AND l.template_id = t.id
+WHERE p.id = ?1
+ORDER BY t.name
+`
+
+type ListProjectTemplateLimitsRow struct {
+	TemplateID   int64         `json:"template_id"`
+	TemplateName string        `json:"template_name"`
+	MaxRunners   int64         `json:"max_runners"`
+	Stored       sql.NullInt64 `json:"stored"`
+	IsDefault    int64         `json:"is_default"`
+}
+
+func (q *Queries) ListProjectTemplateLimits(ctx context.Context, projectID int64) ([]ListProjectTemplateLimitsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectTemplateLimits, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectTemplateLimitsRow{}
+	for rows.Next() {
+		var i ListProjectTemplateLimitsRow
+		if err := rows.Scan(&i.TemplateID, &i.TemplateName, &i.MaxRunners, &i.Stored, &i.IsDefault); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
+
+const projectTemplateDemand = `-- name: ProjectTemplateDemand :many
+SELECT p.id AS project_id, CAST(COALESCE(r.template_id, k.template_id, p.default_template_id) AS INTEGER) AS template_id,
+       CAST(COUNT(*) AS INTEGER) AS demand,
+       CAST((SELECT COUNT(*) FROM runner n WHERE n.launched_for_project = p.id
+             AND n.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
+             AND n.state <> 'terminated') AS INTEGER) AS live,
+       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = COALESCE(r.template_id, k.template_id, p.default_template_id), 0) AS INTEGER) AS is_default
+FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
+LEFT JOIN project_template_limit l ON l.project_id = p.id
+     AND l.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
+WHERE r.state = 'queued' AND COALESCE(r.template_id, k.template_id, p.default_template_id) IS NOT NULL
+GROUP BY p.id, COALESCE(r.template_id, k.template_id, p.default_template_id)
+ORDER BY p.priority DESC, p.id
+`
+
+type ProjectTemplateDemandRow struct {
+	ProjectID  int64         `json:"project_id"`
+	TemplateID int64         `json:"template_id"`
+	Demand     int64         `json:"demand"`
+	Live       int64         `json:"live"`
+	Stored     sql.NullInt64 `json:"stored"`
+	IsDefault  int64         `json:"is_default"`
+}
+
+func (q *Queries) ProjectTemplateDemand(ctx context.Context) ([]ProjectTemplateDemandRow, error) {
+	rows, err := q.db.QueryContext(ctx, projectTemplateDemand)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectTemplateDemandRow{}
+	for rows.Next() {
+		var i ProjectTemplateDemandRow
+		if err := rows.Scan(&i.ProjectID, &i.TemplateID, &i.Demand, &i.Live, &i.Stored, &i.IsDefault); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
+
+const countProjectRunners = `-- name: CountProjectRunners :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner
+WHERE launched_for_project = ?1 AND template_id = ?2 AND state <> 'terminated'
+`
+
+type CountProjectRunnersParams struct {
+	ProjectID  sql.NullInt64 `json:"project_id"`
+	TemplateID int64         `json:"template_id"`
+}
+
+// Live (not terminated) runners launched for a project on a template.
+func (q *Queries) CountProjectRunners(ctx context.Context, arg CountProjectRunnersParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countProjectRunners, arg.ProjectID, arg.TemplateID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }

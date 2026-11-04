@@ -4,7 +4,9 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 )
 
 // Backoff after a failed launch, per template: doubles from MinBackoff to MaxBackoff.
@@ -64,10 +67,22 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 	if err != nil {
 		return nil, err
 	}
+	pdem, err := s.Fleet.DB.RQ.ProjectTemplateDemand(ctx)
+	if err != nil {
+		return nil, err
+	}
 	now := s.Now()
 	launched := map[string]int{}
 	var errs []error
+	remoteIDs, _ := s.Fleet.DB.RQ.ListRemoteTemplateIDs(ctx)
+	remote := map[int64]bool{}
+	for _, id := range remoteIDs {
+		remote[id] = true
+	}
 	for _, t := range rows {
+		if remote[t.ID] {
+			continue // remote templates launch targets, below
+		}
 		need := t.Demand - t.Supply // sessions still without a slot
 		perHost := max(t.MaxSessions, 1)
 		hosts := (need + perHost - 1) / perHost // each new runner brings max_sessions slots
@@ -105,22 +120,234 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 			}
 			continue
 		}
-		for i := int64(0); i < n; i++ {
-			if _, err := s.Fleet.Launch(ctx, t.Name); err != nil {
-				next := MinBackoff
-				if b != nil {
-					next = min(b.next*2, MaxBackoff)
+		failedLaunch := false
+		for _, a := range PlanLaunches(t.Demand-t.Supply, perHost, n, append(projectDemands(pdem, t.ID, t.MaxRunners), s.driverDemands(ctx, pdem, t.ID, t.MaxRunners)...)) {
+			for i := int64(0); i < a.Hosts && !failedLaunch; i++ {
+				r, err := s.Fleet.Launch(ctx, t.Name)
+				if err != nil {
+					next := MinBackoff
+					if b != nil {
+						next = min(b.next*2, MaxBackoff)
+					}
+					s.backoff[t.ID] = &backoff{until: now.Add(next), next: next}
+					s.Log.Error("launch failed; backing off", "template", t.Name, "retry_in", next, "err", err)
+					errs = append(errs, err)
+					failedLaunch = true
+					break
 				}
-				s.backoff[t.ID] = &backoff{until: now.Add(next), next: next}
-				s.Log.Error("launch failed; backing off", "template", t.Name, "retry_in", next, "err", err)
-				errs = append(errs, err)
-				break
+				s.Fleet.DB.Q.SetRunnerLaunchedForProject(ctx, dbgen.SetRunnerLaunchedForProjectParams{
+					ProjectID: sql.NullInt64{Int64: a.Project, Valid: true}, ID: r.ID})
+				delete(s.backoff, t.ID)
+				launched[t.Name]++
 			}
-			delete(s.backoff, t.ID)
-			launched[t.Name]++
 		}
 	}
+	if err := s.tickRemote(ctx, pdem, launched); err != nil {
+		errs = append(errs, err)
+	}
 	return launched, errors.Join(errs...)
+}
+
+// driverDemands is the demand that remote runs put on a driver template: a run on a remote template
+// needs a driver session, but only as many as its project's cap lets it have targets for (a project
+// capped at 0 Macs does not get idle drivers). The driver's own ceiling is the template's max_runners.
+func (s *Scheduler) driverDemands(ctx context.Context, pdem []dbgen.ProjectTemplateDemandRow, driver, driverMax int64) []ProjectDemand {
+	rows, err := s.Fleet.DB.RQ.TargetDemand(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []ProjectDemand
+	for _, rt := range rows {
+		if _, _, d, err := s.Fleet.Connection(ctx, rt.TemplateID); err != nil || d != driver {
+			continue
+		}
+		for _, p := range pdem {
+			if p.TemplateID != rt.TemplateID {
+				continue
+			}
+			c := EffectiveCap(p.Stored, p.IsDefault == 1, rt.MaxRunners)
+			if d := min(p.Demand, c*rt.MaxSessions); d > 0 {
+				out = append(out, ProjectDemand{Project: p.ProjectID, Demand: d, Cap: driverMax})
+			}
+		}
+	}
+	return out
+}
+
+// tickRemote launches target machines for remote templates whose queued runs have no free target
+// session, within each project's cap and the template's max_runners. Their drivers are counted as
+// demand on the driver template by TemplateDemand.
+func (s *Scheduler) tickRemote(ctx context.Context, pdem []dbgen.ProjectTemplateDemandRow, launched map[string]int) error {
+	rows, err := s.Fleet.DB.RQ.TargetDemand(ctx)
+	if err != nil {
+		return err
+	}
+	now := s.Now()
+	var errs []error
+	for _, t := range rows {
+		need := t.Demand - t.Supply
+		if need <= 0 || t.Live >= t.MaxRunners {
+			continue
+		}
+		if b := s.backoff[t.TemplateID]; b != nil && now.Before(b.until) {
+			continue
+		}
+		var projs []ProjectDemand
+		for _, p := range projectDemands(pdem, t.TemplateID, t.MaxRunners) {
+			live, _ := s.Fleet.DB.RQ.CountProjectTargets(ctx, p.Project, t.TemplateID)
+			p.Live = live
+			projs = append(projs, p)
+		}
+		for _, a := range PlanLaunches(need, t.MaxSessions, t.MaxRunners-t.Live, projs) {
+			for i := int64(0); i < a.Hosts; i++ {
+				if _, err := s.Fleet.LaunchTarget(ctx, t.Name, a.Project); err != nil {
+					next := MinBackoff
+					if b := s.backoff[t.TemplateID]; b != nil {
+						next = min(b.next*2, MaxBackoff)
+					}
+					s.backoff[t.TemplateID] = &backoff{until: now.Add(next), next: next}
+					s.Log.Error("remote target launch failed; backing off", "template", t.Name, "retry_in", next, "err", err)
+					errs = append(errs, err)
+					break
+				}
+				delete(s.backoff, t.TemplateID)
+				launched[t.Name]++
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ProjectDemand is one project's queued demand on a template, with its cap.
+type ProjectDemand struct {
+	Project int64
+	Demand  int64 // queued runs wanting the template
+	Live    int64 // non-terminated runners launched for this project on the template
+	Cap     int64 // effective cap: min(project cap, template max_runners)
+}
+
+// Launch is a number of runners to start on behalf of one project.
+type Launch struct{ Project, Hosts int64 }
+
+// EffectiveCap is the number of instances a project's demand may cause on a template: the
+// project's stored cap (when none is stored: 1 for its default template, else 0), but never
+// more than the template's account-wide max_runners.
+func EffectiveCap(stored sql.NullInt64, isDefault bool, templateMax int64) int64 {
+	c := int64(0)
+	if stored.Valid {
+		c = stored.Int64
+	} else if isDefault {
+		c = 1
+	}
+	return max(min(c, templateMax), 0)
+}
+
+func projectDemands(rows []dbgen.ProjectTemplateDemandRow, template, templateMax int64) []ProjectDemand {
+	var out []ProjectDemand
+	for _, r := range rows {
+		if r.TemplateID == template {
+			out = append(out, ProjectDemand{Project: r.ProjectID, Demand: r.Demand, Live: r.Live,
+				Cap: EffectiveCap(r.Stored, r.IsDefault == 1, templateMax)})
+		}
+	}
+	return out
+}
+
+// PlanLaunches splits the sessions still without a slot (need) among the projects in the order
+// given (highest priority first). Each project asks for the hosts its share needs, but never takes
+// its cap past the instances already launched for it, and the total never passes maxHosts. A
+// project at its cap does not push its demand onto the next one: its sessions wait.
+func PlanLaunches(need, perHost, maxHosts int64, projs []ProjectDemand) []Launch {
+	perHost = max(perHost, 1)
+	var out []Launch
+	for _, p := range projs {
+		if need <= 0 || maxHosts <= 0 {
+			break
+		}
+		share := min(p.Demand, need)
+		need -= share
+		hosts := min((share+perHost-1)/perHost, p.Cap-p.Live, maxHosts)
+		if hosts <= 0 {
+			continue
+		}
+		maxHosts -= hosts
+		out = append(out, Launch{Project: p.Project, Hosts: hosts})
+	}
+	return out
+}
+
+// LaunchFor starts count runners of a template on behalf of a project (the controller agent's
+// fleet.launch), but only within the project's cap for that template: min(project cap, template
+// max_runners) less the runners already launched for the project. Otherwise nothing is started and
+// the error states the cap. It returns the new runners' names.
+func (s *Scheduler) LaunchFor(ctx context.Context, project, template string, count int) ([]string, error) {
+	if count < 1 || count > 5 {
+		return nil, fmt.Errorf("%w: count must be 1 to 5", errs.Invalid)
+	}
+	db := s.Fleet.DB
+	p, err := db.RQ.GetProjectBySlug(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("%w: project %q", errs.NotFound, project)
+	}
+	t, err := s.Fleet.Template(ctx, template)
+	if err != nil {
+		return nil, err
+	}
+	limits, err := db.RQ.ListProjectTemplateLimits(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	var stored sql.NullInt64
+	isDefault := false
+	for _, l := range limits {
+		if l.TemplateID == t.ID {
+			stored, isDefault = l.Stored, l.IsDefault == 1
+		}
+	}
+	projectCap := EffectiveCap(stored, isDefault, 1<<30)
+	eff := EffectiveCap(stored, isDefault, t.MaxRunners)
+	mode, _, _, err := s.Fleet.Connection(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	remote := mode == "remote"
+	var live int64
+	if remote {
+		live, err = db.RQ.CountProjectTargets(ctx, p.ID, t.ID)
+	} else {
+		live, err = db.RQ.CountProjectRunners(ctx, dbgen.CountProjectRunnersParams{ProjectID: sql.NullInt64{Int64: p.ID, Valid: true}, TemplateID: t.ID})
+	}
+	if err != nil {
+		return nil, err
+	}
+	if live+int64(count) > eff {
+		return nil, fmt.Errorf("%w: project %s may run at most %d instance(s) of template %s (project limit %d, template max_runners %d) and has %d, so %d more is not allowed; raise it with `wrangl project edit %s --limit %s=N`",
+			errs.Conflict, project, eff, t.Name, projectCap, t.MaxRunners, live, count, project, t.Name)
+	}
+	var names []string
+	warn := ""
+	if remote {
+		if w := fleet.CostWarning(t); w != "" {
+			warn = " [COST WARNING: " + w + "]"
+		}
+	}
+	for i := 0; i < count; i++ {
+		if remote { // a target machine: no enrolling runner
+			g, err := s.Fleet.LaunchTarget(ctx, t.Name, p.ID)
+			if err != nil {
+				return names, err
+			}
+			names = append(names, g.Name+warn)
+			continue
+		}
+		r, err := s.Fleet.Launch(ctx, t.Name)
+		if err != nil {
+			return names, err
+		}
+		db.Q.SetRunnerLaunchedForProject(ctx, dbgen.SetRunnerLaunchedForProjectParams{ProjectID: sql.NullInt64{Int64: p.ID, Valid: true}, ID: r.ID})
+		names = append(names, r.Name)
+	}
+	return names, nil
 }
 
 // Loop ticks every interval until ctx ends.

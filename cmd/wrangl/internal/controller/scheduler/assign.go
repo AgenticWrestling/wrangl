@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
@@ -74,12 +75,30 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	if err != nil {
 		return err
 	}
-	spec, err := proto.ParseAgentSpec(tmpl.AgentJson)
+	// The run's agent: the one it was queued with, else the project's default or the template's only
+	// allowed one. Templates without allowed agents still use their own agent block.
+	agentJSON, agentName := tmpl.AgentJson, "template "+tmpl.Name
+	task, err := d.RQ.GetTask(ctx, r.TaskID)
 	if err != nil {
-		return fmt.Errorf("template %s agent block: %w", tmpl.Name, err)
+		return err
+	}
+	runAgent, _ := d.RQ.GetRunAgent(ctx, r.ID)
+	chosen, err := agentdef.Resolve(ctx, d.RQ, r.TemplateID.Int64, task.ProjectID, runAgent)
+	if err != nil {
+		// Not a failure the run can fix by retrying: it waits, visibly, until the owner changes the
+		// agent or the template's allow-list.
+		d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: " + err.Error(), ID: r.ID})
+		return errWaitingForApp
+	}
+	if chosen != nil {
+		agentJSON, agentName = chosen.SpecJson, "agent "+chosen.Name
+	}
+	spec, err := proto.ParseAgentSpec(agentJSON)
+	if err != nil {
+		return fmt.Errorf("%s: %w", agentName, err)
 	}
 	if len(spec.Start) == 0 {
-		return fmt.Errorf("template %s has no agent.start command", tmpl.Name)
+		return fmt.Errorf("%s has no agent.start command", agentName)
 	}
 	env := map[string]string{}
 	for k, name := range spec.Secrets {
@@ -88,7 +107,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		v, err := s.Secret(name)
 		if err != nil {
-			return fmt.Errorf("template %s needs secret %q: %w (wrangl controller secret set %s)", tmpl.Name, name, err, name)
+			return fmt.Errorf("%s needs secret %q: %w (wrangl controller secret set %s)", agentName, name, err, name)
 		}
 		env[k] = strings.TrimSpace(string(v))
 	}
@@ -100,13 +119,44 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		v, err := s.Secret(f.Secret)
 		if err != nil {
-			return fmt.Errorf("template %s needs secret %q: %w (wrangl controller secret set %s)", tmpl.Name, f.Secret, err, f.Secret)
+			return fmt.Errorf("%s needs secret %q: %w (wrangl controller secret set %s)", agentName, f.Secret, err, f.Secret)
 		}
 		files = append(files, proto.SecretFile{Path: f.Path, Content: string(v), Mode: f.Mode})
 	}
 	spec.SecretFiles = nil
 
-	if free, err := d.RQ.FreeRunnerSlot(ctx, r.TemplateID.Int64); err == nil && free == 0 {
+	// A remote run needs two slots at once: a free target of its template (the machine it drives) and
+	// a free session on a driver runner (where the agent runs). Neither is claimed until both exist.
+	slotTemplate, maxSessions := r.TemplateID.Int64, tmpl.MaxSessions
+	var target *proto.TargetConn
+	var targetRow dbgen.RemoteTarget
+	if mode, conn, driver, err := s.Fleet.Connection(ctx, r.TemplateID.Int64); err != nil {
+		return err
+	} else if mode == "remote" {
+		if targetRow, err = d.RQ.ClaimTarget(ctx, r.TemplateID.Int64); err != nil {
+			return err // sql.ErrNoRows: no ready target with a free session; one is launched on demand
+		}
+		dt, err := d.RQ.GetTemplate(ctx, driver)
+		if err != nil {
+			return err
+		}
+		slotTemplate, maxSessions = driver, dt.MaxSessions
+		key := ""
+		if conn.Secret != "" {
+			if s.Secret == nil {
+				return fmt.Errorf("secret %q needed but no secret store", conn.Secret)
+			}
+			v, err := s.Secret(conn.Secret)
+			if err != nil {
+				d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: fmt.Sprintf("waiting: template %s needs secret %q (wrangl secret set %s)", tmpl.Name, conn.Secret, conn.Secret), ID: r.ID})
+				return errWaitingForApp
+			}
+			key = string(v)
+		}
+		target = &proto.TargetConn{Name: targetRow.Name, Protocol: conn.Protocol, User: conn.User, Port: conn.Port, Via: conn.Via,
+			InstanceID: targetRow.InstanceID.String, Host: targetRow.Host, Key: key, Reset: conn.Reset}
+	}
+	if free, err := d.RQ.FreeRunnerSlot(ctx, slotTemplate); err == nil && free == 0 {
 		return sql.ErrNoRows // no runner has a free session: nothing to mint a token for yet
 	}
 	// Mint the repo token before claiming a runner: a failure here must not touch the runner (a claim
@@ -124,11 +174,12 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 			return fmt.Errorf("mint GitHub token for %s/%s: %w", repo.Owner, repo.Name, err)
 		}
 	}
-	runner, err := d.Q.ClaimIdleRunner(ctx, r.TemplateID.Int64)
+	runner, err := d.Q.ClaimIdleRunner(ctx, slotTemplate)
 	if err != nil {
 		return err // sql.ErrNoRows: no idle runner
 	}
 	release := func() {
+		d.Q.UnbindRunTarget(context.WithoutCancel(ctx), r.ID)
 		d.Q.UnassignRun(context.WithoutCancel(ctx), r.ID)
 		d.Q.ReleaseRunner(context.WithoutCancel(ctx), dbgen.ReleaseRunnerParams{Now: nstr(s.Now().UTC().Format("2006-01-02T15:04:05.000Z")), ID: runner.ID})
 	}
@@ -141,11 +192,17 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		return err
 	}
+	if target != nil {
+		if err := d.Q.BindRunTarget(ctx, r.ID, targetRow.ID); err != nil {
+			release()
+			return err
+		}
+	}
 	a := proto.Assignment{
 		RunID: r.ID, Kind: r.Kind, Continue: r.ContinueBranch == 1, TaskSqid: r.TaskSqid, Repo: repo.Owner + "/" + repo.Name,
 		CloneURL: repo.CloneUrl, BaseBranch: repo.DefaultBranch, Branch: r.Branch, GitToken: token,
 		SessionName: session, SessionUUID: r.SessionUuid, Agent: spec, Env: env, SecretFiles: files,
-		MaxSessions: int(tmpl.MaxSessions),
+		MaxSessions: int(maxSessions), Target: target,
 	}
 	b, _ := json.Marshal(a)
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)

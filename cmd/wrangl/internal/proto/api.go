@@ -93,6 +93,20 @@ type ProjectView struct {
 	AutoQueue    bool   `json:"auto_queue"`
 	Priority     int64  `json:"priority"`
 	NotesRepo    string `json:"notes_repo,omitempty"`
+	// Limits are the runner instances this project's demand may cause, per template.
+	Limits []ProjectLimit `json:"limits,omitempty"`
+	Agent  string         `json:"agent,omitempty"` // default agent definition
+	// CitationAudit: research PRs get an audit run that re-fetches every cited URL before merge.
+	CitationAudit bool `json:"citation_audit"`
+}
+
+// ProjectLimit is a project's instance cap on one template. Ceiling is the template's own
+// max_runners; the effective cap is the smaller of the two.
+type ProjectLimit struct {
+	Template string `json:"template"`
+	Max      int64  `json:"max"`
+	Ceiling  int64  `json:"ceiling"`
+	Default  bool   `json:"default,omitempty"` // the project's default template
 }
 
 // ProjectRequest creates or patches a project (nil = unchanged).
@@ -106,6 +120,31 @@ type ProjectRequest struct {
 	AutoQueue    *bool   `json:"auto_queue,omitempty"`
 	Priority     *int64  `json:"priority,omitempty"`
 	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
+	// Limits sets instance caps by template name; templates not listed keep theirs.
+	Limits        map[string]int64 `json:"limits,omitempty"`
+	Agent         *string          `json:"agent,omitempty"` // default agent name; "" clears
+	CitationAudit *bool            `json:"citation_audit,omitempty"`
+}
+
+// AgentView is a named agent definition (docs/wrangl/adr/0001).
+type AgentView struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Version     int64           `json:"version"`
+	Spec        json.RawMessage `json:"spec"`
+	Templates   []string        `json:"templates"` // templates that allow it
+}
+
+// AgentRequest creates or replaces an agent definition.
+type AgentRequest struct {
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Spec        json.RawMessage `json:"spec"`
+}
+
+// QueueRequest is the optional body of POST /tasks/{sqid}/queue.
+type QueueRequest struct {
+	Agent string `json:"agent,omitempty"` // override the project's default agent for this run
 }
 
 // RepoView is a linked repo.
@@ -301,4 +340,17 @@ type PRView struct {
 	Checks   string          `json:"checks,omitempty"`
 	Gates    json.RawMessage `json:"gates,omitempty"`
 	Review   string          `json:"review,omitempty"`
+}
+
+// TargetView is a remote target (a machine without a wrangl binary, owned by the controller).
+type TargetView struct {
+	Name        string `json:"name"`
+	Template    string `json:"template"`
+	State       string `json:"state"` // launching | ready | offline | draining | terminated
+	InstanceID  string `json:"instance_id,omitempty"`
+	Sessions    int64  `json:"sessions"` // runs using it now
+	MaxSessions int64  `json:"max_sessions"`
+	IdleSince   string `json:"idle_since,omitempty"`
+	LastError   string `json:"last_error,omitempty"`
+	Project     string `json:"project,omitempty"` // the project whose demand launched it
 }

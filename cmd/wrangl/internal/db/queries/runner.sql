@@ -36,7 +36,8 @@ WHERE id = sqlc.arg(id);
 
 -- name: RecordHeartbeat :one
 -- First heartbeat after enrolment (or after being offline) makes the runner idle.
--- Busy/cordoned/draining runners keep their state.
+-- Busy/cordoned/draining runners keep their state; one returning from offline with live
+-- sessions comes back busy, not idle.
 -- Returning from offline keeps the existing idle_since: a network blip must not restart
 -- the idle-shutdown clock (found by the M2 e2e test). A runner that went offline while
 -- busy has idle_since NULL (cleared when work is assigned, M4) and starts afresh.
@@ -44,9 +45,14 @@ UPDATE runner
 SET last_heartbeat_at = sqlc.arg(now), last_metrics_json = sqlc.arg(metrics),
     offline_since = NULL,
     idle_since = CASE WHEN state IN ('enrolling', 'provisioning') THEN sqlc.arg(now)
-                      WHEN state = 'offline' THEN COALESCE(idle_since, sqlc.arg(now))
+                      WHEN state = 'offline' THEN CASE WHEN EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                                         THEN NULL ELSE COALESCE(idle_since, sqlc.arg(now)) END
                       ELSE idle_since END,
-    state = CASE WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
+    state = CASE WHEN state = 'offline' AND EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                      THEN 'busy' -- sessions survived the blip: not idle until every one ends
+                 WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
                  ELSE state END
 WHERE id = sqlc.arg(id) AND state <> 'terminated'
 RETURNING state;
@@ -129,7 +135,9 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
        CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
              JOIN project p ON p.id = k.project_id
              WHERE r.state = 'queued'
-               AND COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id) AS INTEGER) AS demand,
+               AND (COALESCE(r.template_id, k.template_id, p.default_template_id) = t.id
+                    OR COALESCE(r.template_id, k.template_id, p.default_template_id) IN
+                       (SELECT c.template_id FROM template_connection c WHERE c.mode = 'remote' AND c.driver_template_id = t.id))) AS INTEGER) AS demand,
        CAST((SELECT COALESCE(SUM(MAX(t.max_sessions - (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
                           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0)
              FROM runner n
@@ -160,3 +168,41 @@ UPDATE runner SET upgrade_sha = '', upgrade_sent_at = NULL WHERE id = sqlc.arg(i
 -- Controller-launched runners of a template that never enrolled and were terminated since a time.
 SELECT CAST(COUNT(*) AS INTEGER) FROM runner
 WHERE template_id = ? AND launched = 1 AND nkey_public IS NULL AND state = 'terminated' AND terminated_at >= ?;
+
+-- name: SetRunnerLaunchedForProject :exec
+UPDATE runner SET launched_for_project = sqlc.narg(project_id) WHERE id = sqlc.arg(id);
+
+-- name: UpsertProjectTemplateLimit :exec
+INSERT INTO project_template_limit (project_id, template_id, max_instances)
+VALUES (sqlc.arg(project_id), sqlc.arg(template_id), sqlc.arg(max_instances))
+ON CONFLICT (project_id, template_id) DO UPDATE SET max_instances = excluded.max_instances;
+
+-- name: ListProjectTemplateLimits :many
+-- Every template with the project's stored cap (NULL: default rule applies).
+SELECT t.id AS template_id, t.name AS template_name, t.max_runners,
+       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = t.id, 0) AS INTEGER) AS is_default
+FROM project p CROSS JOIN runner_template t
+LEFT JOIN project_template_limit l ON l.project_id = p.id AND l.template_id = t.id
+WHERE p.id = sqlc.arg(project_id)
+ORDER BY t.name;
+
+-- name: ProjectTemplateDemand :many
+-- Queued runs per project and template, the runners already launched for that project on the
+-- template, and its stored cap.
+SELECT p.id AS project_id, CAST(COALESCE(r.template_id, k.template_id, p.default_template_id) AS INTEGER) AS template_id,
+       CAST(COUNT(*) AS INTEGER) AS demand,
+       CAST((SELECT COUNT(*) FROM runner n WHERE n.launched_for_project = p.id
+             AND n.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
+             AND n.state <> 'terminated') AS INTEGER) AS live,
+       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = COALESCE(r.template_id, k.template_id, p.default_template_id), 0) AS INTEGER) AS is_default
+FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
+LEFT JOIN project_template_limit l ON l.project_id = p.id
+     AND l.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
+WHERE r.state = 'queued' AND COALESCE(r.template_id, k.template_id, p.default_template_id) IS NOT NULL
+GROUP BY p.id, COALESCE(r.template_id, k.template_id, p.default_template_id)
+ORDER BY p.priority DESC, p.id;
+
+-- name: CountProjectRunners :one
+-- Live (not terminated) runners launched for a project on a template.
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner
+WHERE launched_for_project = sqlc.arg(project_id) AND template_id = sqlc.arg(template_id) AND state <> 'terminated';

@@ -408,6 +408,7 @@ agent:
   start:  ["claude", "-p", "--session-id", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   resume: ["claude", "-p", "--resume", "{{.SessionUUID}}", "--permission-mode", "bypassPermissions", "{{.Prompt}}"]
   secrets: { CLAUDE_CODE_OAUTH_TOKEN: claude_oauth_token }
+  auth: { secret: claude_oauth_token, command: claude setup-token }   # how you collect it (see below)
   turn_timeout: 2h
   files:                                    # written into the worktree before the first turn
     - path: .mcp.json                       # the work-stack tools (task_complete, ask_question, ...)
@@ -451,6 +452,92 @@ To follow a runner's progress:
 - Booting, enrolling and `mise install` take a few minutes the first time.
 
 **Check:** `wrangl fleet list` shows the runner `idle` with CPU, memory and disk figures.
+
+### Research citation audit (optional)
+
+`wrangl project edit PROJ --citation-audit` turns on an audit for the project's **research** tasks.
+After the normal risk review of a research PR, wrangl queues one more read-only run (a `review` run
+whose prompt lists every URL the PR adds, taken from the diff). The agent fetches each URL, checks it
+loads and supports the claim it is cited for, and reports `verified`, `unsupported` or `unreachable`
+for each with the `submit_citation_audit` tool; any URL it fails to report on counts as "not checked".
+Auto-merge then requires every citation verified. Otherwise (or if the audit run ends without reporting)
+the PR question for the owner gets a **Citation audit** section naming what to look at. The audit
+re-runs for each new head commit. It needs an agent that can fetch web pages; the review run uses the
+same template and agent as the PR's work run.
+
+### 8.0 Agent definitions
+
+The `agent:` block above is stored as a named **agent definition** (here `claude`), separate from
+the template: the template says what machine to build and which agents may run on it, the agent
+says how to start and configure one (start/resume, secrets, hook and MCP files). You rarely need
+to think about it: creating a template with an `agent:` block creates (or reuses, when identical)
+the agent and allows it on the template, and existing templates were migrated the same way with
+no change in behaviour.
+
+```
+wrangl agent list                                   # name, version, templates that allow it
+wrangl agent show claude                            # the spec
+wrangl agent create codex -f codex-agent.yaml       # a spec: the contents of an `agent:` block
+wrangl agent edit claude -f claude-agent.yaml       # takes effect for runs assigned from now on
+wrangl agent allow codex --template go-claude       # or list `agents: [claude, codex]` in the template file
+wrangl agent disallow codex --template go-claude
+wrangl project edit myproj --agent claude           # the project's default agent
+wrangl task queue SQID --agent codex                # override for this run
+```
+
+An agent is chosen as: the `--agent` override, else the project's default if the run's template
+allows it, else the template's only allowed agent. A template that allows several agents with no
+usable default needs `--agent`. Asking for an agent the template does not allow is refused when you
+queue, naming what is allowed. Editing an agent does not bump the template version, so no runner
+reinstalls anything. The agent's binary is still installed by the template (`mise_toml` /
+`setup_script`), so allow an agent only on templates that install it. Secrets belong to the agent:
+a missing one is reported as `agent NAME needs secret ...`.
+
+**Collecting the Claude token.** The token is owned by the agent, not stored by hand. On any
+machine where `claude` is logged in to your plan, run `claude setup-token`, then:
+
+```
+claude setup-token | wrangl agent auth claude      # shows the step, stores the last line as claude_oauth_token
+# or, equivalently:  claude setup-token | wrangl secret set claude_oauth_token
+```
+
+(`wrangl controller secret set` still works on the controller host.) **Settings -> Setup ->
+Agent credentials** lists every secret each agent needs with `✓ set` or `! missing` and the
+command to fix it; a missing secret also holds the run with `agent claude needs secret ...`.
+Other agents declare the same `auth:` section (`secret`, `command`, `note`) in their spec.
+
+### 8.2 Remote runners (Mac, Android emulator) (experimental)
+
+A template with `mode: remote` and a `connection:` block describes a **target** machine that runs
+no wrangl binary (see `templates/remote-mac.yaml`, `remote-android.yaml` and
+[ADR 0002](adr/0002-remote-runners.md)). The agent runs on a **driver**, a session of an ordinary
+runner template named in `connection.driver_template`, with the repo checked out there. It drives
+the target with two tools served by the driver's daemon: `target_exec` (a shell command over ssh, or
+`adb shell`) and `target_put` (scp / `adb push` from the checkout). The SSH key is a controller
+secret (`wrangl secret set NAME`), is held only by the daemon (a 0700 temp dir removed when the run
+ends) and never reaches the agent. The target is reached through an SSM port-forward started by the
+driver (`aws ssm start-session`, so the driver needs the AWS CLI + the Session Manager plugin and
+`ssm:StartSession`), or directly with `via: direct`.
+
+A run on a remote template takes a session on the target (`max_sessions`) and a session on a driver
+at the same time. The controller launches a target when queued runs need one, within the project's
+cap for the template (default 0: opt in with `wrangl project edit PROJ --limit mac=1`), probes it
+every loop, marks it `offline` after three failed probes, reaps it after `idle_timeout`, and fails the
+runs on it as `target lost` if it is gone or unreachable for two minutes. `wrangl target list` shows
+targets and their sessions; `wrangl target terminate NAME` stops one now.
+
+**Android emulator:** see [`android.md`](android.md) (KVM-capable instance and its cost, the AMI, adb
+access and a build-and-install smoke test).
+
+**EC2 Mac (`templates/remote-mac.yaml`).** A Mac instance runs on a Dedicated Host with a
+**24-hour minimum allocation**: one short run bills a full day and stopping early saves nothing. So
+a project's cap on the Mac template stays 0 (opt in with `wrangl project edit PROJ --limit mac=1`),
+the controller logs a "Cost warning" note every time it launches one (also shown in the controller
+agent's `fleet.launch` result), and the template's `idle_timeout` is 24 h so back-to-back runs share
+the host. wrangl launches the instance; allocating the host and choosing the macOS AMI is yours.
+
+Not built yet: the plain `ssh target` escape hatch and signing forwarder, the Runners-page card and
+ssh terminal for targets, and EC2 Instance Connect keys.
 
 ### 8.1 Other agents, interactive sessions and Remote Control (experimental)
 

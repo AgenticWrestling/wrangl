@@ -38,6 +38,9 @@ func (s *Service) UpdateTemplate(ctx context.Context, name string, yamlBody []by
 		return t, fmt.Errorf("%w: template %q", ErrNotFound, name)
 	}
 	if err == nil {
+		err = s.syncAgents(ctx, t, yamlBody)
+	}
+	if err == nil {
 		s.Log.Info("template updated", "template", name, "version", t.Version)
 		s.note(ctx, "template", "info", name, fmt.Sprintf("Template updated to v%d", t.Version), "runners install the new mise config and setup script on their next heartbeat")
 	}

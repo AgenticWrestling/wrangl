@@ -57,6 +57,9 @@ type Service struct {
 	Exec func(ctx context.Context, sp Spec) (Result, error)
 	// Dir is the working directory agents start in (default: the user's home).
 	Dir string
+	// Launch starts runners of a template for a project within its cap (scheduler.LaunchFor); needed
+	// for the fleet.launch proposal.
+	Launch func(ctx context.Context, project, template string, count int) ([]string, error)
 	// Queue queues work on a task (plans.QueueWork); needed for the task.queue proposal.
 	Queue func(ctx context.Context, sqid string) error
 

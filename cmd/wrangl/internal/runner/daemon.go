@@ -32,6 +32,7 @@ type DaemonOptions struct {
 	Log               *slog.Logger
 	InstallMise       MiseInstaller // nil = never install mise (only `runner run` passes DefaultMiseInstaller)
 	Upgrade           *SelfUpgrade  // nil = decline cmd.upgrade (only `runner run` enables it)
+	Targets           TargetBackend // nil = real ssh/adb over SSM; tests pass a FakeTarget
 }
 
 // Connect opens the runner's NATS connection: TLS pinned to the controller CA, the
@@ -128,7 +129,7 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 			o.Log.Warn("self-upgrade off: cannot hash own binary", "err", err)
 		}
 	}
-	worker := &Worker{Cfg: cfg, NC: nc, JS: js, Log: o.Log}
+	worker := &Worker{Cfg: cfg, NC: nc, JS: js, Log: o.Log, Targets: o.Targets}
 	defer worker.Wait() // let a cancelled run publish its final state before we disconnect
 	applier := &Applier{Cfg: cfg, InstallMise: o.InstallMise}
 	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "template"), func(m *nats.Msg) {

@@ -83,6 +83,9 @@ func (w *Worker) ToolFor(ctx context.Context, runID int64, name string, args jso
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
+	if name == "target_exec" || name == "target_put" {
+		return w.targetTool(ctx, rs, name, args) // served here: the credential never leaves the daemon
+	}
 	b, _ := json.Marshal(proto.ToolRequest{RunID: runID, Tool: name, Args: args})
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

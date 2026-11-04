@@ -87,6 +87,36 @@ function initSortables() {
   });
 }
 
+// The Queue list reorders runs only (queue_rank); it has its own group so nothing can be dropped
+// into the backlog, and it never calls the task move endpoint.
+function initQueueSort() {
+  if (!window.Sortable) return;
+  document.querySelectorAll('ul.queue-sort').forEach((el) => {
+    if (Sortable.get(el)) return;
+    Sortable.create(el, {
+      group: 'queue', handle: '.handle', animation: 150, forceFallback: true, fallbackOnBody: true,
+      delay: 120, delayOnTouchOnly: true,
+      onStart: () => { dragging = true; },
+      onEnd: async (evt) => {
+        dragging = false;
+        if (evt.oldIndex === evt.newIndex) return;
+        const runs = [...el.children].map((li) => Number(li.dataset.run)).filter(Boolean);
+        try {
+          const r = await fetch('/api/v1/runs/queue-order', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ runs }),
+          });
+          if (!r.ok) throw new Error(r.status);
+          toast('queue reordered');
+        } catch (e) {
+          toast('reorder failed: ' + e, true);
+          location.reload();
+        }
+      },
+    });
+  });
+}
+
 // --- terminal ----------------------------------------------------------------------------
 
 function b64bytes(s) {
@@ -176,7 +206,49 @@ function postExpand(sqid) {
   fetch('/ui/expand?sid=' + encodeURIComponent(sid) + '&sqid=' + encodeURIComponent(sqid || ''), { method: 'POST', credentials: 'same-origin' }).catch(() => {});
 }
 
+// --- live agent output in an expanded task card ------------------------------------------------
+// One read-only wterm at a time (the card that is open), connected only while open. Replays the
+// last 64 KB of the run's own PTY (the session's, not the runner's), then follows live; EventSource
+// resumes by Last-Event-ID on a dropped connection. "load full history" reconnects without the
+// tail limit. The card is data-ignore-morph, so live re-renders leave the terminal alone.
+let liveTerm = null;
+
+function stopLiveTerm() {
+  if (!liveTerm) return;
+  liveTerm.es.close();
+  try { liveTerm.t.destroy(); } catch (_) { /* already gone */ }
+  liveTerm = null;
+}
+
+async function startLiveTerm() {
+  stopLiveTerm();
+  const box = document.querySelector('.detail .liveterm');
+  if (!box || !window.wterm || box.dataset.ready) return;
+  box.dataset.ready = '1';
+  const run = box.dataset.run, body = box.querySelector('.ltbody');
+  const state = box.querySelector('.ltstate'), full = box.querySelector('.ltfull');
+  const t = new window.wterm.WTerm(body, { cols: 100, rows: 28, autoResize: false, cursorBlink: false });
+  await t.init();
+  const cur = { t, es: null };
+  if (!box.isConnected) { t.destroy(); return; }
+  liveTerm = cur;
+  const open = (all) => {
+    if (cur.es) cur.es.close();
+    if (all) t.write('\x1bc'); // reset, then replay everything
+    const es = new EventSource('/api/v1/runs/' + run + '/pty?format=sse' + (all ? '&full=1' : '&tail=64'), { withCredentials: true });
+    cur.es = es;
+    es.addEventListener('tail', () => { full.hidden = false; });
+    es.addEventListener('pty', (e) => t.write(b64bytes(e.data)));
+    es.addEventListener('end', () => { state.textContent = 'run finished'; es.close(); });
+    es.onopen = () => { state.textContent = 'live'; };
+    es.onerror = () => { if (es.readyState !== EventSource.CLOSED) state.textContent = 'reconnecting…'; else state.textContent = 'unavailable'; };
+  };
+  full.addEventListener('click', (e) => { e.preventDefault(); full.hidden = true; open(true); });
+  open(false);
+}
+
 function closeDetails() {
+  stopLiveTerm();
   const sh = sheetsBox();
   if (sh) { sh.querySelectorAll('dialog[open]').forEach((x) => x.close()); sh.innerHTML = ''; }
   document.querySelectorAll('.detail').forEach((d) => {
@@ -201,6 +273,7 @@ async function loadDetail(sqid) {
     if (sh) sh.innerHTML = sheets;
     const a = box.parentElement.querySelector(':scope > .row .title');
     if (a) a.setAttribute('aria-expanded', 'true');
+    startLiveTerm();
   } catch (_) {
     box.innerHTML = '';
     openDetail = null;
@@ -436,6 +509,7 @@ document.addEventListener('click', (e) => {
 function boot() {
   markSections();
   initSortables();
+  initQueueSort();
   initTerminal();
   markFs();
   initTemplateEditor();
@@ -446,7 +520,7 @@ function boot() {
     let t;
     let rt;
     new MutationObserver((muts) => {
-      clearTimeout(t); t = setTimeout(() => { initSortables(); markFs(); markSections(); }, 50);
+      clearTimeout(t); t = setTimeout(() => { initSortables(); initQueueSort(); markFs(); markSections(); }, 50);
       if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
     }).observe(main, { childList: true, subtree: true });
   }

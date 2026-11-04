@@ -77,6 +77,8 @@ type Deps struct {
 	JS       jetstream.JetStream
 	Bus      *events.Bus
 	Setup    *ghsetup.Service
+	// Secrets is the controller's secret store (nil: secrets cannot be managed over the API).
+	Secrets *SecretStore
 	// Costs reports spend and the account's other instances (nil = no AWS access).
 	Costs *costs.Service
 	// Deliverables stores mockups, prototype links and reports handed back by runs.
@@ -91,6 +93,9 @@ func Register(mux *http.ServeMux, d Deps) {
 	f := d.Fleet
 	registerWork(mux, d)
 	registerTerm(mux, d)
+	registerAgentDefs(mux, d)
+	registerSecrets(mux, d)
+	registerTargets(mux, d)
 	registerCosts(mux, d)
 	registerAgents(mux, d)
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { streamEvents(w, r, d.Bus) })

@@ -204,67 +204,69 @@ type Repo struct {
 }
 
 type Run struct {
-	ID             int64          `json:"id"`
-	TaskID         int64          `json:"task_id"`
-	CurrentTaskID  sql.NullInt64  `json:"current_task_id"`
-	RunnerID       sql.NullInt64  `json:"runner_id"`
-	Kind           string         `json:"kind"`
-	Attempt        int64          `json:"attempt"`
-	State          string         `json:"state"`
-	Branch         string         `json:"branch"`
-	SessionName    string         `json:"session_name"`
-	BaseSha        string         `json:"base_sha"`
-	HeadSha        string         `json:"head_sha"`
-	StatusText     string         `json:"status_text"`
-	ExitCode       sql.NullInt64  `json:"exit_code"`
-	Error          string         `json:"error"`
-	QueuedAt       string         `json:"queued_at"`
-	StartedAt      sql.NullString `json:"started_at"`
-	FinishedAt     sql.NullString `json:"finished_at"`
-	TemplateID     sql.NullInt64  `json:"template_id"`
-	RepoID         sql.NullInt64  `json:"repo_id"`
-	SessionUuid    string         `json:"session_uuid"`
-	Pushed         int64          `json:"pushed"`
-	PromptOverride string         `json:"prompt_override"`
-	OverrideUsed   int64          `json:"override_used"`
-	PrID           sql.NullInt64  `json:"pr_id"`
-	ContinueBranch int64          `json:"continue_branch"`
-	Guidance       string         `json:"guidance"`
+	ID             int64           `json:"id"`
+	TaskID         int64           `json:"task_id"`
+	CurrentTaskID  sql.NullInt64   `json:"current_task_id"`
+	RunnerID       sql.NullInt64   `json:"runner_id"`
+	Kind           string          `json:"kind"`
+	Attempt        int64           `json:"attempt"`
+	State          string          `json:"state"`
+	Branch         string          `json:"branch"`
+	SessionName    string          `json:"session_name"`
+	BaseSha        string          `json:"base_sha"`
+	HeadSha        string          `json:"head_sha"`
+	StatusText     string          `json:"status_text"`
+	ExitCode       sql.NullInt64   `json:"exit_code"`
+	Error          string          `json:"error"`
+	QueuedAt       string          `json:"queued_at"`
+	StartedAt      sql.NullString  `json:"started_at"`
+	FinishedAt     sql.NullString  `json:"finished_at"`
+	TemplateID     sql.NullInt64   `json:"template_id"`
+	RepoID         sql.NullInt64   `json:"repo_id"`
+	SessionUuid    string          `json:"session_uuid"`
+	Pushed         int64           `json:"pushed"`
+	PromptOverride string          `json:"prompt_override"`
+	OverrideUsed   int64           `json:"override_used"`
+	PrID           sql.NullInt64   `json:"pr_id"`
+	ContinueBranch int64           `json:"continue_branch"`
+	Guidance       string          `json:"guidance"`
+	QueueRank      sql.NullFloat64 `json:"queue_rank"`
 }
 
 type Runner struct {
-	ID                int64          `json:"id"`
-	Name              string         `json:"name"`
-	TemplateID        int64          `json:"template_id"`
-	TemplateVersion   int64          `json:"template_version"`
-	InstanceID        sql.NullString `json:"instance_id"`
-	InstanceType      string         `json:"instance_type"`
-	Az                string         `json:"az"`
-	PrivateIp         string         `json:"private_ip"`
-	Arch              string         `json:"arch"`
-	Vcpu              int64          `json:"vcpu"`
-	RamMib            int64          `json:"ram_mib"`
-	DiskGib           int64          `json:"disk_gib"`
-	NkeyPublic        sql.NullString `json:"nkey_public"`
-	State             string         `json:"state"`
-	MaxConcurrent     int64          `json:"max_concurrent"`
-	LastHeartbeatAt   sql.NullString `json:"last_heartbeat_at"`
-	LastMetricsJson   string         `json:"last_metrics_json"`
-	CreatedAt         string         `json:"created_at"`
-	TerminatedAt      sql.NullString `json:"terminated_at"`
-	Launched          int64          `json:"launched"`
-	LaunchedAt        sql.NullString `json:"launched_at"`
-	EnrolledAt        sql.NullString `json:"enrolled_at"`
-	IdleSince         sql.NullString `json:"idle_since"`
-	OfflineSince      sql.NullString `json:"offline_since"`
-	Cordoned          int64          `json:"cordoned"`
-	DrainRequested    int64          `json:"drain_requested"`
-	LastError         string         `json:"last_error"`
-	TemplateLog       string         `json:"template_log"`
-	ProvisioningSince sql.NullString `json:"provisioning_since"`
-	BinarySha         string         `json:"binary_sha"`
-	UpgradeSha        string         `json:"upgrade_sha"`
-	UpgradeSentAt     sql.NullString `json:"upgrade_sent_at"`
+	ID                 int64          `json:"id"`
+	Name               string         `json:"name"`
+	TemplateID         int64          `json:"template_id"`
+	TemplateVersion    int64          `json:"template_version"`
+	InstanceID         sql.NullString `json:"instance_id"`
+	InstanceType       string         `json:"instance_type"`
+	Az                 string         `json:"az"`
+	PrivateIp          string         `json:"private_ip"`
+	Arch               string         `json:"arch"`
+	Vcpu               int64          `json:"vcpu"`
+	RamMib             int64          `json:"ram_mib"`
+	DiskGib            int64          `json:"disk_gib"`
+	NkeyPublic         sql.NullString `json:"nkey_public"`
+	State              string         `json:"state"`
+	MaxConcurrent      int64          `json:"max_concurrent"`
+	LastHeartbeatAt    sql.NullString `json:"last_heartbeat_at"`
+	LastMetricsJson    string         `json:"last_metrics_json"`
+	CreatedAt          string         `json:"created_at"`
+	TerminatedAt       sql.NullString `json:"terminated_at"`
+	Launched           int64          `json:"launched"`
+	LaunchedAt         sql.NullString `json:"launched_at"`
+	EnrolledAt         sql.NullString `json:"enrolled_at"`
+	IdleSince          sql.NullString `json:"idle_since"`
+	OfflineSince       sql.NullString `json:"offline_since"`
+	Cordoned           int64          `json:"cordoned"`
+	DrainRequested     int64          `json:"drain_requested"`
+	LastError          string         `json:"last_error"`
+	TemplateLog        string         `json:"template_log"`
+	ProvisioningSince  sql.NullString `json:"provisioning_since"`
+	BinarySha          string         `json:"binary_sha"`
+	UpgradeSha         string         `json:"upgrade_sha"`
+	UpgradeSentAt      sql.NullString `json:"upgrade_sent_at"`
+	LaunchedForProject sql.NullInt64  `json:"launched_for_project"`
 }
 
 type RunnerTemplate struct {
@@ -347,4 +349,14 @@ type TaskThread struct {
 	SessionID string        `json:"session_id"`
 	Proposals string        `json:"proposals"`
 	Rev       string        `json:"rev"`
+}
+
+type Agent struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	SpecJson    string `json:"spec_json"`
+	Version     int64  `json:"version"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }

@@ -136,11 +136,16 @@ func (c *Client) SplitTask(ctx context.Context, sqid string, req proto.TaskSplit
 	return out, c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/split", req, &out)
 }
 func (c *Client) QueueTask(ctx context.Context, sqid string) (int64, string, error) {
+	return c.QueueTaskWith(ctx, sqid, "")
+}
+
+// QueueTaskWith queues with an agent definition override ("" = the project's default).
+func (c *Client) QueueTaskWith(ctx context.Context, sqid, agent string) (int64, string, error) {
 	var out struct {
 		RunID  int64  `json:"run_id"`
 		Branch string `json:"branch"`
 	}
-	return out.RunID, out.Branch, c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/queue", nil, &out)
+	return out.RunID, out.Branch, c.json(ctx, http.MethodPost, "/api/v1/tasks/"+esc(sqid)+"/queue", proto.QueueRequest{Agent: agent}, &out)
 }
 
 // TaskAction posts complete | reopen | cancel.
@@ -360,4 +365,61 @@ func (c *Client) AskTask(ctx context.Context, sqid, agent, question string) erro
 func (c *Client) TaskThread(ctx context.Context, sqid string) ([]ThreadMessage, error) {
 	var out []ThreadMessage
 	return out, c.json(ctx, http.MethodGet, "/api/v1/tasks/"+esc(sqid)+"/thread", nil, &out)
+}
+
+// --- agent definitions ---
+
+func (c *Client) AgentDefs(ctx context.Context) ([]proto.AgentView, error) {
+	var out []proto.AgentView
+	return out, c.json(ctx, http.MethodGet, "/api/v1/agent-defs", nil, &out)
+}
+func (c *Client) AgentDef(ctx context.Context, name string) (proto.AgentView, error) {
+	var out proto.AgentView
+	return out, c.json(ctx, http.MethodGet, "/api/v1/agent-defs/"+esc(name), nil, &out)
+}
+func (c *Client) CreateAgentDef(ctx context.Context, req proto.AgentRequest) (proto.AgentView, error) {
+	var out proto.AgentView
+	return out, c.json(ctx, http.MethodPost, "/api/v1/agent-defs", req, &out)
+}
+func (c *Client) UpdateAgentDef(ctx context.Context, name string, req proto.AgentRequest) (proto.AgentView, error) {
+	var out proto.AgentView
+	return out, c.json(ctx, http.MethodPut, "/api/v1/agent-defs/"+esc(name), req, &out)
+}
+func (c *Client) DeleteAgentDef(ctx context.Context, name string) error {
+	return c.json(ctx, http.MethodDelete, "/api/v1/agent-defs/"+esc(name), nil, nil)
+}
+
+// AllowAgent allows (or with allow=false, stops allowing) an agent on a template.
+func (c *Client) AllowAgent(ctx context.Context, agent, template string, allow bool) error {
+	m := http.MethodPut
+	if !allow {
+		m = http.MethodDelete
+	}
+	return c.json(ctx, m, "/api/v1/agent-defs/"+esc(agent)+"/templates/"+esc(template), nil, nil)
+}
+
+// --- secrets (names only; values are write-only) ---
+
+func (c *Client) Secrets(ctx context.Context) ([]string, error) {
+	var out []string
+	return out, c.json(ctx, http.MethodGet, "/api/v1/secrets", nil, &out)
+}
+
+// SetSecret stores a secret on the controller.
+func (c *Client) SetSecret(ctx context.Context, name, value string) error {
+	return c.do(ctx, http.MethodPut, "/api/v1/secrets/"+esc(name), strings.NewReader(value), "text/plain", nil)
+}
+
+// --- remote targets ---
+
+func (c *Client) Targets(ctx context.Context, all bool) ([]proto.TargetView, error) {
+	var out []proto.TargetView
+	q := ""
+	if all {
+		q = "?all=1"
+	}
+	return out, c.json(ctx, http.MethodGet, "/api/v1/targets"+q, nil, &out)
+}
+func (c *Client) TerminateTarget(ctx context.Context, name string) error {
+	return c.json(ctx, http.MethodDelete, "/api/v1/targets/"+esc(name), nil, nil)
 }
