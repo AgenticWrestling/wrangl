@@ -367,3 +367,33 @@ func TestRunnerIDFromSubject(t *testing.T) {
 		}
 	}
 }
+
+// A runner that blips offline while sessions are still running comes back busy, so it is not
+// reaped, upgraded or drained until every session ends.
+func TestOfflineReturnWithSessionsStaysBusy(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	name, _, resp := e.launchAndEnroll(t)
+	hb := func() { e.s.Heartbeat(ctx, natsd.RunnerHeartbeatSubject(resp.RunnerID), []byte(`{}`)) }
+	hb()
+	r, _ := e.s.DB.RQ.GetRunnerByName(ctx, name)
+	w := e.s.DB.W
+	for _, q := range []string{
+		`INSERT INTO project (slug, name) VALUES ('p','P')`,
+		`INSERT INTO task (project_id, rank, title, sqid) VALUES (1,'V001','t','abc123')`,
+	} {
+		if _, err := w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := w.Exec(`INSERT INTO run (task_id, kind, attempt, state, runner_id) VALUES (1,'work',1,'running',?)`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.Exec(`UPDATE runner SET state='busy', idle_since=NULL WHERE id=?`, r.ID)
+	e.clk.Advance(61 * time.Second)
+	e.s.SweepOffline(ctx)
+	hb()
+	if r, _ := e.s.DB.RQ.GetRunnerByName(ctx, name); r.State != "busy" || r.IdleSince.Valid {
+		t.Fatalf("want busy with no idle clock after return, got %s idle_since=%v", r.State, r.IdleSince)
+	}
+}

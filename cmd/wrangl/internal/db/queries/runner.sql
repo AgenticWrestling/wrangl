@@ -36,7 +36,8 @@ WHERE id = sqlc.arg(id);
 
 -- name: RecordHeartbeat :one
 -- First heartbeat after enrolment (or after being offline) makes the runner idle.
--- Busy/cordoned/draining runners keep their state.
+-- Busy/cordoned/draining runners keep their state; one returning from offline with live
+-- sessions comes back busy, not idle.
 -- Returning from offline keeps the existing idle_since: a network blip must not restart
 -- the idle-shutdown clock (found by the M2 e2e test). A runner that went offline while
 -- busy has idle_since NULL (cleared when work is assigned, M4) and starts afresh.
@@ -44,9 +45,14 @@ UPDATE runner
 SET last_heartbeat_at = sqlc.arg(now), last_metrics_json = sqlc.arg(metrics),
     offline_since = NULL,
     idle_since = CASE WHEN state IN ('enrolling', 'provisioning') THEN sqlc.arg(now)
-                      WHEN state = 'offline' THEN COALESCE(idle_since, sqlc.arg(now))
+                      WHEN state = 'offline' THEN CASE WHEN EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                                         THEN NULL ELSE COALESCE(idle_since, sqlc.arg(now)) END
                       ELSE idle_since END,
-    state = CASE WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
+    state = CASE WHEN state = 'offline' AND EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                      THEN 'busy' -- sessions survived the blip: not idle until every one ends
+                 WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
                  ELSE state END
 WHERE id = sqlc.arg(id) AND state <> 'terminated'
 RETURNING state;

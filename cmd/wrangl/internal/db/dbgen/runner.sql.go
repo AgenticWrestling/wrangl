@@ -508,9 +508,14 @@ UPDATE runner
 SET last_heartbeat_at = ?1, last_metrics_json = ?2,
     offline_since = NULL,
     idle_since = CASE WHEN state IN ('enrolling', 'provisioning') THEN ?1
-                      WHEN state = 'offline' THEN COALESCE(idle_since, ?1)
+                      WHEN state = 'offline' THEN CASE WHEN EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                                         THEN NULL ELSE COALESCE(idle_since, ?1) END
                       ELSE idle_since END,
-    state = CASE WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
+    state = CASE WHEN state = 'offline' AND EXISTS (SELECT 1 FROM run r WHERE r.runner_id = runner.id
+                                                    AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
+                      THEN 'busy' -- sessions survived the blip: not idle until every one ends
+                 WHEN state IN ('enrolling', 'provisioning', 'offline') THEN 'idle'
                  ELSE state END
 WHERE id = ?3 AND state <> 'terminated'
 RETURNING state
