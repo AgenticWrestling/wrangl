@@ -91,6 +91,28 @@ type Issue struct {
 	SyncedAt string `json:"synced_at"`
 }
 
+type IssueComment struct {
+	ID        int64  `json:"id"`
+	IssueID   int64  `json:"issue_id"`
+	GhID      int64  `json:"gh_id"`
+	Author    string `json:"author"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+}
+
+type IssueFt struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+type IssueMeta struct {
+	IssueID      int64  `json:"issue_id"`
+	GhUpdatedAt  string `json:"gh_updated_at"`
+	Author       string `json:"author"`
+	LabelsJson   string `json:"labels_json"`
+	CommentCount int64  `json:"comment_count"`
+}
+
 type LogEntry struct {
 	ID      int64  `json:"id"`
 	At      string `json:"at"`

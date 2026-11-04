@@ -182,3 +182,20 @@ and comment/issue URL. Comments carry a footer naming run and task (open questio
 `gh.Fake` gains an in-memory issue store (create, patch, comment, search, list) mirroring the real
 client's shapes, with controllable `updated_at`. Controller tests go through `ExecTool` with real scopes;
 the real client is tested against `httptest` GitHub. See the plan.
+
+## 11. Phase A as built (differences from the sections above)
+
+- The extra columns are in a side table `issue_meta` (gh_updated_at, author, labels_json, comment_count)
+  rather than new columns on `issue`, so the existing sqlc queries and generated code are untouched.
+  `created_at`, `created_by_run` and `closed_at` are not stored yet (Phase B). `issue_comment` has no
+  `updated_at`.
+- Migration is `00029_issue_sync.sql`. The generated models were extended by hand because `sqlc` is not
+  installed in the build sandbox: run `task sqlc` and `task sqlc-check` once; the diff should be empty.
+- The row mapping, the only-newer-wins guard and FTS live in `controller/issuestore`; `projects.SyncIssues`
+  and the `issues` webhook both go through `issuestore.Save`. Webhook payloads for pull requests are dropped.
+- Labels and logins are returned as plain text when they match `[A-Za-z0-9._ /:-]{1,60}`, otherwise wrapped.
+- Rate limiting is only the per-project live-call budget (60 per hour, in memory); there is no per-run
+  call cap yet. The periodic `since=` sync (plan A8) is not built.
+- `issue_comments` refetches all comments (up to 500) when the cached count differs from the issue's
+  `comment_count`; the `issue_comment` webhook is Phase B.
+- `review` and `plan` runs, and the owner's remote MCP, get the read tools too.

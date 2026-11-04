@@ -440,7 +440,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		defer s.Bus.Publish("run", fmt.Sprint(sc.RunID))
 		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
 
-	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit":
+	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments":
 		h := s.ToolHandlers[tool]
 		if h == nil {
 			return nil, fmt.Errorf("%s is not available on this controller", tool)

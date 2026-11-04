@@ -7,6 +7,8 @@ fail, implement, see it pass. Before each commit run `gofmt -l .` (must print no
 
 ## Phase A: read tools (no GitHub permission change)
 
+Status: A1-A7 built (see spec section 11 for the differences); A8 periodic sync is not built.
+
 **A1. Migration and queries.** Files: `db/migrations/00029_issue_sync.sql`, `db/queries/*.sql` (issue
 upsert with `WHERE` newer guard, search, get-by-repo-number, comment upsert/list), regenerate `dbgen`.
 Test first: `db/issue_test.go`: older `gh_updated_at` does not overwrite newer; empty overwrites;

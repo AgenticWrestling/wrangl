@@ -20,6 +20,9 @@ type Fake struct {
 	nextPR    int64
 	checks    map[string]string
 	defChecks string
+	issuePRs  map[string]bool
+	comments  map[string][]IssueComment
+	calls     FakeCalls
 }
 
 // NewFake returns an empty fake.

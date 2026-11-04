@@ -133,3 +133,61 @@ func TestLoadKeyFormats(t *testing.T) {
 		}
 	}
 }
+
+func TestClientIssueReads(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/acme/app/installation":
+			fmt.Fprint(w, `{"id": 777}`)
+		case r.URL.Path == "/app/installations/777/access_tokens":
+			fmt.Fprint(w, `{"token":"ghs_scoped","expires_at":"2030-01-01T00:00:00Z"}`)
+		case r.URL.Path == "/repos/acme/app/issues/1":
+			fmt.Fprint(w, `{"number":1,"title":"t","body":"b","state":"open","html_url":"u1","user":{"login":"ann"},"labels":[{"name":"bug"}],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z","comments":3}`)
+		case r.URL.Path == "/repos/acme/app/issues/2":
+			fmt.Fprint(w, `{"number":2,"title":"pr","state":"open","pull_request":{"url":"x"}}`)
+		case r.URL.Path == "/repos/acme/app/issues/404":
+			http.Error(w, `{"message":"Not Found"}`, 404)
+		case r.URL.Path == "/repos/acme/app/issues/1/comments":
+			if r.URL.Query().Get("page") == "1" {
+				w.Header().Set("Link", fmt.Sprintf(`<%s/x?page=2>; rel="next"`, srv.URL))
+			}
+			fmt.Fprint(w, `[{"id":9,"body":"hello","created_at":"2026-01-01T00:00:00Z","user":{"login":"bob"}}]`)
+		case r.URL.Path == "/search/issues":
+			q := r.URL.Query().Get("q")
+			if !strings.Contains(q, "repo:acme/app") || !strings.Contains(q, "is:issue") || !strings.Contains(q, "is:open") {
+				http.Error(w, "bad q "+q, 422)
+				return
+			}
+			fmt.Fprint(w, `{"items":[{"number":1,"title":"t","state":"open","html_url":"u1"},{"number":2,"title":"pr","state":"open","pull_request":{"url":"x"}}]}`)
+		default:
+			http.Error(w, "unexpected "+r.URL.String(), 500)
+		}
+	}))
+	defer srv.Close()
+	c := &Client{AppID: 42, Key: key, BaseURL: srv.URL}
+	ctx := context.Background()
+	r := Repo{Owner: "acme", Name: "app", InstallationID: 777}
+	i, err := c.GetIssue(ctx, r, 1)
+	if err != nil || i.Author != "ann" || len(i.Labels) != 1 || i.UpdatedAt != "2026-01-02T00:00:00Z" || i.Comments != 3 {
+		t.Fatalf("GetIssue: %+v %v", i, err)
+	}
+	if _, err := c.GetIssue(ctx, r, 2); !errors.Is(err, ErrIsPullRequest) {
+		t.Fatalf("PR: %v", err)
+	}
+	if _, err := c.GetIssue(ctx, r, 404); !errors.Is(err, ErrIssueNotFound) {
+		t.Fatalf("404: %v", err)
+	}
+	cs, more, err := c.IssueComments(ctx, r, 1, 1)
+	if err != nil || len(cs) != 1 || cs[0].Author != "bob" || !more {
+		t.Fatalf("comments: %+v %v %v", cs, more, err)
+	}
+	if _, more, _ = c.IssueComments(ctx, r, 1, 2); more {
+		t.Fatal("page 2 has no next")
+	}
+	found, err := c.SearchIssues(ctx, r, "crash", "open", 10)
+	if err != nil || len(found) != 1 || found[0].Number != 1 {
+		t.Fatalf("search (PRs must be dropped): %+v %v", found, err)
+	}
+}

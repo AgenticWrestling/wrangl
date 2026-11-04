@@ -35,6 +35,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/ghsetup"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/issuetools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/plans"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
@@ -312,6 +313,10 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		}
 		s.Push.Notify(webpush.Notification{Title: "Agent needs attention", Body: message, URL: fmt.Sprintf("/run/%d", r.ID), Tag: fmt.Sprintf("notice-run%d", r.ID)})
 	}
+	issueTools := &issuetools.Service{DB: s.db, GH: ghAPI, Now: now}
+	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
+	s.Runs.ToolHandlers["issue_get"] = issueTools.Get
+	s.Runs.ToolHandlers["issue_comments"] = issueTools.Comments
 	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
 	s.Runs.ToolHandlers["submit_citation_audit"] = s.PRs.SubmitCitationAudit
 	s.Deliverables = &deliverables.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "deliverables"), Bus: s.Bus, Log: s.log}

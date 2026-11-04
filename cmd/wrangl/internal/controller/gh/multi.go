@@ -188,3 +188,30 @@ func (m *Multi) Has(owner string) bool {
 	ref, ok := m.Lookup(owner)
 	return ok && ref.AppID != 0
 }
+
+// GetIssue implements IssueReader.
+func (m *Multi) GetIssue(ctx context.Context, r Repo, number int64) (Issue, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return Issue{}, err
+	}
+	return c.GetIssue(ctx, r, number)
+}
+
+// IssueComments implements IssueReader.
+func (m *Multi) IssueComments(ctx context.Context, r Repo, number int64, page int) ([]IssueComment, bool, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return nil, false, err
+	}
+	return c.IssueComments(ctx, r, number, page)
+}
+
+// SearchIssues implements IssueReader.
+func (m *Multi) SearchIssues(ctx context.Context, r Repo, query, state string, limit int) ([]Issue, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return nil, err
+	}
+	return c.SearchIssues(ctx, r, query, state, limit)
+}
