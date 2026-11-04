@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -37,6 +38,9 @@ type Service struct {
 	Now func() time.Time
 	// LiveBudget is the number of live GitHub calls a project may make per hour (0 = 60).
 	LiveBudget int
+	// Runs creates the owner-approval questions for issue_close (nil: agents cannot close).
+	Runs *runs.Service
+	Log  *slog.Logger
 
 	mu    sync.Mutex
 	spent map[int64][]time.Time

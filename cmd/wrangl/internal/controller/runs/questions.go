@@ -132,10 +132,39 @@ func (s *Service) sendAnswer(ctx context.Context, q dbgen.Question, a proto.Answ
 
 // approvalPayload is what an approval question holds until the owner decides.
 type approvalPayload struct {
-	Op     string `json:"op"` // task_cancel | task_delete
+	Op     string `json:"op"` // task_cancel | task_delete | issue_close (held by issuetools)
 	Sqid   string `json:"sqid"`
 	Reason string `json:"reason,omitempty"`
 	RunID  int64  `json:"run_id"`
+	Repo   string `json:"repo,omitempty"`   // issue_close: owner/name
+	Number int64  `json:"number,omitempty"` // issue_close: issue number
+}
+
+// RequestApproval asks the owner to approve an operation an agent run wants to perform. payload
+// is stored as the question's payload (it must carry "op" and "run_id"); on Approve the handler
+// registered in ApprovalHandlers for that op runs. The run keeps going while the owner decides.
+func (s *Service) RequestApproval(ctx context.Context, runID int64, prompt, detail string, payload any) (int64, error) {
+	run, err := s.DB.RQ.GetRun(ctx, runID)
+	if err != nil {
+		return 0, err
+	}
+	taskID := run.TaskID
+	if run.CurrentTaskID.Valid {
+		taskID = run.CurrentTaskID.Int64
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return 0, err
+	}
+	q, err := s.NewQuestion(ctx, dbgen.CreateQuestionParams{
+		TaskID: taskID, RunID: sql.NullInt64{Int64: runID, Valid: true}, Kind: "approval",
+		Prompt: prompt, DetailMd: detail, PayloadJson: string(b),
+	}, []proto.QuestionOption{{Label: "Approve", Value: "approve"}, {Label: "Deny", Value: "deny"}})
+	if err != nil {
+		return 0, err
+	}
+	s.DB.Q.SetRunState(ctx, dbgen.SetRunStateParams{State: "running", ID: runID, FromState: "needs_input"})
+	return q.ID, nil
 }
 
 func (s *Service) resolveApproval(ctx context.Context, q dbgen.Question, value string) error {
@@ -157,6 +186,9 @@ func (s *Service) resolveApproval(ctx context.Context, q dbgen.Question, value s
 		return s.Stack.Cancel(ctx, p.Sqid, p.Reason, actor)
 	case "task_delete":
 		return s.Stack.Delete(ctx, p.Sqid, actor)
+	}
+	if h := s.ApprovalHandlers[p.Op]; h != nil {
+		return h(ctx, json.RawMessage(q.PayloadJson))
 	}
 	return fmt.Errorf("unknown approval op %q", p.Op)
 }

@@ -320,8 +320,10 @@ func (s *Service) ManifestFor(name, role string) ([]byte, error) {
 		"name": name, "url": s.PublicURL, "public": false,
 		"redirect_url":    s.PublicURL + "/setup/github/callback",
 		"hook_attributes": map[string]any{"url": s.PublicURL + "/gh/webhook", "active": true},
+		// issues: write lets the controller comment on, create, edit and (with the owner's approval)
+		// close issues for agents. Existing Apps are upgraded by hand (docs/wrangl/INSTALL.md).
 		"default_permissions": map[string]string{
-			"contents": "write", "pull_requests": "write", "checks": "read", "issues": "read", "metadata": "read",
+			"contents": "write", "pull_requests": "write", "checks": "read", "issues": "write", "metadata": "read",
 		},
 		"default_events": []string{"check_run", "check_suite", "pull_request", "pull_request_review", "issues"},
 	})

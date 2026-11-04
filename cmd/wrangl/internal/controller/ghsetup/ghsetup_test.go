@@ -225,7 +225,7 @@ func TestSingleAppManifestIsComplete(t *testing.T) {
 	if !m.Hook.Active || !strings.HasSuffix(m.Hook.URL, "/gh/webhook") {
 		t.Fatalf("webhook: %+v", m.Hook)
 	}
-	for perm, want := range map[string]string{"contents": "write", "pull_requests": "write", "checks": "read", "issues": "read", "metadata": "read"} {
+	for perm, want := range map[string]string{"contents": "write", "pull_requests": "write", "checks": "read", "issues": "write", "metadata": "read"} {
 		if m.Perms[perm] != want {
 			t.Errorf("permission %s = %q, want %q", perm, m.Perms[perm], want)
 		}
@@ -268,5 +268,23 @@ func TestFreshAppNameStaysValid(t *testing.T) {
 		if len(n) > 34 || !strings.HasPrefix(n, "wrangl-") || strings.HasSuffix(n, "-") || n == AppName(login) {
 			t.Errorf("%s -> %q", login, n)
 		}
+	}
+}
+
+// The reviewer App only reads issues; the author App is the one that writes them.
+func TestReviewerManifestKeepsIssuesRead(t *testing.T) {
+	s := newSvc(t, "")
+	b, err := s.ManifestFor("wrangl-acme-reviewer", "reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Perms map[string]string `json:"default_permissions"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Perms["issues"] != "read" {
+		t.Fatalf("reviewer issues permission = %q", m.Perms["issues"])
 	}
 }

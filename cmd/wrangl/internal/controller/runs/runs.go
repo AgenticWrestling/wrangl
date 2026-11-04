@@ -46,6 +46,9 @@ type Service struct {
 	AnswerHandlers map[string]AnswerHandler
 	// ToolHandlers implement submit_review (M6) and propose_split (M8).
 	ToolHandlers map[string]ToolHandler
+	// ApprovalHandlers run the held operation of an approval question whose op is not one the
+	// runs service knows (issue_close). They get the question's payload JSON.
+	ApprovalHandlers map[string]func(ctx context.Context, payload json.RawMessage) error
 	// OnRunFinished is called after a run reaches a terminal state (PRs in M6).
 	OnRunFinished func(ctx context.Context, runID int64)
 	// OnAgentNotice is called when an agent's Notification hook fires (Claude Code: it needs

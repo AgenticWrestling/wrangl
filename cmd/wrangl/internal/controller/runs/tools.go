@@ -29,6 +29,9 @@ type Scope struct {
 	Actor     stack.Actor
 }
 
+// ActorFor is the actor of a run (the owner for run 0).
+func ActorFor(runID int64) stack.Actor { return stackActor(runID) }
+
 func stackActor(runID int64) stack.Actor {
 	if runID == 0 {
 		return stack.User
@@ -440,7 +443,8 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		defer s.Bus.Publish("run", fmt.Sprint(sc.RunID))
 		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
 
-	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments":
+	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments",
+		"issue_comment", "issue_create", "issue_edit", "issue_close":
 		h := s.ToolHandlers[tool]
 		if h == nil {
 			return nil, fmt.Errorf("%s is not available on this controller", tool)

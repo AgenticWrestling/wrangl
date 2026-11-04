@@ -23,6 +23,9 @@ type Fake struct {
 	issuePRs  map[string]bool
 	comments  map[string][]IssueComment
 	calls     FakeCalls
+	writes    []FakeWrite
+	writeErr  error
+	tick      int
 }
 
 // NewFake returns an empty fake.

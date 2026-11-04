@@ -54,6 +54,8 @@ Phase A exit: `go test ./...` green; agent can search/read; no permission change
 
 ## Phase B: writes, then sync (blocked until the owner raises `issues` to write)
 
+Status (PH6nkJ): B1.1, B2.1-B2.4 and the INSTALL.md upgrade section are built. Not built: B1.2 permission status page, B3. `issue_link_task` is not built; `created_by_run` is not stored (the write is logged as `issue write` with actor, op, ref, url). Label names are passed through, not checked against existing labels.
+
 ### B1 Permission plumbing
 
 **B1.1 Manifests.** `controller/ghsetup/ghsetup.go`: author `issues: write` (+ `issue_comment` event).

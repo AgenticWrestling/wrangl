@@ -38,6 +38,7 @@ type IssueComment struct {
 	Author    string
 	Body      string
 	CreatedAt string
+	URL       string
 }
 
 // ErrIsPullRequest means the number names a pull request, not an issue. Issue tools never touch PRs.
@@ -93,6 +94,7 @@ type API interface {
 	// ListRepos lists the repositories an owner's App is installed on (what can be linked).
 	ListRepos(ctx context.Context, owner string) ([]Repo, error)
 	IssueReader
+	IssueWriter
 	PRAPI
 }
 
@@ -105,6 +107,29 @@ type IssueReader interface {
 	IssueComments(ctx context.Context, r Repo, number int64, page int) (comments []IssueComment, more bool, err error)
 	// SearchIssues runs a text search over the repository's issues (state: open | closed | all).
 	SearchIssues(ctx context.Context, r Repo, query, state string, limit int) ([]Issue, error)
+}
+
+// ErrIssuePermission means GitHub refused an issue write: the App (or its installation on this
+// account) does not have issues: write yet. See docs/wrangl/INSTALL.md, "Upgrading existing Apps".
+var ErrIssuePermission = errors.New("the GitHub App lacks the issues: write permission")
+
+// IssueEdit is a partial update of an issue. Nil / empty fields are left alone.
+type IssueEdit struct {
+	Title        *string
+	Body         *string
+	AddLabels    []string
+	RemoveLabels []string
+}
+
+// IssueWriter is the issue write surface. Writes use a token limited to this one repository
+// and to issues: write; the token never leaves the controller. Each returns the issue as
+// GitHub now has it (with its new updated_at).
+type IssueWriter interface {
+	CreateIssue(ctx context.Context, r Repo, title, body string, labels []string) (Issue, error)
+	EditIssue(ctx context.Context, r Repo, number int64, e IssueEdit) (Issue, error)
+	CreateComment(ctx context.Context, r Repo, number int64, body string) (IssueComment, error)
+	// CloseIssue closes the issue; reason is "" | completed | not_planned.
+	CloseIssue(ctx context.Context, r Repo, number int64, reason string) (Issue, error)
 }
 
 // PR is a pull request.

@@ -297,10 +297,11 @@ personal account, and any organisation). A GitHub App lives in one account and b
 be installed there, so a repo in another organisation needs that organisation added too. You
 don't create the App by hand: the web app creates it through GitHub's manifest flow.
 
-The App clones and pushes branches, opens PRs, reads issues and CI checks, merges PRs, and
-receives webhooks. The controller mints a fresh installation token for each run, scoped to **one**
+The App clones and pushes branches, opens PRs, reads and writes issues (comments, create, edit;
+closing needs your approval), reads CI checks, merges PRs, and receives webhooks. The controller mints a fresh installation token for each run, scoped to **one**
 repo with `contents:write` and `pull_requests:write`. Only the runner daemon (root) uses it for
-clone and push; the agent never sees it.
+clone and push; the agent never sees it. Issue tools run on the controller, which mints a separate
+one-repo token with `issues:write` for each write; it never reaches a runner.
 
 ### 6.1 Prerequisite: `web.public_url`
 
@@ -348,6 +349,33 @@ Apps are set up.
 Then link repos with `wrangl repo link` (step 9). The webhook URL is `<public_url>/gh/webhook`;
 GitHub generates the secret for each App and wrangl verifies deliveries against it, so there is no
 webhook secret to create or paste. Step 10 (item 4, "Webhook bypass") lets that path through Cloudflare Access.
+
+### 6.2a Upgrading existing Apps to `issues: write`
+
+New Apps are created with `issues: write`. Apps created earlier have `issues: read`, and GitHub
+does not let wrangl change a registered App's permissions, so you upgrade each one by hand. Until
+you do, the agent write tools (`issue_comment`, `issue_create`, `issue_edit`, and an approved
+`issue_close`) fail with "the wrangl GitHub App needs the issues: write permission"; the read
+tools keep working. Only the author App needs it; the reviewer App stays at `read`.
+
+For each account's App:
+
+1. Open the App's settings: `https://github.com/settings/apps/<app-slug>/permissions` for a
+   personal account, or `https://github.com/organizations/<org>/settings/apps/<app-slug>/permissions`
+   for an organisation. (The slug is the App's name, `wrangl-<login>` unless you changed it.)
+2. Under **Repository permissions** set **Issues** to **Read and write**. Save changes.
+3. GitHub now asks the account that installed the App to accept the new permission: it emails
+   the owner and shows a banner on the installation. Open
+   `https://github.com/settings/installations` (or the organisation's **Installed GitHub Apps**),
+   choose **Configure** on the App, and press **Accept new permissions**. An organisation owner
+   must do this for an organisation.
+4. Optional: also tick the **Issue comment** event under **Subscribe to events** (the App already
+   receives **Issues**). It is not needed for the tools to work.
+
+**Check:** from a project linked to a repo of that account, have an agent (or `wrangl` through the
+remote MCP) call `issue_comment` on a test issue. A comment appears, from `<app>[bot]`, ending with
+`— wrangl run N, task SQID`. A 403 "Resource not accessible by integration" (shown as the
+`issues: write` message) means step 3 is still pending for that installation.
 
 ### 6.3 Advanced: the reviewer App (optional)
 

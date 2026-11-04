@@ -15,13 +15,20 @@ func TestIssueReadToolsForEveryKindAndOnlyReads(t *testing.T) {
 				t.Errorf("%s runs should have %s", kind, n)
 			}
 		}
+		for _, n := range writes {
+			if want := kind == "work" || kind == "revise" || kind == "user"; ok[n] != want {
+				t.Errorf("%s: %s allowed=%v, want %v", kind, n, ok[n], want)
+			}
+		}
 		for n := range ok {
-			if strings.HasPrefix(n, "issue_") && !contains(reads, n) {
-				t.Errorf("%s: %s is not a Phase A read tool", kind, n)
+			if strings.HasPrefix(n, "issue_") && !contains(reads, n) && !contains(writes, n) {
+				t.Errorf("%s: unexpected issue tool %s (issue_delete must not exist)", kind, n)
 			}
 		}
 	}
 }
+
+var writes = []string{"issue_comment", "issue_create", "issue_edit", "issue_close"}
 
 func contains(l []string, s string) bool {
 	for _, v := range l {
@@ -46,7 +53,7 @@ func TestIssueToolDefinitions(t *testing.T) {
 			t.Errorf("%s: invalid schema", tool.Name)
 		}
 	}
-	if seen != 3 {
-		t.Fatalf("want 3 issue tools, got %d", seen)
+	if seen != 7 {
+		t.Fatalf("want 7 issue tools, got %d", seen)
 	}
 }

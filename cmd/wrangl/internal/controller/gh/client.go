@@ -175,6 +175,11 @@ func (c *Client) Repo(ctx context.Context, owner, name string) (Repo, error) {
 
 // RepoToken implements API.
 func (c *Client) RepoToken(ctx context.Context, r Repo) (string, time.Time, error) {
+	return c.mintToken(ctx, r, map[string]string{"contents": "write", "pull_requests": "write"})
+}
+
+// mintToken mints an installation token scoped to one repository with exactly perms.
+func (c *Client) mintToken(ctx context.Context, r Repo, perms map[string]string) (string, time.Time, error) {
 	auth, err := c.appAuth()
 	if err != nil {
 		return "", time.Time{}, err
@@ -185,7 +190,7 @@ func (c *Client) RepoToken(ctx context.Context, r Repo) (string, time.Time, erro
 	}
 	body := map[string]any{
 		"repositories": []string{r.Name},
-		"permissions":  map[string]string{"contents": "write", "pull_requests": "write"},
+		"permissions":  perms,
 	}
 	if _, err := c.do(ctx, http.MethodPost, fmt.Sprintf("/app/installations/%d/access_tokens", r.InstallationID), auth, body, &out); err != nil {
 		// 404/401/403/422 mean the installation is gone or no longer covers this repository (it was

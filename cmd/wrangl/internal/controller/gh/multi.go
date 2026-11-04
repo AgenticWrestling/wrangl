@@ -215,3 +215,39 @@ func (m *Multi) SearchIssues(ctx context.Context, r Repo, query, state string, l
 	}
 	return c.SearchIssues(ctx, r, query, state, limit)
 }
+
+// CreateIssue implements IssueWriter.
+func (m *Multi) CreateIssue(ctx context.Context, r Repo, title, body string, labels []string) (Issue, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return Issue{}, err
+	}
+	return c.CreateIssue(ctx, r, title, body, labels)
+}
+
+// EditIssue implements IssueWriter.
+func (m *Multi) EditIssue(ctx context.Context, r Repo, number int64, e IssueEdit) (Issue, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return Issue{}, err
+	}
+	return c.EditIssue(ctx, r, number, e)
+}
+
+// CreateComment implements IssueWriter.
+func (m *Multi) CreateComment(ctx context.Context, r Repo, number int64, body string) (IssueComment, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return IssueComment{}, err
+	}
+	return c.CreateComment(ctx, r, number, body)
+}
+
+// CloseIssue implements IssueWriter.
+func (m *Multi) CloseIssue(ctx context.Context, r Repo, number int64, reason string) (Issue, error) {
+	c, err := m.client(r.Owner)
+	if err != nil {
+		return Issue{}, err
+	}
+	return c.CloseIssue(ctx, r, number, reason)
+}
