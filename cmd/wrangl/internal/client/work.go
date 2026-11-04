@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/issuestore"
 	"io"
@@ -20,8 +21,45 @@ func esc(s string) string { return url.PathEscape(s) }
 // --- projects ---
 
 func (c *Client) Projects(ctx context.Context) ([]proto.ProjectView, error) {
+	return c.ProjectsFiltered(ctx, "")
+}
+
+// ProjectsFiltered lists projects; archived is "" or "active" (default), "archived" or "all".
+func (c *Client) ProjectsFiltered(ctx context.Context, archived string) ([]proto.ProjectView, error) {
 	var out []proto.ProjectView
-	return out, c.json(ctx, http.MethodGet, "/api/v1/projects", nil, &out)
+	q := ""
+	if archived != "" {
+		q = "?archived=" + url.QueryEscape(archived)
+	}
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects"+q, nil, &out)
+}
+
+// ArchiveRefusedError is returned by ArchiveProject when runs are active on the project.
+type ArchiveRefusedError struct {
+	Message string
+	Runs    []proto.ProjectArchiveRunView
+}
+
+func (e *ArchiveRefusedError) Error() string { return e.Message }
+
+// ArchiveProject archives a project. Active runs make it fail with *ArchiveRefusedError.
+func (c *Client) ArchiveProject(ctx context.Context, slug string) (proto.ProjectArchiveResult, error) {
+	var out proto.ProjectArchiveResult
+	err := c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(slug)+"/archive", nil, &out)
+	var ce *Error
+	if errors.As(err, &ce) && ce.Status == http.StatusConflict {
+		var ref proto.ProjectArchiveRefusal
+		if json.Unmarshal(ce.Body, &ref) == nil && len(ref.Runs) > 0 {
+			return out, &ArchiveRefusedError{Message: ref.Error, Runs: ref.Runs}
+		}
+	}
+	return out, err
+}
+
+// RestoreProject brings an archived project back.
+func (c *Client) RestoreProject(ctx context.Context, slug string) (proto.ProjectView, error) {
+	var out proto.ProjectView
+	return out, c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(slug)+"/restore", nil, &out)
 }
 func (c *Client) Project(ctx context.Context, slug string) (proto.ProjectView, error) {
 	var out proto.ProjectView
