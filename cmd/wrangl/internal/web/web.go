@@ -1372,6 +1372,7 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 	case "answer":
 		err = h.D.Runs.Answer(ctx, id, q.Get("value"), str(fmt.Sprintf("ans%d", id)))
 		msg = "answered"
+		dropEl = fmt.Sprintf("q%d", id)
 		if q.Get("value") == "edit" { // plan proposal: open the split sheet with it
 			if qv, qerr := h.D.Runs.Question(ctx, id); qerr == nil {
 				nav = fmt.Sprintf("/task/%s?split=%d#split", qv.Task, id)
@@ -1498,6 +1499,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.githubToast(ctx, w, err, back) {
 			return
+		}
+		if dropEl != "" && errors.Is(err, errs.Conflict) { // already handled elsewhere (second click, another tab): the card is stale
+			executeScript(w, fmt.Sprintf("document.getElementById(%q)?.remove()", dropEl))
 		}
 		toast(w, err.Error(), true)
 		return

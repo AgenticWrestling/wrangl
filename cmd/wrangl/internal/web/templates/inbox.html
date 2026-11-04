@@ -1,14 +1,14 @@
 {{define "main-inbox"}}
 {{if and (not .Questions) (not .PRs)}}<p class="empty">Inbox zero. Questions from agents, plan proposals and PR reviews land here.</p>{{end}}
-{{range .Questions}}<section class="card q q-{{.Kind}} k-questions" id="q{{.ID}}">
+{{range .Questions}}<section class="card q q-{{.Kind}} k-questions" id="q{{.ID}}" data-signals:qbusy{{.ID}}="false" data-class:busy="$qbusy{{.ID}}">
   <div class="meta"><span class="tag k-questions">{{if eq .Kind "plan_review"}}◐ plan review{{else if eq .Kind "task_review"}}◐ task review{{else}}? needs input{{end}}</span><a href="/task/{{.Task}}">{{.TaskTitle}}</a> <code>{{.Task}}</code>{{if .RunID}} · <a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}<span class="grow"></span><span class="dim">{{ago .CreatedAt}}</span></div>
   <h3>{{.Prompt}}</h3>
   {{if .DetailMD}}<div class="prose">{{md .DetailMD}}</div>{{end}}
   {{if eq .Kind "plan_review"}}<pre class="outline">{{outline .Payload}}</pre>{{end}}
   {{if .AllowFreeText}}<textarea data-bind="ans{{.ID}}" rows="3" placeholder="Reply / feedback"></textarea>{{end}}
   <div class="actions wrap">
-    {{$id := .ID}}{{range .Options}}<button class="btn{{if or (eq .Value "accept") (eq .Value "approve") (eq .Value "yes")}} primary{{end}}" title="{{.Description}}" data-on:click="@post('/ui/act/answer?id={{$id}}&amp;value={{.Value}}')">{{.Label}}</button>{{end}}
-    {{if and .AllowFreeText (not .Options)}}<button class="btn primary" data-on:click="@post('/ui/act/answer?id={{$id}}')">Send</button>{{end}}
+    {{$id := .ID}}{{range .Options}}<button class="btn{{if or (eq .Value "accept") (eq .Value "approve") (eq .Value "yes")}} primary{{end}}" title="{{.Description}}" data-indicator:qbusy{{$id}} data-attr:disabled="$qbusy{{$id}}" data-on:click="@post('/ui/act/answer?id={{$id}}&amp;value={{.Value}}')">{{.Label}}</button>{{end}}
+    {{if and .AllowFreeText (not .Options)}}<button class="btn primary" data-indicator:qbusy{{$id}} data-attr:disabled="$qbusy{{$id}}" data-on:click="@post('/ui/act/answer?id={{$id}}')">Send</button>{{end}}
   </div>
 </section>{{end}}
 {{if .PRs}}<h2 class="section">Open pull requests</h2>{{end}}
