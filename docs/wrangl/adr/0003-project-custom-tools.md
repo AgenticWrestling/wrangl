@@ -103,9 +103,9 @@ tool "deploy_status" {
   `NodeNameStringV2()`; also struct/map marshal and unmarshal, custom marshaler interfaces and
   document generation. Exact signatures were not visible in the README and must be confirmed against
   the source before phase 1.
-- **Maturity:** the README shows no releases or tags, 46 commits, 16 stars, one open issue. Last-commit date
+- **Maturity:** the README shows no releases, but the module has a tag (v0.6.1, pinned in phase 1a), 46 commits, 16 stars, one open issue. Last-commit date
   was not visible. It vendors the official KDL v1 and v2 compliance suites.
-- **Consequences:** pin by commit in `go.mod`; always call `ParseVersionV2` (never auto, so a v1 file is
+- **Consequences:** pin the tag in `go.mod`; always call `ParseVersionV2` (never auto, so a v1 file is
   a clear error, not a silent reinterpretation); decode into our own structs from the node tree rather
   than relying on reflection-based unmarshal; wrap everything in one package (`internal/toolkdl`:
   `Parse([]byte) (Definition, error)` and `Format(Definition) []byte`) so the parser can be swapped.
