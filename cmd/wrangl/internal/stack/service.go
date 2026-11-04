@@ -75,6 +75,24 @@ func (s *Service) Task(ctx context.Context, q *dbgen.Queries, sqid string) (dbge
 	return t, err
 }
 
+// ActiveProject refuses (409) a mutation of a project that is archived: archived projects are
+// inert until restored. It is the one check every mutating path shares.
+func ActiveProject(ctx context.Context, q *dbgen.Queries, projectID int64) error {
+	if proj, err := q.GetProject(ctx, projectID); err == nil && proj.ArchivedAt.Valid {
+		return conflict("project %q is archived; restore it first", proj.Slug)
+	}
+	return nil
+}
+
+// liveTask is Task for a mutation: it also refuses tasks of archived projects.
+func (s *Service) liveTask(ctx context.Context, q *dbgen.Queries, sqid string) (dbgen.Task, error) {
+	t, err := s.Task(ctx, q, sqid)
+	if err != nil {
+		return t, err
+	}
+	return t, ActiveProject(ctx, q, t.ProjectID)
+}
+
 func (s *Service) project(ctx context.Context, q *dbgen.Queries, slug string) (dbgen.Project, error) {
 	p, err := q.GetProjectBySlug(ctx, slug)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -158,8 +176,8 @@ func (s *Service) rankFor(ctx context.Context, q *dbgen.Queries, projectID, pare
 
 // newTask inserts a task, assigns its sqid and records the create event.
 func (s *Service) newTask(ctx context.Context, q *dbgen.Queries, p dbgen.CreateTaskParams, actor Actor) (dbgen.Task, error) {
-	if proj, err := q.GetProject(ctx, p.ProjectID); err == nil && proj.ArchivedAt.Valid {
-		return dbgen.Task{}, conflict("project %q is archived; restore it to add tasks", proj.Slug)
+	if err := ActiveProject(ctx, q, p.ProjectID); err != nil {
+		return dbgen.Task{}, err
 	}
 	p.CreatedBy = string(actor)
 	if p.TaskType == "" {
@@ -387,7 +405,7 @@ func issueByRef(ctx context.Context, q *dbgen.Queries, projectID int64, ref stri
 func (s *Service) Edit(ctx context.Context, sqid string, title, prompt *string, actor Actor) (dbgen.Task, error) {
 	var out dbgen.Task
 	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -418,7 +436,7 @@ func (s *Service) SetType(ctx context.Context, sqid, typ string, actor Actor) (d
 	}
 	var out dbgen.Task
 	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -445,7 +463,7 @@ func (s *Service) SetTargetDate(ctx context.Context, sqid, date string, actor Ac
 	}
 	var out dbgen.Task
 	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -470,7 +488,7 @@ func (s *Service) SetTargetDate(ctx context.Context, sqid, date string, actor Ac
 func (s *Service) Move(ctx context.Context, sqid string, newParent *string, pos Position, actor Actor) (dbgen.Task, error) {
 	var out dbgen.Task
 	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -565,7 +583,7 @@ func (s *Service) addNeed(ctx context.Context, q *dbgen.Queries, t dbgen.Task, p
 // NeedsAdd makes sqid depend on pre.
 func (s *Service) NeedsAdd(ctx context.Context, sqid, pre string, actor Actor) error {
 	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -576,7 +594,7 @@ func (s *Service) NeedsAdd(ctx context.Context, sqid, pre string, actor Actor) e
 // NeedsRm removes a dependency.
 func (s *Service) NeedsRm(ctx context.Context, sqid, pre string, actor Actor) error {
 	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -599,7 +617,7 @@ func (s *Service) NeedsRm(ctx context.Context, sqid, pre string, actor Actor) er
 
 func (s *Service) setLeafState(ctx context.Context, sqid, state, summary string, actor Actor, op string) error {
 	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -621,7 +639,7 @@ func (s *Service) setLeafState(ctx context.Context, sqid, state, summary string,
 // Complete marks a leaf done by hand (the owner says the work is finished and merged).
 func (s *Service) Complete(ctx context.Context, sqid, summary string, actor Actor) error {
 	// "Ship it": the owner confirms a release whose work is all done.
-	if t, err := s.Task(ctx, s.DB.RQ, sqid); err == nil && t.TaskType == dbtypes.TaskRelease && t.State == "in_review" {
+	if t, err := s.liveTask(ctx, s.DB.RQ, sqid); err == nil && t.TaskType == dbtypes.TaskRelease && t.State == "in_review" {
 		return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
 			if err := q.SetTaskState(ctx, dbgen.SetTaskStateParams{State: "done", Summary: summary, CompletedAt: s.completedAt("done"), ID: t.ID}); err != nil {
 				return err
@@ -640,7 +658,7 @@ func (s *Service) Reopen(ctx context.Context, sqid string, actor Actor) error {
 // Cancel cancels a task and every unfinished task beneath it.
 func (s *Service) Cancel(ctx context.Context, sqid, reason string, actor Actor) error {
 	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -671,7 +689,7 @@ func (s *Service) Cancel(ctx context.Context, sqid, reason string, actor Actor) 
 // Delete removes a task and its subtree; refused while a run works on any of it.
 func (s *Service) Delete(ctx context.Context, sqid string, actor Actor) error {
 	return s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -755,7 +773,7 @@ func (s *Service) Split(ctx context.Context, sqid string, nodes []SplitNode, cha
 	}
 	var created []dbgen.Task
 	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		parent, err := s.Task(ctx, q, sqid)
+		parent, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}
@@ -822,7 +840,7 @@ func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
 func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run, error) {
 	var run dbgen.Run
 	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
-		t, err := s.Task(ctx, q, sqid)
+		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
 			return err
 		}

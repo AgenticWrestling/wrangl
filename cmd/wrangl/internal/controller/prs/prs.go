@@ -703,6 +703,7 @@ func (s *Service) Close(ctx context.Context, prID int64) error {
 	return s.markClosed(ctx, pr)
 }
 
+// openPR loads an open PR for an owner action; PRs of archived projects are refused.
 func (s *Service) openPR(ctx context.Context, id int64) (dbgen.PullRequest, error) {
 	pr, err := s.DB.RQ.GetPR(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -712,6 +713,12 @@ func (s *Service) openPR(ctx context.Context, id int64) (dbgen.PullRequest, erro
 	}
 	if pr.State != "open" {
 		return pr, fmt.Errorf("%w: PR %d is %s", errs.Conflict, id, pr.State)
+	}
+	// The owner's PR actions share the archived guard: restore the project first.
+	if p, perr := s.projectFor(ctx, pr); perr == nil {
+		if err := stack.ActiveProject(ctx, s.DB.RQ, p.ID); err != nil {
+			return pr, err
+		}
 	}
 	return pr, nil
 }
@@ -826,6 +833,13 @@ func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// repoArchived reports whether the repo belongs to an archived project: its webhook events are
+// ignored until the project is restored (Reconcile still syncs PR state).
+func (s *Service) repoArchived(ctx context.Context, repoID int64) bool {
+	r, err := s.DB.RQ.GetRepo(ctx, repoID)
+	return err == nil && stack.ActiveProject(ctx, s.DB.RQ, r.ProjectID) != nil
+}
+
 func (s *Service) handleEvent(ctx context.Context, event string, body []byte) error {
 	var p struct {
 		Action     string `json:"action"`
@@ -875,6 +889,9 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 			return err
 		}
 		for _, pr := range prs {
+			if s.repoArchived(ctx, pr.RepoID) {
+				continue
+			}
 			if err := s.Evaluate(ctx, pr.ID); err != nil {
 				return err
 			}
@@ -885,12 +902,17 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 			// Maybe an agent opened it: adopt it if it names one of our tasks.
 			if repos, rerr := s.DB.RQ.ReposByName(ctx, dbgen.ReposByNameParams{Owner: owner, Name: name}); rerr == nil && event == "pull_request" && p.Action != "closed" {
 				for _, r := range repos {
-					s.AdoptRepo(ctx, r.ID)
+					if !s.repoArchived(ctx, r.ID) {
+						s.AdoptRepo(ctx, r.ID)
+					}
 				}
 			}
 			return nil
 		} else if err != nil {
 			return err
+		}
+		if s.repoArchived(ctx, pr.RepoID) {
+			return nil
 		}
 		return s.Evaluate(ctx, pr.ID)
 	case "push":
@@ -903,7 +925,7 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		}
 		ids := map[int64]bool{}
 		for _, r := range repos {
-			ids[r.ID] = true
+			ids[r.ID] = !s.repoArchived(ctx, r.ID)
 		}
 		open, err := s.DB.RQ.OpenPRs(ctx)
 		if err != nil {
@@ -930,6 +952,13 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 		if len(p.Issue.PullRequest) > 0 {
 			return nil // pull requests are not issues here
 		}
+		live := repos[:0:0]
+		for _, r := range repos {
+			if !s.repoArchived(ctx, r.ID) {
+				live = append(live, r)
+			}
+		}
+		repos = live
 		i := gh.Issue{Number: p.Issue.Number, Title: p.Issue.Title, Body: p.Issue.Body, State: p.Issue.State, URL: p.Issue.HTMLURL,
 			Author: p.Issue.User.Login, CreatedAt: p.Issue.CreatedAt, UpdatedAt: p.Issue.UpdatedAt, Comments: p.Issue.Comments}
 		for _, l := range p.Issue.Labels {

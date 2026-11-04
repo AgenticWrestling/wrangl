@@ -79,6 +79,9 @@ func (s *Service) Queue(ctx context.Context, sqid, guidance string) (dbgen.Run, 
 	if err != nil {
 		return dbgen.Run{}, err
 	}
+	if err := stack.ActiveProject(ctx, s.DB.RQ, t.ProjectID); err != nil {
+		return dbgen.Run{}, err
+	}
 	if t.State != "open" {
 		return dbgen.Run{}, fmt.Errorf("%w: %s is %s; only open tasks can be planned", errs.Conflict, sqid, t.State)
 	}

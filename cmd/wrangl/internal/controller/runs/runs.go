@@ -293,6 +293,13 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 
 // Cancel cancels a run: a queued run directly, an active one via its runner.
 func (s *Service) Cancel(ctx context.Context, runID int64) error {
+	if run, err := s.DB.RQ.GetRun(ctx, runID); err == nil {
+		if t, err := s.DB.RQ.GetTask(ctx, run.TaskID); err == nil {
+			if err := stack.ActiveProject(ctx, s.DB.RQ, t.ProjectID); err != nil {
+				return err
+			}
+		}
+	}
 	n, err := s.DB.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: dbnull.Str(s.ts()), ID: runID})
 	if err != nil {
 		return err
