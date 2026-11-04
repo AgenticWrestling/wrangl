@@ -237,6 +237,18 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 		}
 		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid IN (?, ?)`, leaf, review)
 	}
+	// State colours: a child in review shows k-review + a label, the parent rolls it up as a chip
+	// and an "awaits" banner, and the task page carries the same classes.
+	{
+		kid := e.task(sqid).Children[0].Sqid
+		if _, err := e.db.W.Exec(`UPDATE task SET state='in_review' WHERE sqid = ?`, kid); err != nil {
+			t.Fatal(err)
+		}
+		get("/tasks?project=web", `k-review`, `tag k-review`, `chip-roll k-review`, `class="banner"`, `awaits`, "in review")
+		get("/task/"+sqid, `card k-`, `class="banner"`, `chip-roll k-review`)
+		get("/task/"+kid, `card k-review awaits`, `tag k-review`)
+		e.db.W.Exec(`UPDATE task SET state='open' WHERE sqid = ?`, kid)
+	}
 	// Queueing takes the task out of Backlog: it shows once, as a run entry, in Queue (waiting) or
 	// In progress (a runner with a free session slot took it straight away), ahead of Backlog.
 	if out := post("/ui/act/task-queue?sqid="+sqid, `{}`); strings.Contains(out, "toast show err") {

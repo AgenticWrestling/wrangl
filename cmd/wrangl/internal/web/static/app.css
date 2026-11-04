@@ -426,3 +426,31 @@ a.chip.on { border-color: var(--ink); color: var(--ink); }
 .liveterm { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: #0f1115; }
 .liveterm .ltbody { max-height: 22rem; overflow: auto; }
 .liveterm .ltbody .wterm { box-shadow: none; border-radius: 0; padding: 4px; width: max-content; min-width: 100%; }
+
+/* Task state, one colour + glyph + word each (Okabe–Ito; never colour alone):
+   failed vermillion ✕, needs input orange ?, in review reddish-purple ◐, running sky ▶,
+   queued yellow dashed ⧗, done green ✓. */
+.tag.k-failed { color: var(--err); }
+.tag.k-questions { color: var(--attn); }
+.tag.k-review { color: var(--review); }
+.tag.k-running { color: var(--prog); }
+.tag.k-queued { color: var(--wait); border-style: dashed; }
+li.task.k-failed > .row { border-left: 3px solid var(--err); }
+li.task.k-questions > .row { border-left: 3px solid var(--attn); }
+li.task.k-review > .row { border-left: 3px solid var(--review); }
+li.task.k-running > .row { border-left: 3px solid var(--prog); }
+li.task.k-queued > .row { border-left: 3px dashed var(--wait); }
+li.task.k-done > .row { border-left: 3px solid var(--ok); }
+.k-failed > .row .glyph { color: var(--err); } .k-questions > .row .glyph { color: var(--attn); }
+.k-review > .row .glyph { color: var(--review); } .k-queued > .row .glyph { color: var(--wait); }
+.pill.st-in_review { color: var(--review); } .pill.st-in_progress { color: var(--prog); } .pill.st-done { color: var(--ok); }
+section.card.k-failed { border-left: 4px solid var(--err); }
+section.card.k-questions { border-left: 4px solid var(--attn); }
+section.card.k-review { border-left: 4px solid var(--review); }
+section.card.k-running { border-left: 4px solid var(--prog); }
+.chip-roll { font-size: 0.72rem; font-weight: 600; border-radius: 999px; padding: 1px 7px; white-space: nowrap; border: 1px solid currentColor; }
+.chip-roll.k-failed { color: var(--err); } .chip-roll.k-questions { color: var(--attn); } .chip-roll.k-review { color: var(--review); }
+.banner { margin: 2px 0 4px; padding: 5px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+  color: var(--attn); background: color-mix(in srgb, var(--attn) 14%, transparent); border: 1px solid var(--attn); }
+.k-failed > .banner, section.card.k-failed > .banner { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); border-color: var(--err); }
+.k-review > .banner, section.card.k-review > .banner { color: var(--review); background: color-mix(in srgb, var(--review) 14%, transparent); border-color: var(--review); }
