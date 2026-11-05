@@ -92,8 +92,8 @@
 {{end}}
 {{define "cnt"}}{{if .}}{{.}}{{else}}<span class="dim">0</span>{{end}}{{end}}
 
-{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
-  <div class="row">
+{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-class:ksel="$ksel == '{{$n.Sqid}}'" data-class:kcollapsed="$kcol.split(',').includes('{{$n.Sqid}}')" data-class:kfiltered="{{template "kfilt"}}" data-attr:aria-selected="$ksel == '{{$n.Sqid}}' ? 'true' : null" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
+  <div class="row" data-on:click="!evt.target.closest('a,button') && ($ksel = '{{$n.Sqid}}')">
     {{if not .Runner}}<span class="handle" aria-label="Drag to reorder the queue">⠿</span>{{end}}
     <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
     {{ticon $n.Type}}
@@ -115,8 +115,8 @@
     <ul class="tasks" data-parent="{{$n.Sqid}}">{{template "tasklist" $n.Kids}}</ul></details>{{end}}
 </li>{{end}}
 
-{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} k-{{.Kind}}{{if .Awaits}} awaits{{end}} ty-{{.Type}}" data-sqid="{{.Sqid}}" role="treeitem" tabindex="-1"{{if .Kids}} aria-expanded="true"{{end}}>
-  <div class="row">
+{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} k-{{.Kind}}{{if .Awaits}} awaits{{end}} ty-{{.Type}}" data-sqid="{{.Sqid}}" data-class:ksel="$ksel == '{{.Sqid}}'" data-class:kcollapsed="$kcol.split(',').includes('{{.Sqid}}')" data-class:kfiltered="{{template "kfilt"}}" data-attr:aria-selected="$ksel == '{{.Sqid}}' ? 'true' : null" role="treeitem" tabindex="-1"{{if .Kids}} aria-expanded="true" data-attr:aria-expanded="String(!$kcol.split(',').includes('{{.Sqid}}'))"{{end}}>
+  <div class="row" data-on:click="!evt.target.closest('a,button') && ($ksel = '{{.Sqid}}')">
     <span class="handle" aria-label="Drag to reorder">⠿</span>
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
     {{ticon .Type}}
@@ -187,3 +187,5 @@
       <button class="btn small primary" data-on:click="$chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')">Send</button></div>
   </aside>
 </div>{{end}}{{end}}
+
+{{define "kfilt"}}!!$kfilter && !(el.textContent.toLowerCase().includes($kfilter) || [...document.querySelectorAll('li.task')].some((p) => p != el && p.contains(el) && p.querySelector(':scope > .row').textContent.toLowerCase().includes($kfilter))){{end}}

@@ -110,6 +110,26 @@ const cases = [
     },
   },
   {
+    name: 'backlog: keyboard selection, collapse and filter survive a patch', url: '/projects/lp',
+    async run(page) {
+      const rows = page.locator('ul.tasks.root > li.task');
+      await rows.first().locator('> .row code.sqid').click();
+      const sq = await rows.first().getAttribute('data-sqid');
+      check(await page.locator(`li.task[data-sqid="${sq}"].ksel`).count() === 1, 'clicking a row did not select it');
+      await patch(page);
+      check(await page.locator(`li.task[data-sqid="${sq}"].ksel`).count() === 1, 'selection lost to a live patch');
+      await page.keyboard.press('j');
+      check(await page.locator('li.task.ksel').count() === 1 && await page.locator(`li.task[data-sqid="${sq}"].ksel`).count() === 0, 'j did not move the selection');
+      await page.keyboard.press('/');
+      await page.locator('#kbar input').fill('first');
+      const hidden = () => page.locator('ul.tasks.root > li.task.kfiltered').count();
+      const before = await hidden();
+      check(before > 0, 'filter hid nothing');
+      await patch(page);
+      check(await hidden() >= before && await page.locator('li.task:has-text("bump").kfiltered').count() > 0, 'filter not applied to rows added by a live patch');
+    },
+  },
+  {
     name: 'project page: repo sheet', url: '/projects/lp/settings',
     async run(page) {
       await page.locator('button:has-text("Link repo")').click();
