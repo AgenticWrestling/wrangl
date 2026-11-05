@@ -44,7 +44,7 @@
       {{if eq $p.State "error"}}<span class="err small">{{$p.Result}}</span>{{end}}{{end}}</div>{{end}}
   </div>{{end}}
   {{if .Agents}}<div class="reply" data-signals:replyq__ifmissing="''">
-    <textarea data-bind="replyq" rows="2" placeholder="Reply…" data-on:keydown="(evt.ctrlKey || evt.metaKey) && evt.key == 'Enter' && $replyq.trim() && @post('/ui/act/task-ask?sqid={{$t.Sqid.String}}&amp;reply=1')"></textarea>
+    {{template "composer" props "Bind" "replyq" "Rows" 2 "Placeholder" "Reply…" "Submit" (printf "/ui/act/task-ask?sqid=%s&reply=1" $t.Sqid.String)}}
     <button class="btn small primary" data-on:click="$replyq.trim() && @post('/ui/act/task-ask?sqid={{$t.Sqid.String}}&amp;reply=1')">Send</button>
   </div>{{end}}
 </section>{{end}}

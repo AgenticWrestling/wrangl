@@ -56,6 +56,7 @@ type inboxItem struct {
 	ChatHint        string
 	Actions         []inboxAction
 	Changes         changeLink
+	SubmitURL       string // what Ctrl+Enter in the comment box posts
 }
 
 // inboxItems builds the Inbox: questions of every kind, then open pull requests.
@@ -98,6 +99,7 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		if q.AllowFreeText && len(q.Options) == 0 {
 			it.Actions = append(it.Actions, inboxAction{Label: "Send", Class: "primary", URL: fmt.Sprintf("/ui/act/answer?id=%d", id)})
 		}
+		it.SubmitURL = submitURL(it, q.AllowFreeText)
 		out = append(out, it)
 	}
 	for _, r := range prs {
@@ -134,9 +136,24 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			{Label: "Request changes", NeedsText: true, URL: fmt.Sprintf("/ui/act/pr?id=%d&op=request-changes", p.ID)},
 			{Label: "Close", Class: "danger", Confirm: "Close without merging?", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=close", p.ID)},
 		}...)
+		it.SubmitURL = submitURL(it, false)
 		out = append(out, it)
 	}
 	return out
+}
+
+// submitURL is the action Ctrl+Enter in an Inbox card's comment box takes: the card's action that
+// wants text (Reopen, Request changes), else a plain free-text reply to the question.
+func submitURL(it inboxItem, freeText bool) string {
+	for _, a := range it.Actions {
+		if a.NeedsText {
+			return a.URL
+		}
+	}
+	if freeText && strings.HasPrefix(it.DOM, "q") {
+		return "/ui/act/answer?id=" + strings.TrimPrefix(it.DOM, "q")
+	}
+	return ""
 }
 
 func taskReviewReason(payload json.RawMessage) string {

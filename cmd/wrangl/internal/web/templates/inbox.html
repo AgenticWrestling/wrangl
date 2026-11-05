@@ -12,7 +12,7 @@
   <h3>{{.Title}}</h3>
   {{if .Body}}<div class="prose">{{.Body}}</div>{{end}}
   {{range .Details}}<details data-preserve-attr="open" class="idetail"{{if .Open}} open{{end}}><summary>{{.Summary}}</summary>{{if .Pre}}<pre class="outline">{{.Pre}}</pre>{{end}}{{if .HTML}}<div class="prose">{{.HTML}}</div>{{end}}</details>{{end}}
-  {{if .Chat}}<textarea data-bind="{{.Bind}}" data-show="{{sig "c" $k}}" style="display:none" rows="3" placeholder="{{.ChatHint}}"></textarea>{{end}}
+  {{if .Chat}}{{template "composer" props "Bind" .Bind "Rows" 3 "Placeholder" .ChatHint "Show" (sig "c" $k) "Submit" .SubmitURL}}{{end}}
   <div class="actions wrap">
     {{range .Actions}}<button class="btn {{.Class}}"{{if .Confirm}} data-confirm="{{.Confirm}}" data-confirm-yes="{{.Label}}"{{end}}{{if .Tip}} title="{{.Tip}}"{{end}} data-indicator:b{{$k}} data-attr:disabled="{{sig "b" $k}}" data-on:click="{{if .NeedsText}}!({{sig "" $.Bind}} || '').trim() ? ({{sig "c" $k}} = true) : {{end}}@post('{{.URL}}')">{{if .Busy}}<span data-show="!{{sig "b" $k}}">{{.Label}}</span><span data-show="{{sig "b" $k}}" style="display:none"><span class="spin" aria-hidden="true"></span> {{.Busy}}</span>{{else}}{{.Label}}{{end}}</button>{{end}}
     <span class="grow"></span>{{if .Changes.URL}}<a class="tag commit chgink" href="{{.Changes.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Changes.Title}}">{{faicon "edit"}}{{.Changes.Label}} ↗</a>{{end}}

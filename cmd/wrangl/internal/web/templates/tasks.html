@@ -171,7 +171,7 @@
       </div>{{end}}
     </div>
     <div class="chatin">{{if not .ChatAgents}}<p class="dim small">No controller agent is enabled; register one in Settings to get answers (slash commands still work).</p>{{end}}
-      <textarea data-bind="chatq" rows="2" placeholder="Ask, or /queue or /dequeue a task…" data-on:keydown="(evt.ctrlKey || evt.metaKey) && evt.key == 'Enter' && $chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')"></textarea>
+      {{template "composer" props "Bind" "chatq" "Rows" 2 "Placeholder" "Ask, or /queue or /dequeue a task…" "Submit" (printf "/ui/act/project-ask?slug=%s" .Project)}}
       <button class="btn small primary" data-on:click="$chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')">Send</button></div>
   </aside>
 </div>{{end}}{{end}}

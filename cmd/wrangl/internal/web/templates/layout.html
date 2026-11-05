@@ -101,3 +101,7 @@
     {{range .NavProjects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>
     {{end}}
   </div>{{end}}
+
+{{/* The comment box: a textarea bound to signal Bind. Ctrl/Cmd+Enter posts Submit (when set and the box has text).
+     props: Bind, Rows, Placeholder, Submit (URL), Show (a boolean signal expression; hidden while false), Autofocus. */}}
+{{define "composer"}}<textarea data-bind="{{.Bind}}" rows="{{or .Rows 3}}" placeholder="{{.Placeholder}}"{{if .Show}} data-show="{{.Show}}" style="display:none"{{end}}{{if .Submit}} data-on:keydown="(evt.ctrlKey || evt.metaKey) &amp;&amp; evt.key == 'Enter' &amp;&amp; {{sig "" .Bind}}.trim() &amp;&amp; (evt.preventDefault(), @post('{{.Submit}}'))" title="Ctrl+Enter sends"{{end}}></textarea>{{end}}

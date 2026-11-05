@@ -78,7 +78,14 @@ func newSID() string {
 func New(d api.Deps) (*Handler, error) {
 	h := &Handler{D: d, css: chromaCSS()}
 	t, err := template.New("").Funcs(template.FuncMap{
-		"glyph":  func(s string) string { return glyph[s] },
+		"glyph": func(s string) string { return glyph[s] },
+		"props": func(kv ...any) map[string]any { // named arguments for {{template "x" props "A" 1 "B" 2}}
+			m := map[string]any{}
+			for i := 0; i+1 < len(kv); i += 2 {
+				m[fmt.Sprint(kv[i])] = kv[i+1]
+			}
+			return m
+		},
 		"dict":   func(k, v string) map[string]string { return map[string]string{k: v} },
 		"ago":    func(ts string) string { return dbtime.Ago(ts, time.Now()) },
 		"about":  firstLine,
