@@ -18,7 +18,7 @@
   <p id="push-state" class="dim small"></p>
 </section>
 <section class="card">
-  <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-project')">＋ New</button></div>
+  <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-project">＋ New</button></div>
   {{range .Projects}}<a class="row link" href="/projects/{{.Slug}}/settings"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}<p class="empty">No projects.</p>{{end}}
 </section>
 <section class="card">

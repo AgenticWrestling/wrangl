@@ -6,18 +6,18 @@
   <h2>{{$p.Name}}</h2>
   <div class="actions wrap">
     <a class="btn primary" href="/projects/{{$p.Slug}}">Open tasks</a>
-    <button class="btn" onclick="openSheet('sheet-edit-project')">Edit project</button>
+    <button class="btn" command="show-modal" commandfor="sheet-edit-project">Edit project</button>
   </div>
 </section>
 
 <section class="card" id="goals">
-  <div class="row"><h3>Goals &amp; definition of done</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-edit-project')">Edit</button></div>
+  <div class="row"><h3>Goals &amp; definition of done</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-edit-project">Edit</button></div>
   {{if $p.Description}}<div class="prose">{{md $p.Description}}</div>
   {{else}}<p class="empty">No goals written yet. Describe what this project is for and what "done" looks like, in markdown.</p>{{end}}
 </section>
 
 <section class="card" id="repos">
-  <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-repo')">＋ Link repo</button></div>
+  <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-repo">＋ Link repo</button></div>
   {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}<span class="tag" title="Research tasks run here; reports go under research/">notes repo</span>{{end}}<span class="grow"></span>
     {{if eq .ID $.NotesRepo}}<button class="btn small" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo=')">Not notes</button>{{else}}<button class="btn small" title="Research reports are written here, under research/" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Use for research notes</button>{{end}}
     <button class="btn small danger" data-confirm="Unlink {{.Owner}}/{{.Name}} from {{$p.Slug}}?" data-confirm-yes="Unlink" data-on:click="@post('/ui/act/repo-unlink?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Unlink</button></div>{{end}}
@@ -52,8 +52,8 @@
   <label class="check"><input type="checkbox" data-bind="pautoqueue"> Auto-queue new tasks</label>
   <label class="check"><input type="checkbox" data-bind="pautoresolve"> Auto-resolve merge conflicts (Smart Merge) on PRs that would auto-merge</label>
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/project-save?slug={{$p.Slug}}')" data-close>Save</button>
+    <button class="btn" command="close" commandfor="sheet-edit-project">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/project-save?slug={{$p.Slug}}')" command="close" commandfor="sheet-edit-project">Save</button>
   </div>
 </dialog>
 <dialog data-preserve-attr="open" id="sheet-repo" class="sheet" data-signals:repoadd="''" data-signals:repoother="''">
@@ -74,8 +74,8 @@
   <p class="hint">No GitHub account is linked yet. <a href="/setup">Add yours in Settings</a>, or type owner/name and you'll be sent there.</p>
   {{end}}
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/repo-link?slug={{$p.Slug}}')" data-close>Link</button>
+    <button class="btn" command="close" commandfor="sheet-repo">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/repo-link?slug={{$p.Slug}}')" command="close" commandfor="sheet-repo">Link</button>
   </div>
 </dialog>
 {{end}}
@@ -88,7 +88,7 @@
   <label>Repositories (owner/name, one per line)<textarea data-bind="prepos" rows="2" placeholder="you/your-repo" autocapitalize="off"></textarea></label>
   <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/project-new')" data-close>Create</button>
+    <button class="btn" command="close" commandfor="sheet-project">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/project-new')" command="close" commandfor="sheet-project">Create</button>
   </div>
 </dialog>{{end}}

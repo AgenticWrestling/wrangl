@@ -36,7 +36,7 @@
 <section class="card">
   <form class="bar" method="get" action="/run/{{$run.ID}}">
     <input type="search" name="q" value="{{.Q}}" placeholder="Filter log lines">
-    <select name="stream" onchange="this.form.submit()">
+    <select name="stream" data-on:change="el.form.requestSubmit()">
       <option value="">all streams</option>
       {{range $s := list "agent" "runner"}}<option value="{{$s}}"{{if eq $s $.Stream}} selected{{end}}>{{$s}}</option>{{end}}
     </select>

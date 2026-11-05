@@ -17,10 +17,10 @@
 <section class="card">
   <h3>GitHub accounts</h3>
   <p class="hint">wrangl needs one App per account (yours, and any organisation) to open and merge pull requests.</p>
-  <div class="tablewrap"><table class="accts">
+  <div class="tablewrap"><table class="accts" data-signals__ifmissing="{acctopen: {  {{range .Accounts}}{{if .Focus}}{{json .Login}}: true, {{end}}{{end}} }}">
     <thead><tr><th>Account</th><th>Status</th><th></th></tr></thead>
-    {{range .Accounts}}<tbody id="acct-{{.Login}}"{{if .Focus}} class="open"{{end}}>
-      <tr class="acct" onclick="if(!event.target.closest('a,button,form'))this.closest('tbody').classList.toggle('open')">
+    {{range .Accounts}}<tbody id="acct-{{.Login}}" data-preserve-attr="class" data-class:open="$acctopen[{{json .Login}}]">
+      <tr class="acct" data-on:click="!evt.target.closest('a,button,form') && ($acctopen[{{json .Login}}] = !$acctopen[{{json .Login}}])">
         <td><b>{{.Login}}</b> <span class="dim small">{{if eq .Kind "org"}}organisation{{else}}personal{{end}}</span></td>
         <td><span class="stat st-{{.Status}}">{{if eq .Status "ok"}}✓{{else if eq .Status "noapp"}}○{{else}}!{{end}} {{.StatusText}}</span></td>
         <td class="act">
@@ -35,7 +35,7 @@
             <button class="btn primary small" type="submit">Re-authorize</button></form>
           {{else if eq .Status "ok"}}<a class="btn small" href="{{.InstallationsURL}}" target="_blank" rel="noopener">Repositories</a>
           {{else}}<button class="btn small" data-on:click="@post('/ui/act/account-check?login={{.Login}}')">Check again</button>{{end}}
-          <button class="more-toggle" type="button" aria-label="More for {{.Login}}" title="More" onclick="this.closest('tbody').classList.toggle('open')">⋯</button>
+          <button class="more-toggle" type="button" aria-label="More for {{.Login}}" title="More" data-on:click="$acctopen[{{json .Login}}] = !$acctopen[{{json .Login}}]">⋯</button>
         </td>
       </tr>
       <tr class="more"><td colspan="3">

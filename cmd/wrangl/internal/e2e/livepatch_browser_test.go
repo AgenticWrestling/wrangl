@@ -47,10 +47,17 @@ func TestLivePatchKeepsClientState(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.LoopInterval, srv.SchedulerInterval = time.Hour, time.Hour
-	go srv.Run(ctx)
+	go func() {
+		if err := srv.Run(ctx); err != nil && ctx.Err() == nil {
+			t.Errorf("controller: %v", err)
+		}
+	}()
 	<-srv.Ready()
 	api, _ := client.New("unix://"+cfg.Listen.Unix, nil)
 	if _, err := api.CreateProject(ctx, proto.ProjectRequest{Slug: "lp"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.Fleet.DB.W.Exec(`INSERT INTO github_account (login, kind) VALUES ('acme', 'org')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := api.CreateTask(ctx, proto.TaskCreateRequest{Project: "lp", Title: "first", Prompt: "p"}); err != nil {

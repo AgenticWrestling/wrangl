@@ -2,21 +2,6 @@
 // Live page updates are Datastar's job (data-init @get /ui/live in the layout).
 'use strict';
 
-function openSheet(id) {
-  const d = document.getElementById(id);
-  if (d && !d.open) d.showModal();
-}
-window.openSheet = openSheet;
-
-// A sheet's submit button carries data-close: Datastar posts the signals, then the sheet
-// closes (deferred so Datastar's own click handler reads the form first).
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-close]');
-  if (!b) return;
-  const d = b.closest('dialog');
-  if (d) setTimeout(() => d.close(), 0);
-});
-
 function toast(msg, err) {
   const t = document.getElementById('toast');
   if (!t) return;
@@ -351,22 +336,6 @@ document.addEventListener('click', (e) => {
   markFs();
 });
 
-// --- adopt an instance (Runners) ----------------------------------------------------------------
-
-function openAdopt(region, id, arch, name) {
-  window.adoptRegion = region; window.adoptID = id;
-  const nm = document.getElementById('adopt-name'); if (nm) nm.textContent = name;
-  const sel = document.getElementById('adopt-tpl');
-  if (sel) {
-    let first = null;
-    [...sel.options].forEach((o) => { const ok = !arch || o.dataset.arch === arch; o.hidden = o.disabled = !ok; if (ok && !first) first = o; });
-    if (first) { sel.value = first.value; sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
-  }
-  const res = document.getElementById('adopt-result'); if (res) res.innerHTML = '';
-  openSheet('sheet-adopt');
-}
-window.openAdopt = openAdopt;
-
 // --- runner template editor ---------------------------------------------------------------------
 // The instance table, architecture toggle, minimums and image picker of /settings/templates/{name}.
 // Datastar holds the form values (hidden inputs are kept in step here); saving posts them.
@@ -520,7 +489,6 @@ function boot() {
   markFs();
   initTemplateEditor();
   pushState().catch(() => {});
-  if (location.hash.length > 1) openSheet('sheet-' + location.hash.slice(1));
   const main = document.getElementById('main');
   if (main) {
     let t;
@@ -534,14 +502,6 @@ function boot() {
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-
-// The backlog's project menu is a <details>: close it on an outside click or Escape.
-document.addEventListener('click', (e) => {
-  document.querySelectorAll('details.pmore[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; });
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') document.querySelectorAll('details.pmore[open]').forEach((d) => { d.open = false; });
-});
 
 // Setup page: put the chosen App name into the manifest before it goes to GitHub.
 function ghManifest(form) {
