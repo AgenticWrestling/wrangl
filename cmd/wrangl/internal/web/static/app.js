@@ -1,4 +1,4 @@
-// wrangl PWA glue: sheets, drag-and-drop reordering, the read-only terminal, web push.
+// wrangl PWA glue for what has no HTML or Datastar equivalent: drag-and-drop reordering, terminals, web push, the task card, the lightbox and inline confirm.
 // Live page updates are Datastar's job (data-init @get /ui/live in the layout).
 'use strict';
 

@@ -148,6 +148,21 @@ terminate them. The Logs page merges runs with runner, template and upgrade even
 MCP endpoint (`wrangl mcp`) so your own agents can read and edit the backlog. Remote access sits
 behind Cloudflare Access, and on the controller host the CLI uses a unix socket with no auth.
 
+**Web UI convention.** Client state lives in Datastar signals or HTML attributes, never in hand-written
+JS, because every live update morphs `#main` from server HTML and clobbers anything the page set
+itself. Use `data-preserve-attr="open"` on every `<details>` and modal `<dialog>`; `command="show-modal"`
+/ `command="close"` with `commandfor` for sheets; `popover` / `popovertarget` for menus;
+`data-signals`, `data-class`, `data-show`, `data-attr` and `data-bind` for toggles, selection and
+form state (`data-class` re-applies itself after a morph; `data-show` does not, so use a class). No
+inline `onclick`/`onchange`/`onsubmit`. Documented exceptions: the Back button, `enablePush`,
+`toggleDetail` (the expanded task card), and `ghManifest` on the setup forms. `static/app.js` keeps what has
+no HTML equivalent: Sortable drag and drop, terminals, web push, the service worker, the lightbox, the
+inline confirm, and the card's live output. `static/keys.js` is keyboard handling only (a chorded
+list navigator does not fit `data-on:keydown__window`); the state it drives is signals. Each such
+behaviour has a live-patch check in `cmd/wrangl/internal/e2e/browser/livepatch.js` (open the thing, inject a
+probe into `#main`, cause an event, confirm the probe is gone and the state kept); run it with
+`PLAYWRIGHT_DIR=<dir with node_modules/playwright> go test ./cmd/wrangl/internal/e2e -run TestLivePatch`.
+
 Status: **M1 to M10 built**, tested against fakes for AWS, GitHub and the agents. See the install
 guide's first-run checklist for what still needs a real account.
 
