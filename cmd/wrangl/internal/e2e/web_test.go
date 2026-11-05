@@ -94,7 +94,7 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/projects/web", "ty-milestone", `id="d-`+big+`"`, "2026-12-31")
 	get("/static/app.css", ".ty-milestone > .row .title", "font-weight: 600")
 	get("/runners", runner, "tiny")
-	get("/runner/"+runner, "Cordon", "Recent runs")
+	get("/runner/"+runner, `aria-label="Cordon"`, "Recent runs")
 	get("/runner/"+runner+"/term", `id="termapp"`, `href="/runner/`+runner+`"`, "wrangl</a>", `/static/vendor/wterm-0.5.8.js`, `/static/term.js`, `/static/term.css`)
 	get("/static/vendor/wterm-0.5.8.js", "WTerm")
 	get("/static/vendor/wterm-0.5.8.css", ".wterm")

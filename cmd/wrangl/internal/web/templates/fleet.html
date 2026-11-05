@@ -86,11 +86,11 @@
   </dl>
   {{spark .Spark}}
   <div class="actions wrap">
-    {{if termok $r.State}}<a class="btn primary" href="/runner/{{$r.Name}}/term">Terminal</a>{{end}}
-    {{if $r.Cordoned}}<button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')">Uncordon</button>
-    {{else}}<button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')">Cordon</button>{{end}}
-    <button class="btn" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')">Drain</button>
-    <button class="btn danger" data-confirm="Terminate {{$r.Name}}?" data-confirm-yes="Terminate" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')">Terminate</button>
+    {{if termok $r.State}}<a class="btn primary ic" href="/runner/{{$r.Name}}/term" title="Terminal" aria-label="Terminal"><svg class="ni" aria-hidden="true"><use href="#ni-terminal"/></svg></a>{{end}}
+    {{if $r.Cordoned}}<button class="btn ic on" title="Uncordon: accept new work again" aria-label="Uncordon" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')"><svg class="ni" aria-hidden="true"><use href="#ni-uncordon"/></svg></button>
+    {{else}}<button class="btn ic" title="Cordon: stop assigning new work" aria-label="Cordon" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')"><svg class="ni" aria-hidden="true"><use href="#ni-cordon"/></svg></button>{{end}}
+    <button class="btn ic" title="Drain: finish current work, then terminate" aria-label="Drain" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')"><svg class="ni" aria-hidden="true"><use href="#ni-drain"/></svg></button>
+    <button class="btn danger ic" title="Terminate now" aria-label="Terminate" data-confirm="Terminate {{$r.Name}}?" data-confirm-yes="Terminate" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')"><svg class="ni" aria-hidden="true"><use href="#ni-power"/></svg></button>
   </div>
 </section>
 {{with .Run}}<section class="card"><h3>Working on</h3>
