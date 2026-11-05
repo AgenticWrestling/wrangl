@@ -1,0 +1,193 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Custom tools UI — prototype (VyfcV5)</title>
+<style>
+@font-face{font-family:"Red Hat Display";font-weight:300 900;src:url(fonts/red-hat-display-latin.woff2)}
+@font-face{font-family:"IBM Plex Mono";src:url(fonts/ibm-plex-mono-latin.woff2)}
+:root{--c0:#0f1115;--c1:#171a21;--c2:#1f232b;--c3:#2c313c;--c4:#4b5261;--c5:#8a919e;--c6:#c5cad3;--c7:#eef0f3;
+--attn:#e69f00;--prog:#56b4e9;--ok:#009e73;--wait:#f0e442;--brand:#0072b2;--err:#d55e00;--review:#cc79a7;--link:#a6d8f5;
+--radius:12px;--font:"Red Hat Display",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--c0);color:var(--c7);font:300 16px/1.45 var(--font)}
+b,h1,h2,h3{font-weight:600}h1{font-size:1.1rem;margin:0}h3{font-size:.95rem;margin:0 0 8px}h2{font-size:1.05rem;margin:0 0 10px}
+a{color:var(--link);text-decoration:none;cursor:pointer}code,pre{font-family:var(--mono);font-size:.86em}
+.dim{color:var(--c5)}.small{font-size:.85rem}.grow{flex:1}.err{color:var(--err)}
+/* shell: bottom tabs on phones, side panel on desktop (as the app) */
+header.top{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--c3);position:sticky;top:0;background:var(--c0);z-index:5}
+.back{color:var(--link);font-size:1.5rem;line-height:1;padding-right:6px}
+main{max-width:760px;margin:0 auto;padding:12px 16px 90px}
+nav.tabs{position:fixed;inset:auto 0 0 0;display:flex;background:var(--c1);border-top:1px solid var(--c3);z-index:10}
+nav.tabs a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:58px;color:var(--c5);font-size:.72rem}
+nav.tabs a span{font-size:1.2rem;line-height:1.2}nav.tabs a.on{color:var(--prog);font-weight:600}.side-brand{display:none!important}
+@media(min-width:900px){body{padding-left:188px}main{padding-bottom:40px}
+nav.tabs{inset:0 auto 0 0;width:188px;flex-direction:column;justify-content:flex-start;gap:2px;border-top:0;border-right:1px solid var(--c3);padding:16px 10px}
+nav.tabs a{flex:none;flex-direction:row;justify-content:flex-start;gap:10px;height:auto;padding:9px 12px;border-radius:9px;font-size:.95rem}
+nav.tabs a span{font-size:1rem}nav.tabs a.on{background:var(--c2)}.side-brand{display:flex!important;padding:0 8px 14px!important;color:var(--c7)!important;font-size:1.1rem!important}
+main.wide{max-width:1040px}}
+/* components (same tokens as app.css) */
+.card{display:block;background:var(--c1);border:1px solid var(--c3);border-radius:var(--radius);padding:12px 14px;margin:0 0 12px}
+.row{display:flex;align-items:center;gap:8px;min-height:32px;flex-wrap:wrap}
+.hint{color:var(--c5);font-size:.85rem;margin:4px 0 8px}
+.btn{font:inherit;font-size:.9rem;border:1px solid var(--c3);background:var(--c2);color:var(--c7);padding:8px 14px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}.btn.danger{color:var(--err);border-color:#7a4a28}.btn.small{padding:4px 10px;font-size:.8rem}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.tag{font-size:.72rem;font-weight:600;border-radius:6px;padding:1px 7px;white-space:nowrap;border:1px solid currentColor;background:color-mix(in srgb,currentColor 14%,transparent)}
+.tag.ok{color:var(--ok)}.tag.attn{color:var(--attn)}.tag.err{color:var(--err)}.tag.prog{color:var(--prog)}.tag.wait{color:var(--wait);border-style:dashed}
+.pill{font-size:.74rem;border-radius:999px;padding:1px 8px;background:var(--c3);color:var(--c6);white-space:nowrap}
+.stat{font-size:.85rem;font-weight:600;white-space:nowrap}.st-ok{color:var(--ok)}.st-bad{color:var(--attn)}
+input,textarea,select{width:100%;font:inherit;color:inherit;background:var(--c2);border:1px solid var(--c3);border-radius:8px;padding:9px 10px;margin:4px 0 10px}
+textarea.kdl{font-family:var(--mono);font-size:.8rem;line-height:1.5;min-height:300px;white-space:pre;overflow:auto;tab-size:2;margin:0}
+label{display:block;font-size:.85rem;color:var(--c5)}
+.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:.9rem}th{text-align:left;color:var(--c5);font-weight:400;font-size:.8rem;padding:4px 8px}td{padding:9px 8px;border-top:1px solid var(--c3);vertical-align:top}
+tr.clk{cursor:pointer}tr.clk:hover td{background:var(--c2)}
+.sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--c6)}
+.sw i{width:38px;height:22px;border-radius:99px;background:var(--c3);border:1px solid var(--c4);position:relative;transition:.15s;flex:none}
+.sw i:after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--c6);transition:.15s}
+.sw.on i{background:var(--brand);border-color:var(--brand)}.sw.on i:after{left:18px;background:#fff}
+.eff{font-size:.72rem;font-weight:600;border-radius:6px;padding:1px 7px;border:1px solid currentColor;white-space:nowrap}
+.eff.read{color:var(--ok)}.eff.write{color:var(--attn)}.eff.destructive{color:var(--err)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;font-size:.88rem;margin:8px 0}.kv dt{color:var(--c5)}.kv dd{margin:0;overflow-wrap:anywhere}
+.errbox{border:1px solid var(--err);background:color-mix(in srgb,var(--err) 12%,transparent);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:.88rem}
+.errbox b{color:var(--err)}.okbox{border:1px solid var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent);border-radius:10px;padding:8px 12px;margin:10px 0;font-size:.88rem}
+.seg{display:inline-flex;border:1px solid var(--c3);border-radius:99px;overflow:hidden}.seg button{font:inherit;font-size:.85rem;background:none;border:0;color:var(--c6);padding:5px 12px;cursor:pointer}.seg button.on{background:var(--c3);color:var(--c7)}
+.secret{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.secret input{flex:1;min-width:150px;margin:0}
+.sub{border-left:2px solid var(--c3);margin:6px 0 4px 6px;padding:4px 0 4px 12px}
+dialog{background:var(--c1);color:var(--c7);border:1px solid var(--c3);border-radius:16px;padding:18px 16px;width:min(560px,94vw)}dialog::backdrop{background:#0009}
+.vtabs{position:fixed;top:8px;right:8px;z-index:50;display:flex;gap:4px;background:#000a;padding:4px;border-radius:99px;font-size:12px}.vtabs a{padding:3px 10px;border-radius:99px;color:var(--c6)}.vtabs a.on{background:var(--c3);color:#fff}
+body.shot .vtabs{display:none}
+.m-only{display:none}@media(max-width:899px){.m-only{display:flex}}
+body.shot nav.tabs{position:static}
+.split{display:grid;grid-template-columns:260px 1fr;gap:14px}
+@media(max-width:899px){.split{grid-template-columns:1fr}.hide-m{display:none!important}}
+.li{display:flex;gap:8px;align-items:center;padding:9px 10px;border:1px solid transparent;border-radius:9px;cursor:pointer}.li:hover,.li.on{background:var(--c2);border-color:var(--c3)}
+.gut{counter-reset:l}
+.stage{display:flex;gap:6px;align-items:center;font-size:.8rem;color:var(--c5);margin:0 0 12px;flex-wrap:wrap}.stage b{color:var(--c7)}
+.callrow{display:grid;grid-template-columns:auto 1fr auto auto;gap:6px 12px;align-items:center;padding:8px 0;border-top:1px solid var(--c3);font-size:.9rem}.callrow:first-of-type{border-top:0}
+.mono{font-family:var(--mono);font-size:.8rem}
+.chipbar{display:flex;gap:8px;flex-wrap:wrap}.chip{font-size:.8rem;border:1px solid var(--c3);border-radius:99px;padding:3px 10px}
+.toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--c2);border:1px solid var(--c4);padding:8px 16px;border-radius:99px;font-size:.88rem;z-index:30}
+.kind{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--c3);border-radius:10px;cursor:pointer;background:var(--c1);margin-bottom:8px}.kind:hover,.kind.on{border-color:var(--prog)}.kind.off{opacity:.55;cursor:not-allowed}
+</style></head><body>
+<div class="vtabs" id="vtabs"></div>
+<div id="app"></div>
+<script>
+// ---------- data ----------
+const LIB=[
+ {n:'deploy_status',k:'exec',e:'read',rk:['work','revise'],d:'Show the deployment status of an environment',sec:[{n:'kube.prod',env:'KUBECONFIG',as:'file'}],on:['wrangl','billing'],net:'full',v:3},
+ {n:'tracker_lookup',k:'http',e:'read',rk:['work','revise','review'],d:'Look up an issue in the tracker',sec:[{n:'tracker.token'}],on:['wrangl'],v:1},
+ {n:'create_ticket',k:'http',e:'write',rk:['work'],d:'Open a ticket in the tracker',sec:[{n:'tracker.token'}],on:['wrangl'],v:2},
+ {n:'docs_search',k:'mcp_remote',e:'read',rk:['work','revise','review'],d:'Search the internal documentation',sec:[{n:'docs.key'}],on:['docs-site'],v:1},
+ {n:'wipe_staging',k:'exec',e:'destructive',rk:['work'],d:'Delete and recreate the staging namespace',sec:[{n:'kube.staging',env:'KUBECONFIG',as:'file'}],on:[],net:'full',v:1},
+];
+const KUBE=`tool "deploy_status" {
+  description "Show the deployment status of an environment"
+  effect "read"
+  run-kinds "work" "revise"
+  input {
+    param "env" type="string" { enum "staging" "prod" }
+  }
+  exec {
+    argv "kubectl" "get" "deploy" "-n" "{{input.env}}" "-o" "json"
+    secret "KUBECONFIG" name="kube.prod" as="file"
+    network "full"
+    timeout 60
+  }
+}`;
+const BAD=KUBE.replace('argv "kubectl" "get" "deploy" "-n" "{{input.env}}" "-o" "json"','argv "sh" "-c" "kubectl get deploy -n {{input.env}}"');
+const state={v:'A',s:'settings',sel:'deploy_status',setSecrets:{'wrangl|tracker.token':1,'billing|kube.prod':1},proj:{wrangl:['deploy_status','tracker_lookup','create_ticket']},open:{},kdl:KUBE,validated:null,confirmDel:false,wiz:'http'};
+const $=s=>document.querySelector(s);
+const E=e=>`<span class="eff ${e}">${{read:'◉ read',write:'✎ write',destructive:'⚠ destructive'}[e]}</span>`;
+const K=k=>`<span class="pill">${k}</span>`;
+const tool=n=>LIB.find(t=>t.n===n);
+const isSet=(p,s)=>!!state.setSecrets[p+'|'+s];
+const missing=p=>(state.proj[p]||[]).flatMap(n=>tool(n).sec.filter(s=>!isSet(p,s.n)).map(s=>[n,s.n]));
+// ---------- shell ----------
+function shell(title,body,{back,wide}={}){return `<header class="top">${back?`<a class="back" data-go="${back}">‹</a>`:''}<h1>${title}</h1></header>
+<main class="${wide?'wide':''}">${body}</main>
+<nav class="tabs"><a class="side-brand"><b>wrangl</b></a><a><span>☰</span>Projects</a><a><span>⚙</span>Runners</a><a class="${state.s==='run'?'on':''}"><span>▤</span>Logs</a><a><span>✉</span>Inbox</a><a class="${state.s==='project'?'':'on'}"><span>⚙</span>Settings</a></nav>`}
+// ---------- Settings > Tools ----------
+function toolRow(t){return `<tr class="clk" data-sel="${t.n}"><td><b>${t.n}</b><div class="dim small">${t.d}</div><div class="m-only row" style="margin-top:4px">${K(t.k)}${E(t.e)}<span class="dim small">${t.on.length?'on '+t.on.join(', '):'not enabled'}</span></div></td><td class="hide-m">${K(t.k)}</td><td class="hide-m">${E(t.e)}</td><td class="small hide-m">${t.rk.join(', ')}</td><td class="small hide-m">${t.on.length?t.on.join(', '):'<span class="dim">not enabled</span>'}</td></tr>`}
+function detail(t,compact){const sc=t.sec.map(s=>`<code>${s.n}</code>${s.env?` → <code>$${s.env}</code> (${s.as})`:''}`).join('<br>')||'—';
+return `<div class="card"><div class="row"><h3 style="margin:0">${t.n}</h3>${K(t.k)}${E(t.e)}<span class="dim small">v${t.v}</span><span class="grow"></span><button class="btn small" data-go="editor">Edit</button><button class="btn small" data-test>Test…</button><button class="btn small danger" data-del>Delete</button></div>
+<p class="hint" style="margin:6px 0">${t.d}</p>
+<dl class="kv"><dt>Run kinds</dt><dd>${t.rk.join(', ')}${t.e!=='read'?' <span class="dim small">(review and plan runs only get read tools)</span>':''}</dd><dt>Secrets</dt><dd>${sc}</dd><dt>Enabled on</dt><dd>${t.on.join(', ')||'no project'}</dd>${t.e==='destructive'?'<dt>Approval</dt><dd>asks you before every call</dd>':''}</dl>
+${state.confirmDel?`<div class="errbox"><b>Delete ${t.n}?</b> ${t.on.length?`It is enabled on <b>${t.on.join(', ')}</b>; deleting also disables it there.`:'It is not enabled anywhere.'} Stored secrets are kept (<code>wrangl secret list</code>).<div class="row" style="margin-top:8px"><button class="btn danger small" data-del-ok>Delete tool</button><button class="btn small" data-del-no>Keep</button></div></div>`:''}
+${compact?'':`<details><summary class="small dim" style="cursor:pointer">What agents see (declaration only)</summary><pre style="background:var(--c0);padding:8px;border-radius:8px;overflow:auto;font-size:.76rem">{ "name": "ext_${t.n}", "effect": "${t.e}",
+  "input_schema": { "properties": { "env": { "enum": ["staging","prod"] } } } }
+argv, URLs and secrets stay on the controller.</pre></details>`}</div>`}
+function editor(){const errs=state.validated;return `<div class="card"><div class="row"><h3 style="margin:0">${state.sel?`Edit ${state.sel}`:'New tool'}</h3><span class="grow"></span><span class="dim small">KDL v2</span></div>
+<textarea class="kdl" id="kdl" spellcheck="false">${state.kdl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea>
+${errs===null?'<p class="hint">Validated on save, or press Validate. Secrets are referenced by name only; set their values per project afterwards.</p>':errs.length?`<div class="errbox"><b>Not saved: ${errs.length} problem${errs.length>1?'s':''}</b><ul style="margin:6px 0 0;padding-left:18px">${errs.map(e=>`<li>${e}</li>`).join('')}</ul></div>`:`<div class="okbox">✓ Valid: exec tool, effect read, 1 secret (<code>kube.prod</code>), 1 param. Saving creates v4; runs assigned from now on see it.</div>`}
+<div class="actions row" style="justify-content:flex-end"><button class="btn" data-go="settings">Cancel</button><button class="btn" data-validate>Validate</button><button class="btn primary" data-save>Save</button></div></div>`}
+function validate(){const t=$('#kdl')?$('#kdl').value:state.kdl;state.kdl=t;const e=[];if(/argv\s+"(sh|bash|zsh)"/.test(t))e.push('tool deploy_status: argv[0] "sh" is a shell or launcher: commands are argv-only, never a shell');
+if((t.match(/"[^"\n]*"/g)||[]).some(q=>q.includes('{{input.')&&!/^"\{\{input\.\w+\}\}"$/.test(q)))e.push('argv: {{input.x}} must fill a whole argv element and nothing else ("kubectl get deploy -n {{input.env}}")');
+if(!/effect/.test(t))e.push('tool deploy_status: effect is required');state.validated=e}
+// ---------- project card ----------
+function secRow(p,t,s,style){const set=isSet(p,s.n);const shared=LIB.filter(x=>x!==t&&x.sec.some(y=>y.n===s.n)&&(state.proj[p]||[]).includes(x.n)).map(x=>x.n);
+return `<div class="${style==='table'?'':'sub'}"><div class="row"><code>${s.n}</code>${s.env?`<span class="dim small">→ $${s.env} (${s.as})</span>`:''}<span class="grow"></span>${set?'<span class="stat st-ok">✓ set</span><button class="btn small" data-rep="${p}|${s.n}">Replace</button>':'<span class="stat st-bad">! missing</span>'}</div>
+${(!set||state.open[p+'|'+s.n])?`<div class="secret"><input type="password" placeholder="paste value (write-only)" aria-label="Value of ${s.n}" id="in-${s.n.replace(/\W/g,'_')}"><button class="btn primary small" data-setsec="${p}|${s.n}">Save</button></div>
+<p class="hint" style="margin:2px 0 0">Stored as <code>tool.${p}.${s.n}</code>${shared.length?`; also used by ${shared.join(', ')}`:''}. CLI: <code>wrangl tool secret set ${p} ${s.n}</code></p>`:''}</div>`}
+function enabledCard(p,flavor){const en=state.proj[p]||[];const avail=LIB.filter(t=>!en.includes(t.n));
+const tg=t=>`<label class="sw ${en.includes(t.n)?'on':''}" data-toggle="${p}|${t.n}" role="switch" aria-checked="${en.includes(t.n)}" tabindex="0"><i></i>${en.includes(t.n)?'Enabled':'Off'}</label>`;
+let body='';
+if(flavor==='A'){body=`<p class="hint">Tools come from the system-wide library (<a data-go="settings">Settings › Tools</a>). Enable the ones this project's agents may use, and set this project's secrets.</p>
+${en.length?en.map(n=>{const t=tool(n);const m=t.sec.filter(s=>!isSet(p,s.n)).length;return `<div class="card" style="background:var(--c2);margin-bottom:8px"><div class="row"><b>${t.n}</b>${K(t.k)}${E(t.e)}<span class="grow"></span>${m?`<span class="tag attn">! ${m} missing</span>`:'<span class="tag ok">✓ ready</span>'}${tg(t)}</div><div class="dim small">${t.d} · ${t.rk.join(', ')}</div>${t.sec.map(s=>secRow(p,t,s)).join('')}</div>`}).join(''):'<p class="dim" style="text-align:center;padding:16px">No tools enabled yet.</p>'}
+<div class="row"><details style="position:relative"><summary class="btn small" style="list-style:none;display:inline-block">＋ Enable a tool</summary><div style="position:absolute;z-index:9;background:var(--c1);border:1px solid var(--c3);border-radius:10px;padding:4px;min-width:260px;margin-top:6px;box-shadow:0 8px 24px #000a">${avail.map(t=>`<div class="li" data-toggle="${p}|${t.n}"><b>${t.n}</b> ${K(t.k)} ${E(t.e)}</div>`).join('')||'<div class="dim small" style="padding:8px">Everything in the library is enabled.</div>'}</div></details></div>`}
+if(flavor==='B'){body=`<p class="hint">Every tool in the library, one switch each. Enabled tools show what they need.</p>
+<div class="tablewrap"><table><thead><tr><th>Tool</th><th>Effect</th><th>Secrets</th><th></th></tr></thead>${LIB.map(t=>{const on=en.includes(t.n);return `<tr><td><b>${t.n}</b><div class="dim small">${K(t.k)} ${t.rk.join(', ')}</div></td><td>${E(t.e)}</td><td>${on?t.sec.map(s=>secRow(p,t,s,'table')).join(''):`<span class="dim small">${t.sec.map(s=>s.n).join(', ')}</span>`}</td><td>${tg(t)}</td></tr>`}).join('')}</table></div>`}
+if(flavor==='C'){const mm=missing(p);body=`${mm.length?`<div class="errbox" style="border-color:var(--attn);background:#e69f0018"><b style="color:var(--attn)">! ${mm.length} secret${mm.length>1?'s':''} missing</b> — calls to these tools fail until you set them.
+${[...new Set(mm.map(x=>x[1]))].map(s=>`<div style="margin-top:8px"><code>${s}</code> <span class="dim small">(${mm.filter(x=>x[1]===s).map(x=>x[0]).join(', ')})</span>${secRow(p,tool(mm.find(x=>x[1]===s)[0]),{n:s})}</div>`).join('')}</div>`:'<div class="okbox">✓ Every enabled tool has its secrets.</div>'}
+${en.map(n=>{const t=tool(n);return `<div class="row" style="border-top:1px solid var(--c3);padding:8px 0"><div class="grow"><b>${t.n}</b> ${E(t.e)}<div class="dim small">${t.d}</div></div>${tg(t)}</div>`}).join('')}
+<div class="row" style="border-top:1px solid var(--c3);padding-top:8px"><span class="dim small">Not enabled:</span>${avail.map(t=>`<button class="btn small" data-toggle="${p}|${t.n}">＋ ${t.n}</button>`).join('')}</div>`}
+return `<section class="card" id="tools"><div class="row"><h3 style="margin:0">Custom tools</h3><span class="pill">${en.length} enabled</span><span class="grow"></span><a class="small" data-go="settings">Library ›</a></div>${body}</section>`}
+// ---------- run page ----------
+const CALLS=[['ext_deploy_status','ok','1.2 s','3.4 KB','2 m ago'],['ext_tracker_lookup','ok','412 ms','1.1 KB','2 m ago'],['ext_tracker_lookup','invalid','3 ms','0','1 m ago'],['ext_create_ticket','error','120 ms','0','1 m ago','missing secret: tracker.token'],['ext_wipe_staging','pending_approval','8 ms','0','40 s ago'],['ext_deploy_status','ok','904 ms','64 KB (capped)','12 s ago','truncated']];
+const ST={ok:['✓ ok','ok'],error:['! error','err'],invalid:['! invalid input','attn'],denied:['✕ denied','err'],pending_approval:['… awaiting approval','wait']};
+function runCard(flavor){const rows=CALLS;const tot=rows.length;const fail=rows.filter(r=>r[1]!=='ok').length;
+const tg=r=>`<span class="tag ${ST[r[1]][1]}">${ST[r[1]][0]}</span>`;
+const head=`<div class="meta row small"><span class="tag prog">● running</span><span>work</span><b>Add retry to deploy poller</b><code class="dim">k3Fa9x</code></div><div class="row small" style="gap:14px"><a>Log</a><a>Diff</a><a>Files</a><a class="on" style="color:var(--c7);font-weight:600">Tool calls ${tot}</a></div>`;
+let body='';
+if(flavor==='A'){body=`<section class="card"><div class="row"><h3 style="margin:0">Tool calls</h3><span class="pill">${tot}</span><span class="grow"></span><span class="dim small">${fail} not ok · arguments and output are not recorded</span></div>
+<div class="tablewrap"><table><thead><tr><th>Tool</th><th>Status</th><th>Duration</th><th>Bytes</th><th>When</th></tr></thead>${rows.map(r=>`<tr><td><code>${r[0]}</code>${r[5]?`<div class="dim small">${r[5]}</div>`:''}</td><td>${tg(r)}</td><td class="mono">${r[2]}</td><td class="mono">${r[3]}</td><td class="dim small">${r[4]}</td></tr>`).join('')}</table></div></section>`}
+if(flavor==='B'){body=`<section class="card"><div class="row"><h3 style="margin:0">Tool calls</h3><span class="grow"></span><div class="chipbar"><span class="chip">deploy_status ×2</span><span class="chip">tracker_lookup ×2</span><span class="chip">create_ticket ×1</span><span class="chip">wipe_staging ×1</span></div></div>
+${rows.map(r=>`<div class="callrow"><span class="dim small mono">${r[4]}</span><div><code>${r[0]}</code> ${r[5]?`<span class="dim small">· ${r[5]}</span>`:''}</div><span class="mono dim">${r[2]} · ${r[3]}</span>${tg(r)}</div>`).join('')}
+<p class="hint" style="margin-bottom:0">One row per call. Arguments, headers and output are never stored.</p></section>`}
+if(flavor==='C'){body=`<details class="card" open><summary style="cursor:pointer;list-style:none"><div class="row"><h3 style="margin:0">Tool calls</h3><span class="tag ok">✓ ${rows.filter(r=>r[1]==='ok').length} ok</span>${fail?`<span class="tag attn">! ${fail} not ok</span>`:''}<span class="tag wait">… 1 awaiting you</span><span class="grow"></span><span class="dim">▾</span></div></summary>
+<div style="margin-top:8px">${rows.map(r=>`<div style="padding:8px 0;border-top:1px solid var(--c3)"><div class="row"><code>${r[0]}</code><span class="grow"></span>${tg(r)}</div><div class="dim small mono">${r[2]} · ${r[3]} · ${r[4]}${r[5]?' · '+r[5]:''}</div>${r[1]==='pending_approval'?'<div class="row" style="margin-top:6px"><a class="btn small primary">Review in Inbox</a><span class="dim small">destructive: asks before every call</span></div>':''}</div>`).join('')}</div></details>`}
+return `<section class="card">${head}</section>${body}`}
+// ---------- screens per variant ----------
+function settingsPage(){const v=state.v;const t=tool(state.sel)||LIB[0];
+ const intro=`<section class="card"><div class="row"><h3 style="margin:0">Tools</h3><span class="pill">${LIB.length} in library</span><span class="grow"></span><a class="btn small primary" data-go="editor" data-new>＋ Add tool</a></div><p class="hint" style="margin-bottom:0">One library for the whole system, written in KDL and run by the controller. Enable tools per project and set each project's secrets on its page.</p></section>`;
+ if(v==='A'){return shell('Settings › Tools',`${intro}<section class="card"><div class="tablewrap"><table><thead class="hide-m"><tr><th>Tool</th><th>Kind</th><th>Effect</th><th>Run kinds</th><th>Enabled on</th></tr></thead>${LIB.map(toolRow).join('')}</table></div></section>${detail(t)}`,{back:'settings',wide:1})}
+ if(v==='B'){return shell('Settings › Tools',`<div class="split"><div class="${''}"><div class="row" style="margin-bottom:8px"><b>Library</b><span class="grow"></span><button class="btn small primary" data-go="editor" data-new>＋ Add</button></div>${LIB.map(x=>`<div class="li ${x.n===t.n?'on':''}" data-sel="${x.n}"><div class="grow"><b>${x.n}</b><div class="dim small">${x.k} · ${x.on.length} project${x.on.length===1?'':'s'}</div></div>${E(x.e)}</div>`).join('')}</div><div class="${state.sel?'':'hide-m'}">${detail(t)}</div></div>`,{back:'settings',wide:1})}
+ return shell('Settings › Tools',`${intro}${LIB.map(x=>`<div class="card" data-sel="${x.n}" style="cursor:pointer"><div class="row"><b>${x.n}</b><span class="grow"></span>${E(x.e)}</div><div class="dim small">${x.d}</div><div class="row small" style="margin-top:4px">${K(x.k)}<span class="dim">${x.on.length?'on '+x.on.join(', '):'not enabled'}</span></div></div>`).join('')}${state.sel&&state.open.detail?detail(t,1):''}`,{back:'settings'})}
+function editorPage(){const v=state.v;const h=`<div class="stage">Settings › Tools › <b>${state.sel?state.sel:'New tool'}</b></div>`;
+ if(v==='C'){const kinds=[['http','HTTP request','The controller calls a fixed https URL with your headers and secrets.'],['exec','Command','A CLI run on the controller in a sandbox. Needs the sandbox (phase 2).','off'],['mcp_remote','Remote MCP server','The controller is the MCP client. (phase 3)','off']];
+  return shell(state.sel?`Edit ${state.sel}`:'New tool',`${h}${state.sel?'':`<p class="hint">1 · Pick a starting point</p>${kinds.map(k=>`<div class="kind ${k[3]||''} ${state.wiz===k[0]?'on':''}" data-wiz="${k[0]}" ${k[3]?'':''}><input type="radio" ${state.wiz===k[0]?'checked':''} style="width:auto;margin:3px 0 0" disabled><div><b>${k[1]}</b>${k[3]?' <span class="pill">not yet</span>':''}<div class="dim small">${k[2]}</div></div></div>`).join('')}<p class="hint">2 · Edit the definition</p>`}${editor()}`,{back:'settings'})}
+ if(v==='B'){return shell(state.sel?`Edit ${state.sel}`:'New tool',`${h}<div class="split" style="grid-template-columns:1fr 280px">${`<div>${editor()}</div>`}<div class="hide-m"><div class="card"><h3>What agents will see</h3><p class="hint">Only this ever leaves the controller:</p><pre style="background:var(--c0);padding:8px;border-radius:8px;font-size:.74rem;overflow:auto">name  ext_deploy_status
+effect read
+runs  work, revise
+input env: staging | prod</pre><p class="hint">Hidden: argv, secret names, URLs.</p><h3 style="margin-top:12px">Needs</h3><p class="small"><code>kube.prod</code> (file → $KUBECONFIG)<br><span class="dim">Set per project after saving.</span></p></div></div></div>`,{back:'settings',wide:1})}
+ return shell(state.sel?`Edit ${state.sel}`:'New tool',`${h}${editor()}`,{back:'settings'})}
+function projectPage(){const p='wrangl';const v=state.v;return shell('wrangl',`<div class="stage"><a>Projects</a> › <b>wrangl</b> › settings</div><section class="card"><div class="row"><h3 style="margin:0">Runner instances</h3><span class="grow"></span><span class="dim small">…existing cards…</span></div></section>${enabledCard(p,v)}`,{back:'settings'})}
+function runPage(){return shell('Run 412',runCard(state.v),{back:'settings'})}
+const SV=p=>`<svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-.14em;margin-right:.3em">${p}</svg>`;
+const GL={'✓':'<path d="M3 8.5l3.2 3L13 4.5"/>','＋':'<path d="M8 3v10M3 8h10"/>','→':'<path d="M2 8h11M9 4l4 4-4 4"/>','◉':'<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="1.8"/>','✎':'<path d="M3 13l.7-3L11 2.7 13.3 5 6 12.3 3 13z"/>','⚠':'<path d="M8 2.5l6 11H2l6-11zM8 6.5v3.5M8 12h.01"/>','✕':'<path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/>','●':'<circle cx="8" cy="8" r="4" fill="currentColor"/>','▾':'<path d="M4 6l4 4 4-4"/>','☰':'<path d="M2 4h12M2 8h12M2 12h12"/>','⚙':'<circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/>','▤':'<path d="M3 2.5h10v11H3zM5.5 6h5M5.5 9h5"/>','✉':'<path d="M2 4h12v8H2zM2 4l6 5 6-5"/>'};
+const GLRE=new RegExp('['+Object.keys(GL).join('')+']','g');
+function render(){const m={settings:settingsPage,editor:editorPage,project:projectPage,run:runPage}[state.s];$('#app').innerHTML=m().replace(GLRE,c=>SV(GL[c]));
+ $('#vtabs').innerHTML=['A','B','C'].map(x=>`<a class="${x===state.v?'on':''}" data-v="${x}">${x}</a>`).join('')+['settings','editor','project','run'].map(x=>`<a class="${x===state.s?'on':''}" data-s="${x}">${x}</a>`).join('');
+ const t=document.querySelector('[data-toast]');}
+function toast(m){const d=document.createElement('div');d.className='toast';d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),1800)}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-v],[data-s],[data-go],[data-sel],[data-toggle],[data-setsec],[data-rep],[data-validate],[data-save],[data-del],[data-del-ok],[data-del-no],[data-test]');if(!t)return;
+ const d=t.dataset;
+ if(d.v){state.v=d.v}else if(d.s){state.s=d.s;state.validated=null}else if(d.go){if(d.go==='editor'){state.s='editor';if(t.hasAttribute('data-new')){state.sel=null;state.kdl='tool "" {\n  description ""\n  effect "read"\n  run-kinds "work"\n}';}else{state.kdl=KUBE}}else state.s=d.go;state.validated=null}
+ else if(d.sel!==undefined&&d.sel){state.sel=d.sel;state.confirmDel=false;state.open.detail=1}
+ else if(d.toggle){const[p,n]=d.toggle.split('|');const a=state.proj[p]=state.proj[p]||[];const i=a.indexOf(n);if(i<0){a.push(n);const m=tool(n).sec.filter(s=>!isSet(p,s.n)).length;toast(m?`Enabled ${n} — ${m} secret missing`:`Enabled ${n}`)}else{a.splice(i,1);toast(`Disabled ${n}`)}}
+ else if(d.setsec){const[p,s]=d.setsec.split('|');const inp=document.getElementById('in-'+s.replace(/\W/g,'_'));if(!inp.value.trim()){toast('Paste a value first');return}state.setSecrets[d.setsec]=1;delete state.open[d.setsec];toast(`Stored ${s} — write-only`)}
+ else if(d.rep){state.open[d.rep]=1}
+ else if('validate' in d){validate()}else if('save' in d){validate();if(!state.validated.length){toast('Saved deploy_status v4');state.s='settings'}}
+ else if('del' in d){state.confirmDel=true}else if('delNo' in d){state.confirmDel=false}else if('delOk' in d){toast('Deleted');state.confirmDel=false}else if('test' in d){toast('Test: choose a project, then enter sample input')}
+ render()});
+const h=location.hash.slice(1).split('-');if(h[0])state.v=h[0];if(h[1])state.s=h[1];if(h[2]==='bad'){state.kdl=BAD;validate()}if(h[2]==='ok'){validate()}if(h[2]==='del'){state.confirmDel=true}if(h[2]==='open'){state.open['wrangl|kube.prod']=1}
+if(location.search.includes('shot'))document.body.classList.add('shot');
+render();
+</script></body></html>
