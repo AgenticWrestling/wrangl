@@ -128,11 +128,25 @@ func (h *Handler) viewTemplate(ctx context.Context, view string, r *http.Request
 		d["AgentSummary"] = "runs " + agent.Start[0]
 	}
 	d["HasAWS"] = h.D.Fleet.Prov != nil
+	d["CatRows"] = []struct{}{} // the editor's catalogue signal; filled in below when there is one
 	if h.D.Costs != nil {
 		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		cat, err := h.D.Costs.Catalogue(cctx)
 		cancel()
 		d["Catalogue"], d["CatalogueErr"], d["Region"] = cat, errString(err), h.D.Costs.Home
+		type crow struct {
+			T string  `json:"t"`
+			A string  `json:"a"`
+			V int     `json:"v"`
+			M int64   `json:"m"`
+			P float64 `json:"p"`
+			K bool    `json:"k"`
+		}
+		rows := []crow{}
+		for _, c := range cat {
+			rows = append(rows, crow{c.Type, c.Arch, c.VCPU, c.MemoryMiB, c.HourlyUSD, c.PriceKnown})
+		}
+		d["CatRows"] = rows
 	}
 	return nil
 }

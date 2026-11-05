@@ -1110,6 +1110,7 @@ type actResult struct {
 	flash  string         // sqid of the row that was acted on: it lights up after the live patch
 	back   string         // where a missing/uninstalled GitHub App error should link to
 	reset  map[string]any // signals to clear on success
+	quiet  bool           // the action already patched the page: no toast
 }
 
 type actFn func(h *Handler, a *actReq) (actResult, error)
@@ -1161,6 +1162,9 @@ var actions = map[string]actFn{
 	"repo-notes":             actRepoNotes,
 	"repo-link":              actRepoLink,
 	"template-save":          actTemplateSave,
+	"tpl-ami-check":          actTplAmiCheck,
+	"tpl-ami-test":           actTplAmiTest,
+	"tpl-market":             actTplMarket,
 	"account-add":            actAccountAdd,
 	"account-remove":         actAccountRemove,
 	"repo-unlink":            actRepoUnlink,
@@ -1189,7 +1193,9 @@ func (h *Handler) act(w http.ResponseWriter, r *http.Request) {
 		toast(w, err.Error(), true)
 		return
 	}
-	toast(w, res.msg, false)
+	if !res.quiet {
+		toast(w, res.msg, false)
+	}
 	if res.reset != nil {
 		mergeSignals(w, res.reset)
 	}

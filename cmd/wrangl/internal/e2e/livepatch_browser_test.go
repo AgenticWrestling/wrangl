@@ -57,6 +57,9 @@ func TestLivePatchKeepsClientState(t *testing.T) {
 	if _, err := api.CreateProject(ctx, proto.ProjectRequest{Slug: "lp"}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := srv.Fleet.DB.W.Exec(`INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('tpl','','{}',1,1,1)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := srv.Fleet.DB.W.Exec(`INSERT INTO github_account (login, kind) VALUES ('acme', 'org')`); err != nil {
 		t.Fatal(err)
 	}

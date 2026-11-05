@@ -96,6 +96,20 @@ const cases = [
     },
   },
   {
+    name: 'template editor: image choice and arch toggle are signals', url: '/settings/templates/tpl',
+    async run(page) {
+      const box = page.locator('#tp-ami-box');
+      check(!(await box.isVisible()), 'AMI box should start hidden');
+      await page.locator('input[type=radio][value=ami]').check();
+      check(await box.isVisible(), 'choosing "An AMI id" did not show the AMI field');
+      await page.locator('input[type=radio][value=al]').check();
+      check(!(await box.isVisible()), 'choosing Amazon Linux did not hide the AMI field');
+      const x86 = page.locator('#tp-arch button[role=radio]').nth(1);
+      await x86.click();
+      check((await x86.getAttribute('aria-checked')) === 'true', 'arch toggle did not check x86_64');
+    },
+  },
+  {
     name: 'project page: repo sheet', url: '/projects/lp/settings',
     async run(page) {
       await page.locator('button:has-text("Link repo")').click();
@@ -113,6 +127,8 @@ const cases = [
     const ctx = await browser.newContext({ viewport: { width: c.width || 1280, height: 900 } });
     const page = await ctx.newPage();
     page.setDefaultTimeout(8000);
+    page.on('console', (m) => { if (m.type() === 'error' || process.env.LP_DEBUG) console.error('[console]', c.name, m.text().slice(0, 600)); });
+    page.on('pageerror', (e) => console.error('[pageerror]', c.name, String(e).slice(0, 600)));
     if (process.env.LP_DEBUG) console.error('case', c.name);
     try {
       await page.goto(base + c.url);
