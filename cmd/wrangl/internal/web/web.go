@@ -237,6 +237,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request, view string) {
 		"Inbox": len(open), "Data": data}
 	if ps, err := h.D.Fleet.DB.RQ.ListProjects(r.Context(), "active"); err == nil { // left panel: the five most recently updated
 		page["NavProjects"], _ = recentProjects(ps, 5)
+		page["AllProjects"] = ps // the page title's project switcher
 	}
 	page["Project"], _ = data["Project"].(string)
 	for _, region := range []string{"Pre", "Post"} { // static regions outside #main (sheets, terminal)

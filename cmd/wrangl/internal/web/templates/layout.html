@@ -69,7 +69,7 @@
   {{if ne .View "tasks"}}<button class="back" onclick="history.length > 1 ? history.back() : location.assign('/projects')" aria-label="Back">‹</button>{{end}}
   <a class="brand" href="/projects" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="28" height="28"></a>
   {{if and (eq .View "tasks") .Project}}<span class="pmore ttl"><button class="ttlbtn" popovertarget="pm-title" style="anchor-name: --pm-title" aria-label="Switch project">{{.Title}}<svg class="ni" aria-hidden="true"><use href="#ni-chevron"/></svg></button>
-    <div class="menu" id="pm-title" popover style="position-anchor: --pm-title">{{range .Projects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>{{end}}<a class="all" href="/projects">All projects</a></div></span>
+    <div class="menu" id="pm-title" popover style="position-anchor: --pm-title">{{range .AllProjects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>{{end}}<a class="all" href="/projects">All projects</a></div></span>
   {{else}}<h1>{{.Title}}</h1>{{end}}
 </header>
 <div id="detail-sheets"></div>
