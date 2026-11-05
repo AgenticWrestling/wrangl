@@ -138,6 +138,18 @@ type Assignment struct {
 	Env         map[string]string `json:"env,omitempty"`    // resolved secrets for the agent process
 	Target      *TargetConn       `json:"target,omitempty"` // remote runs: the target the driver drives
 	SecretFiles []SecretFile      `json:"secret_files,omitempty"`
+	// Tools are the project's enabled custom tools for this run kind: declarations only. Argv,
+	// URLs, headers and secrets stay on the controller (docs/wrangl/adr/0003).
+	Tools []ToolDecl `json:"tools,omitempty"`
+}
+
+// ToolDecl is what a runner and its agent are told about a custom tool. Name is the MCP name
+// (ext_<tool>).
+type ToolDecl struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
+	RunKinds    []string        `json:"run_kinds"`
 }
 
 // Ack is a generic accepted/declined reply.

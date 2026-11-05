@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/tools"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/toolkdl"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
@@ -106,6 +108,7 @@ type Server struct {
 	PRs          *prs.Service
 	Plans        *plans.Service
 	Agents       *agents.Service // controller agents ("Ask?" on a task)
+	Tools        *tools.Service  // the custom tool library
 	Deliverables *deliverables.Service
 	TaskReview   *taskreview.Service
 	Costs        *costs.Service // nil without AWS
@@ -322,6 +325,12 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Runs.ToolHandlers["issue_close"] = issueTools.Close
 	s.Runs.ToolHandlers["issue_link_task"] = issueTools.LinkTask
 	s.Runs.ApprovalHandlers["issue_close"] = issueTools.CloseApproved
+	s.Tools = &tools.Service{DB: s.db, Log: s.log,
+		PutSecret: func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
+		GetSecret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	// Executors for the library's tool kinds are registered here as they land (ADR 0003).
+	s.Runs.Custom = &tools.Engine{Svc: s.Tools, Executors: map[toolkdl.Kind]tools.Executor{}, Approver: s.Runs, Open: s.Runs.QuestionOpen, Now: now, Log: s.log}
+	s.Runs.ApprovalHandlers[tools.ApprovalOp] = s.Runs.Custom.Approved
 	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
 	s.Runs.ToolHandlers["issue_get"] = issueTools.Get
 	s.Runs.ToolHandlers["issue_comments"] = issueTools.Comments
@@ -421,7 +430,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			URL: "/runners", Tag: "enrol-" + template})
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
-		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }, Tools: s.Tools.Declarations}
 	if s.Agents != nil {
 		s.Agents.Launch = sched.LaunchFor
 	}
@@ -560,7 +569,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents, Tools: s.Tools,
 		Setup: s.setupService(), Secrets: &api.SecretStore{
 			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },

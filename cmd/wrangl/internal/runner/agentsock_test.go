@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 func startSocket(t *testing.T) (string, *Worker) {
@@ -77,5 +79,33 @@ func TestSocketRejectsOtherUsers(t *testing.T) {
 	var tools []map[string]any
 	if err := json.Unmarshal([]byte(curl(0)), &tools); err != nil || len(tools) == 0 {
 		t.Fatalf("own uid refused: %v", err)
+	}
+}
+
+// The daemon lists the run's custom tool declarations after the stack tools, and refuses a name
+// the run was not given before it costs a round trip.
+func TestShimListsCustomToolDeclarations(t *testing.T) {
+	path, w := startSocket(t)
+	t.Setenv("WRANGL_SOCK", path)
+	t.Setenv("WRANGL_RUN_ID", "5")
+	w.mu.Lock()
+	w.runs = map[int64]*runState{5: {id: 5, kind: "work", tools: []proto.ToolDecl{
+		{Name: "ext_deploy_status", Description: "Show the deployment status", InputSchema: json.RawMessage(`{"type":"object","properties":{"env":{"type":"string","enum":["staging","prod"]}}}`), RunKinds: []string{"work"}}}}}
+	w.mu.Unlock()
+	in := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ext_other","arguments":{}}}`,
+	}, "\n")
+	var out bytes.Buffer
+	if err := ServeMCP(context.Background(), strings.NewReader(in), &out, "test"); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, `"ext_deploy_status"`) || !strings.Contains(s, `"task_create"`) || !strings.Contains(s, `"enum":["staging","prod"]`) {
+		t.Fatalf("tools/list: %s", s)
+	}
+	if !strings.Contains(s, "unknown tool ext_other") {
+		t.Fatalf("unknown custom tool: %s", s)
 	}
 }

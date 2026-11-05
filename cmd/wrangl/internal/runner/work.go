@@ -61,6 +61,7 @@ type Worker struct {
 type runState struct {
 	id         int64
 	kind       string
+	tools      []proto.ToolDecl // the project's custom tool declarations for this run (no secrets)
 	cancel     context.CancelFunc
 	done       chan struct{}
 	hookSeq    int64
@@ -124,7 +125,7 @@ func (w *Worker) Start(parent context.Context, a proto.Assignment) error {
 		return fmt.Errorf("busy: %d of %d sessions in use", len(w.runs), limit)
 	}
 	ctx, cancel := context.WithCancel(parent)
-	rs := &runState{id: a.RunID, kind: a.Kind, cancel: cancel, done: make(chan struct{})}
+	rs := &runState{id: a.RunID, kind: a.Kind, tools: a.Tools, cancel: cancel, done: make(chan struct{})}
 	if w.runs == nil {
 		w.runs = map[int64]*runState{}
 	}

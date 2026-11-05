@@ -158,3 +158,18 @@ func (d *Definition) SecretSpecs() []SecretSpec {
 	}
 	return out
 }
+
+// OutputLimit is the result size cap in bytes (default 64 KB).
+func (d *Definition) OutputLimit() int {
+	kb := DefaultOutputKB
+	switch {
+	case d.Exec != nil:
+		kb = d.Exec.MaxOutputKB
+	case d.HTTP != nil:
+		kb = d.HTTP.MaxOutputKB
+	}
+	if kb <= 0 {
+		kb = DefaultOutputKB
+	}
+	return kb << 10
+}

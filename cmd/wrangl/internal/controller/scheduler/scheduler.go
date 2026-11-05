@@ -16,6 +16,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // Backoff after a failed launch, per template: doubles from MinBackoff to MaxBackoff.
@@ -36,6 +37,9 @@ type Scheduler struct {
 	Log    *slog.Logger
 	GH     gh.API                            // nil: no tokens (file:// repos in tests)
 	Secret func(name string) ([]byte, error) // controller secret store
+	// Tools lists the declarations of the project's enabled custom tools for a run kind (nil: none).
+	// Declarations only: no argv, URLs or secrets reach a runner.
+	Tools func(ctx context.Context, projectID int64, runKind string) ([]proto.ToolDecl, error)
 	// OnNeedApp is called (at most hourly per owner) when queued work cannot start because the
 	// repository owner has no GitHub App, or it is not installed on the repository.
 	OnNeedApp func(owner, repo string, cause error)

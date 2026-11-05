@@ -181,3 +181,53 @@ func (q *Queries) IsProjectToolEnabled(ctx context.Context, arg IsProjectToolEna
 	err := row.Scan(&count)
 	return count, err
 }
+
+const insertToolCall = `-- name: InsertToolCall :exec
+INSERT INTO tool_call (run_id, tool, status, duration_ms, bytes, at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+`
+
+type InsertToolCallParams struct {
+	RunID      int64  `json:"run_id"`
+	Tool       string `json:"tool"`
+	Status     string `json:"status"`
+	DurationMs int64  `json:"duration_ms"`
+	Bytes      int64  `json:"bytes"`
+	At         string `json:"at"`
+}
+
+func (q *Queries) InsertToolCall(ctx context.Context, arg InsertToolCallParams) error {
+	_, err := q.db.ExecContext(ctx, insertToolCall,
+		arg.RunID,
+		arg.Tool,
+		arg.Status,
+		arg.DurationMs,
+		arg.Bytes,
+		arg.At,
+	)
+	return err
+}
+
+const listToolCallsForRun = `-- name: ListToolCallsForRun :many
+SELECT id, run_id, tool, status, duration_ms, bytes, at FROM tool_call WHERE run_id = ? ORDER BY id
+`
+
+func (q *Queries) ListToolCallsForRun(ctx context.Context, runID int64) ([]ToolCall, error) {
+	rows, err := q.db.QueryContext(ctx, listToolCallsForRun, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ToolCall{}
+	for rows.Next() {
+		var i ToolCall
+		if err := rows.Scan(&i.ID, &i.RunID, &i.Tool, &i.Status, &i.DurationMs, &i.Bytes, &i.At); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}

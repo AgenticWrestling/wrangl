@@ -403,3 +403,13 @@ type ProjectTool struct {
 	ToolID    int64  `json:"tool_id"`
 	CreatedAt string `json:"created_at"`
 }
+
+type ToolCall struct {
+	ID         int64  `json:"id"`
+	RunID      int64  `json:"run_id"`
+	Tool       string `json:"tool"`
+	Status     string `json:"status"`
+	DurationMs int64  `json:"duration_ms"`
+	Bytes      int64  `json:"bytes"`
+	At         string `json:"at"`
+}

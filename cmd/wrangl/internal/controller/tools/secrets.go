@@ -127,6 +127,7 @@ func Missing(st []SecretStatus) []string {
 type Resolved struct {
 	envs   []resolvedEnv
 	values [][]byte
+	byName map[string][]byte
 }
 
 type resolvedEnv struct {
@@ -143,7 +144,7 @@ func (e *MissingError) Error() string {
 
 // Resolve loads the secrets of an exec tool for a project (as=env|file per declaration).
 func (s *Service) Resolve(slug string, d *toolkdl.Definition) (*Resolved, error) {
-	r := &Resolved{}
+	r := &Resolved{byName: map[string][]byte{}}
 	var missing []string
 	for _, sp := range d.SecretSpecs() {
 		v, err := s.fetch(slug, sp.Name)
@@ -152,6 +153,7 @@ func (s *Service) Resolve(slug string, d *toolkdl.Definition) (*Resolved, error)
 			continue
 		}
 		r.values = append(r.values, v)
+		r.byName[sp.Name] = v
 		if sp.Env != "" {
 			r.envs = append(r.envs, resolvedEnv{Env: sp.Env, As: sp.As, Value: v})
 		}
@@ -192,6 +194,25 @@ func (s *Service) Expand(slug, in string) (string, *Resolved, error) {
 		return "", nil, &MissingError{Names: missing}
 	}
 	return out, r, nil
+}
+
+// Expand replaces {{secret.NAME}} in in with the resolved values (a header or body of an
+// http/mcp-remote tool). Names the definition did not declare stay unresolved and are an error.
+func (r *Resolved) Expand(in string) (string, error) {
+	var bad []string
+	out := placeholderRe.ReplaceAllStringFunc(in, func(m string) string {
+		name := placeholderRe.FindStringSubmatch(m)[1]
+		v, ok := r.byName[name]
+		if !ok {
+			bad = append(bad, name)
+			return ""
+		}
+		return string(v)
+	})
+	if len(bad) > 0 {
+		return "", &MissingError{Names: bad}
+	}
+	return out, nil
 }
 
 // Merge adds the values of o to r.

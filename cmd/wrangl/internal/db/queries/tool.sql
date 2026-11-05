@@ -33,3 +33,10 @@ SELECT p.slug FROM project p JOIN project_tool pt ON pt.project_id = p.id WHERE 
 
 -- name: IsProjectToolEnabled :one
 SELECT COUNT(*) FROM project_tool WHERE project_id = ? AND tool_id = ?;
+
+-- name: InsertToolCall :exec
+INSERT INTO tool_call (run_id, tool, status, duration_ms, bytes, at)
+VALUES (sqlc.arg(run_id), sqlc.arg(tool), sqlc.arg(status), sqlc.arg(duration_ms), sqlc.arg(bytes), sqlc.arg(at));
+
+-- name: ListToolCallsForRun :many
+SELECT * FROM tool_call WHERE run_id = ? ORDER BY id;

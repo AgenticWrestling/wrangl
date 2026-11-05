@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/mcp"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stacktools"
 )
@@ -208,10 +209,12 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 	})
 	mux.HandleFunc("GET /tools", func(rw http.ResponseWriter, r *http.Request) {
 		kind := "" // unknown when several runs are active and the caller names none
+		list := []mcp.Tool{}
 		if rs, err := w.target(runOf(r)); err == nil {
 			kind = rs.kind
+			list = customTools(rs.tools)
 		}
-		reply(rw, 200, stacktools.For(kind))
+		reply(rw, 200, append(stacktools.For(kind), list...))
 	})
 	known := map[string]bool{}
 	for _, t := range stacktools.All {
@@ -219,7 +222,7 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 	}
 	mux.HandleFunc("POST /tool/{name}", func(rw http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		if !known[name] { // the daemon-only system question is not reachable from here
+		if !known[name] && !w.hasCustom(runOf(r), name) { // the daemon-only system question is not reachable from here
 			reply(rw, 404, map[string]string{"error": "unknown tool " + name})
 			return
 		}
@@ -296,4 +299,28 @@ const RunHeader = "X-Wrangl-Run"
 func runOf(r *http.Request) int64 {
 	id, _ := strconv.ParseInt(r.Header.Get(RunHeader), 10, 64)
 	return id
+}
+
+// customTools turns a run's custom tool declarations into MCP tools.
+func customTools(ds []proto.ToolDecl) []mcp.Tool {
+	out := []mcp.Tool{}
+	for _, d := range ds {
+		out = append(out, mcp.Tool{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema})
+	}
+	return out
+}
+
+// hasCustom reports whether the run was given the custom tool name. The controller enforces
+// scope again on the call; this only keeps unknown names off the NATS round trip.
+func (w *Worker) hasCustom(runID int64, name string) bool {
+	rs, err := w.target(runID)
+	if err != nil {
+		return false
+	}
+	for _, d := range rs.tools {
+		if d.Name == name {
+			return true
+		}
+	}
+	return false
 }

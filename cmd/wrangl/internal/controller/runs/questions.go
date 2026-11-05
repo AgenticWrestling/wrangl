@@ -257,3 +257,12 @@ func (s *Service) view(ctx context.Context, q dbgen.Question) (proto.QuestionVie
 	}
 	return v, nil
 }
+
+// QuestionOpen reports whether a question is still waiting for the owner.
+func (s *Service) QuestionOpen(ctx context.Context, id int64) (bool, error) {
+	q, err := s.DB.RQ.GetQuestion(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return q.State == "open", nil
+}

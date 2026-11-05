@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/tools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"log/slog"
@@ -51,6 +52,8 @@ type Service struct {
 	// ApprovalHandlers run the held operation of an approval question whose op is not one the
 	// runs service knows (issue_close). They get the question's payload JSON.
 	ApprovalHandlers map[string]func(ctx context.Context, payload json.RawMessage) error
+	// Custom runs project tools from the library (ext_ names): scope, policy, execution, audit.
+	Custom *tools.Engine
 	// OnRunFinished is called after a run reaches a terminal state (PRs in M6).
 	OnRunFinished func(ctx context.Context, runID int64)
 	// OnAgentNotice is called when an agent's Notification hook fires (Claude Code: it needs

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/tools"
 	"strings"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
@@ -107,6 +108,13 @@ func taskJSON(t dbgen.Task) map[string]any {
 
 // ExecTool runs one work-stack tool for a caller.
 func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.RawMessage) (any, error) {
+	if strings.HasPrefix(tool, tools.Prefix) {
+		if s.Custom == nil {
+			return nil, fmt.Errorf("%w: project tools are not available on this controller", errs.Forbidden)
+		}
+		// The run, kind and project come from the scope the controller derived, never from arguments.
+		return s.Custom.Call(ctx, tools.Caller{RunID: sc.RunID, Kind: sc.Kind, ProjectID: sc.ProjectID}, tool, raw)
+	}
 	if tool != SystemQuestionTool && !stacktools.Allowed(sc.Kind)[tool] {
 		return nil, fmt.Errorf("%w: %s is not available to %s runs", errs.Forbidden, tool, sc.Kind)
 	}

@@ -256,6 +256,18 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		SessionName: session, SessionUUID: r.SessionUuid, Agent: spec, Env: env, SecretFiles: files,
 		MaxSessions: int(maxSessions), Target: target,
 	}
+	if s.Tools != nil {
+		var decls []proto.ToolDecl
+		task, err := d.RQ.GetTask(ctx, r.TaskID)
+		if err == nil {
+			decls, err = s.Tools(ctx, task.ProjectID, r.Kind)
+		}
+		if err != nil {
+			s.Log.Warn("tool declarations", "run", r.ID, "err", err) // the run still starts, without custom tools
+		} else {
+			a.Tools = decls
+		}
+	}
 	b, _ := json.Marshal(a)
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
