@@ -617,3 +617,5 @@ li.task > .row > .iconfirm .iq { flex: 1 1 12rem; }
 .pstrip { flex-wrap: nowrap; }
 .pstrip .chip, .pstrip .btn { flex: none; }
 .bar .rchip { display: inline-flex; }
+button.chip.ic { background: none; color: inherit; font: inherit; cursor: pointer; }
+.bar > .btn.primary { padding-left: 16px; padding-right: 16px; font-size: 1.1rem; line-height: 1; }

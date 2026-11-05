@@ -21,7 +21,7 @@
   </span>
   <a class="chip ic" href="/projects/{{.Project}}/settings#limits" title="Concurrency: how many runner instances this project may start, per template" aria-label="Concurrency"><svg class="ni" aria-hidden="true"><use href="#ni-concurrency"/></svg>{{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
   <span class="grow"></span>
-  <button class="btn primary" data-key="n" command="show-modal" commandfor="sheet-new">＋ New task</button>
+  <button class="btn primary" data-key="n" command="show-modal" commandfor="sheet-new" title="New task" aria-label="New task">＋</button>
 </div>{{end}}
 {{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
   {{if not .Now}}<p class="empty">No leaf task is in progress. Tasks in review are in the <a href="/inbox">inbox</a>.</p>{{end}}
@@ -87,7 +87,7 @@
     {{ticon $n.Type}}
     <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
     {{if $n.Mockups}}<a class="tag mock" href="/task/{{$n.Sqid}}#deliverables" title="{{$n.Mockups}} deliverable{{if gt $n.Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{$n.Mockups}}</a>{{end}}
-    {{if ne $n.Kind "running"}}{{template "kindtag" $n}}{{end}}{{template "rollchips" $n}}
+    {{if and (ne $n.Kind "running") (ne $n.Kind "queued")}}{{template "kindtag" $n}}{{end}}{{template "rollchips" $n}}
     {{if .ParentSqid}}<a class="tag ptag" href="/task/{{.ParentSqid}}" title="Go to the parent task: {{.ParentTitle}}">↑ {{.ParentTitle}}</a>{{end}}
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
