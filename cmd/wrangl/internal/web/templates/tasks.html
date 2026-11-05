@@ -5,13 +5,9 @@
 </header>
 <div class="pstrip" role="toolbar" aria-label="Project">
   {{range $.Repos}}{{with .Repo}}<a class="chip ic" href="https://github.com/{{.Owner}}/{{.Name}}" target="_blank" rel="noopener noreferrer" title="{{.Owner}}/{{.Name}} on GitHub" aria-label="{{.Owner}}/{{.Name}} on GitHub"><svg class="ni" aria-hidden="true"><use href="#ni-github"/></svg></a>{{end}}{{else}}<a class="chip dim" href="/projects/{{.Slug}}/settings#repos">no repos linked</a>{{end}}
-  <span class="pmore rchip"><button class="chip ic{{if $.ProjectRunners}} on{{end}}" popovertarget="pm-runners" style="anchor-name: --pm-runners" title="{{len $.ProjectRunners}} runner{{if ne (len $.ProjectRunners) 1}}s{{end}} with a session for this project" aria-label="{{len $.ProjectRunners}} active runners"><svg class="ni" aria-hidden="true"><use href="#ni-runners"/></svg>{{len $.ProjectRunners}}</button>
-    <div class="menu rlist" id="pm-runners" popover style="position-anchor: --pm-runners">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> <span class="tag">{{.State}}</span>{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
-      {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
-  </span>
-  <a class="chip ic" href="/projects/{{.Slug}}/settings#limits" title="Concurrency: how many runner instances this project may start, per template" aria-label="Concurrency"><svg class="ni" aria-hidden="true"><use href="#ni-concurrency"/></svg>{{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
   {{if .AutoMerge}}<span class="chip ic on" title="Auto-merge is on: passing PRs merge without review" aria-label="Auto-merge is on"><svg class="ni" aria-hidden="true"><use href="#ni-merge"/></svg></span>{{end}}
   <a class="chip ic" href="/projects/{{.Slug}}/settings" title="Edit goals and repos" aria-label="Edit goals and repos"><svg class="ni" aria-hidden="true"><use href="#ni-edit"/></svg></a>
+  <button class="chip ic" type="button" data-on:click="$chat = !$chat" aria-controls="projchat" title="Comment: talk to a controller agent about this project" aria-label="Comment"><svg class="ni" aria-hidden="true"><use href="#fa-comment"/></svg></button>
   <span class="grow"></span>
   {{if not $.Archived}}<button class="btn small danger ic" title="Archive project" aria-label="Archive project" data-confirm="Archive {{.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{.Slug}}')"><svg class="ni" aria-hidden="true"><use href="#ni-archive"/></svg></button>{{end}}
 </div>{{end}}
@@ -19,8 +15,12 @@
 {{template "projchat" .}}
 <div class="bar">
   <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
+  <span class="pmore rchip"><button class="chip ic{{if $.ProjectRunners}} on{{end}}" popovertarget="pm-runners" style="anchor-name: --pm-runners" title="{{len $.ProjectRunners}} runner{{if ne (len $.ProjectRunners) 1}}s{{end}} with a session for this project" aria-label="{{len $.ProjectRunners}} active runners"><svg class="ni" aria-hidden="true"><use href="#ni-runners"/></svg>{{len $.ProjectRunners}}</button>
+    <div class="menu rlist" id="pm-runners" popover style="position-anchor: --pm-runners">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> <span class="tag">{{.State}}</span>{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
+      {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
+  </span>
+  <a class="chip ic" href="/projects/{{.Project}}/settings#limits" title="Concurrency: how many runner instances this project may start, per template" aria-label="Concurrency"><svg class="ni" aria-hidden="true"><use href="#ni-concurrency"/></svg>{{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
   <span class="grow"></span>
-  <button class="btn" data-on:click="$chat = !$chat" aria-controls="projchat" title="Talk to a controller agent about this project">Comment</button>
   <button class="btn primary" data-key="n" command="show-modal" commandfor="sheet-new">＋ New task</button>
 </div>{{end}}
 {{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
