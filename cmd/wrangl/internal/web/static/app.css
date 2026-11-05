@@ -596,3 +596,13 @@ a.tlink code { color: var(--link); }
   li.task .title { flex: 1 1 9rem; }
   li.task .row a.dim, li.task .row .sqid { white-space: nowrap; }
 }
+/* Inbox cards never grow past the screen: long words in titles, links, tags and prose wrap, and
+   wide code or tables scroll inside their own box, so the action buttons stay on screen. */
+main { min-width: 0; }
+.icard { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.icard h3, .icard .meta > * { min-width: 0; overflow-wrap: anywhere; }
+.icard .meta a, .icard .meta code { word-break: break-word; }
+.icard pre, .icard .prose pre, .icard .prose table { max-width: 100%; overflow-x: auto; }
+.icard .prose table { display: block; }
+.icard .actions { max-width: 100%; }
+.icard .actions > .btn, .icard .actions > button { max-width: 100%; white-space: normal; text-align: center; }
