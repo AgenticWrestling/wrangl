@@ -155,8 +155,10 @@ itself. Use `data-preserve-attr="open"` on every `<details>` and modal `<dialog>
 `data-signals`, `data-class`, `data-show`, `data-attr` and `data-bind` for toggles, selection and
 form state (`data-class` re-applies itself after a morph; `data-show` does not, so use a class). No
 inline `onclick`/`onchange`/`onsubmit`. Documented exceptions: the Back button, `enablePush`,
-`toggleDetail` (the expanded task card), and `ghManifest` on the setup forms. `static/app.js` keeps what has
-no HTML equivalent: Sortable drag and drop, terminals, web push, the service worker, the lightbox, the
+and `ghManifest` on the setup forms. The expanded task card is the `$open` signal (the title posts
+`/ui/expand`, and the server puts that card in every live render); the lightbox is a `<dialog>` in
+each gallery driven by `$lbi`. `static/app.js` keeps what has
+no HTML equivalent: Sortable drag and drop, terminals, web push, the service worker, the
 inline confirm, and the card's live output. `static/keys.js` is keyboard handling only (a chorded
 list navigator does not fit `data-on:keydown__window`); the state it drives is signals. Each such
 behaviour has a live-patch check in `cmd/wrangl/internal/e2e/browser/livepatch.js` (open the thing, inject a

@@ -130,6 +130,24 @@ const cases = [
     },
   },
   {
+    name: 'backlog: expanded task card ($open signal) survives a patch and toggles', url: '/projects/lp',
+    async run(page) {
+      const row = page.locator('ul.tasks.root > li.task').first();
+      const sq = await row.getAttribute('data-sqid');
+      const title = row.locator('> .row a.title');
+      await title.click();
+      await page.waitForSelector(`#d-${sq} > *`, { timeout: 5000 });
+      check(await title.getAttribute('aria-expanded') === 'true', 'aria-expanded not true when open');
+      check(page.url().includes('/projects/lp'), 'clicking the title navigated away');
+      await patch(page);
+      check(await page.locator(`#d-${sq} > *`).count() > 0, 'expanded card lost to a live patch');
+      check(await title.getAttribute('aria-expanded') === 'true', 'aria-expanded lost to a live patch');
+      await title.click();
+      await page.waitForFunction((q) => !document.querySelector(`#d-${q} > *`), sq, { timeout: 5000 });
+      check(await title.getAttribute('aria-expanded') === 'false', 'aria-expanded not false when closed');
+    },
+  },
+  {
     name: 'project page: repo sheet', url: '/projects/lp/settings',
     async run(page) {
       await page.locator('button:has-text("Link repo")').click();

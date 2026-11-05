@@ -79,7 +79,7 @@
   {{else}}<h1>{{.Title}}</h1>{{end}}
 </header>
 <div id="detail-sheets"></div>
-<div id="kstate" hidden data-signals="{ksel: '', kcol: '', kfilter: ''}" data-on:ksel__window="$ksel = evt.detail" data-on:kcol__window="$kcol = evt.detail" data-on:kfilter__window="$kfilter = evt.detail" data-effect="el.dataset.sel = $ksel; el.dataset.col = $kcol; el.dataset.filter = $kfilter"></div>
+<div id="kstate" hidden data-signals="{ksel: '', kcol: '', kfilter: '', open: '', sid: '{{.SID}}'}" data-on:ksel__window="$ksel = evt.detail" data-on:kcol__window="$kcol = evt.detail" data-on:kfilter__window="$kfilter = evt.detail" data-effect="el.dataset.sel = $ksel; el.dataset.col = $kcol; el.dataset.filter = $kfilter"></div>
 <div id="live" data-init="@get('{{.LiveURL}}', {retry: 'always', retryMaxCount: 100000, retryMaxWait: 15000})"></div>
 {{.Pre}}
 <main id="main">{{.Main}}</main>

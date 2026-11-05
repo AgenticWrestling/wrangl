@@ -412,6 +412,8 @@ details.proto { margin: 6px 0; }
 dialog.lightbox { border: 0; padding: 0; background: transparent; max-width: 100vw; max-height: 100vh; width: 100vw; height: 100vh; }
 dialog.lightbox::backdrop { background: rgba(0, 0, 0, 0.88); }
 dialog.lightbox .lb { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; padding: 12px; box-sizing: border-box; }
+dialog.lightbox figure { display: none; margin: 0; flex-direction: column; align-items: center; gap: 6px; max-height: calc(100% - 52px); color: #eee; font-size: 0.9rem; }
+dialog.lightbox figure.on { display: flex; }
 dialog.lightbox img { max-width: 100%; max-height: calc(100% - 44px); object-fit: contain; border-radius: 6px; }
 dialog.lightbox .cap { color: #eee; font-size: 0.9rem; display: flex; gap: 12px; align-items: center; }
 dialog.lightbox button { background: #222; color: #eee; border: 1px solid #555; border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; min-height: 40px; }

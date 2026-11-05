@@ -85,7 +85,7 @@
     {{if not .Runner}}<span class="handle" aria-label="Drag to reorder the queue">⠿</span>{{end}}
     <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
     {{ticon $n.Type}}
-    <a class="title" href="/task/{{$n.Sqid}}" onclick="return toggleDetail('{{$n.Sqid}}', event)" aria-expanded="false">{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
+    <a class="title" href="/task/{{$n.Sqid}}" {{template "opentoggle" $n.Sqid}}>{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
     {{if $n.Mockups}}<a class="tag mock" href="/task/{{$n.Sqid}}#deliverables" title="{{$n.Mockups}} deliverable{{if gt $n.Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{$n.Mockups}}</a>{{end}}
     {{if and (ne $n.Kind "running") (ne $n.Kind "queued")}}{{template "kindtag" $n}}{{end}}{{template "rollchips" $n}}
     {{if .ParentSqid}}<a class="tag ptag" href="/task/{{.ParentSqid}}" title="Go to the parent task: {{.ParentTitle}}">↑ {{.ParentTitle}}</a>{{end}}
@@ -108,7 +108,7 @@
     <span class="handle" aria-label="Drag to reorder">⠿</span>
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
     {{ticon .Type}}
-    <a class="title" href="/task/{{.Sqid}}" onclick="return toggleDetail('{{.Sqid}}', event)" aria-expanded="false">{{.Title}}</a>
+    <a class="title" href="/task/{{.Sqid}}" {{template "opentoggle" .Sqid}}>{{.Title}}</a>
     {{if .Crumbs}}<span class="crumbs dim small">{{range $i, $c := .Crumbs}}{{if $i}} › {{end}}<a href="/task/{{$c.Sqid}}">{{$c.Title}}</a>{{end}}</span><a class="tag" href="/task/{{.Parent}}" title="Go to the parent task">↑ parent</a>{{end}}
     {{if .Mockups}}<a class="tag mock" href="/task/{{.Sqid}}#deliverables" title="{{.Mockups}} deliverable{{if gt .Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{.Mockups}}</a>{{end}}
     {{if .Change.URL}}<a class="tag commit" href="{{.Change.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Change.Title}}">{{faicon "edit"}}{{.Change.Label}}</a>{{end}}
@@ -177,3 +177,5 @@
 </div>{{end}}{{end}}
 
 {{define "kfilt"}}!!$kfilter && !(el.textContent.toLowerCase().includes($kfilter) || [...document.querySelectorAll('li.task')].some((p) => p != el && p.contains(el) && p.querySelector(':scope > .row').textContent.toLowerCase().includes($kfilter))){{end}}
+
+{{define "opentoggle"}}data-on:click="!(evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.button > 0) && (evt.preventDefault(), $open = ($open == '{{.}}' ? '' : '{{.}}'), @post('/ui/expand?sid=' + $sid + '&sqid=' + $open))" data-attr:aria-expanded="String($open == '{{.}}')"{{end}}

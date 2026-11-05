@@ -109,6 +109,15 @@ func New(d api.Deps) (*Handler, error) {
 			io.WriteString(f, r.Kind+"|"+r.At+"|"+r.Subject+"|"+r.Title)
 			return fmt.Sprintf("lg%08x", f.Sum32())
 		},
+		"images": func(ds []deliverableView) []deliverableView { // the image deliverables, for the lightbox
+			var out []deliverableView
+			for _, d := range ds {
+				if d.Kind == "image" {
+					out = append(out, d)
+				}
+			}
+			return out
+		},
 		"outline": outlineFromPayload,
 		"ticon":   typeIcon,
 		"termok":  termUsable,
@@ -375,22 +384,32 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, string(out))
 }
 
-// expand records which task a page has expanded (sqid "" = none) and refreshes its stream.
+// expand records which task a page has expanded (sqid "" = none), refreshes its stream so the
+// card is in the next render, and answers with the task's edit sheets (dialogs), which live
+// outside #main (#detail-sheets) so a live re-render cannot close one while you type. The page
+// holds the open task in the $open signal; a reconnecting stream gets it back from the signals
+// Datastar sends with the connection (see live).
 func (h *Handler) expand(w http.ResponseWriter, r *http.Request) {
-	v, ok := h.sessions.Load(r.URL.Query().Get("sid"))
-	if !ok {
-		w.WriteHeader(http.StatusNoContent) // not live (or reconnecting): the client fills the card itself
-		return
+	sq := r.URL.Query().Get("sqid")
+	if v, ok := h.sessions.Load(r.URL.Query().Get("sid")); ok {
+		s := v.(*liveSession)
+		s.mu.Lock()
+		s.expanded = sq
+		s.mu.Unlock()
+		select {
+		case s.kick <- struct{}{}:
+		default:
+		}
 	}
-	s := v.(*liveSession)
-	s.mu.Lock()
-	s.expanded = r.URL.Query().Get("sqid")
-	s.mu.Unlock()
-	select {
-	case s.kick <- struct{}{}:
-	default:
+	sheets := ""
+	if sq != "" {
+		if out, err := h.taskPart(r.Context(), sq, "post-task"); err == nil {
+			sheets = string(out)
+		}
 	}
-	w.WriteHeader(http.StatusNoContent)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	mergeFragments(w, `<div id="detail-sheets">`+sheets+`</div>`)
 }
 
 // fakeReq lets data() read path values from the live stream's query.
@@ -411,6 +430,12 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	ch, stop := h.D.Bus.Subscribe()
 	defer stop()
 	sess := &liveSession{kick: make(chan struct{}, 1)}
+	var sig struct {
+		Open string `json:"open"`
+	}
+	if json.Unmarshal([]byte(r.URL.Query().Get("datastar")), &sig) == nil { // the page's signals: $open survives a reconnect
+		sess.expanded = sig.Open
+	}
 	if sid := r.URL.Query().Get("sid"); sid != "" {
 		h.sessions.Store(sid, sess)
 		defer h.sessions.Delete(sid)
