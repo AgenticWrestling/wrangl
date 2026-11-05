@@ -176,10 +176,10 @@ func (e *Engine) Call(ctx context.Context, c Caller, name string, raw json.RawMe
 	}
 	start := e.now()
 	status, nbytes := "error", 0
-	async := false
+	async := false // no row from this frame: written at accept (long calls) or already written (repeat polls)
 	defer func() {
 		if async {
-			return // the row was written when the call was accepted and is updated when it ends
+			return
 		}
 		row := dbgen.InsertToolCallParams{RunID: c.RunID, Tool: name, Status: status,
 			DurationMs: e.now().Sub(start).Milliseconds(), Bytes: int64(nbytes), At: dbtime.Format(e.now())}
@@ -219,12 +219,15 @@ func (e *Engine) Call(ctx context.Context, c Caller, name string, raw json.RawMe
 	}
 
 	if def.Effect == toolkdl.EffectDestructive {
-		pend, perr := e.approval(ctx, c, name, def, raw)
+		pend, fresh, perr := e.approval(ctx, c, name, def, raw)
 		if perr != nil {
 			return fail("denied", perr)
 		}
 		if pend != nil {
 			status = "pending_approval"
+			// An agent that repeats the call while the owner thinks is polling the same question:
+			// one audit row for the request, not one per poll.
+			async = !fresh
 			return pend, nil
 		}
 	}
@@ -310,7 +313,7 @@ func Truncate(b []byte, limit int) (string, bool) {
 
 // approval returns (nil, nil) when the call may proceed, a pending reply while the owner has
 // not decided, or an error when the owner said no.
-func (e *Engine) approval(ctx context.Context, c Caller, name string, def *toolkdl.Definition, raw json.RawMessage) (map[string]any, error) {
+func (e *Engine) approval(ctx context.Context, c Caller, name string, def *toolkdl.Definition, raw json.RawMessage) (reply map[string]any, fresh bool, err error) {
 	var canon any
 	json.Unmarshal(raw, &canon)
 	cb, _ := json.Marshal(canon) // map keys sorted: equal arguments, equal key
@@ -322,38 +325,38 @@ func (e *Engine) approval(ctx context.Context, c Caller, name string, def *toolk
 	if exp, ok := e.granted[key]; ok {
 		delete(e.granted, key) // one approval, one call
 		if e.now().Before(exp) {
-			return nil, nil
+			return nil, false, nil
 		}
 	}
 	if qid, ok := e.pending[key]; ok {
 		open := true
 		if e.Open != nil {
-			var err error
-			if open, err = e.Open(ctx, qid); err != nil {
-				return nil, err
+			var oerr error
+			if open, oerr = e.Open(ctx, qid); oerr != nil {
+				return nil, false, oerr
 			}
 		}
 		if open {
-			return pendingReply(qid), nil
+			return pendingReply(qid), false, nil
 		}
 		delete(e.pending, key) // answered without approval
-		return nil, fmt.Errorf("%w: the owner declined %s", errs.Forbidden, name)
+		return nil, false, fmt.Errorf("%w: the owner declined %s", errs.Forbidden, name)
 	}
 	if e.Approver == nil {
-		return nil, fmt.Errorf("%w: %s is destructive and this controller cannot ask for approval", errs.Forbidden, name)
+		return nil, false, fmt.Errorf("%w: %s is destructive and this controller cannot ask for approval", errs.Forbidden, name)
 	}
 	detail := "Arguments:\n```json\n" + string(cb) + "\n```\n" + def.Description
 	qid, err := e.Approver.RequestApproval(ctx, c.RunID,
 		fmt.Sprintf("The agent on run %d wants to call the destructive tool %s.", c.RunID, name), detail,
 		approvalPayload{Op: ApprovalOp, RunID: c.RunID, Tool: name, Key: key})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if e.pending == nil {
 		e.pending = map[string]int64{}
 	}
 	e.pending[key] = qid
-	return pendingReply(qid), nil
+	return pendingReply(qid), true, nil
 }
 
 func pendingReply(qid int64) map[string]any {

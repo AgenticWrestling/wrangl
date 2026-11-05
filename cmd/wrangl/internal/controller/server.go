@@ -98,22 +98,25 @@ type Server struct {
 	enrollAddr string
 	natsURL    string
 
-	db           *db.DB
-	nats         *natsd.Embedded
-	js           jetstream.JetStream
-	Fleet        *fleet.Service
-	Stack        *stack.Service
-	Projects     *projects.Service
-	Runs         *runs.Service
-	PRs          *prs.Service
-	Plans        *plans.Service
-	Agents       *agents.Service // controller agents ("Ask?" on a task)
-	Tools        *tools.Service  // the custom tool library
-	Deliverables *deliverables.Service
-	TaskReview   *taskreview.Service
-	Costs        *costs.Service // nil without AWS
-	Push         *webpush.Service
-	Bus          *events.Bus
+	db       *db.DB
+	nats     *natsd.Embedded
+	js       jetstream.JetStream
+	Fleet    *fleet.Service
+	Stack    *stack.Service
+	Projects *projects.Service
+	Runs     *runs.Service
+	PRs      *prs.Service
+	Plans    *plans.Service
+	Agents   *agents.Service // controller agents ("Ask?" on a task)
+	Tools    *tools.Service  // the custom tool library
+	// ToolExecutors replaces the executor of a tool kind (tests: an http executor that may reach
+	// a loopback fake upstream). Nil in production.
+	ToolExecutors map[toolkdl.Kind]tools.Executor
+	Deliverables  *deliverables.Service
+	TaskReview    *taskreview.Service
+	Costs         *costs.Service // nil without AWS
+	Push          *webpush.Service
+	Bus           *events.Bus
 }
 
 // New validates cfg and returns an unstarted server.
@@ -330,6 +333,9 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		GetSecret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
 	// Executors for the library's tool kinds are registered here as they land (ADR 0003): http so far.
 	s.Runs.Custom = &tools.Engine{Svc: s.Tools, Executors: map[toolkdl.Kind]tools.Executor{toolkdl.KindHTTP: tools.NewHTTPExecutor()}, Approver: s.Runs, Open: s.Runs.QuestionOpen, Now: now, Log: s.log}
+	for k, ex := range s.ToolExecutors {
+		s.Runs.Custom.Executors[k] = ex
+	}
 	s.Runs.ApprovalHandlers[tools.ApprovalOp] = s.Runs.Custom.Approved
 	if err := s.Runs.Custom.Recover(context.Background()); err != nil { // calls of a previous process died with it
 		s.log.Warn("tool audit recovery", "err", err)

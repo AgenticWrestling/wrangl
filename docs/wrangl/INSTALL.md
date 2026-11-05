@@ -541,6 +541,52 @@ Agent credentials** lists every secret each agent needs with `✓ set` or `! mis
 command to fix it; a missing secret also holds the run with `agent claude needs secret ...`.
 Other agents declare the same `auth:` section (`secret`, `command`, `note`) in their spec.
 
+
+### 8.0b Custom tools
+
+A **tool library** gives agents extra tools (an internal API, a documentation search) without putting
+credentials on a runner. Tools are defined once, system-wide, in KDL v2, run **on the controller**, and
+reach agents as MCP tools named `ext_<name>` through the same shim as the work-stack tools. A runner only
+ever receives declarations (name, description, input schema); URLs, headers and secrets stay on the
+controller. Today the `http` kind is available (the `exec` and `mcp` kinds come later, see
+`docs/wrangl/adr/0003-project-custom-tools.md`).
+
+```
+wrangl tool add -f lookup.kdl                       # validated on the CLI and again on the controller
+wrangl tool list ; wrangl tool show lookup
+wrangl tool enable lookup --project myproj          # tools are off until enabled per project
+wrangl tool secret set myproj upstream.token        # per-project value from stdin; write-only
+wrangl tool secret status myproj lookup             # set / missing, never values
+wrangl tool test lookup --project myproj --input '{"id":"42"}'   # really calls the upstream, as you
+```
+
+```kdl
+tool "lookup" {
+  description "Look up an item"
+  effect "read"                       // read | write | destructive
+  run-kinds "work" "revise"           // review and plan runs only ever get read tools
+  input { param "id" type="string" { max-length 40 } }
+  http {
+    method "GET"
+    url "https://api.example.com/v1/items/{{input.id}}"
+    header "Authorization" "Bearer {{secret.upstream.token}}"
+  }
+}
+```
+
+Things to know when operating it:
+- The controller makes the outbound call, so it needs egress to the upstream. Only **https** is allowed, the
+  host is fixed in the definition, and the controller refuses to connect to private, loopback, link-local or
+  cloud-metadata addresses (checked after DNS resolution, on the address it actually dials). An upstream on
+  an internal network is therefore not reachable by design; there is no switch to allow it.
+- Secrets live in the controller's secret store as `tool.<project>.<name>` (visible in `wrangl secret list`
+  as names only). Output is scrubbed of the exact secret values, capped (64 KB by default) and audited: one
+  `tool_call` row per call (run, tool, status, duration, bytes; no arguments or output).
+- A `destructive` tool asks you first (an approval question in the Inbox); the agent repeats the call once
+  you approve. Tools whose `timeout` is above 25 s run asynchronously and the agent collects the result.
+- Run the e2e tests with `TMPDIR` on a real disk (not a small tmpfs): the embedded NATS reserves stream
+  storage up front and fails with "insufficient storage resources" otherwise.
+
 ### 8.2 Remote runners (Mac, Android emulator) (experimental)
 
 A template with `mode: remote` and a `connection:` block describes a **target** machine that runs

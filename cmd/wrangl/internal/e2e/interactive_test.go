@@ -52,6 +52,7 @@ done
 // script agent: the shared setup for agent-integration tests.
 type agentHarness struct {
 	*workEnv
+	srv       *controller.Server
 	dir, bare string
 	rcfg      *runner.Config
 	stop      func()
@@ -64,6 +65,9 @@ type agentHarness struct {
 type harnessOpt struct {
 	beforeRunner func(dataDir string)
 	daemon       func(*runner.DaemonOptions)
+	// controller adjusts the controller before it starts; its logger is cfgLog (nil: discarded).
+	controller func(*controller.Server)
+	cfgLog     io.Writer
 }
 
 func newAgentHarness(t *testing.T, script, tmplFmt string, secrets map[string]string, opts ...harnessOpt) *agentHarness {
@@ -85,11 +89,22 @@ func newAgentHarness(t *testing.T, script, tmplFmt string, secrets map[string]st
 	cfg.Listen = config.Listen{HTTP: "127.0.0.1:0", Unix: filepath.Join(dir, "api.sock"), NATS: "127.0.0.1:-1", Enroll: "127.0.0.1:0"}
 	fake := gh.NewFake()
 	fake.AddRepo(gh.Repo{Owner: "acme", Name: "app", DefaultBranch: "main", CloneURL: "file://" + bare})
-	srv, err := controller.New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var ctlLog io.Writer = io.Discard
+	for _, o := range opts {
+		if o.cfgLog != nil {
+			ctlLog = o.cfgLog
+		}
+	}
+	srv, err := controller.New(cfg, slog.New(slog.NewTextHandler(ctlLog, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv.LoopInterval, srv.SchedulerInterval, srv.GH = 50*time.Millisecond, 50*time.Millisecond, fake
+	for _, o := range opts {
+		if o.controller != nil {
+			o.controller(srv)
+		}
+	}
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Run(ctx) }()
 	<-srv.Ready()
@@ -127,7 +142,7 @@ func newAgentHarness(t *testing.T, script, tmplFmt string, secrets map[string]st
 	if _, err := api.LinkRepo(ctx, "web", "acme/app", ""); err != nil {
 		t.Fatal(err)
 	}
-	h := &agentHarness{workEnv: &workEnv{ctx: ctx, api: api, bare: bare, t: t}, dir: dir, bare: bare, rcfg: rcfg}
+	h := &agentHarness{workEnv: &workEnv{ctx: ctx, api: api, bare: bare, t: t, db: srv.Fleet.DB}, srv: srv, dir: dir, bare: bare, rcfg: rcfg}
 	h.stop = func() {
 		stopDaemon()
 		<-ddone

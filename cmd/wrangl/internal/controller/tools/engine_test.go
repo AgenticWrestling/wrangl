@@ -245,6 +245,10 @@ func TestDestructiveNeedsApproval(t *testing.T) {
 	if out.(map[string]any)["question_id"] != int64(101) || v.ap.n != 1 {
 		t.Fatalf("repeat: %v asked=%d", out, v.ap.n)
 	}
+	// polling the same pending question does not add audit rows: one for the request
+	if rows := v.audit(t); len(rows) != 1 || rows[0] != "ext_wipe:pending_approval" {
+		t.Fatalf("audit while polling: %v", rows)
+	}
 	// different arguments are a different call
 	if out, _ := v.call("work", "wipe", `{"env":"prod"}`); out.(map[string]any)["question_id"] != int64(102) {
 		t.Fatalf("other args: %v", out)

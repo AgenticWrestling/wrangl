@@ -33,6 +33,9 @@ type DaemonOptions struct {
 	InstallMise       MiseInstaller // nil = never install mise (only `runner run` passes DefaultMiseInstaller)
 	Upgrade           *SelfUpgrade  // nil = decline cmd.upgrade (only `runner run` enables it)
 	Targets           TargetBackend // nil = real ssh/adb over SSM; tests pass a FakeTarget
+	// OnAssign, when set, sees the raw bytes of every assignment as it arrived (tests use it to
+	// check what the controller ships to a runner).
+	OnAssign func(raw []byte)
 }
 
 // Connect opens the runner's NATS connection: TLS pinned to the controller CA, the
@@ -221,6 +224,9 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 	}
 	if _, err := nc.Subscribe(natsd.RunnerCmdSubject(cfg.RunnerID, "assign"), func(m *nats.Msg) {
 		var a proto.Assignment
+		if o.OnAssign != nil {
+			o.OnAssign(append([]byte(nil), m.Data...))
+		}
 		if err := json.Unmarshal(m.Data, &a); err != nil || a.RunID <= 0 {
 			respond(m, proto.Ack{Reason: "bad assignment"})
 			return

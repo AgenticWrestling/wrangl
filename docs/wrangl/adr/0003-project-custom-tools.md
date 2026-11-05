@@ -1,6 +1,6 @@
 # ADR 0003: Custom tools: controller-executed, defined in KDL, a system-wide library
 
-- Status: **Proposed** (the owner's decisions below are settled; this document awaits the owner's sign-off on the plan before phase 1 starts)
+- Status: **Accepted** (phase 1 implemented: library, KDL, CLI/API, secrets, http executor with SSRF rules, audit, effect policy, async calls, e2e tests; phases 2-4 (sandbox + exec, mcp_remote, mcp_stdio) and the web UI are still to build)
 - Task: 4VL3d2 (plan: Q1rp6C). Supersedes the earlier per-project draft of this ADR (task AJzSQY).
 - Builds on: the controller secret store (`<data>/secrets`, write-only over the API; `wrangl secret set`), the work-stack MCP shim (`wrangl runner mcp`), run scopes (`runs.Scope`: kind, project, root), approval questions (`ask_question`), [ADR 0001](0001-agent-definitions-vs-templates.md)
 - Touches (future work): a `tool` library table and per-project enablement, `runs.ExecTool`, the runner's agent socket (`GET /tools`, tool relay), `proto.Assignment` (declarations only), Settings > Tools, the project page ("Custom tools" card), the run page (audit), Setup credentials status, `SKILL.md`, `INSTALL.md`
