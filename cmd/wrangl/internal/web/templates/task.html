@@ -29,9 +29,9 @@
     {{if .Agents}}<button class="btn" command="show-modal" commandfor="sheet-ask">{{faicon "ask"}}Ask?</button>{{end}}
     {{if or (eq $t.State "done") (eq $t.State "cancelled")}}<button class="btn" data-key="x" data-on:click="@post('/ui/act/task-reopen?sqid={{$t.Sqid.String}}')">{{faicon "reopen"}}Reopen</button>
     {{else}}{{if not .Kids}}<button class="btn" data-key="c" data-on:click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Complete</button>
-    {{else if and (eq (print $t.TaskType) "release") (eq $t.State "in_review")}}<button class="btn primary" data-key="c" data-confirm="All work in this release is done. Ship it?" data-confirm-yes="Ship it" data-on:click="@post('/ui/act/task-complete?sqid={{$t.Sqid.String}}')">{{faicon "complete"}}Ship it</button>{{end}}
+    {{else if and (eq (print $t.TaskType) "release") (eq $t.State "in_review")}}{{template "actbtn" props "Class" "primary" "Key" "c" "Fa" "complete" "Label" "Ship it" "Confirm" "All work in this release is done. Ship it?" "Post" (printf "/ui/act/task-complete?sqid=%s" $t.Sqid.String)}}{{end}}
     <button class="btn" data-key="x" data-on:click="@post('/ui/act/task-cancel?sqid={{$t.Sqid.String}}')">{{faicon "cancel"}}Cancel</button>{{end}}
-    <button class="btn danger" data-key="D" data-confirm="Delete this task and its subtasks?" data-confirm-yes="Delete" data-on:click="@post('/ui/act/task-delete?sqid={{$t.Sqid.String}}')">{{faicon "delete"}}Delete</button>
+    {{template "actbtn" props "Class" "danger" "Key" "D" "Fa" "delete" "Label" "Delete" "Confirm" "Delete this task and its subtasks?" "Post" (printf "/ui/act/task-delete?sqid=%s" $t.Sqid.String)}}
   </div>
 </section>
 
@@ -80,10 +80,7 @@
   {{template "typepick-edit" (typeEdit .Types $t.TaskType)}}
   <label>Target date<input type="date" data-bind="etarget"></label>
   <label>Prompt<textarea data-bind="eprompt" rows="10"></textarea></label>
-  <div class="actions">
-    <button class="btn" command="close" commandfor="sheet-edit">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/task-edit?sqid={{$s}}')" command="close" commandfor="sheet-edit">Save</button>
-  </div>
+  {{template "sheetfoot" props "Id" "sheet-edit" "Yes" "Save" "Post" (printf "/ui/act/task-edit?sqid=%s" $s)}}
 </dialog>
 
 <dialog data-preserve-attr="open" id="sheet-split" class="sheet" data-init="location.hash === '#split' && el.showModal()" data-signals:outline="{{json .SplitOutline}}">
@@ -92,10 +89,7 @@
   <textarea data-bind="outline" rows="10" placeholder="- Write the migration&#10;- Add the endpoint&#10;  - tests"></textarea>
   <label class="check"><input type="checkbox" data-bind="chain"> Chain: each subtask needs the one before</label>
   <label class="check"><input type="checkbox" data-bind="copy"> Copy the parent prompt into each subtask</label>
-  <div class="actions">
-    <button class="btn" command="close" commandfor="sheet-split">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/task-split?sqid={{$s}}')" command="close" commandfor="sheet-split">Split</button>
-  </div>
+  {{template "sheetfoot" props "Id" "sheet-split" "Yes" "Split" "Post" (printf "/ui/act/task-split?sqid=%s" $s)}}
   <hr>
   <h3>Split with agent</h3>
   <p class="hint">A plan run reads the repo and proposes subtasks; the proposal arrives in Inbox for approval.</p>
@@ -110,10 +104,7 @@
   <label>Title<input data-bind="title" autocomplete="off"></label>
   <p class="hint">Type defaults to this task's ({{tlabel (print $t.TaskType)}}).</p>
   <label>Prompt<textarea data-bind="prompt" rows="6"></textarea></label>
-  <div class="actions">
-    <button class="btn" command="close" commandfor="sheet-sub">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/task-new?project={{.Project}}&amp;parent={{$s}}')" command="close" commandfor="sheet-sub">Create</button>
-  </div>
+  {{template "sheetfoot" props "Id" "sheet-sub" "Yes" "Create" "Post" (printf "/ui/act/task-new?project=%s&parent=%s" .Project $s)}}
 </dialog>
 
 {{if .Agents}}<dialog data-preserve-attr="open" id="sheet-ask" class="sheet">
@@ -121,19 +112,13 @@
   <p class="hint">A controller agent reads this task and everything under it, and can look across the other tasks. It answers here; ask it to make small edits too.</p>
   <textarea data-bind="askq" rows="5" placeholder="Any questions or concerns about this task? Is the split sensible? What's missing?"></textarea>
   {{if gt (len .Agents) 1}}<label>Agent<select data-bind="askagent">{{range .Agents}}<option value="{{.Name}}"{{if eq .IsDefault 1}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>{{end}}
-  <div class="actions">
-    <button class="btn" command="close" commandfor="sheet-ask">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/task-ask?sqid={{$s}}')" command="close" commandfor="sheet-ask">Ask</button>
-  </div>
+  {{template "sheetfoot" props "Id" "sheet-ask" "Yes" "Ask" "Post" (printf "/ui/act/task-ask?sqid=%s" $s)}}
 </dialog>{{end}}
 
 <dialog data-preserve-attr="open" id="sheet-needs" class="sheet">
   <h2>{{$s}} needs…</h2>
   <label>Precursor sqid<input data-bind="precursor" autocomplete="off" autocapitalize="off"></label>
-  <div class="actions">
-    <button class="btn" command="close" commandfor="sheet-needs">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/task-needs?sqid={{$s}}')" command="close" commandfor="sheet-needs">Add</button>
-  </div>
+  {{template "sheetfoot" props "Id" "sheet-needs" "Yes" "Add" "Post" (printf "/ui/act/task-needs?sqid=%s" $s)}}
 </dialog>
 {{end}}
 

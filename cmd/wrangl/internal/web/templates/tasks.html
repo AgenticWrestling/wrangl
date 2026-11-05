@@ -9,7 +9,7 @@
   <a class="chip ic" href="/projects/{{.Slug}}/settings" title="Edit goals and repos" aria-label="Edit goals and repos"><svg class="ni" aria-hidden="true"><use href="#ni-edit"/></svg></a>
   <button class="chip ic" type="button" data-on:click="$chat = !$chat" aria-controls="projchat" title="Comment: talk to a controller agent about this project" aria-label="Comment"><svg class="ni" aria-hidden="true"><use href="#fa-comment"/></svg></button>
   <span class="grow"></span>
-  {{if not $.Archived}}<button class="btn small danger ic" title="Archive project" aria-label="Archive project" data-confirm="Archive {{.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{.Slug}}')"><svg class="ni" aria-hidden="true"><use href="#ni-archive"/></svg></button>{{end}}
+  {{if not $.Archived}}{{template "actbtn" props "Class" "small danger ic" "Icon" "archive" "Title" "Archive project" "Yes" "Archive" "Confirm" (printf "Archive %s? It and its tasks are hidden and queued runs are cancelled. You can restore it." .Slug) "Post" (printf "/ui/act/project-archive?slug=%s" .Slug)}}{{end}}
 </div>{{end}}
 {{template "needsyou" .Needs}}
 {{template "projchat" .}}
@@ -33,7 +33,7 @@
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
   <ul class="tasks runs queue-sort" role="tree" aria-label="Queue">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
-<section class="tsec" id="backlog"><div class="row"><h3>Backlog</h3><span class="grow"></span>{{if .Roots}}{{if not .Archived}}<button class="btn small" data-confirm="Queue every open top-level task in {{.Project}}?" data-confirm-yes="Queue all" data-on:click="@post('/ui/act/queue-all?project={{.Project}}')">Queue all</button>{{end}}{{end}}</div>
+<section class="tsec" id="backlog"><div class="row"><h3>Backlog</h3><span class="grow"></span>{{if .Roots}}{{if not .Archived}}{{template "actbtn" props "Class" "small" "Label" "Queue all" "Confirm" (printf "Queue every open top-level task in %s?" .Project) "Post" (printf "/ui/act/queue-all?project=%s" .Project)}}{{end}}{{end}}</div>
 <ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul>
 <p class="showdone"><a class="chip" href="/projects/{{.Project}}{{if not .All}}?all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a></p></section>
 {{end}}{{end}}
@@ -71,7 +71,7 @@
     <a class="btn primary small" href="/projects/{{$p.Slug}}">Open</a>
     <a class="btn small" href="/projects/{{$p.Slug}}?chat=1" title="Talk to a controller agent about this project">Comment</a>
     <a class="btn small" href="/projects/{{$p.Slug}}/settings">Edit</a>
-    <button class="btn small danger" data-confirm="Archive {{$p.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{$p.Slug}}')">Archive</button>
+    {{template "actbtn" props "Class" "small danger" "Label" "Archive" "Confirm" (printf "Archive %s? It and its tasks are hidden and queued runs are cancelled. You can restore it." $p.Slug) "Post" (printf "/ui/act/project-archive?slug=%s" $p.Slug)}}
   </div>
 </td></tr>
 </tbody>{{end}}</table></div>{{end}}
@@ -92,7 +92,7 @@
     {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
     {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
-    <span class="vact">{{if .Runner}}<button class="btn small danger" data-confirm="Stop run #{{.RunID}} on {{.Runner}}? The agent is cancelled." data-confirm-yes="Stop" data-on:click="@post('/ui/act/run-cancel?id={{.RunID}}')">Stop</button>{{else}}<button class="btn small" aria-label="Move up" title="Move up" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=up&amp;sqid={{$n.Sqid}}')">↑</button><button class="btn small" aria-label="Move down" title="Move down" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=down&amp;sqid={{$n.Sqid}}')">↓</button><button class="btn small" title="Take it out of the queue" data-on:click="@post('/ui/act/task-dequeue?sqid={{$n.Sqid}}')">Dequeue</button>{{end}}</span>
+    <span class="vact">{{if .Runner}}{{template "actbtn" props "Class" "small danger" "Label" "Stop" "Confirm" (printf "Stop run #%d on %s? The agent is cancelled." .RunID .Runner) "Post" (printf "/ui/act/run-cancel?id=%d" .RunID)}}{{else}}<button class="btn small" aria-label="Move up" title="Move up" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=up&amp;sqid={{$n.Sqid}}')">↑</button><button class="btn small" aria-label="Move down" title="Move down" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=down&amp;sqid={{$n.Sqid}}')">↓</button><button class="btn small" title="Take it out of the queue" data-on:click="@post('/ui/act/task-dequeue?sqid={{$n.Sqid}}')">Dequeue</button>{{end}}</span>
     <a class="dim small" href="/run/{{.RunID}}">run #{{.RunID}}</a>
     <code class="sqid">{{$n.Sqid}}</code>
   </div>
@@ -133,10 +133,7 @@
   <label>Target date<input type="date" data-bind="ttarget"></label>
   <label>Prompt<textarea data-bind="prompt" rows="6" placeholder="Instructions for the agent (markdown)"></textarea></label>
   <label class="check"><input type="checkbox" data-bind="queue"> Queue it now</label>
-  <div class="actions">
-    <button class="btn" command="close" commandfor="sheet-new">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/task-new?project={{.Project}}')" command="close" commandfor="sheet-new">Create</button>
-  </div>
+  {{template "sheetfoot" props "Id" "sheet-new" "Yes" "Create" "Post" (printf "/ui/act/task-new?project=%s" .Project)}}
 </dialog>{{end}}{{end}}
 
 

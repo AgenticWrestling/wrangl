@@ -31,7 +31,7 @@
   <p class="hint">Lightweight agent CLIs that run on the controller itself to answer "Ask?" on a task. They can read the task tree and use the wrangl CLI, but are boxed in (no builds or tests), so the controller stays responsive.</p>
   {{range .CAgents}}<div class="row"><b>{{.Name}}</b>{{if eq .IsDefault 1}} <span class="pill">default</span>{{end}}{{if eq .Enabled 0}} <span class="pill">disabled</span>{{end}} <span class="dim">{{.Command}}{{if .Model}} · {{.Model}}{{end}} · {{if eq .Auth "secret"}}secret {{.AuthSecret}} → {{.AuthEnv}}{{else}}installed CLI login{{end}} · {{.MaxTurns}} turns · {{.TimeoutS}}s</span><span class="grow"></span>
     <button class="btn small" data-on:click="$agname={{json .Name}}; $agcmd={{json .Command}}; $agmodel={{json .Model}}; $agauth={{json .Auth}}; $agsecret={{json .AuthSecret}}; $agenv={{json .AuthEnv}}; $agturns='{{.MaxTurns}}'; $agtimeout='{{.TimeoutS}}'; $agdefault={{if eq .IsDefault 1}}true{{else}}false{{end}}">Edit</button>
-    <button class="btn small danger" data-confirm="Remove agent {{.Name}}?" data-confirm-yes="Remove" data-on:click="@post('/ui/act/agent-delete?name={{.Name}}')">Remove</button></div>{{end}}
+    {{template "actbtn" props "Class" "small danger" "Label" "Remove" "Confirm" (printf "Remove agent %s?" .Name) "Post" (printf "/ui/act/agent-delete?name=%s" .Name)}}</div>{{end}}
   <details data-preserve-attr="open"><summary>Add or edit an agent</summary>
     <label>Name<input data-bind="agname" autocomplete="off" autocapitalize="off"></label>
     <label>Command<input data-bind="agcmd" autocomplete="off" autocapitalize="off"></label>
@@ -51,7 +51,7 @@
   <h3>Runner templates</h3>
   {{range .Templates}}<div class="row"><b>{{.Name}}</b> <span class="dim">v{{.Version}} · ≥{{.MinVcpu}} vCPU · ≥{{.MinRamMib}} MiB · ≥{{.MinDiskGib}} GiB</span><span class="grow"></span>
     <a class="btn small" href="/settings/templates/{{.Name}}">Edit</a>
-    <button class="btn small" data-confirm="Launch a {{.Name}} runner?" data-confirm-yes="Launch" data-on:click="@post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button></div>
+    {{template "actbtn" props "Class" "small" "Label" "Launch" "Confirm" (printf "Launch a %s runner?" .Name) "Post" (printf "/ui/act/fleet-launch?template=%s" .Name)}}</div>
   {{else}}<p class="empty">No templates. Create one with <code>wrangl template create</code>.</p>{{end}}
 </section>
 <div class="about"><img src="/static/logo.png" alt="wrangl, metaharness orchestrator" width="280" height="305"></div>

@@ -105,3 +105,15 @@
 {{/* The comment box: a textarea bound to signal Bind. Ctrl/Cmd+Enter posts Submit (when set and the box has text).
      props: Bind, Rows, Placeholder, Submit (URL), Show (a boolean signal expression; hidden while false), Autofocus. */}}
 {{define "composer"}}<textarea data-bind="{{.Bind}}" rows="{{or .Rows 3}}" placeholder="{{.Placeholder}}"{{if .Show}} data-show="{{.Show}}" style="display:none"{{end}}{{if .Submit}} data-on:keydown="(evt.ctrlKey || evt.metaKey) &amp;&amp; evt.key == 'Enter' &amp;&amp; {{sig "" .Bind}}.trim() &amp;&amp; (evt.preventDefault(), @post('{{.Submit}}'))" title="Ctrl+Enter sends"{{end}}></textarea>{{end}}
+
+{{/* One action button: posts Post (after an inline confirm when Confirm is set).
+     props: Post, Class ("small danger", "ic"...), Label, Icon (nav sprite name -> icon-only unless Label), Fa (task glyph name),
+     Title, Aria (defaults to Title for icon-only), Key (keyboard shortcut), Confirm, Yes (confirming button label, default Label). */}}
+{{define "actbtn"}}<button class="btn {{.Class}}"{{if .Title}} title="{{.Title}}"{{end}}{{if and .Icon (not .Label)}} aria-label="{{or .Aria .Title}}"{{end}}{{if .Key}} data-key="{{.Key}}"{{end}}{{if .Confirm}} data-confirm="{{.Confirm}}" data-confirm-yes="{{or .Yes .Label}}"{{end}} data-on:click="@post('{{.Post}}')">{{if .Icon}}<svg class="ni" aria-hidden="true"><use href="#ni-{{.Icon}}"/></svg>{{end}}{{if .Fa}}{{faicon .Fa}}{{end}}{{.Label}}</button>{{end}}
+
+{{/* The footer of a modal sheet: Cancel and a primary button that posts Post and closes the sheet.
+     props: Id (the dialog's id), Yes (primary label), Post (URL), No (default "Cancel"). */}}
+{{define "sheetfoot"}}<div class="actions">
+    <button class="btn" command="close" commandfor="{{.Id}}">{{or .No "Cancel"}}</button>
+    <button class="btn primary" data-on:click="@post('{{.Post}}')" command="close" commandfor="{{.Id}}">{{.Yes}}</button>
+  </div>{{end}}

@@ -16,7 +16,7 @@
     <b>{{.Name}}</b> <span class="dim">v{{.Version}}{{if eq .FailedVersion .Version}} ⚠ apply failed{{end}}</span>
     <span class="grow"></span>
     <span class="dim">{{.Demand}} queued · {{.Live}}/{{.MaxRunners}} live</span>
-    <button class="btn small" data-confirm="Launch a {{.Name}} runner?" data-confirm-yes="Launch" data-on:click="@post('/ui/act/fleet-launch?template={{.Name}}')">Launch</button>
+    {{template "actbtn" props "Class" "small" "Label" "Launch" "Confirm" (printf "Launch a %s runner?" .Name) "Post" (printf "/ui/act/fleet-launch?template=%s" .Name)}}
   </div>{{end}}
 </section>{{end}}
 {{if not .Cards}}<p class="empty">No runners. Launch one from a template above, or <code>wrangl fleet launch</code>.</p>{{end}}
@@ -87,10 +87,10 @@
   {{spark .Spark}}
   <div class="actions wrap">
     {{if termok $r.State}}<a class="btn primary ic" href="/runner/{{$r.Name}}/term" title="Terminal" aria-label="Terminal"><svg class="ni" aria-hidden="true"><use href="#ni-terminal"/></svg></a>{{end}}
-    {{if $r.Cordoned}}<button class="btn ic on" title="Uncordon: accept new work again" aria-label="Uncordon" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=uncordon')"><svg class="ni" aria-hidden="true"><use href="#ni-uncordon"/></svg></button>
-    {{else}}<button class="btn ic" title="Cordon: stop assigning new work" aria-label="Cordon" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=cordon')"><svg class="ni" aria-hidden="true"><use href="#ni-cordon"/></svg></button>{{end}}
-    <button class="btn ic" title="Drain: finish current work, then terminate" aria-label="Drain" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=drain')"><svg class="ni" aria-hidden="true"><use href="#ni-drain"/></svg></button>
-    <button class="btn danger ic" title="Terminate now" aria-label="Terminate" data-confirm="Terminate {{$r.Name}}?" data-confirm-yes="Terminate" data-on:click="@post('/ui/act/runner?name={{$r.Name}}&amp;op=terminate')"><svg class="ni" aria-hidden="true"><use href="#ni-power"/></svg></button>
+    {{if $r.Cordoned}}{{template "actbtn" props "Class" "ic on" "Icon" "uncordon" "Title" "Uncordon: accept new work again" "Aria" "Uncordon" "Post" (printf "/ui/act/runner?name=%s&op=uncordon" $r.Name)}}
+    {{else}}{{template "actbtn" props "Class" "ic" "Icon" "cordon" "Title" "Cordon: stop assigning new work" "Aria" "Cordon" "Post" (printf "/ui/act/runner?name=%s&op=cordon" $r.Name)}}{{end}}
+    {{template "actbtn" props "Class" "ic" "Icon" "drain" "Title" "Drain: finish current work, then terminate" "Aria" "Drain" "Post" (printf "/ui/act/runner?name=%s&op=drain" $r.Name)}}
+    {{template "actbtn" props "Class" "danger ic" "Icon" "power" "Title" "Terminate now" "Aria" "Terminate" "Yes" "Terminate" "Confirm" (printf "Terminate %s?" $r.Name) "Post" (printf "/ui/act/runner?name=%s&op=terminate" $r.Name)}}
   </div>
 </section>
 {{with .Run}}<section class="card"><h3>Working on</h3>
