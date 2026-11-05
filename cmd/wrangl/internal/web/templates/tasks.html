@@ -24,11 +24,11 @@
   <button class="btn primary" data-key="n" command="show-modal" commandfor="sheet-new" title="New task" aria-label="New task">＋</button>
 </div>{{end}}
 {{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
-  {{if not .Now}}<p class="empty">No leaf task is in progress. Tasks in review are in the <a href="/inbox">inbox</a>.</p>{{end}}
+  {{if not .Now}}{{template "empty" props "Msg" "No leaf task is in progress. Tasks in review are in the" "Href" "/inbox" "Link" "inbox" "Tail" "."}}{{end}}
   <ul class="tasks" role="tree" aria-label="In progress">{{template "tasklist" .Now}}</ul></section>
 {{else}}
-{{if not .Projects}}<p class="empty">No projects yet. Tap ＋ above to create one.</p>
-{{else if and (not .Roots) (not .Progress) (not .Queue)}}<p class="empty">Nothing open in {{.Project}}. Tap ＋ New to add a task.</p>{{end}}
+{{if not .Projects}}{{template "empty" props "Msg" "No projects yet. Tap ＋ above to create one."}}
+{{else if and (not .Roots) (not .Progress) (not .Queue)}}{{template "empty" props "Msg" (printf "Nothing open in %s. Tap ＋ New to add a task." .Project)}}{{end}}
 {{if .Progress}}<section class="tsec" id="in-progress"><h3>In progress <span class="dim small">{{len .Progress}}</span></h3>
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
@@ -49,7 +49,7 @@
   <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
   <div class="actions"><button class="btn" data-on:click="$newproj = false">Cancel</button><button class="btn primary" data-on:click="@post('/ui/act/project-new')">Create</button></div>
 </section>
-{{if not .Rows}}<p class="empty">No projects yet. Use ＋ New project to create one.</p>{{else}}
+{{if not .Rows}}{{template "empty" props "Msg" "No projects yet. Use ＋ New project to create one."}}{{else}}
 <div class="logwrap"><table class="logs plist">
 <thead><tr><th>Project</th><th class="num">Runners</th><th class="num">In progress</th><th class="num">Queued</th><th class="num">Backlog</th><th class="num">Inbox</th></tr></thead>
 {{range $i, $p := .Rows}}{{$k := print "pj" $i}}<tbody class="lrow prow" id="proj-{{$p.Slug}}" data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}">

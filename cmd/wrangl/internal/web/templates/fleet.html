@@ -19,7 +19,7 @@
     {{template "actbtn" props "Class" "small" "Label" "Launch" "Confirm" (printf "Launch a %s runner?" .Name) "Post" (printf "/ui/act/fleet-launch?template=%s" .Name)}}
   </div>{{end}}
 </section>{{end}}
-{{if not .Cards}}<p class="empty">No runners. Launch one from a template above, or <code>wrangl fleet launch</code>.</p>{{end}}
+{{if not .Cards}}{{template "empty" props "Msg" "No runners. Launch one from a template above, or" "Code" "wrangl fleet launch" "Tail" "."}}{{end}}
 {{range .Cards}}<a class="card runner st-{{.R.State}}{{if eq .R.Launched 0}} pinned{{end}}" href="/runner/{{.R.Name}}">
   <div class="row"><b>{{.R.Name}}</b>{{if eq .R.Launched 0}} <span class="pill host" title="not launched by the fleet; never reaped">host</span>{{end}} <span class="pill">{{.R.State}}</span>{{if .R.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if .R.DrainRequested}}<span class="pill warn">draining</span>{{end}}{{if .R.UpgradeSha}}<span class="tag prog">⟳ upgrading</span>{{end}}<span class="grow"></span>{{if termok .R.State}}<a class="btn small" href="/runner/{{.R.Name}}/term">Terminal</a>{{end}}<span class="pill" title="agent sessions in use / allowed on this runner (template max_sessions)">{{.Used}}/{{.T.MaxSessions}} sessions</span> <span class="dim">{{.T.Name}}</span></div>
   <div class="row small dim">{{.R.InstanceType}} · {{.R.Vcpu}} vCPU · {{.R.RamMib}} MiB · {{.R.Az}}</div>
@@ -41,7 +41,7 @@
     <span class="cost">{{if eq .State "running"}}{{if .PriceKnown}}{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim small" title="indicative rate"> ~</span>{{end}}{{else}}<span class="dim small">no rate</span>{{end}}{{else}}<span class="dim small">no compute cost</span>{{end}}</span>
     {{if eq .State "running"}}<button type="button" class="btn small" command="show-modal" commandfor="sheet-adopt" data-on:click="$adoptregion = {{json .Region}}; $adoptid = {{json .ID}}; $adoptarch = {{json .Arch}}; $adoptname = {{if .Name}}{{json .Name}}{{else}}{{json .ID}}{{end}}; $adopttpl = [...document.querySelectorAll('#adopt-tpl option')].find((o) => o.dataset.arch == $adoptarch)?.value ?? ''; document.getElementById('adopt-result').replaceChildren()">Adopt…</button>{{end}}
     {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on:click="el.dataset.armed ? @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}') : (el.dataset.armed = 1, el.textContent = 'Confirm terminate')">Terminate</button>{{end}}
-  </div>{{else}}<p class="empty">No other instances.</p>{{end}}
+  </div>{{else}}{{template "empty" props "Msg" "No other instances."}}{{end}}
 </section>
 <section class="card others" id="topcosts">
   <div class="row"><h3>Most expensive other resources</h3><span class="grow"></span><span class="dim small">{{.Top.Period}}{{if .Top.Resources}} · by resource{{else}} · by service{{end}} · not EC2 instances</span></div>
@@ -52,7 +52,7 @@
     <div class="otherid"><b class="{{if $.Top.Resources}}mono{{end}}">{{$t.Name}}</b>{{if $.Top.Resources}}<div class="dim small">{{$t.Service}}</div>{{end}}</div>
     <span class="grow"></span><span class="cost">{{usd $t.USD}}</span>
     {{if $t.Parts}}<ul class="parts">{{range $t.Parts}}<li><span>{{.Label}}</span><span class="dim small mono" title="{{.Usage}}">{{.Usage}}</span><span class="grow"></span><span>{{usd .USD}}</span></li>{{end}}</ul>{{end}}
-  </div>{{else}}{{if not .Top.Error}}<p class="empty">Nothing else is costing money yet.</p>{{end}}{{end}}
+  </div>{{else}}{{if not .Top.Error}}{{template "empty" props "Msg" "Nothing else is costing money yet."}}{{end}}{{end}}
 </section>{{end}}{{end}}
 {{end}}
 
@@ -121,7 +121,7 @@
 </tr>{{if .Detail}}
 <tr class="logd" data-show="{{sig "" $k}}" style="display:none"><td></td><td colspan="4"><pre class="logdetail">{{.Detail}}</pre></td></tr>{{end}}
 </tbody>{{end}}</table></div>
-{{else}}<p class="empty">Nothing logged yet.</p>{{end}}
+{{else}}{{template "empty" props "Msg" "Nothing logged yet."}}{{end}}
 {{end}}
 
 

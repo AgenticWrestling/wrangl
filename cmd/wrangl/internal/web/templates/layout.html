@@ -110,6 +110,10 @@
      props: Key (signal name), Title. */}}
 {{define "exprow"}} class="expandable" data-on:click="if (!evt.target.closest('a,button')) {{sig "" .Key}} = !{{sig "" .Key}}" title="{{.Title}}" tabindex="0" data-on:keydown="(evt.key == 'Enter' || evt.key == ' ') &amp;&amp; !evt.target.closest('a,button') &amp;&amp; (evt.preventDefault(), {{sig "" .Key}} = !{{sig "" .Key}})"{{end}}
 
+{{/* An empty-state message: <p class="empty">Msg [<code>Code</code> | <a href=Href>Link</a>]Tail</p>.
+     props: Msg, Code (optional inline code after Msg), Href + Link (optional link after Msg), Tail (text after the code/link, e.g. "."). */}}
+{{define "empty"}}<p class="empty">{{.Msg}}{{if .Code}} <code>{{.Code}}</code>{{end}}{{if .Href}} <a href="{{.Href}}">{{.Link}}</a>{{end}}{{.Tail}}</p>{{end}}
+
 {{/* One action button: posts Post (after an inline confirm when Confirm is set).
      props: Post, Class ("small danger", "ic"...), Label, Icon (nav sprite name -> icon-only unless Label), Fa (task glyph name),
      Title, Aria (defaults to Title for icon-only), Key (keyboard shortcut), Confirm, Yes (confirming button label, default Label). */}}

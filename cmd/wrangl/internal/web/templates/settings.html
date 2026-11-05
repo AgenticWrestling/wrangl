@@ -19,7 +19,7 @@
 </section>
 <section class="card">
   <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-project">＋ New</button></div>
-  {{range .Projects}}<a class="row link" href="/projects/{{.Slug}}/settings"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}<p class="empty">No projects.</p>{{end}}
+  {{range .Projects}}<a class="row link" href="/projects/{{.Slug}}/settings"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}{{template "empty" props "Msg" "No projects."}}{{end}}
 </section>
 <section class="card">
   <div class="row"><h3>GitHub accounts</h3><span class="grow"></span><a class="btn small" href="/setup">Manage</a></div>
@@ -52,7 +52,7 @@
   {{range .Templates}}<div class="row"><b>{{.Name}}</b> <span class="dim">v{{.Version}} · ≥{{.MinVcpu}} vCPU · ≥{{.MinRamMib}} MiB · ≥{{.MinDiskGib}} GiB</span><span class="grow"></span>
     <a class="btn small" href="/settings/templates/{{.Name}}">Edit</a>
     {{template "actbtn" props "Class" "small" "Label" "Launch" "Confirm" (printf "Launch a %s runner?" .Name) "Post" (printf "/ui/act/fleet-launch?template=%s" .Name)}}</div>
-  {{else}}<p class="empty">No templates. Create one with <code>wrangl template create</code>.</p>{{end}}
+  {{else}}{{template "empty" props "Msg" "No templates. Create one with" "Code" "wrangl template create" "Tail" "."}}{{end}}
 </section>
 <div class="about"><img src="/static/logo.png" alt="wrangl, metaharness orchestrator" width="280" height="305"></div>
 <p class="dim small center">wrangl · <a href="/api/v1/events">event stream</a></p>

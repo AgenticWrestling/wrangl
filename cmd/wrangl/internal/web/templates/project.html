@@ -13,7 +13,7 @@
 <section class="card" id="goals">
   <div class="row"><h3>Goals &amp; definition of done</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-edit-project">Edit</button></div>
   {{if $p.Description}}<div class="prose">{{md $p.Description}}</div>
-  {{else}}<p class="empty">No goals written yet. Describe what this project is for and what "done" looks like, in markdown.</p>{{end}}
+  {{else}}{{template "empty" props "Msg" `No goals written yet. Describe what this project is for and what "done" looks like, in markdown.`}}{{end}}
 </section>
 
 <section class="card" id="repos">
@@ -21,7 +21,7 @@
   {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}<span class="tag" title="Research tasks run here; reports go under research/">notes repo</span>{{end}}<span class="grow"></span>
     {{if eq .ID $.NotesRepo}}<button class="btn small" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo=')">Not notes</button>{{else}}<button class="btn small" title="Research reports are written here, under research/" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Use for research notes</button>{{end}}
     {{template "actbtn" props "Class" "small danger" "Label" "Unlink" "Confirm" (printf "Unlink %s/%s from %s?" .Owner .Name $p.Slug) "Post" (printf "/ui/act/repo-unlink?slug=%s&repo=%s/%s" $p.Slug .Owner .Name)}}</div>{{end}}
-  {{else}}<p class="empty">No repositories linked. Tasks need one to run.</p>{{end}}
+  {{else}}{{template "empty" props "Msg" "No repositories linked. Tasks need one to run."}}{{end}}
   {{if not .GitHub}}<p class="hint">GitHub isn't configured on this controller yet (<code>github.author_app</code>), so repos can't be linked.</p>{{end}}
 </section>
 
@@ -30,7 +30,7 @@
   <p class="hint">The most runner instances this project's queued work may start, per template. The default template starts at 1; the others at 0, so expensive runners are opt-in. A template's own <code>max_runners</code> is a ceiling for everyone. Existing runners with a free slot are shared, whichever project started them.</p>
   {{range .Limits}}<div class="row link"><b>{{.Template}}</b>{{if .Default}} <span class="tag">default</span>{{end}} <span class="dim small">ceiling {{.Ceiling}}</span><span class="grow"></span>
     <input type="number" min="0" step="1" value="{{.Max}}" style="width:5rem" aria-label="Instances of {{.Template}} for {{$p.Slug}}" data-on:change="@post('/ui/act/project-limit?slug={{$p.Slug}}&template={{.Template}}&n=' + evt.target.value)"></div>
-  {{else}}<p class="empty">No runner templates yet.</p>{{end}}
+  {{else}}{{template "empty" props "Msg" "No runner templates yet."}}{{end}}
 </section>
 
 <section class="card tools" id="tools">
@@ -38,7 +38,7 @@
     <button class="btn small" disabled aria-disabled="true" title="Not available yet">＋ Add tool</button></div>
   <p class="hint">Register tools for this project's agents (MCP servers, HTTP APIs, CLIs) and store the credentials they authenticate with. Registered tools will be listed here, each with its auth status.</p>
   <ul class="toollist" id="toollist"></ul>
-  <p class="empty">No tools registered.</p>
+  {{template "empty" props "Msg" "No tools registered."}}
 </section>
 {{end}}
 
