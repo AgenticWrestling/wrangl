@@ -1,21 +1,6 @@
-// wrangl PWA glue: sheets, drag-and-drop reordering, the read-only terminal, web push.
+// wrangl PWA glue for what has no HTML or Datastar equivalent: drag-and-drop reordering, terminals, web push, the task card, the lightbox and inline confirm.
 // Live page updates are Datastar's job (data-init @get /ui/live in the layout).
 'use strict';
-
-function openSheet(id) {
-  const d = document.getElementById(id);
-  if (d && !d.open) d.showModal();
-}
-window.openSheet = openSheet;
-
-// A sheet's submit button carries data-close: Datastar posts the signals, then the sheet
-// closes (deferred so Datastar's own click handler reads the form first).
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-close]');
-  if (!b) return;
-  const d = b.closest('dialog');
-  if (d) setTimeout(() => d.close(), 0);
-});
 
 function toast(msg, err) {
   const t = document.getElementById('toast');
@@ -32,44 +17,6 @@ new MutationObserver(() => {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
 }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
-
-// --- keep <details> and modal <dialog>s open across live patches ---------------------------
-// A live patch morphs #main from server HTML, which has no `open` attribute for anything the
-// user opened, so it would snap closed. Remember what the user chose and put it back before the
-// browser paints. Details are remembered by a stable key; dialogs by id.
-const detailOpen = new Map();
-const openDialogs = new Set();
-function detailKey(d) {
-  const sum = d.querySelector(':scope > summary');
-  const txt = sum ? sum.textContent.trim() : '';
-  const scope = (d.parentElement && d.parentElement.closest('[id]')) || document.body;
-  const same = Array.from(scope.querySelectorAll('details')).filter((x) => {
-    const s = x.querySelector(':scope > summary');
-    return (s ? s.textContent.trim() : '') === txt;
-  });
-  return (d.id || (scope.id || location.pathname) + '|' + txt + '#' + same.indexOf(d));
-}
-// The click handler runs before the summary's own toggle, so the new state is the inverse.
-document.addEventListener('click', (e) => {
-  const s = e.target.closest && e.target.closest('summary');
-  const d = s && s.parentElement;
-  if (!d || d.tagName !== 'DETAILS' || d.classList.contains('pmore')) return;
-  detailOpen.set(detailKey(d), !d.open);
-}, true);
-const showModalOrig = HTMLDialogElement.prototype.showModal;
-HTMLDialogElement.prototype.showModal = function () { if (this.id) openDialogs.add(this.id); return showModalOrig.call(this); };
-document.addEventListener('close', (e) => {
-  const d = e.target;
-  if (d && d.tagName === 'DIALOG' && !d.open) openDialogs.delete(d.id); // a user close; a morph's is undone below
-}, true);
-function restoreOpen() {
-  document.querySelectorAll('details').forEach((d) => {
-    if (d.classList.contains('pmore')) return;
-    const want = detailOpen.get(detailKey(d));
-    if (want !== undefined && d.open !== want) d.open = want;
-  });
-  openDialogs.forEach((id) => { const d = document.getElementById(id); if (d && d.isConnected && !d.open) showModalOrig.call(d); });
-}
 
 // --- drag and drop -----------------------------------------------------------------------
 
@@ -389,166 +336,6 @@ document.addEventListener('click', (e) => {
   markFs();
 });
 
-// --- adopt an instance (Runners) ----------------------------------------------------------------
-
-function openAdopt(region, id, arch, name) {
-  window.adoptRegion = region; window.adoptID = id;
-  const nm = document.getElementById('adopt-name'); if (nm) nm.textContent = name;
-  const sel = document.getElementById('adopt-tpl');
-  if (sel) {
-    let first = null;
-    [...sel.options].forEach((o) => { const ok = !arch || o.dataset.arch === arch; o.hidden = o.disabled = !ok; if (ok && !first) first = o; });
-    if (first) { sel.value = first.value; sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
-  }
-  const res = document.getElementById('adopt-result'); if (res) res.innerHTML = '';
-  openSheet('sheet-adopt');
-}
-window.openAdopt = openAdopt;
-
-// --- runner template editor ---------------------------------------------------------------------
-// The instance table, architecture toggle, minimums and image picker of /settings/templates/{name}.
-// Datastar holds the form values (hidden inputs are kept in step here); saving posts them.
-
-function initTemplateEditor() {
-  const root = document.getElementById('tpl');
-  if (!root || root.dataset.ready) return;
-  root.dataset.ready = '1';
-  const $ = (id) => document.getElementById(id);
-  const bound = (n) => root.querySelector('[data-bind="' + n + '"]');
-  const setVal = (el, v) => { if (!el) return; el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); };
-  const toMiB = (s, bare) => {
-    const m = /^\s*([\d.]+)\s*([A-Za-z]*)\s*$/.exec(s || '');
-    if (!m) return 0;
-    const mult = { mib: 1, m: 1, gib: 1024, g: 1024, tib: 1048576, t: 1048576 };
-    const u = m[2].toLowerCase();
-    return parseFloat(m[1]) * (u ? (mult[u] || 0) : bare);
-  };
-  const rows = [...root.querySelectorAll('#tp-types tbody tr')];
-  const usd = (v) => '$' + v.toFixed(4);
-  let arch = root.dataset.arch;
-
-  const minV = () => parseInt((bound('tpvcpu') || {}).value, 10) || 0;
-  const minM = () => toMiB((bound('tpram') || {}).value, 1);
-  const fits = (tr) => parseInt(tr.dataset.vcpu, 10) >= minV() && parseFloat(tr.dataset.mem) >= minM();
-
-  function refresh() {
-    const picked = [];
-    rows.forEach((tr) => {
-      const here = tr.dataset.arch === arch;
-      tr.hidden = !here;
-      const ok = fits(tr);
-      const cb = tr.querySelector('input[type=checkbox]');
-      tr.classList.toggle('nofit', !ok);
-      cb.disabled = !ok;
-      if (!here) cb.checked = false;
-      if (here && ok && cb.checked) picked.push(tr);
-    });
-    setVal($('tp-types-val'), picked.map((tr) => tr.dataset.type).join(','));
-    summary(picked);
-  }
-
-  function cheapest(picked) {
-    const pool = picked.length ? picked : rows.filter((tr) => tr.dataset.arch === arch && fits(tr));
-    return pool.filter((tr) => tr.dataset.known === '1').sort((a, b) => parseFloat(a.dataset.price) - parseFloat(b.dataset.price))[0];
-  }
-
-  function summary(picked) {
-    const el = $('tp-summary'), mc = $('tp-maxcost');
-    const c = cheapest(picked);
-    if (!el) return;
-    if (!c) { el.textContent = 'Nothing fits these minimums for ' + arch + '.'; if (mc) mc.textContent = ''; return; }
-    const p = parseFloat(c.dataset.price), max = parseInt((bound('tpmax') || {}).value, 10) || 0;
-    el.innerHTML = 'Would launch <b class="mono">' + c.dataset.type + '</b> at <b>' + usd(p) + '/h</b>' + (picked.length ? '' : ' (none ticked: the cheapest that fits)') +
-      (max > 1 ? '; all ' + max + ' runners busy <b>' + usd(p * max) + '/h</b>' : '') + '. <span class="dim">Plus the image\'s software fee, if any.</span>';
-    if (mc) mc.textContent = max ? 'at most ' + usd(p * max) + '/h at the cheapest pick' : '';
-  }
-
-  function setArch(a) {
-    arch = a;
-    root.querySelectorAll('#tp-arch button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.arch === a)));
-    setVal($('tp-arch-val'), a);
-    refresh();
-  }
-  root.querySelectorAll('#tp-arch button').forEach((b) => b.addEventListener('click', () => setArch(b.dataset.arch)));
-  rows.forEach((tr) => tr.querySelector('input[type=checkbox]').addEventListener('change', refresh));
-  ['tpvcpu', 'tpram', 'tpmax'].forEach((n) => { const el = bound(n); if (el) el.addEventListener('input', refresh); });
-  // Without a catalogue (no AWS) the types are a plain text field.
-  const tt = $('tp-types-text');
-  if (tt) tt.addEventListener('input', () => setVal($('tp-types-val'), tt.value));
-
-  // --- image ---
-  const imgVal = $('tp-img-val'), box = $('tp-ami-box');
-  function setImg(mode) {
-    root.querySelectorAll('input[name=tpimgr]').forEach((r) => { r.checked = r.value === mode; });
-    box.hidden = mode !== 'ami';
-    setVal(imgVal, mode);
-  }
-  root.querySelectorAll('input[name=tpimgr]').forEach((r) => r.addEventListener('change', () => setImg(r.value)));
-  const amiEl = $('tp-ami'), chk = $('tp-ami-check');
-  let ct;
-  async function checkAmi() {
-    const ami = (amiEl.value || '').trim();
-    chk.textContent = '';
-    if (!/^ami-[0-9a-f]+$/.test(ami)) return;
-    const c = cheapest(rows.filter((tr) => tr.dataset.arch === arch && tr.querySelector('input').checked)) || cheapest([]);
-    if (!c) return;
-    chk.textContent = 'Checking with EC2…';
-    try {
-      const r = await fetch('/api/v1/images/check?ami=' + encodeURIComponent(ami) + '&type=' + encodeURIComponent(c.dataset.type), { credentials: 'same-origin' });
-      const j = await r.json();
-      if (j.ok) chk.innerHTML = '<span class="ok">✓ EC2 says it can launch this image on ' + c.dataset.type + '</span>';
-      else if (j.opt_in_required) chk.innerHTML = '<span class="warn">! Not subscribed.</span> Accept the vendor\'s terms in the AWS console first' + (j.subscribe_url ? ': <a href="' + j.subscribe_url.replace(/"/g, '') + '" target="_blank" rel="noopener">open the Marketplace page</a>' : '') + '.';
-      else chk.innerHTML = '<span class="warn">! ' + String(j.error || r.status).replace(/</g, '&lt;') + '</span>';
-    } catch (e) { chk.textContent = ''; }
-  }
-  if (amiEl) amiEl.addEventListener('input', () => { clearTimeout(ct); ct = setTimeout(checkAmi, 700); });
-  // The full test: launch one instance, check what a runner bootstrap needs, terminate it.
-  const tb = $('tp-ami-test'), tout = $('tp-ami-test-out');
-  if (tb) tb.addEventListener('click', async () => {
-    const ami = (amiEl.value || '').trim();
-    if (!/^ami-[0-9a-f]+$/.test(ami)) { tout.textContent = 'Enter an AMI id first.'; return; }
-    const c = cheapest(rows.filter((tr) => tr.dataset.arch === arch && tr.querySelector('input').checked)) || cheapest([]);
-    if (!c) { tout.textContent = 'Pick an instance type first.'; return; }
-    tb.disabled = true;
-    tout.textContent = 'Launching ' + c.dataset.type + ' and waiting for it to report (about 2 minutes)…';
-    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
-    try {
-      const r = await fetch('/api/v1/images/test?ami=' + encodeURIComponent(ami) + '&type=' + encodeURIComponent(c.dataset.type) + '&arch=' + encodeURIComponent(arch), { method: 'POST', credentials: 'same-origin' });
-      const j = await r.json();
-      if (!r.ok) { tout.textContent = j.error || r.status; return; }
-      tout.innerHTML = (j.checks || []).map((k) => '<li><span class="' + (k.ok ? 'ok">✓' : 'warn">✗') + '</span> ' + esc(k.name) + (k.detail ? ' <span class="dim small">' + esc(k.detail) + '</span>' : '') + '</li>').join('') +
-        '<li class="dim small">' + (j.terminated ? 'Test instance terminated.' : 'Could not terminate the test instance ' + esc(j.instance_id) + '; the reaper will remove it.') + '</li>';
-    } catch (e) { tout.textContent = 'Test failed: ' + e; } finally { tb.disabled = false; }
-  });
-  const ms = $('tp-msearch');
-  async function search() {
-    const out = $('tp-mres'), q = ($('tp-mq').value || '').trim();
-    out.textContent = 'Searching…';
-    try {
-      const r = await fetch('/api/v1/images?q=' + encodeURIComponent(q) + '&arch=' + encodeURIComponent(arch), { credentials: 'same-origin' });
-      const j = await r.json();
-      if (!r.ok) { out.textContent = j.error || r.status; return; }
-      out.innerHTML = '';
-      (j.images || []).forEach((im) => {
-        const row = document.createElement('div');
-        row.className = 'row mrow';
-        row.innerHTML = '<span class="grow"><b></b> <span class="dim small"></span></span><code class="mono small"></code><button type="button" class="btn small">Use</button>';
-        row.querySelector('b').textContent = im.name;
-        row.querySelector('.dim').textContent = im.arch;
-        row.querySelector('code').textContent = im.id;
-        row.querySelector('button').addEventListener('click', () => { setImg('ami'); setVal(amiEl, im.id); if (im.arch !== arch) setArch(im.arch); checkAmi(); });
-        out.appendChild(row);
-      });
-      if (!out.children.length) out.textContent = 'No Marketplace images for "' + q + '" on ' + arch + '.';
-    } catch (e) { out.textContent = 'Search failed.'; }
-  }
-  if (ms) { ms.addEventListener('click', search); $('tp-mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } }); }
-
-  setArch(arch);
-  setImg(root.dataset.img || 'al');
-  if ((amiEl.value || '').startsWith('ami-')) checkAmi();
-}
-
 // --- boot --------------------------------------------------------------------------------
 
 function boot() {
@@ -556,9 +343,7 @@ function boot() {
   initQueueSort();
   initTerminal();
   markFs();
-  initTemplateEditor();
   pushState().catch(() => {});
-  if (location.hash.length > 1) openSheet('sheet-' + location.hash.slice(1));
   const main = document.getElementById('main');
   if (main) {
     let t;
@@ -567,20 +352,11 @@ function boot() {
       clearTimeout(t); t = setTimeout(() => { initSortables(); initQueueSort(); markFs(); }, 50);
       if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
     }).observe(main, { childList: true, subtree: true });
-    new MutationObserver(restoreOpen).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ['open'] });
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-
-// The backlog's project menu is a <details>: close it on an outside click or Escape.
-document.addEventListener('click', (e) => {
-  document.querySelectorAll('details.pmore[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; });
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') document.querySelectorAll('details.pmore[open]').forEach((d) => { d.open = false; });
-});
 
 // Setup page: put the chosen App name into the manifest before it goes to GitHub.
 function ghManifest(form) {

@@ -1,6 +1,9 @@
 {{define "main-template"}}{{$t := .T}}
 <div class="crumbs dim small"><a href="/settings">Settings</a> › Runner templates › {{$t.Name}}</div>
-<div id="tpl" class="tpl" data-name="{{$t.Name}}" data-arch="{{$t.Arch}}" data-img="{{.ImgMode}}"
+<div id="tpl" class="tpl"
+  data-signals:tpcat="{{json .CatRows}}" data-signals:tpq="''"
+  data-computed:tpminmib="(([n, u]) => n ? parseFloat(n) * ({mib: 1, m: 1, gib: 1024, g: 1024, tib: 1048576, t: 1048576}[(u || '').toLowerCase()] ?? (u ? 0 : 1)) : 0)(($tpram.match(/^\s*([\d.]+)\s*([A-Za-z]*)\s*$/) || []).slice(1))"
+  data-computed:tpcheap="(() => { const pick = $tptypes.split(',').filter(Boolean); const pool = $tpcat.filter((r) => r.a == $tparch && r.v >= (parseInt($tpvcpu, 10) || 0) && r.m >= $tpminmib); const got = pool.filter((r) => pick.includes(r.t)); const best = (got.length ? got : pool).filter((r) => r.k).sort((a, b) => a.p - b.p)[0]; return best ? {...best, picked: got.length > 0} : null })()"
   data-signals:tpdesc="{{json $t.Description}}" data-signals:tpmax="{{json .MaxStr}}" data-signals:tpsess="{{json .SessStr}}" data-signals:tpidle="{{json .IdleStr}}"
   data-signals:tparch="{{json $t.Arch}}" data-signals:tpvcpu="{{json .VcpuStr}}" data-signals:tpram="{{json .RamStr}}" data-signals:tpdisk="{{json .DiskStr}}"
   data-signals:tptypes="{{json .TypesCSV}}" data-signals:tpimg="{{json .ImgMode}}" data-signals:tpami="{{json .AmiStr}}"
@@ -14,7 +17,7 @@
   <h3>Basics</h3>
   <div class="grid3">
     <label>Description<input data-bind="tpdesc" autocomplete="off"></label>
-    <label>Max runners<input data-bind="tpmax" inputmode="numeric" autocomplete="off"><span class="hint" id="tp-maxcost"></span></label>
+    <label>Max runners<input data-bind="tpmax" inputmode="numeric" autocomplete="off"><span class="hint" id="tp-maxcost" data-text="$tpcheap && (parseInt($tpmax, 10) || 0) ? 'at most \u0024' + ($tpcheap.p * parseInt($tpmax, 10)).toFixed(4) + '/h at the cheapest pick' : ''"></span></label>
     <label>Sessions per runner<input data-bind="tpsess" inputmode="numeric" autocomplete="off"><span class="hint">concurrent agent sessions on one runner, each in its own git worktree (default 4)</span></label>
     <label>Idle timeout<input data-bind="tpidle" autocomplete="off"><span class="hint">terminated after this long idle (e.g. 30m)</span></label>
   </div>
@@ -23,8 +26,8 @@
 <section class="card">
   <div class="row"><h3 class="grow">Machine</h3>
     <div class="seg" role="radiogroup" aria-label="Architecture" id="tp-arch">
-      <button type="button" role="radio" data-arch="arm64" aria-checked="false">arm64 (Graviton)</button>
-      <button type="button" role="radio" data-arch="x86_64" aria-checked="false">x86_64</button></div></div>
+      <button type="button" role="radio" data-attr:aria-checked="String($tparch == 'arm64')" data-on:click="$tparch != 'arm64' && ($tparch = 'arm64', $tptypes = '')">arm64 (Graviton)</button>
+      <button type="button" role="radio" data-attr:aria-checked="String($tparch == 'x86_64')" data-on:click="$tparch != 'x86_64' && ($tparch = 'x86_64', $tptypes = '')">x86_64</button></div></div>
   <div class="grid3">
     <label>Min vCPU<input data-bind="tpvcpu" inputmode="numeric" autocomplete="off"></label>
     <label>Min memory<input data-bind="tpram" autocomplete="off" placeholder="8GiB"></label>
@@ -35,40 +38,38 @@
   <p class="hint">Tick the types this template may launch; wrangl takes the cheapest ticked type that fits. None ticked: it picks the cheapest fit itself.</p>
   <div class="tablewrap"><table class="types" id="tp-types">
     <thead><tr><th><span class="sr">Use</span></th><th>Type</th><th>vCPU</th><th>Memory</th><th>Storage / GPU</th><th class="num">$ / hour</th><th>Notes</th></tr></thead>
-    <tbody>{{range .Catalogue}}<tr data-type="{{.Type}}" data-arch="{{.Arch}}" data-vcpu="{{.VCPU}}" data-mem="{{.MemoryMiB}}" data-price="{{.HourlyUSD}}" data-known="{{if .PriceKnown}}1{{end}}">
-      <td><input type="checkbox" aria-label="Use {{.Type}}"{{if index $.Ticked .Type}} checked{{end}}></td>
+    <tbody>{{range .Catalogue}}<tr data-show="$tparch == '{{.Arch}}'" data-class:nofit="!({{.VCPU}} >= (parseInt($tpvcpu, 10) || 0) && {{.MemoryMiB}} >= $tpminmib)"{{if ne .Arch $.T.Arch}} style="display: none"{{end}}>
+      <td><input type="checkbox" aria-label="Use {{.Type}}" data-effect="el.checked = $tptypes.split(',').includes('{{.Type}}')" data-attr:disabled="!({{.VCPU}} >= (parseInt($tpvcpu, 10) || 0) && {{.MemoryMiB}} >= $tpminmib)" data-on:change="$tptypes = (el.checked ? [...$tptypes.split(',').filter(Boolean), '{{.Type}}'] : $tptypes.split(',').filter((x) => x && x != '{{.Type}}')).join(',')"></td>
       <td class="mono">{{.Type}}</td><td>{{.VCPU}}</td><td>{{memgib .MemoryMiB}}</td><td>{{.Extra}}</td>
       <td class="num mono">{{if .PriceKnown}}${{printf "%.4f" .HourlyUSD}}{{if .Indicative}}<span class="dim" title="indicative: the Pricing API did not answer"> ~</span>{{end}}{{else}}<span class="dim">no rate</span>{{end}}</td>
       <td class="note dim small">{{.Note}}</td></tr>{{end}}</tbody></table></div>
   <p class="hint">On-demand Linux rates for {{.Region}}, from the AWS Pricing API (cached a day). Rows below your minimums are greyed. Spot is not used.</p>
-  <div class="summary" id="tp-summary"></div>
+  <div class="summary" id="tp-summary" data-html="$tpcheap ? 'Would launch <b class=mono>' + $tpcheap.t + '</b> at <b>\u0024' + $tpcheap.p.toFixed(4) + '/h</b>' + ($tpcheap.picked ? '' : ' (none ticked: the cheapest that fits)') + ((parseInt($tpmax, 10) || 0) > 1 ? '; all ' + parseInt($tpmax, 10) + ' runners busy <b>\u0024' + ($tpcheap.p * parseInt($tpmax, 10)).toFixed(4) + '/h</b>' : '') + '. <span class=dim>Plus the image\u0027s software fee, if any.</span>' : 'Nothing fits these minimums for ' + $tparch + '.'"></div>
   {{else}}
-  <label>Instance types (comma separated, optional)<input id="tp-types-text" autocomplete="off" value="{{range $i, $x := .TypesList}}{{if $i}}, {{end}}{{$x}}{{end}}"></label>
+  <label>Instance types (comma separated, optional)<input data-bind="tptypes" autocomplete="off"></label>
   <p class="hint warn">{{if .CatalogueErr}}Could not read the instance catalogue: {{.CatalogueErr}}{{else}}AWS is not configured, so there is no catalogue.{{end}}</p>
   {{end}}
-  <input type="hidden" data-bind="tptypes" id="tp-types-val"><input type="hidden" data-bind="tparch" id="tp-arch-val">
 </section>
 
 <section class="card">
   <h3>Image</h3>
   <p class="hint">What the machine boots. The runner enrols through the image's user-data, so the image needs cloud-init.</p>
   <div role="radiogroup" aria-label="Image source" class="imgopts" id="tp-img">
-    <label class="opt"><input type="radio" name="tpimgr" value="al"><span><b>Amazon Linux 2023</b> <span class="dim">the default; resolved for the architecture</span></span></label>
-    <label class="opt"><input type="radio" name="tpimgr" value="ami"><span><b>An AMI id</b> <span class="dim">your own, or one picked from the Marketplace below</span></span></label>
+    <label class="opt"><input type="radio" data-bind="tpimg" value="al"><span><b>Amazon Linux 2023</b> <span class="dim">the default; resolved for the architecture</span></span></label>
+    <label class="opt"><input type="radio" data-bind="tpimg" value="ami"><span><b>An AMI id</b> <span class="dim">your own, or one picked from the Marketplace below</span></span></label>
   </div>
-  <div id="tp-ami-box" hidden>
-    <label>AMI id<input data-bind="tpami" id="tp-ami" class="mono" autocomplete="off" autocapitalize="off" placeholder="ami-…"></label>
+  <div id="tp-ami-box" data-show="$tpimg == 'ami'"{{if ne .ImgMode "ami"}} style="display: none"{{end}} data-init="$tpami.startsWith('ami-') && @post('/ui/act/tpl-ami-check?type=' + encodeURIComponent($tpcheap?.t || ''))">
+    <label>AMI id<input data-bind="tpami" id="tp-ami" class="mono" autocomplete="off" autocapitalize="off" placeholder="ami-…" data-on:input__debounce.700ms="@post('/ui/act/tpl-ami-check?type=' + encodeURIComponent($tpcheap?.t || ''))"></label>
     <div id="tp-ami-check" class="imgcheck"></div>
-    <div class="row"{{if not .HasAWS}} hidden{{end}}><button type="button" class="btn small" id="tp-ami-test" title="Launches one instance, checks it can bootstrap a runner, then terminates it">Test this image</button>
+    <div class="row"{{if not .HasAWS}} hidden{{end}}><button type="button" class="btn small" id="tp-ami-test" data-indicator:tptesting data-attr:disabled="$tptesting" data-on:click="@post('/ui/act/tpl-ami-test?type=' + encodeURIComponent($tpcheap?.t || '') + '&arch=' + $tparch)" title="Launches one instance, checks it can bootstrap a runner, then terminates it">Test this image</button>
       <span class="dim small">about 2 minutes, a few cents</span></div>
     <ul id="tp-ami-test-out" class="imgcheck" aria-live="polite"></ul>
-    <details class="market" id="tp-market"{{if not .HasAWS}} hidden{{end}}><summary>Search the AWS Marketplace</summary>
-      <div class="row"><label class="grow">Product<input id="tp-mq" placeholder="e.g. genymotion" autocomplete="off"></label>
-        <button type="button" class="btn" id="tp-msearch">Search</button></div>
+    <details data-preserve-attr="open" class="market" id="tp-market"{{if not .HasAWS}} hidden{{end}}><summary>Search the AWS Marketplace</summary>
+      <div class="row"><label class="grow">Product<input data-bind="tpq" placeholder="e.g. genymotion" autocomplete="off" data-on:keydown="evt.key == 'Enter' && (evt.preventDefault(), @post('/ui/act/tpl-market?arch=' + $tparch))"></label>
+        <button type="button" class="btn" data-on:click="@post('/ui/act/tpl-market?arch=' + $tparch)">Search</button></div>
       <p class="hint">Marketplace products usually bill a software fee on top of EC2, set by the vendor, and need their terms accepted once in the AWS console. wrangl cannot accept them for you; it shows the link.</p>
       <div id="tp-mres" class="mres"></div></details>
   </div>
-  <input type="hidden" data-bind="tpimg" id="tp-img-val">
 </section>
 
 <section class="card">

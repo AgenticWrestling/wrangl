@@ -39,7 +39,7 @@
     <span class="grow"></span>
     <span class="dim small" title="launched {{.LaunchedAt.Format "2006-01-02 15:04"}} UTC">{{ago (.LaunchedAt.Format "2006-01-02T15:04:05.000Z")}}</span>
     <span class="cost">{{if eq .State "running"}}{{if .PriceKnown}}{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim small" title="indicative rate"> ~</span>{{end}}{{else}}<span class="dim small">no rate</span>{{end}}{{else}}<span class="dim small">no compute cost</span>{{end}}</span>
-    {{if eq .State "running"}}<button type="button" class="btn small" onclick="openAdopt('{{.Region}}','{{.ID}}','{{.Arch}}','{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}')">Adopt…</button>{{end}}
+    {{if eq .State "running"}}<button type="button" class="btn small" command="show-modal" commandfor="sheet-adopt" data-on:click="$adoptregion = {{json .Region}}; $adoptid = {{json .ID}}; $adoptarch = {{json .Arch}}; $adoptname = {{if .Name}}{{json .Name}}{{else}}{{json .ID}}{{end}}; $adopttpl = [...document.querySelectorAll('#adopt-tpl option')].find((o) => o.dataset.arch == $adoptarch)?.value ?? ''; document.getElementById('adopt-result').replaceChildren()">Adopt…</button>{{end}}
     {{if or (eq .State "running") (eq .State "stopped")}}<button type="button" class="btn small danger" data-on:click="el.dataset.armed ? @post('/ui/act/instance-terminate?region={{.Region}}&amp;iid={{.ID}}') : (el.dataset.armed = 1, el.textContent = 'Confirm terminate')">Terminate</button>{{end}}
   </div>{{else}}<p class="empty">No other instances.</p>{{end}}
 </section>
@@ -57,17 +57,17 @@
 {{end}}
 
 {{define "post-runners"}}{{if .Spend}}
-<dialog id="sheet-adopt" class="sheet" data-signals:adopttpl="''">
-  <h2>Adopt <span id="adopt-name"></span></h2>
+<dialog data-preserve-attr="open" id="sheet-adopt" class="sheet" data-signals="{adopttpl: '', adoptregion: '', adoptid: '', adoptarch: '', adoptname: ''}">
+  <h2>Adopt <span data-text="$adoptname"></span></h2>
   <p class="hint">Turns this running instance into a runner. wrangl creates a one-time token; you run one command on the instance.</p>
   <label>Runner template
-    <select data-bind="adopttpl" id="adopt-tpl">{{range .AdoptTemplates}}<option value="{{.Name}}" data-arch="{{.Arch}}">{{.Name}} ({{.Arch}})</option>{{end}}</select>
+    <select data-bind="adopttpl" id="adopt-tpl">{{range .AdoptTemplates}}<option value="{{.Name}}" data-arch="{{.Arch}}" data-attr:hidden="$adoptarch && $adoptarch != '{{.Arch}}'" data-attr:disabled="$adoptarch && $adoptarch != '{{.Arch}}'">{{.Name}} ({{.Arch}})</option>{{end}}</select>
   </label>
   <p class="hint">Only templates for the instance's architecture can be used.</p>
   <div id="adopt-result"></div>
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Close</button>
-    <button class="btn primary" id="adopt-go" data-on:click="@post('/ui/act/instance-adopt?region='+encodeURIComponent(window.adoptRegion)+'&iid='+encodeURIComponent(window.adoptID))">Create token</button>
+    <button class="btn" command="close" commandfor="sheet-adopt">Close</button>
+    <button class="btn primary" id="adopt-go" data-on:click="@post('/ui/act/instance-adopt?region='+encodeURIComponent($adoptregion)+'&iid='+encodeURIComponent($adoptid))">Create token</button>
   </div>
 </dialog>{{end}}{{end}}
 
@@ -97,7 +97,7 @@
   <a class="row link" href="/run/{{.ID}}">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</a>
   {{if $.Progress}}<ul class="progress">{{range $.Progress}}<li class="st-{{.State}}" style="padding-left: {{.Depth}}em"><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .ID $.Run.CurrentTaskID.Int64}} <span class="pill">current</span>{{end}}</li>{{end}}</ul>{{end}}
 </section>{{end}}
-{{if $r.TemplateLog}}<details class="card"><summary>Template apply log</summary><pre class="log">{{$r.TemplateLog}}</pre></details>{{end}}
+{{if $r.TemplateLog}}<details data-preserve-attr="open" class="card"><summary>Template apply log</summary><pre class="log">{{$r.TemplateLog}}</pre></details>{{end}}
 {{if .Recent}}<section class="card"><h3>Recent runs</h3>{{template "runrows" .Recent}}</section>{{end}}
 {{end}}
 

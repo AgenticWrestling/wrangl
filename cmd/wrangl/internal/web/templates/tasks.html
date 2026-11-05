@@ -1,15 +1,15 @@
 {{define "main-tasks"}}
-<details class="pmore ppill">
-  <summary class="pbtn on" aria-label="Switch project">{{.Project}} <span aria-hidden="true">▾</span></summary>
-  <div class="menu">{{range .Projects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>{{end}}<a class="all" href="/projects">All projects</a></div>
-</details>
+<div class="pmore ppill">
+  <button class="pbtn on" popovertarget="pm-switch" style="anchor-name: --pm-switch" aria-label="Switch project">{{.Project}} <span aria-hidden="true">▾</span></button>
+  <div class="menu" id="pm-switch" popover style="position-anchor: --pm-switch">{{range .Projects}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on" aria-current="true"{{end}}>{{.Slug}}</a>{{end}}<a class="all" href="/projects">All projects</a></div>
+</div>
 <div class="projbar" role="toolbar" aria-label="Projects">
   {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
-  {{if .Rest}}<details class="pmore">
-    <summary class="pbtn{{range .Rest}}{{if eq .Slug $.Project}} on{{end}}{{end}}" aria-label="More projects">…</summary>
-    <div class="menu">{{range .Rest}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
-  </details>{{end}}
-  <button class="pbtn add" onclick="openSheet('sheet-project')" aria-label="New project" title="New project">＋</button>
+  {{if .Rest}}<span class="pmore">
+    <button class="pbtn{{range .Rest}}{{if eq .Slug $.Project}} on{{end}}{{end}}" popovertarget="pm-more" style="anchor-name: --pm-more" aria-label="More projects">…</button>
+    <div class="menu" id="pm-more" popover style="position-anchor: --pm-more">{{range .Rest}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
+  </span>{{end}}
+  <button class="pbtn add" command="show-modal" commandfor="sheet-project" aria-label="New project" title="New project">＋</button>
 </div>
 {{if .Project}}{{with .P}}<header class="phead">
   <h1>{{if .Name}}{{.Name}}{{else}}{{.Slug}}{{end}} <code class="sqid">{{.Slug}}</code>{{if $.Archived}} <span class="tag wait">archived</span>{{end}}</h1>
@@ -17,10 +17,10 @@
 </header>
 <div class="pstrip" role="toolbar" aria-label="Project">
   {{range $.Repos}}{{with .Repo}}<span class="chip" title="Linked repository">{{.Owner}}/{{.Name}}</span>{{end}}{{else}}<a class="chip dim" href="/projects/{{.Slug}}/settings#repos">no repos linked</a>{{end}}
-  <details class="pmore rchip"><summary class="chip{{if $.ProjectRunners}} on{{end}}" title="Runners with a session for this project">runners {{len $.ProjectRunners}} active</summary>
-    <div class="menu rlist">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> <span class="tag">{{.State}}</span>{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
+  <span class="pmore rchip"><button class="chip{{if $.ProjectRunners}} on{{end}}" popovertarget="pm-runners" style="anchor-name: --pm-runners" title="Runners with a session for this project">runners {{len $.ProjectRunners}} active</button>
+    <div class="menu rlist" id="pm-runners" popover style="position-anchor: --pm-runners">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> <span class="tag">{{.State}}</span>{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
       {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
-  </details>
+  </span>
   <a class="chip" href="/projects/{{.Slug}}/settings#limits" title="How many runner instances this project may start, per template">concurrency {{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
   {{if .AutoMerge}}<span class="chip on" title="Passing PRs merge without review">auto-merge</span>{{end}}
   <a class="chip" href="/projects/{{.Slug}}/settings">Edit goals &amp; repos</a>
@@ -33,7 +33,7 @@
   <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
   <span class="grow"></span>
   <button class="btn" data-on:click="$chat = !$chat" aria-controls="projchat" title="Talk to a controller agent about this project">Comment</button>
-  <button class="btn primary" data-key="n" onclick="openSheet('sheet-new')">＋ New task</button>
+  <button class="btn primary" data-key="n" command="show-modal" commandfor="sheet-new">＋ New task</button>
 </div>{{end}}
 {{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
   {{if not .Now}}<p class="empty">No leaf task is in progress. Tasks in review are in the <a href="/inbox">inbox</a>.</p>{{end}}
@@ -87,13 +87,13 @@
   </div>
 </td></tr>
 </tbody>{{end}}</table></div>{{end}}
-{{if .ArchivedProjects}}<details class="card archived"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
+{{if .ArchivedProjects}}<details data-preserve-attr="open" class="card archived"><summary>Archived projects <span class="dim small">{{len .ArchivedProjects}}</span></summary>
   {{range .ArchivedProjects}}<div class="row"><a href="/projects/{{.Slug}}"><b>{{.Slug}}</b></a> <span class="dim">{{.Name}}</span><span class="grow"></span><button class="btn small" data-on:click="@post('/ui/act/project-restore?slug={{.Slug}}')">Restore</button></div>{{end}}</details>{{end}}
 {{end}}
 {{define "cnt"}}{{if .}}{{.}}{{else}}<span class="dim">0</span>{{end}}{{end}}
 
-{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
-  <div class="row">
+{{define "runentry"}}{{$n := .Node}}<li class="task run st-{{$n.State}} k-{{$n.Kind}}{{if $n.Awaits}} awaits{{end}} ty-{{$n.Type}}" data-sqid="{{$n.Sqid}}" data-class:ksel="$ksel == '{{$n.Sqid}}'" data-class:kcollapsed="$kcol.split(',').includes('{{$n.Sqid}}')" data-class:kfiltered="{{template "kfilt"}}" data-attr:aria-selected="$ksel == '{{$n.Sqid}}' ? 'true' : null" data-run="{{.RunID}}" role="treeitem" tabindex="-1"{{if $n.Kids}} aria-expanded="true"{{end}}>
+  <div class="row" data-on:click="!evt.target.closest('a,button') && ($ksel = '{{$n.Sqid}}')">
     {{if not .Runner}}<span class="handle" aria-label="Drag to reorder the queue">⠿</span>{{end}}
     <span class="glyph" title="{{$n.State}}">{{glyph $n.State}}</span>
     {{ticon $n.Type}}
@@ -111,12 +111,12 @@
   {{if and .CurrentTitle (not .Flat)}}<div class="now small dim">working on <a href="/task/{{.Current}}">{{.CurrentTitle}}</a></div>{{end}}
   {{if and $n.Awaits $n.Kids}}<div class="banner" role="note">{{template "bannertext" $n}}</div>{{end}}
   <div class="detail" id="d-{{$n.Sqid}}">{{$n.Detail}}</div>
-  {{if and $n.Kids (not .Flat)}}<details class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
+  {{if and $n.Kids (not .Flat)}}<details data-preserve-attr="open" class="sub"><summary>{{len $n.Kids}} subtask{{if gt (len $n.Kids) 1}}s{{end}}</summary>
     <ul class="tasks" data-parent="{{$n.Sqid}}">{{template "tasklist" $n.Kids}}</ul></details>{{end}}
 </li>{{end}}
 
-{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} k-{{.Kind}}{{if .Awaits}} awaits{{end}} ty-{{.Type}}" data-sqid="{{.Sqid}}" role="treeitem" tabindex="-1"{{if .Kids}} aria-expanded="true"{{end}}>
-  <div class="row">
+{{define "tasklist"}}{{range .}}<li class="task st-{{.State}} k-{{.Kind}}{{if .Awaits}} awaits{{end}} ty-{{.Type}}" data-sqid="{{.Sqid}}" data-class:ksel="$ksel == '{{.Sqid}}'" data-class:kcollapsed="$kcol.split(',').includes('{{.Sqid}}')" data-class:kfiltered="{{template "kfilt"}}" data-attr:aria-selected="$ksel == '{{.Sqid}}' ? 'true' : null" role="treeitem" tabindex="-1"{{if .Kids}} aria-expanded="true" data-attr:aria-expanded="String(!$kcol.split(',').includes('{{.Sqid}}'))"{{end}}>
+  <div class="row" data-on:click="!evt.target.closest('a,button') && ($ksel = '{{.Sqid}}')">
     <span class="handle" aria-label="Drag to reorder">⠿</span>
     <span class="glyph" title="{{.State}}">{{glyph .State}}</span>
     {{ticon .Type}}
@@ -138,7 +138,7 @@
 </li>{{end}}{{end}}
 
 {{define "post-tasks"}}{{template "sheet-project" .}}{{if .Project}}
-<dialog id="sheet-new" class="sheet" data-signals:ttype="'code'" data-signals:ttarget="''">
+<dialog data-preserve-attr="open" id="sheet-new" class="sheet" data-signals:ttype="'code'" data-signals:ttarget="''">
   <h2>New task in {{.Project}}</h2>
   <label>Title<input data-bind="title" placeholder="What needs doing?" autocomplete="off"></label>
   {{template "typepick" .Types}}
@@ -146,8 +146,8 @@
   <label>Prompt<textarea data-bind="prompt" rows="6" placeholder="Instructions for the agent (markdown)"></textarea></label>
   <label class="check"><input type="checkbox" data-bind="queue"> Queue it now</label>
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/task-new?project={{.Project}}')" data-close>Create</button>
+    <button class="btn" command="close" commandfor="sheet-new">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/task-new?project={{.Project}}')" command="close" commandfor="sheet-new">Create</button>
   </div>
 </dialog>{{end}}{{end}}
 
@@ -187,3 +187,5 @@
       <button class="btn small primary" data-on:click="$chatq.trim() && @post('/ui/act/project-ask?slug={{.Project}}')">Send</button></div>
   </aside>
 </div>{{end}}{{end}}
+
+{{define "kfilt"}}!!$kfilter && !(el.textContent.toLowerCase().includes($kfilter) || [...document.querySelectorAll('li.task')].some((p) => p != el && p.contains(el) && p.querySelector(':scope > .row').textContent.toLowerCase().includes($kfilter))){{end}}

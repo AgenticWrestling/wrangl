@@ -18,7 +18,7 @@
   <p id="push-state" class="dim small"></p>
 </section>
 <section class="card">
-  <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-project')">＋ New</button></div>
+  <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-project">＋ New</button></div>
   {{range .Projects}}<a class="row link" href="/projects/{{.Slug}}/settings"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}<p class="empty">No projects.</p>{{end}}
 </section>
 <section class="card">
@@ -32,7 +32,7 @@
   {{range .CAgents}}<div class="row"><b>{{.Name}}</b>{{if eq .IsDefault 1}} <span class="pill">default</span>{{end}}{{if eq .Enabled 0}} <span class="pill">disabled</span>{{end}} <span class="dim">{{.Command}}{{if .Model}} · {{.Model}}{{end}} · {{if eq .Auth "secret"}}secret {{.AuthSecret}} → {{.AuthEnv}}{{else}}installed CLI login{{end}} · {{.MaxTurns}} turns · {{.TimeoutS}}s</span><span class="grow"></span>
     <button class="btn small" data-on:click="$agname={{json .Name}}; $agcmd={{json .Command}}; $agmodel={{json .Model}}; $agauth={{json .Auth}}; $agsecret={{json .AuthSecret}}; $agenv={{json .AuthEnv}}; $agturns='{{.MaxTurns}}'; $agtimeout='{{.TimeoutS}}'; $agdefault={{if eq .IsDefault 1}}true{{else}}false{{end}}">Edit</button>
     <button class="btn small danger" data-confirm="Remove agent {{.Name}}?" data-confirm-yes="Remove" data-on:click="@post('/ui/act/agent-delete?name={{.Name}}')">Remove</button></div>{{end}}
-  <details><summary>Add or edit an agent</summary>
+  <details data-preserve-attr="open"><summary>Add or edit an agent</summary>
     <label>Name<input data-bind="agname" autocomplete="off" autocapitalize="off"></label>
     <label>Command<input data-bind="agcmd" autocomplete="off" autocapitalize="off"></label>
     <label>Model <span class="dim">(blank = the CLI's default)</span><input data-bind="agmodel" autocomplete="off" autocapitalize="off"></label>

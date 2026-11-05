@@ -6,18 +6,18 @@
   <h2>{{$p.Name}}</h2>
   <div class="actions wrap">
     <a class="btn primary" href="/projects/{{$p.Slug}}">Open tasks</a>
-    <button class="btn" onclick="openSheet('sheet-edit-project')">Edit project</button>
+    <button class="btn" command="show-modal" commandfor="sheet-edit-project">Edit project</button>
   </div>
 </section>
 
 <section class="card" id="goals">
-  <div class="row"><h3>Goals &amp; definition of done</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-edit-project')">Edit</button></div>
+  <div class="row"><h3>Goals &amp; definition of done</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-edit-project">Edit</button></div>
   {{if $p.Description}}<div class="prose">{{md $p.Description}}</div>
   {{else}}<p class="empty">No goals written yet. Describe what this project is for and what "done" looks like, in markdown.</p>{{end}}
 </section>
 
 <section class="card" id="repos">
-  <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" onclick="openSheet('sheet-repo')">＋ Link repo</button></div>
+  <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-repo">＋ Link repo</button></div>
   {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}<span class="tag" title="Research tasks run here; reports go under research/">notes repo</span>{{end}}<span class="grow"></span>
     {{if eq .ID $.NotesRepo}}<button class="btn small" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo=')">Not notes</button>{{else}}<button class="btn small" title="Research reports are written here, under research/" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Use for research notes</button>{{end}}
     <button class="btn small danger" data-confirm="Unlink {{.Owner}}/{{.Name}} from {{$p.Slug}}?" data-confirm-yes="Unlink" data-on:click="@post('/ui/act/repo-unlink?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Unlink</button></div>{{end}}
@@ -43,7 +43,7 @@
 {{end}}
 
 {{define "post-project"}}{{$p := .P}}
-<dialog id="sheet-edit-project" class="sheet" data-signals:pname="{{json $p.Name}}" data-signals:pgoals="{{json $p.Description}}" data-signals:ptemplate="{{json .Template}}" data-signals:pautomerge="{{json (gt $p.AutoMerge 0)}}" data-signals:pautoqueue="{{json (gt $p.AutoQueue 0)}}" data-signals:pautoresolve="{{json .AutoResolve}}">
+<dialog data-preserve-attr="open" id="sheet-edit-project" class="sheet" data-signals:pname="{{json $p.Name}}" data-signals:pgoals="{{json $p.Description}}" data-signals:ptemplate="{{json .Template}}" data-signals:pautomerge="{{json (gt $p.AutoMerge 0)}}" data-signals:pautoqueue="{{json (gt $p.AutoQueue 0)}}" data-signals:pautoresolve="{{json .AutoResolve}}">
   <h2>Edit {{$p.Slug}}</h2>
   <label>Name<input data-bind="pname" autocomplete="off"></label>
   <label>Goals &amp; definition of done (markdown)<textarea data-bind="pgoals" rows="12" placeholder="## Goal&#10;What this project is for.&#10;&#10;## Done when&#10;- [ ] ..."></textarea></label>
@@ -52,11 +52,11 @@
   <label class="check"><input type="checkbox" data-bind="pautoqueue"> Auto-queue new tasks</label>
   <label class="check"><input type="checkbox" data-bind="pautoresolve"> Auto-resolve merge conflicts (Smart Merge) on PRs that would auto-merge</label>
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/project-save?slug={{$p.Slug}}')" data-close>Save</button>
+    <button class="btn" command="close" commandfor="sheet-edit-project">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/project-save?slug={{$p.Slug}}')" command="close" commandfor="sheet-edit-project">Save</button>
   </div>
 </dialog>
-<dialog id="sheet-repo" class="sheet" data-signals:repoadd="''" data-signals:repoother="''">
+<dialog data-preserve-attr="open" id="sheet-repo" class="sheet" data-signals:repoadd="''" data-signals:repoother="''">
   <h2>Link a repository</h2>
   {{if .Pick}}
   <label>Choose a repository
@@ -66,7 +66,7 @@
   {{range .Pick}}{{if .NoApp}}<p class="hint warn"><b>{{.Login}}</b> has no GitHub App yet. <a href="{{.SetupURL}}">Set it up</a> to link its repositories.</p>
   {{else if .Problem}}<p class="hint warn"><b>{{.Login}}</b>: {{.Problem}}. <a href="{{.InstallURL}}" target="_blank" rel="noopener">Install the App</a>.</p>
   {{else if not .Repos}}<p class="hint"><b>{{.Login}}</b>: no more repositories to offer. <a href="{{.InstallURL}}" target="_blank" rel="noopener">Give the App access to more</a>.</p>{{end}}{{end}}
-  <details><summary class="dim small">A repository that isn't listed</summary>
+  <details data-preserve-attr="open"><summary class="dim small">A repository that isn't listed</summary>
     <label>owner/name<input data-bind="repoother" placeholder="owner/name" autocapitalize="off" autocomplete="off"></label>
     <p class="hint">If it belongs to an account that isn't linked, you'll be taken to set that up.</p></details>
   {{else}}
@@ -74,13 +74,13 @@
   <p class="hint">No GitHub account is linked yet. <a href="/setup">Add yours in Settings</a>, or type owner/name and you'll be sent there.</p>
   {{end}}
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/repo-link?slug={{$p.Slug}}')" data-close>Link</button>
+    <button class="btn" command="close" commandfor="sheet-repo">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/repo-link?slug={{$p.Slug}}')" command="close" commandfor="sheet-repo">Link</button>
   </div>
 </dialog>
 {{end}}
 
-{{define "sheet-project"}}<dialog id="sheet-project" class="sheet">
+{{define "sheet-project"}}<dialog data-preserve-attr="open" id="sheet-project" class="sheet">
   <h2>New project</h2>
   <label>Slug<input data-bind="slug" autocapitalize="off" autocomplete="off" placeholder="my-app"></label>
   <label>Name (optional)<input data-bind="pname" autocomplete="off"></label>
@@ -88,7 +88,7 @@
   <label>Repositories (owner/name, one per line)<textarea data-bind="prepos" rows="2" placeholder="you/your-repo" autocapitalize="off"></textarea></label>
   <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
   <div class="actions">
-    <button class="btn" onclick="this.closest('dialog').close()">Cancel</button>
-    <button class="btn primary" data-on:click="@post('/ui/act/project-new')" data-close>Create</button>
+    <button class="btn" command="close" commandfor="sheet-project">Cancel</button>
+    <button class="btn primary" data-on:click="@post('/ui/act/project-new')" command="close" commandfor="sheet-project">Create</button>
   </div>
 </dialog>{{end}}

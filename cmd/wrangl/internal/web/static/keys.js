@@ -4,9 +4,13 @@
 (function () {
   if (!matchMedia('(hover:hover) and (pointer:fine)').matches) return;
 
-  let sel = '';                 // selected task sqid, kept across live morphs
-  const collapsed = new Set();  // sqids whose children are hidden
-  let filter = '';
+  // Selection, collapsed rows and the filter are Datastar signals (ksel, kcol, kfilter; see #kstate
+  // in the layout and the data-class on each li.task), so a live patch cannot drop them. This file
+  // only reads them back from #kstate's dataset and sends changes as window events.
+  const state = () => document.getElementById('kstate').dataset;
+  const set = (name, v) => { window.dispatchEvent(new CustomEvent(name, { detail: v })); state()[{ ksel: 'sel', kcol: 'col', kfilter: 'filter' }[name]] = v; };
+  const sel0 = () => state().sel || '';
+  const collapsedSet = () => new Set((state().col || '').split(',').filter(Boolean));
   let chord = '';               // 'g' while waiting for the second key
   let chordTimer;
 
@@ -17,44 +21,16 @@
   const visible = () => [...document.querySelectorAll('ul.tasks.root li.task, ul.tasks.runs li.task')].filter((x) => x.offsetParent !== null);
   const kids = (x) => [...x.querySelectorAll(':scope > ul.tasks > li.task, :scope > details.sub > ul.tasks > li.task')];
 
-  function paint() {
-    document.querySelectorAll('li.task').forEach((x) => {
-      const on = x.dataset.sqid === sel;
-      x.classList.toggle('ksel', on);
-      x.tabIndex = on ? 0 : -1;
-      if (on) x.setAttribute('aria-selected', 'true'); else x.removeAttribute('aria-selected');
-      x.classList.toggle('kcollapsed', collapsed.has(x.dataset.sqid));
-      if (x.hasAttribute('aria-expanded')) x.setAttribute('aria-expanded', String(!collapsed.has(x.dataset.sqid)));
-    });
-  }
-
-  function applyFilter() {
-    // two passes: mark matches, then hide rows with no match in themselves, ancestors' match or descendants
-    const all = [...document.querySelectorAll('li.task')];
-    all.forEach((x) => { delete x.dataset.match; x.classList.remove('kfiltered'); });
-    if (!filter) return;
-    all.forEach((x) => {
-      const t = x.querySelector(':scope > .row .title').textContent.toLowerCase() + ' ' + x.dataset.sqid.toLowerCase();
-      if (t.includes(filter)) x.dataset.match = '1';
-    });
-    all.forEach((x) => {
-      const keep = x.dataset.match || x.querySelector('li.task[data-match]') || x.parentElement.closest('li.task[data-match]');
-      x.classList.toggle('kfiltered', !keep);
-    });
-  }
-  function refresh() { paint(); applyFilter(); }
-
   function select(x) {
-    sel = x ? x.dataset.sqid : '';
-    paint();
+    set('ksel', x ? x.dataset.sqid : '');
     if (x) { x.scrollIntoView({ block: 'nearest' }); x.focus({ preventScroll: true }); }
   }
 
   function toggleCollapse(x, want) {
-    const sq = x.dataset.sqid;
-    const c = want === undefined ? !collapsed.has(sq) : want;
-    if (c) collapsed.add(sq); else collapsed.delete(sq);
-    paint();
+    const sq = x.dataset.sqid, col = collapsedSet();
+    const c = want === undefined ? !col.has(sq) : want;
+    if (c) col.add(sq); else col.delete(sq);
+    set('kcol', [...col].join(','));
   }
 
   function openDetailOf(sq) { return window.toggleDetail && window.toggleDetail(sq); }
@@ -72,7 +48,7 @@
         '<h3>Selected task</h3>' + rows([['Enter o', 'Toggle details'], ['Esc', 'Collapse, then clear'], ['q', 'Queue'], ['e', 'Edit'], ['c', 'Complete'], ['s', 'Split'], ['a', 'Add subtask'], ['d', 'Needs…'], ['x', 'Cancel / reopen'], ['D', 'Delete (confirms)']]) +
         '<h3>Go</h3>' + rows([['g t', 'Tasks'], ['g b', 'Backlog'], ['g q', 'Queue'], ['g p', 'In progress'], ['g r', 'Runners'], ['g l', 'Logs'], ['g i', 'Inbox'], ['g m', 'Settings'], ['[ ]', 'Previous / next project'], ['1-9', 'Project n']]) +
         '<h3>Global</h3>' + rows([['n', 'New task'], ['?', 'This help']]) + '</div>' +
-        '<div class="actions"><button class="btn" onclick="this.closest(\'dialog\').close()">Close</button></div>';
+        '<div class="actions"><button class="btn" command="close" commandfor="khelp">Close</button></div>';
       document.body.appendChild(d);
     }
     if (!d.open) d.showModal();
@@ -87,10 +63,10 @@
       bar.innerHTML = '<span class="dim">/</span><input aria-label="Filter tasks" placeholder="Filter tasks (Enter keeps, Esc clears)" autocomplete="off">';
       document.body.appendChild(bar);
       const inp = bar.querySelector('input');
-      inp.addEventListener('input', () => { filter = inp.value.trim().toLowerCase(); refresh(); });
+      inp.addEventListener('input', () => set('kfilter', inp.value.trim().toLowerCase()));
       inp.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { filter = ''; inp.value = ''; bar.remove(); refresh(); e.stopPropagation(); }
-        else if (e.key === 'Enter') { inp.blur(); const v = visible()[0]; if (v && !li(sel)) select(v); if (!filter) bar.remove(); }
+        if (e.key === 'Escape') { set('kfilter', ''); inp.value = ''; bar.remove(); e.stopPropagation(); }
+        else if (e.key === 'Enter') { inp.blur(); const v = visible()[0]; if (v && !li(sel0())) select(v); if (!state().filter) bar.remove(); }
       });
     }
     bar.querySelector('input').focus();
@@ -127,6 +103,7 @@
   }
 
   function press(key) { // click the data-key button of the selected task's open card (or page)
+    const sel = sel0();
     const root = sel && detailOpen(sel) ? document.getElementById('d-' + sel) : $('#main section.card');
     const b = root && root.querySelector('[data-key="' + key + '"]');
     if (b) { b.click(); return true; }
@@ -144,6 +121,7 @@
       return;
     }
     const onList = !!tree();
+    const sel = sel0(), collapsed = collapsedSet(), filter = state().filter;
     const cur = li(sel);
     let handled = true;
     if (k === 'g') { chord = 'g'; chordTimer = setTimeout(() => { chord = ''; }, 1200); }
@@ -163,7 +141,7 @@
     else if (k === 'Escape') {
       if (cur && detailOpen(sel)) openDetailOf(sel);
       else if (cur && kids(cur).length && !collapsed.has(sel)) toggleCollapse(cur, true);
-      else if (filter) { filter = ''; const b = document.getElementById('kbar'); if (b) b.remove(); refresh(); }
+      else if (filter) { set('kfilter', ''); const b = document.getElementById('kbar'); if (b) b.remove(); }
       else if (cur) select(null);
       else handled = false;
     } else if (k === 'l') {
@@ -182,17 +160,4 @@
     if (handled) e.preventDefault();
   });
 
-  // Click selects too.
-  document.addEventListener('click', (e) => {
-    const r = e.target.closest && e.target.closest('li.task > .row');
-    if (r && !e.target.closest('a,button')) select(r.parentElement);
-  });
-
-  // Keep selection/collapse/filter across live morphs.
-  const main = document.getElementById('main');
-  if (main) {
-    let t;
-    new MutationObserver(() => { clearTimeout(t); t = setTimeout(refresh, 30); }).observe(main, { childList: true, subtree: true });
-  }
-  refresh();
 })();
