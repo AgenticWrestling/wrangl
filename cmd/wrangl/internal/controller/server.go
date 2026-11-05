@@ -328,8 +328,8 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Tools = &tools.Service{DB: s.db, Log: s.log,
 		PutSecret: func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 		GetSecret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
-	// Executors for the library's tool kinds are registered here as they land (ADR 0003).
-	s.Runs.Custom = &tools.Engine{Svc: s.Tools, Executors: map[toolkdl.Kind]tools.Executor{}, Approver: s.Runs, Open: s.Runs.QuestionOpen, Now: now, Log: s.log}
+	// Executors for the library's tool kinds are registered here as they land (ADR 0003): http so far.
+	s.Runs.Custom = &tools.Engine{Svc: s.Tools, Executors: map[toolkdl.Kind]tools.Executor{toolkdl.KindHTTP: tools.NewHTTPExecutor()}, Approver: s.Runs, Open: s.Runs.QuestionOpen, Now: now, Log: s.log}
 	s.Runs.ApprovalHandlers[tools.ApprovalOp] = s.Runs.Custom.Approved
 	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
 	s.Runs.ToolHandlers["issue_get"] = issueTools.Get
@@ -569,7 +569,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents, Tools: s.Tools,
+	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents, Tools: s.Tools, ToolEngine: s.Runs.Custom,
 		Setup: s.setupService(), Secrets: &api.SecretStore{
 			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },

@@ -123,8 +123,7 @@ func registerTools(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("DELETE /api/v1/projects/{slug}/tools/{name}", ack(http.StatusNoContent, func(r *http.Request) error {
 		return svc.Disable(r.Context(), r.PathValue("slug"), r.PathValue("name"))
 	}))
-	// Executing tools arrives with the proxy (ADR 0003 phase 1d); until then the endpoint checks
-	// the tool is enabled and says so.
+	// Runs the tool as the owner against the real upstream and returns what an agent would see.
 	mux.HandleFunc("POST /api/v1/projects/{slug}/tools/{name}/test", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := svc.Enabled(r.Context(), r.PathValue("slug"), r.PathValue("name")); err != nil {
 			writeErr(w, err)
@@ -137,7 +136,16 @@ func registerTools(mux *http.ServeMux, d Deps) {
 				return
 			}
 		}
-		writeJSON(w, http.StatusNotImplemented, proto.APIError{Error: "tool execution is not implemented yet (ADR 0003 phase 1d); the tool is enabled and its definition is valid"})
+		if d.ToolEngine == nil {
+			writeJSON(w, http.StatusNotImplemented, proto.APIError{Error: "tool execution is not available on this controller"})
+			return
+		}
+		out, truncated, err := d.ToolEngine.Test(r.Context(), r.PathValue("slug"), r.PathValue("name"), req.Input)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.LibraryToolTestResult{Output: out, Truncated: truncated})
 	})
 }
 

@@ -171,7 +171,7 @@ func toolCmd(g *Global) *cobra.Command {
 	var input string
 	test := &cobra.Command{
 		Use: "test (-f tool.kdl | <name> --project P [--input JSON])", Args: cobra.MaximumNArgs(1),
-		Short: "Validate a tool file locally, or call a tool enabled on a project with sample input",
+		Short: "Validate a tool file locally, or really call a tool enabled on a project with sample input and print what an agent would see",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			if file != "" {
@@ -202,7 +202,15 @@ func toolCmd(g *Global) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return c.TestTool(cmd.Context(), project, args[0], raw)
+			res, err := c.TestTool(cmd.Context(), project, args[0], raw)
+			if err != nil {
+				return err
+			}
+			if g.Output == "json" || g.Output == "yaml" {
+				return emit(cmd, g, res, nil)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), res.Output)
+			return nil
 		},
 	}
 	test.Flags().StringVarP(&file, "file", "f", "", "validate this KDL file without contacting the controller")

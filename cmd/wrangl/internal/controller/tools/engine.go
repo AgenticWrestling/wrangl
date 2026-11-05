@@ -202,25 +202,56 @@ func (e *Engine) Call(ctx context.Context, c Caller, name string, raw json.RawMe
 		}
 	}
 
-	res, err := e.Svc.Resolve(proj.Slug, def)
+	text, truncated, err := e.execute(ctx, ex, def, proj.Slug, c.RunID, in, name)
 	if err != nil {
-		return fail("error", err) // names the missing secrets, never values
+		return fail("error", err)
+	}
+	status, nbytes = "ok", len(text)
+	return map[string]any{"output": text, "truncated": truncated}, nil
+}
+
+// execute resolves the secrets, runs the executor under the call timeout and returns the
+// scrubbed, capped output. Errors are scrubbed too.
+func (e *Engine) execute(ctx context.Context, ex Executor, def *toolkdl.Definition, project string, runID int64, in *toolkdl.Input, name string) (string, bool, error) {
+	res, err := e.Svc.Resolve(project, def)
+	if err != nil {
+		return "", false, err // names the missing secrets, never values
 	}
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	body, xerr := ex.Execute(cctx, &Call{Def: def, Project: proj.Slug, RunID: c.RunID, Input: in, Secrets: res})
+	body, xerr := ex.Execute(cctx, &Call{Def: def, Project: project, RunID: runID, Input: in, Secrets: res})
 	sc := res.Scrubber()
 	if xerr != nil {
 		if errors.Is(cctx.Err(), context.DeadlineExceeded) {
 			xerr = fmt.Errorf("%s timed out after %s", name, callTimeout)
 		}
-		return fail("error", errors.New(sc.ScrubString(xerr.Error())))
+		return "", false, errors.New(sc.ScrubString(xerr.Error()))
 	}
-	limit := def.OutputLimit()
 	clean := sc.Scrub(body) // scrub the whole body first, so a cut can never expose half a secret
-	text, truncated := Truncate(clean, limit)
-	status, nbytes = "ok", len(text)
-	return map[string]any{"output": text, "truncated": truncated}, nil
+	text, truncated := Truncate(clean, def.OutputLimit())
+	return text, truncated, nil
+}
+
+// Test runs a tool enabled on a project as the owner (wrangl tool test): no run, scope or
+// approval, and no audit row (those belong to run calls). It really calls the upstream.
+func (e *Engine) Test(ctx context.Context, slug, name string, raw json.RawMessage) (string, bool, error) {
+	t, err := e.Svc.Enabled(ctx, slug, name)
+	if err != nil {
+		return "", false, err
+	}
+	def, err := toolkdl.Parse([]byte(t.Kdl))
+	if err != nil {
+		return "", false, fmt.Errorf("tool %s has an invalid stored definition", name)
+	}
+	in, err := def.ValidateInput(raw)
+	if err != nil {
+		return "", false, fmt.Errorf("%w: %v", errs.Invalid, err)
+	}
+	ex := e.Executors[def.Kind]
+	if ex == nil {
+		return "", false, fmt.Errorf("%w: %s tools cannot run on this controller yet", errs.Invalid, def.Kind)
+	}
+	return e.execute(ctx, ex, def, slug, 0, in, name)
 }
 
 // Truncate cuts b to limit bytes (on a UTF-8 boundary) and appends a marker saying how much was

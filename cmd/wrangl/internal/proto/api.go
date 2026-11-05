@@ -433,3 +433,10 @@ type LibraryToolRequest struct {
 type LibraryToolTestRequest struct {
 	Input json.RawMessage `json:"input,omitempty"`
 }
+
+// LibraryToolTestResult is what a tool test call returned: the same scrubbed, capped output the
+// agent would see.
+type LibraryToolTestResult struct {
+	Output    string `json:"output"`
+	Truncated bool   `json:"truncated,omitempty"`
+}

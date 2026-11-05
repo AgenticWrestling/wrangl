@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/tools"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/toolkdl"
 	"io"
 	"log/slog"
 	"net/http"
@@ -117,7 +119,7 @@ func TestToolEndpoints(t *testing.T) {
 	if len(list) != 1 || list[0].Projects[0] != "alpha" {
 		t.Fatalf("project tools: %s", rec.Body)
 	}
-	if rec = send(mux, "POST", "/api/v1/projects/alpha/tools/deploy_status/test", `{"input":{"env":"prod"}}`); rec.Code != 501 || !strings.Contains(rec.Body.String(), "not implemented") {
+	if rec = send(mux, "POST", "/api/v1/projects/alpha/tools/deploy_status/test", `{"input":{"env":"prod"}}`); rec.Code != 501 || !strings.Contains(rec.Body.String(), "not available") {
 		t.Fatalf("test: %d %s", rec.Code, rec.Body)
 	}
 	if rec = send(mux, "DELETE", "/api/v1/tools/deploy_status", ""); rec.Code != 409 {
@@ -250,5 +252,39 @@ func TestToolSecretsNeverLeak(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "tool secret set") {
 		t.Errorf("expected an audit log line without the value, got %q", logs.String())
+	}
+}
+
+func TestToolTestEndpointRunsTheEngine(t *testing.T) {
+	d, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	d.W.Exec(`INSERT INTO project (slug, name) VALUES ('alpha', 'Alpha')`)
+	ms := &memStore{m: map[string]string{}}
+	svc := &tools.Service{DB: d, PutSecret: ms.store().Set, GetSecret: ms.store().Get}
+	var gotInput string
+	eng := &tools.Engine{Svc: svc, Executors: map[toolkdl.Kind]tools.Executor{toolkdl.KindExec: tools.ExecutorFunc(
+		func(ctx context.Context, c *tools.Call) ([]byte, error) {
+			gotInput = c.Input.Args["env"]
+			return []byte("healthy"), nil
+		})}}
+	mux := http.NewServeMux()
+	registerTools(mux, Deps{Fleet: &fleet.Service{DB: d}, Tools: svc, ToolEngine: eng})
+	send(mux, "POST", "/api/v1/tools", kdlBody(toolKDL))
+	if rec := send(mux, "POST", "/api/v1/projects/alpha/tools/deploy_status/test", `{"input":{"env":"prod"}}`); rec.Code != 409 {
+		t.Fatalf("not enabled: %d %s", rec.Code, rec.Body)
+	}
+	send(mux, "PUT", "/api/v1/projects/alpha/tools/deploy_status", "")
+	send(mux, "PUT", "/api/v1/projects/alpha/tool-secrets/kube.prod", "KUBE-VALUE")
+	rec := send(mux, "POST", "/api/v1/projects/alpha/tools/deploy_status/test", `{"input":{"env":"prod"}}`)
+	var res proto.LibraryToolTestResult
+	json.Unmarshal(rec.Body.Bytes(), &res)
+	if rec.Code != 200 || res.Output != "healthy" || gotInput != "prod" {
+		t.Fatalf("test: %d %s", rec.Code, rec.Body)
+	}
+	if rec := send(mux, "POST", "/api/v1/projects/alpha/tools/deploy_status/test", `{"input":{"env":"dev"}}`); rec.Code != 400 {
+		t.Fatalf("invalid input: %d %s", rec.Code, rec.Body)
 	}
 }

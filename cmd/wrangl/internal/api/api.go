@@ -89,6 +89,8 @@ type Deps struct {
 	Agents *agents.Service
 	// Tools is the custom tool library (nil: built on Fleet.DB).
 	Tools *tools.Service
+	// ToolEngine runs tools for `wrangl tool test` (nil: the test endpoint answers 501).
+	ToolEngine *tools.Engine
 }
 
 // Register mounts /api/v1 on mux.

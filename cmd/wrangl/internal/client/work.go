@@ -560,6 +560,7 @@ func (c *Client) SetToolSecret(ctx context.Context, project, secret, value strin
 }
 
 // TestTool calls a tool enabled on a project with sample input.
-func (c *Client) TestTool(ctx context.Context, project, name string, input json.RawMessage) error {
-	return c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(project)+"/tools/"+esc(name)+"/test", proto.LibraryToolTestRequest{Input: input}, nil)
+func (c *Client) TestTool(ctx context.Context, project, name string, input json.RawMessage) (proto.LibraryToolTestResult, error) {
+	var out proto.LibraryToolTestResult
+	return out, c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(project)+"/tools/"+esc(name)+"/test", proto.LibraryToolTestRequest{Input: input}, &out)
 }

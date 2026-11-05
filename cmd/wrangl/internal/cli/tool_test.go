@@ -49,9 +49,11 @@ func toolAPI(t *testing.T, calls *[]toolCall, status int) string {
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == "GET" && (r.URL.Path == "/api/v1/tools" || strings.HasSuffix(r.URL.Path, "/projects/alpha/tools")):
 			json.NewEncoder(w).Encode([]proto.LibraryToolView{v})
-		case strings.HasSuffix(r.URL.Path, "/test"):
+		case strings.HasSuffix(r.URL.Path, "/test") && strings.Contains(r.URL.Path, "/projects/beta/"):
 			w.WriteHeader(http.StatusNotImplemented)
-			json.NewEncoder(w).Encode(proto.APIError{Error: "tool execution is not implemented yet"})
+			json.NewEncoder(w).Encode(proto.APIError{Error: "tool execution is not available on this controller"})
+		case strings.HasSuffix(r.URL.Path, "/test"):
+			json.NewEncoder(w).Encode(proto.LibraryToolTestResult{Output: `{"status":"healthy"}`, Truncated: true})
 		default:
 			json.NewEncoder(w).Encode(v)
 		}
@@ -155,11 +157,14 @@ func TestToolTest(t *testing.T) {
 	if _, err = run2(t, url, "tool", "test", "-f", writeTool(t, `tool "x" {`)); err == nil {
 		t.Fatal("invalid file should fail")
 	}
-	// on a project: the sample input reaches the test endpoint; not-implemented is reported
-	_, err = run2(t, url, "tool", "test", "deploy_status", "--project", "alpha", "--input", `{"env":"prod"}`)
+	// on a project: the sample input reaches the test endpoint and the result is printed
+	out, err = run2(t, url, "tool", "test", "deploy_status", "--project", "alpha", "--input", `{"env":"prod"}`)
 	last := calls[len(calls)-1]
-	if err == nil || !strings.Contains(err.Error(), "not implemented") || last.Path != "/api/v1/projects/alpha/tools/deploy_status/test" || !strings.Contains(last.Body, `"env":"prod"`) {
-		t.Fatalf("remote: %v %+v", err, last)
+	if err != nil || !strings.Contains(out, `{"status":"healthy"}`) || last.Path != "/api/v1/projects/alpha/tools/deploy_status/test" || !strings.Contains(last.Body, `"env":"prod"`) {
+		t.Fatalf("remote: %v %q %+v", err, out, last)
+	}
+	if _, err = run2(t, url, "tool", "test", "deploy_status", "--project", "beta"); err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("501: %v", err)
 	}
 	if _, err = run2(t, url, "tool", "test", "deploy_status", "--project", "alpha", "--input", "{nope"); err == nil {
 		t.Fatal("bad --input should fail")

@@ -265,3 +265,14 @@ func TestDeclarationHidesExecutor(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONBodyWithNestedBraces(t *testing.T) {
+	src := wrap(`http {
+  method "POST"
+  url "https://a.example.com/v1"
+  body "{\"a\": {\"b\": \"{{input.p}}\"}}"
+}`, `input { param "p" type="string" { max-length 9 } }`)
+	if _, err := Parse([]byte(src)); err != nil {
+		t.Fatal(err)
+	}
+}

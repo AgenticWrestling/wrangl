@@ -449,7 +449,9 @@ func checkPlaceholders(s string, params map[string]*Param, inputOK, secretsOK bo
 	rest := placeholder.ReplaceAllStringFunc(s, func(m string) string {
 		return "\x00"
 	})
-	if strings.Contains(rest, "{{") || strings.Contains(rest, "}}") {
+	// A stray "}}" is fine: it closes nested JSON objects. An opening "{{" that is not a
+	// well-formed placeholder is a typo that would be sent verbatim.
+	if strings.Contains(rest, "{{") {
 		return fmt.Errorf("malformed placeholder in %q", s)
 	}
 	for _, m := range placeholder.FindAllStringSubmatch(s, -1) {
