@@ -78,7 +78,8 @@ func newSID() string {
 func New(d api.Deps) (*Handler, error) {
 	h := &Handler{D: d, css: chromaCSS()}
 	t, err := template.New("").Funcs(template.FuncMap{
-		"glyph": func(s string) string { return glyph[s] },
+		"glyph":    func(s string) string { return glyph[s] },
+		"tagstyle": tagStyleFor,
 		"props": func(kv ...any) map[string]any { // named arguments for {{template "x" props "A" 1 "B" 2}}
 			m := map[string]any{}
 			for i := 0; i+1 < len(kv); i += 2 {
@@ -1624,4 +1625,36 @@ func shortDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", d/time.Minute)
 	}
 	return d.String()
+}
+
+// tagStyle is how the "tag" template draws one status: its CSS class, leading glyph, default label and tooltip.
+type tagStyle struct{ Class, Glyph, Label, Title string }
+
+// tagStyles is the single state -> class/glyph map behind the "tag" template. Keys are run/log states, plus
+// "k-<kind>" for a task's inbox kind and "wait-queued" for a task waiting in the queue.
+var tagStyles = map[string]tagStyle{
+	"needs_input": {Class: "tag attn", Glyph: "!"}, "blocked": {Class: "tag attn", Glyph: "!"},
+	"failed": {Class: "tag attn", Glyph: "!"}, "error": {Class: "tag attn", Glyph: "!"}, "warn": {Class: "tag attn", Glyph: "!"},
+	"running": {Class: "tag prog", Glyph: "▶"}, "preparing": {Class: "tag prog", Glyph: "▶"}, "assigned": {Class: "tag prog", Glyph: "▶"},
+	"pushing": {Class: "tag prog", Glyph: "▶"}, "cancelling": {Class: "tag prog", Glyph: "▶"},
+	"upgrading":   {Class: "tag prog", Glyph: "⟳"},
+	"succeeded":   {Class: "tag ok", Glyph: "✓"},
+	"wait-queued": {Class: "tag wait", Glyph: "⧗", Label: "queued"},
+	"k-failed":    {Class: "tag k-failed", Glyph: "✕", Label: "failed", Title: "the latest run failed or is blocked"},
+	"k-questions": {Class: "tag k-questions", Glyph: "?", Label: "needs input", Title: "blocked on open questions for you"},
+	"k-review":    {Class: "tag k-review", Glyph: "◐", Label: "in review", Title: "waiting for your review"},
+	"k-running":   {Class: "tag k-running", Glyph: "▶", Label: "running", Title: "running"},
+	"k-queued":    {Class: "tag k-queued", Glyph: "⧗", Label: "queued", Title: "queued"},
+}
+
+// tagStyleFor looks a state up; an unknown state is a plain pill, an unknown k-kind or empty state draws nothing.
+func tagStyleFor(v any) tagStyle {
+	s, _ := v.(string)
+	if st, ok := tagStyles[s]; ok {
+		return st
+	}
+	if s == "" || strings.HasPrefix(s, "k-") {
+		return tagStyle{}
+	}
+	return tagStyle{Class: "pill"}
 }

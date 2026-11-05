@@ -3,15 +3,15 @@
   {{if and $tn $tn.Awaits}}<div class="banner" role="note">{{template "bannertext" $tn}}</div>{{end}}
   <div class="meta">
     <span class="pill st-{{$t.State}}">{{glyph $t.State}} {{$t.State}}</span>
-    {{if $tn}}{{template "kindtag" $tn}}{{template "rollchips" $tn}}{{end}}
+    {{if $tn}}{{template "tag" props "State" (print "k-" $tn.Kind)}}{{template "rollchips" $tn}}{{end}}
     <span class="typechip">{{ticon $t.TaskType}} {{tlabel (print $t.TaskType)}}</span>
-    {{if $t.TargetDate.Valid}}<span class="tag target" title="target date">{{$t.TargetDate.String}}</span>{{end}}
+    {{if $t.TargetDate.Valid}}{{template "tag" props "Class" "tag target" "Label" $t.TargetDate.String "Title" "target date"}}{{end}}
     <code class="sqid">{{$t.Sqid.String}}</code>
     <a href="/projects/{{.Project}}">{{.Project}}</a>
     {{with .Parent}}› <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{end}}
   </div>
   <h2>{{$t.Title}}</h2>
-  <div class="prose">{{if $t.Prompt}}{{md $t.Prompt}}{{else}}<p class="empty">No prompt.</p>{{end}}</div>
+  <div class="prose">{{if $t.Prompt}}{{md $t.Prompt}}{{else}}{{template "empty" props "Msg" "No prompt."}}{{end}}</div>
   {{if $t.CompletionSummary}}<h3>Completion summary</h3><div class="prose">{{md $t.CompletionSummary}}</div>{{end}}
   {{with .Checkpoint}}<p class="changes"><a class="btn small" href="{{.Commit}}" target="_blank" rel="noopener noreferrer" title="the checkpoint commit for this task">{{faicon "edit"}}Changes <code>{{.Short}}</code></a> <a class="btn small" href="{{.Compare}}" target="_blank" rel="noopener noreferrer" title="compare with the previous task's checkpoint (or the base branch)">Compare</a></p>{{end}}
   {{if eq .LiveMode "pty"}}{{with .LiveRun}}<div class="liveterm" id="lt-{{.}}" data-run="{{.}}" data-ignore-morph>
@@ -53,9 +53,9 @@
   <div class="row"><h3>Subtasks</h3><span class="grow"></span>
     <button class="btn small" data-key="s" command="show-modal" commandfor="sheet-split">{{faicon "split"}}Split</button>
     <button class="btn small" data-key="a" command="show-modal" commandfor="sheet-sub">{{faicon "subtask"}}Subtask</button></div>
-  {{if not .Kids}}<p class="empty">No subtasks. Split this task, or add one.</p>{{end}}
+  {{if not .Kids}}{{template "empty" props "Msg" "No subtasks. Split this task, or add one."}}{{end}}
   <ul class="tasks sortable" data-parent="{{$t.Sqid.String}}">{{range .Kids}}<li class="task st-{{.State}} k-{{index $.KidKind .Sqid.String}}" data-sqid="{{.Sqid.String}}"><div class="row">
-  <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{template "kindtag" (dict "Kind" (index $.KidKind .Sqid.String))}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
+  <span class="handle">⠿</span><span class="glyph">{{glyph .State}}</span>{{ticon .TaskType}}<a class="title" href="/task/{{.Sqid.String}}">{{.Title}}</a>{{template "tag" props "State" (print "k-" (index $.KidKind .Sqid.String))}}<code class="sqid">{{.Sqid.String}}</code></div><ul class="tasks sortable" data-parent="{{.Sqid.String}}"></ul></li>{{end}}</ul>
 </section>
 
 {{if .Deliverables}}<section class="card" id="deliverables"><h3>Deliverables</h3>{{template "gallery" .Deliverables}}</section>{{end}}
@@ -65,7 +65,7 @@
 </section>{{end}}
 
 {{if .Runs}}<section class="card"><h3>Runs</h3>
-  {{range .Runs}}<a class="row link" href="/run/{{.ID}}">{{template "runtag" .State}} #{{.ID}} {{.Kind}}{{if gt .Attempt 1}} (attempt {{.Attempt}}){{end}} <span class="dim">{{.RunnerName}} · {{ago .QueuedAt}}</span></a>{{end}}
+  {{range .Runs}}<a class="row link" href="/run/{{.ID}}">{{template "tag" props "State" .State}} #{{.ID}} {{.Kind}}{{if gt .Attempt 1}} (attempt {{.Attempt}}){{end}} <span class="dim">{{.RunnerName}} · {{ago .QueuedAt}}</span></a>{{end}}
 </section>{{end}}
 
 {{if .Events}}<details data-preserve-attr="open" class="card"><summary>History ({{len .Events}})</summary>

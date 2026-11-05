@@ -1,6 +1,6 @@
 {{define "runhead"}}{{$run := .Run}}
 <div class="meta">
-  {{template "runtag" $run.State}}
+  {{template "tag" props "State" $run.State}}
   <span>{{$run.Kind}}{{if gt $run.Attempt 1}} · attempt {{$run.Attempt}}{{end}}</span>
   {{with .Task}}<a href="/task/{{.Sqid.String}}">{{.Title}}</a> <code class="sqid">{{.Sqid.String}}</code>{{end}}
   {{with .Runner}}<a href="/runner/{{.}}">{{.}}</a>{{end}}
@@ -42,7 +42,7 @@
     </select>
   </form>
   {{if .Logs}}<pre class="log">{{range .Logs}}<span class="lv-{{.Level}}"><span class="dim">{{.Stream}}</span> {{.Message}}</span>
-{{end}}</pre>{{else}}<p class="empty">No log lines{{if .Q}} match{{end}}.</p>{{end}}
+{{end}}</pre>{{else}}{{template "empty" props "Msg" (print "No log lines" (or (and .Q " match") "") ".")}}{{end}}
 </section>
 {{if .Hooks}}<details data-preserve-attr="open" class="card"><summary>Hook events ({{len .Hooks}})</summary>
   {{range .Hooks}}<div class="row small"><span class="dim">{{ago .Ts}}</span> <b>{{.Name}}</b></div>{{end}}
@@ -53,7 +53,7 @@
 <section class="card">{{template "runhead" .}}</section>
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
 {{if .Truncated}}<p class="hint">Diff truncated.</p>{{end}}
-{{if and (not .Files) (not .Err)}}<p class="empty">No changes.</p>{{end}}
+{{if and (not .Files) (not .Err)}}{{template "empty" props "Msg" "No changes."}}{{end}}
 {{if .Files}}<section class="card"><h3>{{len .Files}} files</h3>{{range $i, $f := .Files}}<a class="row link small" href="#f{{$i}}">{{$f.Name}} <span class="grow"></span><span class="add">+{{$f.Add}}</span> <span class="del">−{{$f.Del}}</span></a>{{end}}</section>{{end}}
 {{range $i, $f := .Files}}<details data-preserve-attr="open" class="card diff" id="f{{$i}}" open>
   <summary><code>{{$f.Name}}</code> <span class="add">+{{$f.Add}}</span> <span class="del">−{{$f.Del}}</span></summary>

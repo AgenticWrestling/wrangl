@@ -1,13 +1,13 @@
 {{define "main-tasks"}}
 {{if .Project}}{{with .P}}<header class="phead">
-  {{if $.Archived}}<p><span class="tag wait">archived</span></p>{{end}}
+  {{if $.Archived}}<p>{{template "tag" props "Class" "tag wait" "Label" "archived"}}</p>{{end}}
   {{with $.About}}<p class="about">{{.}}</p>{{end}}
 </header>
 <div class="pstrip" role="toolbar" aria-label="Project">
-  {{range $.Repos}}{{with .Repo}}<a class="chip ic" href="https://github.com/{{.Owner}}/{{.Name}}" target="_blank" rel="noopener noreferrer" title="{{.Owner}}/{{.Name}} on GitHub" aria-label="{{.Owner}}/{{.Name}} on GitHub"><svg class="ni" aria-hidden="true"><use href="#ni-github"/></svg></a>{{end}}{{else}}<a class="chip dim" href="/projects/{{.Slug}}/settings#repos">no repos linked</a>{{end}}
-  {{if .AutoMerge}}<span class="chip ic on" title="Auto-merge is on: passing PRs merge without review" aria-label="Auto-merge is on"><svg class="ni" aria-hidden="true"><use href="#ni-merge"/></svg></span>{{end}}
-  <a class="chip ic" href="/projects/{{.Slug}}/settings" title="Edit goals and repos" aria-label="Edit goals and repos"><svg class="ni" aria-hidden="true"><use href="#ni-edit"/></svg></a>
-  <button class="chip ic" type="button" data-on:click="$chat = !$chat" aria-controls="projchat" title="Comment: talk to a controller agent about this project" aria-label="Comment"><svg class="ni" aria-hidden="true"><use href="#fa-comment"/></svg></button>
+  {{range $.Repos}}{{with .Repo}}{{template "iconchip" props "Icon" "ni-github" "Href" (printf "https://github.com/%s/%s" .Owner .Name) "External" true "Title" (printf "%s/%s on GitHub" .Owner .Name)}}{{end}}{{else}}<a class="chip dim" href="/projects/{{.Slug}}/settings#repos">no repos linked</a>{{end}}
+  {{if .AutoMerge}}{{template "iconchip" props "Icon" "ni-merge" "Static" true "Class" "on" "Title" "Auto-merge is on: passing PRs merge without review" "Aria" "Auto-merge is on"}}{{end}}
+  {{template "iconchip" props "Icon" "ni-edit" "Href" (printf "/projects/%s/settings" .Slug) "Title" "Edit goals and repos"}}
+  {{template "iconchip" props "Icon" "fa-comment" "Toggle" "chat" "Controls" "projchat" "Title" "Comment: talk to a controller agent about this project" "Aria" "Comment"}}
   <span class="grow"></span>
   {{if not $.Archived}}{{template "actbtn" props "Class" "small danger ic" "Icon" "archive" "Title" "Archive project" "Yes" "Archive" "Confirm" (printf "Archive %s? It and its tasks are hidden and queued runs are cancelled. You can restore it." .Slug) "Post" (printf "/ui/act/project-archive?slug=%s" .Slug)}}{{end}}
 </div>{{end}}
@@ -15,20 +15,20 @@
 {{template "projchat" .}}
 <div class="bar">
   <a class="chip{{if .NowOnly}} on{{end}}" href="/projects/{{.Project}}{{if not .NowOnly}}?now=1{{end}}"{{if .NowOnly}} aria-current="true"{{end}} title="Only leaf tasks being worked on right now">In progress{{if .Now}} {{len .Now}}{{end}}</a>
-  <span class="pmore rchip"><button class="chip ic{{if $.ProjectRunners}} on{{end}}" popovertarget="pm-runners" style="anchor-name: --pm-runners" title="{{len $.ProjectRunners}} runner{{if ne (len $.ProjectRunners) 1}}s{{end}} with a session for this project" aria-label="{{len $.ProjectRunners}} active runners"><svg class="ni" aria-hidden="true"><use href="#ni-runners"/></svg>{{len $.ProjectRunners}}</button>
-    <div class="menu rlist" id="pm-runners" popover style="position-anchor: --pm-runners">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> <span class="tag">{{.State}}</span>{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
+  <span class="pmore rchip">{{template "iconchip" props "Icon" "ni-runners" "Popover" "pm-runners" "Class" (and $.ProjectRunners "on") "Title" (printf "%d runner%s with a session for this project" (len $.ProjectRunners) (or (and (ne (len $.ProjectRunners) 1) "s") "")) "Aria" (printf "%d active runners" (len $.ProjectRunners)) "Text" (len $.ProjectRunners)}}
+    <div class="menu rlist" id="pm-runners" popover style="position-anchor: --pm-runners">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> {{template "tag" props "Class" "tag" "Label" .State}}{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
       {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
   </span>
-  <a class="chip ic" href="/projects/{{.Project}}/settings#limits" title="Concurrency: how many runner instances this project may start, per template" aria-label="Concurrency"><svg class="ni" aria-hidden="true"><use href="#ni-concurrency"/></svg>{{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
+  {{$capstr := "none"}}{{range $i, $c := $.Caps}}{{if $i}}{{$capstr = printf "%s · %v" $capstr $c}}{{else}}{{$capstr = printf "%v" $c}}{{end}}{{end}}{{template "iconchip" props "Icon" "ni-concurrency" "Href" (printf "/projects/%s/settings#limits" .Project) "Title" "Concurrency: how many runner instances this project may start, per template" "Aria" "Concurrency" "Text" (printf "%s" $capstr)}}
   <span class="grow"></span>
   <button class="btn primary" data-key="n" command="show-modal" commandfor="sheet-new" title="New task" aria-label="New task">＋</button>
 </div>{{end}}
 {{if .NowOnly}}<section class="tsec" id="now"><h3>In progress <span class="dim small">{{len .Now}}</span></h3>
-  {{if not .Now}}<p class="empty">No leaf task is in progress. Tasks in review are in the <a href="/inbox">inbox</a>.</p>{{end}}
+  {{if not .Now}}{{template "empty" props "Msg" "No leaf task is in progress. Tasks in review are in the" "Href" "/inbox" "Link" "inbox" "Tail" "."}}{{end}}
   <ul class="tasks" role="tree" aria-label="In progress">{{template "tasklist" .Now}}</ul></section>
 {{else}}
-{{if not .Projects}}<p class="empty">No projects yet. Tap ＋ above to create one.</p>
-{{else if and (not .Roots) (not .Progress) (not .Queue)}}<p class="empty">Nothing open in {{.Project}}. Tap ＋ New to add a task.</p>{{end}}
+{{if not .Projects}}{{template "empty" props "Msg" "No projects yet. Tap ＋ above to create one."}}
+{{else if and (not .Roots) (not .Progress) (not .Queue)}}{{template "empty" props "Msg" (printf "Nothing open in %s. Tap ＋ New to add a task." .Project)}}{{end}}
 {{if .Progress}}<section class="tsec" id="in-progress"><h3>In progress <span class="dim small">{{len .Progress}}</span></h3>
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
@@ -49,11 +49,11 @@
   <label>Default runner template<select data-bind="ptemplate"><option value="">none</option>{{range .Templates}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select></label>
   <div class="actions"><button class="btn" data-on:click="$newproj = false">Cancel</button><button class="btn primary" data-on:click="@post('/ui/act/project-new')">Create</button></div>
 </section>
-{{if not .Rows}}<p class="empty">No projects yet. Use ＋ New project to create one.</p>{{else}}
+{{if not .Rows}}{{template "empty" props "Msg" "No projects yet. Use ＋ New project to create one."}}{{else}}
 <div class="logwrap"><table class="logs plist">
 <thead><tr><th>Project</th><th class="num">Runners</th><th class="num">In progress</th><th class="num">Queued</th><th class="num">Backlog</th><th class="num">Inbox</th></tr></thead>
 {{range $i, $p := .Rows}}{{$k := print "pj" $i}}<tbody class="lrow prow" id="proj-{{$p.Slug}}" data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}">
-<tr class="expandable" data-on:click="if (!evt.target.closest('a,button')) {{sig "" $k}} = !{{sig "" $k}}" title="Show details" tabindex="0" data-on:keydown="(evt.key == 'Enter' || evt.key == ' ') && !evt.target.closest('a,button') && (evt.preventDefault(), {{sig "" $k}} = !{{sig "" $k}})">
+<tr{{template "exprow" props "Key" $k "Title" "Show details"}}>
 <td class="pname"><span class="caret" aria-hidden="true">▸</span> <a href="/projects/{{$p.Slug}}"><b>{{if $p.Name}}{{$p.Name}}{{else}}{{$p.Slug}}{{end}}</b></a> <code class="sqid">{{$p.Slug}}</code></td>
 <td class="num" data-label="Runners">{{template "cnt" $p.Runners}}</td>
 <td class="num" data-label="In progress">{{template "cnt" $p.InProgress}}</td>
@@ -87,10 +87,10 @@
     {{ticon $n.Type}}
     <a class="title" href="/task/{{$n.Sqid}}" {{template "opentoggle" $n.Sqid}}>{{if .Crumb}}<span class="crumb">{{.Crumb}} ›</span> {{end}}{{$n.Title}}</a>
     {{if $n.Mockups}}<a class="tag mock" href="/task/{{$n.Sqid}}#deliverables" title="{{$n.Mockups}} deliverable{{if gt $n.Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{$n.Mockups}}</a>{{end}}
-    {{if and (ne $n.Kind "running") (ne $n.Kind "queued")}}{{template "kindtag" $n}}{{end}}{{template "rollchips" $n}}
+    {{if and (ne $n.Kind "running") (ne $n.Kind "queued")}}{{template "tag" props "State" (print "k-" $n.Kind)}}{{end}}{{template "rollchips" $n}}
     {{if .ParentSqid}}<a class="tag ptag" href="/task/{{.ParentSqid}}" title="Go to the parent task: {{.ParentTitle}}">↑ {{.ParentTitle}}</a>{{end}}
-    {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}<span class="tag wait">⧗ queued</span>{{end}}
-    {{if ne .Kind "work"}}<span class="tag">{{.Kind}}</span>{{end}}
+    {{if .Runner}}<a class="tag prog" href="/runner/{{.Runner}}" title="running on {{.Runner}}">▶ {{.Runner}}</a>{{else}}{{template "tag" props "State" "wait-queued"}}{{end}}
+    {{if ne .Kind "work"}}{{template "tag" props "Class" "tag" "Label" .Kind}}{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
     <span class="vact">{{if .Runner}}{{template "actbtn" props "Class" "small danger" "Label" "Stop" "Confirm" (printf "Stop run #%d on %s? The agent is cancelled." .RunID .Runner) "Post" (printf "/ui/act/run-cancel?id=%d" .RunID)}}{{else}}<button class="btn small" aria-label="Move up" title="Move up" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=up&amp;sqid={{$n.Sqid}}')">↑</button><button class="btn small" aria-label="Move down" title="Move down" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=down&amp;sqid={{$n.Sqid}}')">↓</button><button class="btn small" title="Take it out of the queue" data-on:click="@post('/ui/act/task-dequeue?sqid={{$n.Sqid}}')">Dequeue</button>{{end}}</span>
     <a class="dim small" href="/run/{{.RunID}}">run #{{.RunID}}</a>
@@ -112,7 +112,7 @@
     {{if .Crumbs}}<span class="crumbs dim small">{{range $i, $c := .Crumbs}}{{if $i}} › {{end}}<a href="/task/{{$c.Sqid}}">{{$c.Title}}</a>{{end}}</span><a class="tag" href="/task/{{.Parent}}" title="Go to the parent task">↑ parent</a>{{end}}
     {{if .Mockups}}<a class="tag mock" href="/task/{{.Sqid}}#deliverables" title="{{.Mockups}} deliverable{{if gt .Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{.Mockups}}</a>{{end}}
     {{if .Change.URL}}<a class="tag commit" href="{{.Change.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Change.Title}}">{{faicon "edit"}}{{.Change.Label}}</a>{{end}}
-    {{template "kindtag" .}}{{template "rollchips" .}}
+    {{template "tag" props "State" (print "k-" .Kind)}}{{template "rollchips" .}}
     {{if and (eq .Kind "running") .LockedBy}}<span class="dim small" title="running on {{.LockedBy}}">{{.LockedBy}}</span>{{end}}
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
     {{if .Total}}<span class="prog-bar" title="{{.Done}} of {{.Total}} done"><i style="width:{{pctof .Done .Total}}%"></i></span><span class="dim small">{{.Done}}/{{.Total}}</span>{{end}}
@@ -145,7 +145,6 @@
   {{$cur := .Cur}}{{range .Types}}<label class="typeopt"><input type="radio" name="etype" value="{{.}}" data-bind="etype"{{if eq (print .) $cur}} checked{{end}}>{{ticon .}}<span>{{.Label}}</span></label>{{end}}
 </fieldset>{{end}}
 
-{{define "kindtag"}}{{if eq .Kind "failed"}}<span class="tag k-failed" title="the latest run failed or is blocked">✕ failed</span>{{else if eq .Kind "questions"}}<span class="tag k-questions" title="blocked on open questions for you">? needs input</span>{{else if eq .Kind "review"}}<span class="tag k-review" title="waiting for your review">◐ in review</span>{{else if eq .Kind "running"}}<span class="tag k-running" title="running">▶ running</span>{{else if eq .Kind "queued"}}<span class="tag k-queued" title="queued">⧗ queued</span>{{end}}{{end}}
 
 {{define "rollchips"}}{{if .RollFail}}<span class="chip-roll k-failed" title="{{.RollFail}} failed below">✕ {{.RollFail}}</span>{{end}}{{if .RollQ}}<span class="chip-roll k-questions" title="{{.RollQ}} blocked on questions below">? {{.RollQ}}</span>{{end}}{{if .RollRev}}<span class="chip-roll k-review" title="{{.RollRev}} in review below">◐ {{.RollRev}}</span>{{end}}{{end}}
 

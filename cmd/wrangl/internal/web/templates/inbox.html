@@ -1,5 +1,5 @@
 {{define "main-inbox"}}
-{{if not .Items}}<p class="empty">Inbox zero. Questions from agents, plan proposals, task reviews and PR reviews land here.</p>{{end}}
+{{if not .Items}}{{template "empty" props "Msg" "Inbox zero. Questions from agents, plan proposals, task reviews and PR reviews land here."}}{{end}}
 {{range .Items}}{{template "icard" .}}{{end}}
 {{end}}
 
