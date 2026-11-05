@@ -134,10 +134,9 @@ WHERE t.state = 'in_review'
 		if c.text != "" && c.text != c.summary {
 			detail = append(detail, "_Run status:_ "+c.text)
 		}
-		detail = append(detail, fmt.Sprintf("[Run #%d](/run/%d) · no pull request to review", c.runID, c.runID))
 		pl, _ := json.Marshal(payload{Sqid: c.sqid, Reason: "review", RunID: c.runID})
 		if _, err := s.Runs.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: c.id, RunID: sql.NullInt64{Int64: c.runID, Valid: true},
-			Kind: "task_review", Prompt: fmt.Sprintf("Review %s %q", c.sqid, c.title), DetailMd: strings.Join(detail, "\n\n"),
+			Kind: "task_review", Prompt: "Ready for review", DetailMd: strings.Join(detail, "\n\n"),
 			AllowFreeText: 1, PayloadJson: string(pl)}, []proto.QuestionOption{
 			{Label: "Accept", Value: "accept", Description: "mark the task done"},
 			{Label: "Reopen", Value: "reopen", Description: "say what to change in the text; it is appended to the task's prompt"},
@@ -188,10 +187,9 @@ WHERE (SELECT archived_at FROM project WHERE id = t.project_id) IS NULL
 		if c.txt != "" {
 			detail = append(detail, "_Run status:_ "+c.txt)
 		}
-		detail = append(detail, fmt.Sprintf("[Run #%d](/run/%d)", c.runID, c.runID))
 		pl, _ := json.Marshal(payload{Sqid: c.sqid, Reason: c.state, RunID: c.runID})
 		if _, err := s.Runs.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: c.id, RunID: sql.NullInt64{Int64: c.runID, Valid: true},
-			Kind: "task_review", Prompt: fmt.Sprintf("Run %s for %s %q", c.state, c.sqid, c.title), DetailMd: strings.Join(detail, "\n\n"),
+			Kind: "task_review", Prompt: "Run " + c.state, DetailMd: strings.Join(detail, "\n\n"),
 			AllowFreeText: 1, PayloadJson: string(pl)}, []proto.QuestionOption{
 			{Label: "Retry", Value: "reopen", Description: "say what to change in the text (optional); it is appended to the prompt and the task is queued again"},
 			{Label: "Cancel task", Value: "cancel", Description: "give up on the task"},

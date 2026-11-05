@@ -279,6 +279,7 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 		}
 		out, err := s.ExecTool(ctx, sc, tr.Tool, tr.Args)
 		if err != nil {
+			s.noteToolError(ctx, req.RunID, tr.Tool, err)
 			b, _ := json.Marshal(proto.ToolReply{Error: err.Error()})
 			m.Respond(b)
 			return

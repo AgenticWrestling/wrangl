@@ -73,6 +73,8 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Details = append(it.Details, inboxDetail{Summary: "Proposed split", Pre: outlineFromPayload(q.Payload), Open: true})
 		case "task_review":
 			it.Tag = "◐ task review"
+		case "tool_error":
+			it.Tag, it.TagClass = "⚠ tool failed", "k-failed"
 		}
 		if q.DetailMD != "" {
 			it.Body = markdown(q.DetailMD)

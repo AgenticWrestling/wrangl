@@ -108,7 +108,7 @@ func TestTaskReviewInbox(t *testing.T) {
 		t.Fatalf("run pushed: %+v", v)
 	}
 	q := review(a, true)
-	if q.RunID != run || !strings.Contains(q.DetailMD, "report for "+a) || !strings.Contains(q.DetailMD, fmt.Sprintf("/run/%d", run)) {
+	if q.RunID != run || !strings.Contains(q.DetailMD, "report for "+a) {
 		t.Fatalf("question: %+v", q)
 	}
 	if e.task(a).State != "in_review" {

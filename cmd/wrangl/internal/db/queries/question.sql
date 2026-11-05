@@ -30,4 +30,4 @@ WHERE id = sqlc.arg(id) AND state = 'open';
 
 -- name: CancelRunQuestions :exec
 -- Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
-UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system');
+UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error');

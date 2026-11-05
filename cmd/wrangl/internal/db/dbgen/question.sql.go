@@ -37,7 +37,7 @@ func (q *Queries) AnswerQuestion(ctx context.Context, arg AnswerQuestionParams) 
 }
 
 const cancelRunQuestions = `-- name: CancelRunQuestions :exec
-UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system')
+UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error')
 `
 
 // Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
