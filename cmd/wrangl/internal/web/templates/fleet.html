@@ -21,7 +21,7 @@
 </section>{{end}}
 {{if not .Cards}}{{template "empty" props "Msg" "No runners. Launch one from a template above, or" "Code" "wrangl fleet launch" "Tail" "."}}{{end}}
 {{range .Cards}}<a class="card runner st-{{.R.State}}{{if eq .R.Launched 0}} pinned{{end}}" href="/runner/{{.R.Name}}">
-  <div class="row"><b>{{.R.Name}}</b>{{if eq .R.Launched 0}} <span class="pill host" title="not launched by the fleet; never reaped">host</span>{{end}} <span class="pill">{{.R.State}}</span>{{if .R.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if .R.DrainRequested}}<span class="pill warn">draining</span>{{end}}{{if .R.UpgradeSha}}<span class="tag prog">⟳ upgrading</span>{{end}}<span class="grow"></span>{{if termok .R.State}}<a class="btn small" href="/runner/{{.R.Name}}/term">Terminal</a>{{end}}<span class="pill" title="agent sessions in use / allowed on this runner (template max_sessions)">{{.Used}}/{{.T.MaxSessions}} sessions</span> <span class="dim">{{.T.Name}}</span></div>
+  <div class="row"><b>{{.R.Name}}</b>{{if eq .R.Launched 0}} {{template "tag" props "Class" "pill host" "Label" "host" "Title" "not launched by the fleet; never reaped"}}{{end}} {{template "tag" props "Class" "pill" "Label" .R.State}}{{if .R.Cordoned}}{{template "tag" props "Class" "pill warn" "Label" "cordoned"}}{{end}}{{if .R.DrainRequested}}{{template "tag" props "Class" "pill warn" "Label" "draining"}}{{end}}{{if .R.UpgradeSha}}{{template "tag" props "State" "upgrading"}}{{end}}<span class="grow"></span>{{if termok .R.State}}<a class="btn small" href="/runner/{{.R.Name}}/term">Terminal</a>{{end}}<span class="pill" title="agent sessions in use / allowed on this runner (template max_sessions)">{{.Used}}/{{.T.MaxSessions}} sessions</span> <span class="dim">{{.T.Name}}</span></div>
   <div class="row small dim">{{.R.InstanceType}} · {{.R.Vcpu}} vCPU · {{.R.RamMib}} MiB · {{.R.Az}}</div>
   <div class="row small">
     <span>CPU {{pct .M.CPUPercent}}</span><span>Mem {{pct .M.MemPercent}}</span><span>Disk {{pct .M.DiskPercent}}</span>
@@ -34,8 +34,8 @@
   <div class="row"><h3>Other instances in this account</h3><span class="grow"></span><span class="dim small">{{len .Others}} · {{usdh .OtherHourly}}/h running · every region</span></div>
   <p class="hint">Not wrangl runners. Tracked here for cost; a running one can be adopted as a runner.</p>
   {{range .Others}}<div class="row other st-{{.State}}">
-    <div class="otherid"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b>{{if .Managed}} <span class="pill" title="launched by a wrangl controller, but not a runner of this one">wrangl</span>{{end}}<div class="dim small"><code>{{.ID}}</code> · {{.Region}} · {{.Type}}</div></div>
-    <span class="pill">{{.State}}</span>
+    <div class="otherid"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b>{{if .Managed}} {{template "tag" props "Class" "pill" "Label" "wrangl" "Title" "launched by a wrangl controller, but not a runner of this one"}}{{end}}<div class="dim small"><code>{{.ID}}</code> · {{.Region}} · {{.Type}}</div></div>
+    {{template "tag" props "Class" "pill" "Label" .State}}
     <span class="grow"></span>
     <span class="dim small" title="launched {{.LaunchedAt.Format "2006-01-02 15:04"}} UTC">{{ago (.LaunchedAt.Format "2006-01-02T15:04:05.000Z")}}</span>
     <span class="cost">{{if eq .State "running"}}{{if .PriceKnown}}{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim small" title="indicative rate"> ~</span>{{end}}{{else}}<span class="dim small">no rate</span>{{end}}{{else}}<span class="dim small">no compute cost</span>{{end}}</span>
@@ -73,12 +73,12 @@
 
 {{define "main-runner"}}{{$r := .R}}
 <section class="card">
-  <div class="row"><span class="pill">{{$r.State}}</span>{{if $r.Cordoned}}<span class="pill warn">cordoned</span>{{end}}{{if $r.DrainRequested}}<span class="pill warn">draining</span>{{end}}<span class="grow"></span>{{.T.Name}} v{{$r.TemplateVersion}}</div>
+  <div class="row">{{template "tag" props "Class" "pill" "Label" $r.State}}{{if $r.Cordoned}}{{template "tag" props "Class" "pill warn" "Label" "cordoned"}}{{end}}{{if $r.DrainRequested}}{{template "tag" props "Class" "pill warn" "Label" "draining"}}{{end}}<span class="grow"></span>{{.T.Name}} v{{$r.TemplateVersion}}</div>
   <dl class="kv">
     <dt>Instance</dt><dd>{{$r.InstanceID.String}} {{$r.InstanceType}} ({{$r.Arch}}) {{$r.Az}}</dd>
     <dt>Size</dt><dd>{{$r.Vcpu}} vCPU · {{$r.RamMib}} MiB · {{$r.DiskGib}} GiB</dd>
     <dt>IP</dt><dd>{{$r.PrivateIp}}</dd>
-    {{if $r.BinarySha}}<dt>wrangl</dt><dd><code>{{printf "%.12s" $r.BinarySha}}</code>{{if $r.UpgradeSha}} → <code>{{printf "%.12s" $r.UpgradeSha}}</code> <span class="tag prog">⟳ upgrading</span>{{end}}</dd>{{end}}
+    {{if $r.BinarySha}}<dt>wrangl</dt><dd><code>{{printf "%.12s" $r.BinarySha}}</code>{{if $r.UpgradeSha}} → <code>{{printf "%.12s" $r.UpgradeSha}}</code> {{template "tag" props "State" "upgrading"}}{{end}}</dd>{{end}}
     <dt>Heartbeat</dt><dd>{{if $r.LastHeartbeatAt.Valid}}{{ago $r.LastHeartbeatAt.String}}{{else}}never{{end}}</dd>
     <dt>Load</dt><dd>CPU {{pct .M.CPUPercent}} · Mem {{pct .M.MemPercent}} · Disk {{pct .M.DiskPercent}} · load1 {{printf "%.2f" .M.Load1}}</dd>
     {{if $r.IdleSince.Valid}}<dt>Idle</dt><dd>since {{ago $r.IdleSince.String}}</dd>{{end}}
@@ -95,14 +95,14 @@
 </section>
 {{with .Run}}<section class="card"><h3>Working on</h3>
   <a class="row link" href="/run/{{.ID}}">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</a>
-  {{if $.Progress}}<ul class="progress">{{range $.Progress}}<li class="st-{{.State}}" style="padding-left: {{.Depth}}em"><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .ID $.Run.CurrentTaskID.Int64}} <span class="pill">current</span>{{end}}</li>{{end}}</ul>{{end}}
+  {{if $.Progress}}<ul class="progress">{{range $.Progress}}<li class="st-{{.State}}" style="padding-left: {{.Depth}}em"><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .ID $.Run.CurrentTaskID.Int64}} {{template "tag" props "Class" "pill" "Label" "current"}}{{end}}</li>{{end}}</ul>{{end}}
 </section>{{end}}
 {{if $r.TemplateLog}}<details data-preserve-attr="open" class="card"><summary>Template apply log</summary><pre class="log">{{$r.TemplateLog}}</pre></details>{{end}}
 {{if .Recent}}<section class="card"><h3>Recent runs</h3>{{template "runrows" .Recent}}</section>{{end}}
 {{end}}
 
 {{define "runrows"}}{{range .}}<a class="row link" href="/run/{{.Run.ID}}">
-  {{template "runtag" .Run.State}}
+  {{template "tag" props "State" .Run.State}}
   <span class="title">#{{.Run.ID}} {{.TaskTitle}}</span>
   <span class="dim small">{{.ProjectSlug}}/{{.TaskSqid}}{{if ne .Run.Kind "work"}} · {{.Run.Kind}}{{end}}{{if .RunnerName}} · {{.RunnerName}}{{end}} · {{ago .Run.QueuedAt}}</span>
 </a>{{end}}{{end}}
@@ -114,8 +114,8 @@
 {{range .Rows}}{{$k := lkey .}}<tbody class="lrow lv-{{.Level}}"{{if .Detail}} data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}"{{end}}>
 <tr{{if .Detail}}{{template "exprow" props "Key" $k "Title" "Show detail"}}{{end}}>
 <td class="dim nowrap" title="{{.At}}">{{ago .At}}</td>
-<td><span class="pill">{{.Kind}}</span></td>
-<td>{{if .State}}{{template "runtag" .State}}{{else if eq .Level "error"}}<span class="tag attn">! error</span>{{else if eq .Level "warn"}}<span class="tag attn">! warn</span>{{end}}</td>
+<td>{{template "tag" props "Class" "pill" "Label" .Kind}}</td>
+<td>{{if .State}}{{template "tag" props "State" .State}}{{else if eq .Level "error"}}{{template "tag" props "State" "error"}}{{else if eq .Level "warn"}}{{template "tag" props "State" "warn"}}{{end}}</td>
 <td class="mono">{{if .Subject}}{{if eq .Kind "template"}}{{.Subject}}{{else if eq .Kind "run"}}{{.Subject}}{{else}}<a href="/runner/{{.Subject}}">{{.Subject}}</a>{{end}}{{end}}</td>
 <td>{{if .Detail}}<span class="caret" aria-hidden="true">▸</span> {{end}}{{if .Link}}<a href="{{.Link}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</td>
 </tr>{{if .Detail}}
@@ -125,4 +125,3 @@
 {{end}}
 
 
-{{define "runtag"}}{{if or (eq . "needs_input") (eq . "blocked") (eq . "failed")}}<span class="tag attn">! {{.}}</span>{{else if or (eq . "running") (eq . "preparing") (eq . "assigned") (eq . "pushing") (eq . "cancelling")}}<span class="tag prog">▶ {{.}}</span>{{else if eq . "succeeded"}}<span class="tag ok">✓ {{.}}</span>{{else}}<span class="pill">{{.}}</span>{{end}}{{end}}

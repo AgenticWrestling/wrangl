@@ -2,7 +2,7 @@
 <section class="card">
   <div class="meta"><a href="/projects/{{$p.Slug}}">‹ Project</a><code>{{$p.Slug}}</code>
     {{if .Template}}<span class="pill">runs on {{.Template}}</span>{{end}}
-    {{if $p.AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if $p.AutoQueue}}<span class="pill">auto-queue</span>{{end}}</div>
+    {{if $p.AutoMerge}}{{template "tag" props "Class" "pill" "Label" "auto-merge"}}{{end}}{{if $p.AutoQueue}}{{template "tag" props "Class" "pill" "Label" "auto-queue"}}{{end}}</div>
   <h2>{{$p.Name}}</h2>
   <div class="actions wrap">
     <a class="btn primary" href="/projects/{{$p.Slug}}">Open tasks</a>
@@ -18,7 +18,7 @@
 
 <section class="card" id="repos">
   <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-repo">＋ Link repo</button></div>
-  {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}<span class="tag" title="Research tasks run here; reports go under research/">notes repo</span>{{end}}<span class="grow"></span>
+  {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}{{template "tag" props "Class" "tag" "Label" "notes repo" "Title" "Research tasks run here; reports go under research/"}}{{end}}<span class="grow"></span>
     {{if eq .ID $.NotesRepo}}<button class="btn small" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo=')">Not notes</button>{{else}}<button class="btn small" title="Research reports are written here, under research/" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Use for research notes</button>{{end}}
     {{template "actbtn" props "Class" "small danger" "Label" "Unlink" "Confirm" (printf "Unlink %s/%s from %s?" .Owner .Name $p.Slug) "Post" (printf "/ui/act/repo-unlink?slug=%s&repo=%s/%s" $p.Slug .Owner .Name)}}</div>{{end}}
   {{else}}{{template "empty" props "Msg" "No repositories linked. Tasks need one to run."}}{{end}}
@@ -28,13 +28,13 @@
 <section class="card" id="limits">
   <div class="row"><h3>Runner limits</h3></div>
   <p class="hint">The most runner instances this project's queued work may start, per template. The default template starts at 1; the others at 0, so expensive runners are opt-in. A template's own <code>max_runners</code> is a ceiling for everyone. Existing runners with a free slot are shared, whichever project started them.</p>
-  {{range .Limits}}<div class="row link"><b>{{.Template}}</b>{{if .Default}} <span class="tag">default</span>{{end}} <span class="dim small">ceiling {{.Ceiling}}</span><span class="grow"></span>
+  {{range .Limits}}<div class="row link"><b>{{.Template}}</b>{{if .Default}} {{template "tag" props "Class" "tag" "Label" "default"}}{{end}} <span class="dim small">ceiling {{.Ceiling}}</span><span class="grow"></span>
     <input type="number" min="0" step="1" value="{{.Max}}" style="width:5rem" aria-label="Instances of {{.Template}} for {{$p.Slug}}" data-on:change="@post('/ui/act/project-limit?slug={{$p.Slug}}&template={{.Template}}&n=' + evt.target.value)"></div>
   {{else}}{{template "empty" props "Msg" "No runner templates yet."}}{{end}}
 </section>
 
 <section class="card tools" id="tools">
-  <div class="row"><h3>Custom tools</h3><span class="grow"></span><span class="pill">coming soon</span>
+  <div class="row"><h3>Custom tools</h3><span class="grow"></span>{{template "tag" props "Class" "pill" "Label" "coming soon"}}
     <button class="btn small" disabled aria-disabled="true" title="Not available yet">＋ Add tool</button></div>
   <p class="hint">Register tools for this project's agents (MCP servers, HTTP APIs, CLIs) and store the credentials they authenticate with. Registered tools will be listed here, each with its auth status.</p>
   <ul class="toollist" id="toollist"></ul>

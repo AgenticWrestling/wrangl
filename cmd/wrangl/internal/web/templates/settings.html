@@ -19,17 +19,17 @@
 </section>
 <section class="card">
   <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-project">＋ New</button></div>
-  {{range .Projects}}<a class="row link" href="/projects/{{.Slug}}/settings"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}<span class="pill">auto-merge</span>{{end}}{{if .AutoQueue}}<span class="pill">auto-queue</span>{{end}}</a>{{else}}{{template "empty" props "Msg" "No projects."}}{{end}}
+  {{range .Projects}}<a class="row link" href="/projects/{{.Slug}}/settings"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}{{template "tag" props "Class" "pill" "Label" "auto-merge"}}{{end}}{{if .AutoQueue}}{{template "tag" props "Class" "pill" "Label" "auto-queue"}}{{end}}</a>{{else}}{{template "empty" props "Msg" "No projects."}}{{end}}
 </section>
 <section class="card">
   <div class="row"><h3>GitHub accounts</h3><span class="grow"></span><a class="btn small" href="/setup">Manage</a></div>
-  {{range .GHAccounts}}<div class="row"><b>{{.Login}}</b> <span class="dim">{{if eq .Kind "org"}}organisation{{else}}personal{{end}}</span><span class="grow"></span>{{if .App}}<span class="tag ok">✓ App ready</span>{{else}}<a class="tag attn" href="/setup?account={{.Login}}">! set up the App</a>{{end}}</div>
+  {{range .GHAccounts}}<div class="row"><b>{{.Login}}</b> <span class="dim">{{if eq .Kind "org"}}organisation{{else}}personal{{end}}</span><span class="grow"></span>{{if .App}}{{template "tag" props "State" "succeeded" "Label" "App ready"}}{{else}}<a class="tag attn" href="/setup?account={{.Login}}">! set up the App</a>{{end}}</div>
   {{else}}<p class="hint">Connect GitHub so wrangl can clone, push and open pull requests. Add your account (and any organisation) to begin.</p>{{end}}
 </section>
 <section class="card" data-signals:agname="''" data-signals:agcmd="'claude'" data-signals:agmodel="''" data-signals:agauth="'cli'" data-signals:agsecret="''" data-signals:agenv="'CLAUDE_CODE_OAUTH_TOKEN'" data-signals:agturns="'12'" data-signals:agtimeout="'300'" data-signals:agdefault="false">
   <h3>Controller agents</h3>
   <p class="hint">Lightweight agent CLIs that run on the controller itself to answer "Ask?" on a task. They can read the task tree and use the wrangl CLI, but are boxed in (no builds or tests), so the controller stays responsive.</p>
-  {{range .CAgents}}<div class="row"><b>{{.Name}}</b>{{if eq .IsDefault 1}} <span class="pill">default</span>{{end}}{{if eq .Enabled 0}} <span class="pill">disabled</span>{{end}} <span class="dim">{{.Command}}{{if .Model}} · {{.Model}}{{end}} · {{if eq .Auth "secret"}}secret {{.AuthSecret}} → {{.AuthEnv}}{{else}}installed CLI login{{end}} · {{.MaxTurns}} turns · {{.TimeoutS}}s</span><span class="grow"></span>
+  {{range .CAgents}}<div class="row"><b>{{.Name}}</b>{{if eq .IsDefault 1}} {{template "tag" props "Class" "pill" "Label" "default"}}{{end}}{{if eq .Enabled 0}} {{template "tag" props "Class" "pill" "Label" "disabled"}}{{end}} <span class="dim">{{.Command}}{{if .Model}} · {{.Model}}{{end}} · {{if eq .Auth "secret"}}secret {{.AuthSecret}} → {{.AuthEnv}}{{else}}installed CLI login{{end}} · {{.MaxTurns}} turns · {{.TimeoutS}}s</span><span class="grow"></span>
     <button class="btn small" data-on:click="$agname={{json .Name}}; $agcmd={{json .Command}}; $agmodel={{json .Model}}; $agauth={{json .Auth}}; $agsecret={{json .AuthSecret}}; $agenv={{json .AuthEnv}}; $agturns='{{.MaxTurns}}'; $agtimeout='{{.TimeoutS}}'; $agdefault={{if eq .IsDefault 1}}true{{else}}false{{end}}">Edit</button>
     {{template "actbtn" props "Class" "small danger" "Label" "Remove" "Confirm" (printf "Remove agent %s?" .Name) "Post" (printf "/ui/act/agent-delete?name=%s" .Name)}}</div>{{end}}
   <details data-preserve-attr="open"><summary>Add or edit an agent</summary>

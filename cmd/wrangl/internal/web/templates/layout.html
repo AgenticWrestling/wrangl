@@ -114,6 +114,12 @@
      props: Msg, Code (optional inline code after Msg), Href + Link (optional link after Msg), Tail (text after the code/link, e.g. "."). */}}
 {{define "empty"}}<p class="empty">{{.Msg}}{{if .Code}} <code>{{.Code}}</code>{{end}}{{if .Href}} <a href="{{.Href}}">{{.Link}}</a>{{end}}{{.Tail}}</p>{{end}}
 
+{{/* A status tag or pill. With State it is styled by the Go tagStyles map (class + glyph + default label/title);
+     without State, Class alone gives a plain span.
+     props: State (run/log state, "k-<kind>", "upgrading", "wait-queued"; unknown states draw a plain pill), Class (overrides the mapped class,
+     e.g. "pill warn"), Label (default: the mapped label, else State), Title. */}}
+{{define "tag"}}{{$s := tagstyle .State}}{{$c := or .Class $s.Class}}{{if $c}}<span class="{{$c}}"{{with or .Title $s.Title}} title="{{.}}"{{end}}>{{if $s.Glyph}}{{$s.Glyph}} {{end}}{{or .Label $s.Label .State}}</span>{{end}}{{end}}
+
 {{/* One action button: posts Post (after an inline confirm when Confirm is set).
      props: Post, Class ("small danger", "ic"...), Label, Icon (nav sprite name -> icon-only unless Label), Fa (task glyph name),
      Title, Aria (defaults to Title for icon-only), Key (keyboard shortcut), Confirm, Yes (confirming button label, default Label). */}}
