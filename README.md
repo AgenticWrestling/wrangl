@@ -102,7 +102,8 @@ only the Linux runner image is built and tested today.
 **Backlog.** A hierarchical, ranked task stack per project: release > milestone > feature >
 task, with dependencies ("needs"), target dates and progress roll-ups. Tasks have types (`code`,
 `bug`, `ux`, `architecture`, `docs`, `research`, `review`) that change how the agent is prompted and
-what it hands back. Pull GitHub issues in as tasks. Split a task by hand, or ask an agent to
+what it hands back; `release`, `milestone` and `feature` are planning containers. Pull GitHub issues
+in as tasks (`wrangl issue sync`, `issue to-task`). Split a task by hand, or ask an agent to
 propose the split and accept it from the inbox.
 
 **Runs.** Queue any task, at any depth, and wrangl runs its subtree.
@@ -113,7 +114,12 @@ propose the split and accept it from the inbox.
   The task card's Live output is the agent's own transcript (tailed on the runner, published over NATS) rendered as Markdown, with the PTY view as a fallback when there is no transcript; the interactive terminals and `wrangl run attach` still show the raw PTY.
   Templates ship for Claude Code, Codex, Gemini CLI and Antigravity.
 - Agents manage their own subtasks and ask you things through MCP tools. A checkpoint commit is made
-  per subtask.
+  per subtask. Agents can also search, read, comment on, create and edit GitHub issues of the
+  project's linked repos through the controller (they never hold a GitHub credential; closing an
+  issue needs your approval).
+- When a tool call fails for a reason that is not the agent's fault (for example the GitHub App lacks
+  a permission), an Inbox item says so while the run carries on, instead of you finding out when
+  the task fails.
 - Runners upgrade themselves when the controller does, and template edits roll out to live runners.
 - A runner can host several agent sessions at once (each in its own git worktree), projects cap how many instances their demand may launch per template, agents are named definitions separate from templates, and remote runners let an agent drive a Mac or Android target over SSH or ADB.
 
@@ -121,14 +127,18 @@ propose the split and accept it from the inbox.
 Low-risk work auto-merges, and the rest waits for you. Each GitHub account gets one App (pushes, opens
 and merges PRs, and receives webhooks), created through GitHub's manifest flow when you add the
 account on the Setup page. A separate reviewer App is an optional advanced step, only for repos that
-require approving reviews.
+require approving reviews. A PR that conflicts with its base branch gets a **Smart Merge** action:
+an agent run merges the base in and resolves the conflicts (`wrangl pr resolve`; the project setting
+`--auto-resolve` lets auto-merge queue it for you).
 
 **Projects.** The web app is organised by project: the Projects list shows live counts (runners, in
 progress, queued, backlog, inbox) per project, and a project page holds its "Needs you" items, the
 queue (queue, dequeue, reorder, stop) and backlog, the runners working for it, and a project-level
 chat with a controller agent that proposes changes you approve with a button. Design mockups for
 these screens are in [`docs/design/`](docs/design/) (one folder per task, each with a README and a
-self-contained `prototype.html`); the older `/tasks` and `/project/<slug>` URLs redirect.
+self-contained `prototype.html`); the older `/tasks` and `/project/<slug>` URLs redirect. A finished
+project can be archived (hidden everywhere, nothing runs for it) and restored later:
+`wrangl project archive|restore`, or the Archive button on the Projects list and project page.
 
 **Inbox.** Agent questions, approvals, plan proposals and deliverables (mockup images, prototype
 links, markdown reports) arrive in one place, with web push on the installed app.
@@ -169,6 +179,11 @@ Status: **M1 to M10 built**, tested against fakes for AWS, GitHub and the agents
 guide's first-run checklist for what still needs a real account.
 
 ## Install and run
+
+Start at the documentation index, [`docs/wrangl/README.md`](docs/wrangl/README.md): install, first project,
+first task, the Inbox, and deep-dive guides on [projects](docs/wrangl/guide/projects.md),
+[tasks](docs/wrangl/guide/tasks.md), [runners](docs/wrangl/guide/runners.md) and
+[task scheduling](docs/wrangl/guide/scheduling.md).
 
 [`docs/wrangl/INSTALL.md`](docs/wrangl/INSTALL.md) covers AWS, the controller host, the GitHub Apps,
 the Claude token, templates, Cloudflare, and teardown. AWS setup (instance roles, security group,

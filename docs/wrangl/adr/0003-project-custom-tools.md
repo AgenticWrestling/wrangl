@@ -1,6 +1,6 @@
 # ADR 0003: Per-project custom tools (MCP servers and HTTP tools) with credentials
 
-- Status: **Proposed** (the owner decides before the UI and injection work starts)
+- Status: **Accepted, not built.** Nothing here exists yet: the project page still shows a "Custom tools" placeholder. Design only.
 - Task: AJzSQY. Parts 2 (project page UI) and 3 (injection into runs) follow once this is accepted.
 - Builds on: the controller secret store (`<data>/secrets`, write-only over the API; `wrangl secret set`), agent definitions and their hook/MCP files ([ADR 0001](0001-agent-definitions-vs-templates.md)), the work-stack MCP shim (`wrangl runner mcp`), run scopes (`runs.Scope`: kind, project, root)
 - Touches (future work): `project` data model, `runs.ExecTool`, the runner's agent socket (`GET /tools`, tool relay), the assignment (`proto.Assignment`), `web/templates/project.html` ("Custom tools" placeholder), Setup credentials status

@@ -2,7 +2,7 @@
 
 How each supported agent plugs into a runner, and how it should authenticate. Researched
 2026-10-31 from each vendor's docs or source (links in the templates). Only the Claude
-headless template has the shape the M4–M7 end-to-end flow was built around; **every other
+headless template has the shape the end-to-end flow (queue, run, PR, review, merge) was built around; **every other
 row is verified against docs or source only, not on a real runner.** The wrangl side of
 each integration (hook formats, session capture, file merging, secret files) is tested with
 fake agents.

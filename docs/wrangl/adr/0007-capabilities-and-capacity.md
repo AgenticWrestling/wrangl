@@ -1,8 +1,8 @@
 # ADR 0007: Capabilities vs capacity, and capability-based placement
 
-- Status: **Proposed** (the owner decides before any implementation starts)
+- Status: **Accepted, not built.** Placement is still by template and per-project launch caps; no capability tags or capacity model exist yet.
 - Task: fywVRL
-- Builds on: [ADR 0002](0002-remote-runners.md), [ADR 0005 (runners belong to the system)](0005-runners-belong-to-the-system.md); migrations 00020 (`max_sessions`), 00025 (`project_template_limit`, `runner.launched_for_project`), 00027 (remote targets)
+- Builds on: [ADR 0002](0002-remote-runners.md), [ADR 0008 (runners belong to the system)](0008-runners-belong-to-the-system.md); migrations 00020 (`max_sessions`), 00025 (`project_template_limit`, `runner.launched_for_project`), 00027 (remote targets)
 - Touches (future work): `controller/scheduler/{assign,scheduler}.go`, `db/queries/{run,runner}.sql`, `controller/fleet/{template,templates_apply}.go`, `web/views_runners.go`, project settings screen, `cli/{template,fleet}.go`, `proto` (heartbeat is reused), migrations 00037+
 
 Design only; no application code changes with this ADR. All paths are under `cmd/wrangl/internal/`.
@@ -180,7 +180,7 @@ Plain, owner-actionable, capped at the existing 300 chars.
 2. **Supply per set**: free slots on runners that *satisfy the set and are claimable or becoming claimable* (current version; `launching/enrolling/provisioning` count fully, as now; version-behind and guard-closed runners count zero). `need = demand - supply`. If `need <= 0` do not launch: this is the "do not launch while eligible free slots exist elsewhere" rule, and now covers the host and other pools, not only the one template.
 3. **Choose a pool/template** that satisfies the set: among templates whose `template_capability` covers the set, drop those whose pool is full (pool `max_runners`, `pool_global_cap` for the cost class, `project_pool_cap`), whose version failed (`failed_version == version`), or which are in backoff; take the lowest cost class, then rank. If none: no launch and the run's reason names the blocker.
 4. **Size**: `hosts = ceil(need / max_sessions)`, bounded by the room under all caps. Caps are checked in this order: pool ceiling, global cost-class cap, per-project cap (via `PlanLaunches`, kept as is, now keyed by pool and fed by `project_pool_cap`). A project at its cap does not push demand onto the next project, unchanged.
-5. **Projects**: `PlanLaunches` keeps the highest-priority-first split. `runner.launched_for_project` stays as launch attribution for caps. (Its weakness, noted in ADR 0005, is unchanged; replacing it with usage-based accounting is out of scope.)
+5. **Projects**: `PlanLaunches` keeps the highest-priority-first split. `runner.launched_for_project` stays as launch attribution for caps. (Its weakness, noted in ADR 0008, is unchanged; replacing it with usage-based accounting is out of scope.)
 6. **Backoff** and the enrolment-failure brake keep their per-template keys (`backoff`, `askedStuck`, `CountFailedEnrolments`), since failure is a property of a recipe, not of a pool.
 7. **Idle reaping** is unchanged in mechanism (`ReapCandidates`), with `idle_timeout_s` read from the pool when set, else the template. Adopted runners (`launched = 0`, the host) are never reaped.
 8. **Remote templates**: unchanged in shape (`tickRemote`); see section 8.
@@ -297,7 +297,7 @@ Each stage ships alone and is safe if later stages never land.
 4. **Can a task weaken its project's requirements?** *Recommend no: tasks add, projects set the ceiling.*
 5. **`needs_input` slot release grace** (10 min) and per-runner parked limit (4). *Recommend ship disabled, enable on the host first.*
 6. **Where do agent-auth capabilities come from?** A runner probe (is claude logged in here?) versus the template's declared secrets. *Recommend probe, reported at enrol and on heartbeat, with `source='probe'`; templates only declare.*
-7. **Keep `launched_for_project`** accounting or switch to usage-based accounting (ADR 0005)? *Recommend keep for now; revisit after stage 3.*
+7. **Keep `launched_for_project`** accounting or switch to usage-based accounting (ADR 0008)? *Recommend keep for now; revisit after stage 3.*
 
 ## 13. Task breakdown (for the wrangl project)
 
