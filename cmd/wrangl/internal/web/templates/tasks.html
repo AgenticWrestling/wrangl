@@ -1,12 +1,4 @@
 {{define "main-tasks"}}
-<div class="projbar" role="toolbar" aria-label="Projects">
-  {{range .Recent}}<a class="pbtn{{if eq .Slug $.Project}} on{{end}}" href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} aria-current="true"{{end}}>{{.Slug}}</a>{{end}}
-  {{if .Rest}}<span class="pmore">
-    <button class="pbtn{{range .Rest}}{{if eq .Slug $.Project}} on{{end}}{{end}}" popovertarget="pm-more" style="anchor-name: --pm-more" aria-label="More projects">…</button>
-    <div class="menu" id="pm-more" popover style="position-anchor: --pm-more">{{range .Rest}}<a href="/projects/{{.Slug}}"{{if eq .Slug $.Project}} class="on"{{end}}>{{.Slug}}</a>{{end}}</div>
-  </span>{{end}}
-  <button class="pbtn add" command="show-modal" commandfor="sheet-project" aria-label="New project" title="New project">＋</button>
-</div>
 {{if .Project}}{{with .P}}<header class="phead">
   {{if $.Archived}}<p><span class="tag wait">archived</span></p>{{end}}
   {{with $.About}}<p class="about">{{.}}</p>{{end}}
@@ -18,7 +10,7 @@
       {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
   </span>
   <a class="chip ic" href="/projects/{{.Slug}}/settings#limits" title="Concurrency: how many runner instances this project may start, per template" aria-label="Concurrency"><svg class="ni" aria-hidden="true"><use href="#ni-concurrency"/></svg>{{if $.Caps}}{{range $i, $c := $.Caps}}{{if $i}} · {{end}}{{$c}}{{end}}{{else}}none{{end}}</a>
-  {{if .AutoMerge}}<span class="chip on" title="Passing PRs merge without review">auto-merge</span>{{end}}
+  {{if .AutoMerge}}<span class="chip ic on" title="Auto-merge is on: passing PRs merge without review" aria-label="Auto-merge is on"><svg class="ni" aria-hidden="true"><use href="#ni-merge"/></svg></span>{{end}}
   <a class="chip ic" href="/projects/{{.Slug}}/settings" title="Edit goals and repos" aria-label="Edit goals and repos"><svg class="ni" aria-hidden="true"><use href="#ni-edit"/></svg></a>
   <span class="grow"></span>
   {{if not $.Archived}}<button class="btn small danger ic" title="Archive project" aria-label="Archive project" data-confirm="Archive {{.Slug}}? It and its tasks are hidden and queued runs are cancelled. You can restore it." data-confirm-yes="Archive" data-on:click="@post('/ui/act/project-archive?slug={{.Slug}}')"><svg class="ni" aria-hidden="true"><use href="#ni-archive"/></svg></button>{{end}}

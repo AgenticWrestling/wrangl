@@ -588,3 +588,11 @@ a.tlink code { color: var(--link); }
 .ttlbtn { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; color: inherit; font: inherit; font-size: 1.1rem; font-weight: 600; cursor: pointer; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ttlbtn:hover { background: var(--raised); }
 .ttlbtn .ni { color: var(--dim); }
+.pmore .menu button.newp { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); margin-top: 4px; padding: 10px 12px 8px; color: var(--link); font: inherit; cursor: pointer; border-radius: 0 0 6px 6px; }
+.pmore .menu button.newp:hover { background: var(--raised); }
+/* phone: a task row's title keeps a readable width and the tags wrap under it */
+@media (max-width: 700px) {
+  li.task > .row { flex-wrap: wrap; row-gap: 6px; }
+  li.task .title { flex: 1 1 9rem; }
+  li.task .row a.dim, li.task .row .sqid { white-space: nowrap; }
+}
