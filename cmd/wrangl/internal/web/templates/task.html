@@ -137,7 +137,10 @@
 </dialog>
 {{end}}
 
-{{define "gallery"}}<div class="gallery">{{range .}}{{if eq .Kind "image"}}<a class="shot" href="/deliverable/{{.ID}}" data-lightbox><img src="/deliverable/{{.ID}}" alt="{{.Title}}" loading="lazy"><span>{{.Title}}</span></a>{{end}}{{end}}</div>
+{{define "gallery"}}{{$im := images .}}{{if $im}}{{$g := (index $im 0).ID}}{{$n := len $im}}<div class="gallery">{{range $i, $d := $im}}<a class="shot" href="/deliverable/{{$d.ID}}" data-lightbox data-on:click="!(evt.metaKey || evt.ctrlKey || evt.shiftKey) && (evt.preventDefault(), $lbi = {{$i}}, document.getElementById('lb-{{$g}}').showModal())"><img src="/deliverable/{{$d.ID}}" alt="{{$d.Title}}" loading="lazy"><span>{{$d.Title}}</span></a>{{end}}
+<dialog class="lightbox" id="lb-{{$g}}" data-preserve-attr="open" aria-label="Image viewer" data-signals:lbi__ifmissing="0" data-on:click="evt.target == el && el.close()" data-on:keydown="evt.key == 'ArrowLeft' ? $lbi = ($lbi + {{$n}} - 1) % {{$n}} : evt.key == 'ArrowRight' && ($lbi = ($lbi + 1) % {{$n}})"><div class="lb">
+{{range $i, $d := $im}}<figure data-class:on="$lbi == {{$i}}"><img src="/deliverable/{{$d.ID}}" alt="{{$d.Title}}" loading="lazy"><figcaption>{{$d.Title}}</figcaption></figure>{{end}}
+<div class="cap">{{if gt $n 1}}<button type="button" aria-label="Previous" data-on:click="$lbi = ($lbi + {{$n}} - 1) % {{$n}}">‹</button><button type="button" aria-label="Next" data-on:click="$lbi = ($lbi + 1) % {{$n}}">›</button>{{end}}<button type="button" command="close" commandfor="lb-{{$g}}">Close</button></div></div></dialog></div>{{end}}
   {{range .}}{{if eq .Kind "artifact_url"}}<div class="row"><a class="btn primary small" href="{{.Url}}" target="_blank" rel="noopener noreferrer">Open prototype</a> <span>{{.Title}}</span></div>
   {{else if eq .Kind "prototype_html"}}<details data-preserve-attr="open" class="proto"><summary>Prototype: {{if .Title}}{{.Title}}{{else}}static HTML{{end}}</summary>
     <div class="row small"><a href="/deliverable/{{.ID}}/proto" target="_blank" rel="noopener">Open full page ↗</a> <a href="/deliverable/{{.ID}}">Source</a></div>

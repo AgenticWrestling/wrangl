@@ -1,4 +1,4 @@
-// wrangl PWA glue for what has no HTML or Datastar equivalent: drag-and-drop reordering, terminals, web push, the task card, the lightbox and inline confirm.
+// wrangl PWA glue for what has no HTML or Datastar equivalent: drag-and-drop reordering, terminals, web push, the card's live output and the inline confirm.
 // Live page updates are Datastar's job (data-init @get /ui/live in the layout).
 'use strict';
 
@@ -173,24 +173,6 @@ async function pushState() {
   st.textContent = sub ? 'Push is on for this device.' : 'Push is off for this device.';
 }
 
-// --- inline task details -------------------------------------------------------------------
-// Clicking a task's title expands its full details and controls under the row (one at a time).
-// The page tells the server which task is open (/ui/expand), so every live re-render of the list
-// includes that task's card and cannot collapse it. The edit sheets (dialogs) live outside #main,
-// in #detail-sheets, so a re-render cannot close one while you type.
-
-let openDetail = null;
-
-function pageSid() { const m = document.querySelector('meta[name="wr-sid"]'); return m ? m.content : ''; }
-function detailBox(sqid) { return document.getElementById('d-' + sqid); }
-function sheetsBox() { return document.getElementById('detail-sheets'); }
-
-function postExpand(sqid) {
-  const sid = pageSid();
-  if (!sid) return;
-  fetch('/ui/expand?sid=' + encodeURIComponent(sid) + '&sqid=' + encodeURIComponent(sqid || ''), { method: 'POST', credentials: 'same-origin' }).catch(() => {});
-}
-
 // --- live agent output in an expanded task card ------------------------------------------------
 // One read-only wterm at a time (the card that is open), connected only while open. Replays the
 // last 64 KB of the run's own PTY (the session's, not the runner's), then follows live; EventSource
@@ -206,9 +188,9 @@ function stopLiveTerm() {
 }
 
 async function startLiveTerm() {
-  stopLiveTerm();
   const box = document.querySelector('.detail .liveterm');
   if (!box || !window.wterm || box.dataset.ready) return;
+  stopLiveTerm(); // one at a time
   box.dataset.ready = '1';
   const run = box.dataset.run, body = box.querySelector('.ltbody');
   const state = box.querySelector('.ltstate'), full = box.querySelector('.ltfull');
@@ -216,6 +198,7 @@ async function startLiveTerm() {
   await t.init();
   const cur = { t, es: null };
   if (!box.isConnected) { t.destroy(); return; }
+  cur.box = box;
   liveTerm = cur;
   const open = (all) => {
     if (cur.es) cur.es.close();
@@ -257,59 +240,11 @@ function startLiveTx() {
   });
 }
 
-function closeDetails() {
-  stopLiveTerm();
-  const sh = sheetsBox();
-  if (sh) { sh.querySelectorAll('dialog[open]').forEach((x) => x.close()); sh.innerHTML = ''; }
-  document.querySelectorAll('.detail').forEach((d) => {
-    d.innerHTML = '';
-    const a = d.parentElement && d.parentElement.querySelector(':scope > .row .title');
-    if (a) a.setAttribute('aria-expanded', 'false');
-  });
-}
-
-async function loadDetail(sqid) {
-  const box = detailBox(sqid);
-  if (!box) { openDetail = null; return; }
-  try {
-    const q = '/ui/detail?sqid=' + encodeURIComponent(sqid);
-    const [card, sheets] = await Promise.all([
-      fetch(q, { credentials: 'same-origin' }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.text(); }),
-      fetch(q + '&part=sheets', { credentials: 'same-origin' }).then((r) => (r.ok ? r.text() : '')),
-    ]);
-    if (openDetail !== sqid) return; // collapsed or switched meanwhile
-    if (!box.firstElementChild) box.innerHTML = card; // the live stream may already have filled it
-    const sh = sheetsBox();
-    if (sh) sh.innerHTML = sheets;
-    const a = box.parentElement.querySelector(':scope > .row .title');
-    if (a) a.setAttribute('aria-expanded', 'true');
-    startLiveTerm();
-    startLiveTx();
-  } catch (_) {
-    box.innerHTML = '';
-    openDetail = null;
-    postExpand('');
-  }
-}
-
-function toggleDetail(sqid, ev) {
-  if (ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button > 0)) return true; // open the page
-  if (ev) ev.preventDefault();
-  const same = openDetail === sqid;
-  closeDetails();
-  openDetail = same ? null : sqid;
-  postExpand(openDetail || '');
-  if (!same) loadDetail(sqid);
-  return false;
-}
-window.toggleDetail = toggleDetail;
-
-// If the stream reconnected (a new server-side session) the open card is gone: tell the server again.
-function checkDetail() {
-  if (!openDetail) return;
-  const box = detailBox(openDetail);
-  if (!box) { openDetail = null; return; }
-  if (!box.firstElementChild) { postExpand(openDetail); }
+// Start the output panels of a card that has just appeared; stop the terminal when its card is gone.
+function syncLive() {
+  if (liveTerm && !liveTerm.box.isConnected) stopLiveTerm();
+  startLiveTerm();
+  startLiveTx();
 }
 
 // --- text size (Settings) ---------------------------------------------------------------------
@@ -343,14 +278,14 @@ function boot() {
   initQueueSort();
   initTerminal();
   markFs();
+  syncLive();
   pushState().catch(() => {});
   const main = document.getElementById('main');
   if (main) {
     let t;
-    let rt;
     new MutationObserver((muts) => {
       clearTimeout(t); t = setTimeout(() => { initSortables(); initQueueSort(); markFs(); }, 50);
-      if (openDetail) { clearTimeout(rt); rt = setTimeout(checkDetail, 600); }
+      syncLive();
     }).observe(main, { childList: true, subtree: true });
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
@@ -369,47 +304,6 @@ function ghManifest(form) {
   return true;
 }
 window.ghManifest = ghManifest;
-
-// Lightbox for deliverable images: click a thumbnail (a[data-lightbox]) to view it full size;
-// arrows / swipe-free buttons step through the page's images, Esc closes.
-(function () {
-  let dlg, imgs = [], at = 0;
-  function build() {
-    dlg = document.createElement('dialog');
-    dlg.className = 'lightbox';
-    dlg.setAttribute('aria-label', 'Image viewer');
-    dlg.innerHTML = '<div class="lb"><img alt=""><div class="cap"><button type="button" data-lb="prev" aria-label="Previous">‹</button><span></span><button type="button" data-lb="next" aria-label="Next">›</button><button type="button" data-lb="close">Close</button></div></div>';
-    dlg.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-lb]');
-      if (b && b.dataset.lb === 'prev') show(at - 1);
-      else if (b && b.dataset.lb === 'next') show(at + 1);
-      else if (!b && e.target.tagName !== 'IMG' || (b && b.dataset.lb === 'close')) dlg.close();
-    });
-    dlg.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft') show(at - 1);
-      else if (e.key === 'ArrowRight') show(at + 1);
-    });
-    document.body.appendChild(dlg);
-  }
-  function show(i) {
-    if (!imgs.length) return;
-    at = (i + imgs.length) % imgs.length;
-    const a = imgs[at];
-    dlg.querySelector('img').src = a.href;
-    dlg.querySelector('img').alt = a.textContent.trim();
-    dlg.querySelector('.cap span').textContent = a.textContent.trim() + (imgs.length > 1 ? '  (' + (at + 1) + '/' + imgs.length + ')' : '');
-    dlg.querySelectorAll('[data-lb=prev],[data-lb=next]').forEach((b) => { b.hidden = imgs.length < 2; });
-  }
-  document.addEventListener('click', (e) => {
-    const a = e.target.closest && e.target.closest('a[data-lightbox]');
-    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || typeof HTMLDialogElement === 'undefined') return;
-    e.preventDefault();
-    if (!dlg) build();
-    imgs = Array.from(a.closest('.gallery').querySelectorAll('a[data-lightbox]'));
-    show(imgs.indexOf(a));
-    dlg.showModal();
-  });
-})();
 
 // Inline confirm. Put data-confirm="Question?" on any button (optionally data-confirm-yes="Delete"
 // for the confirming button's label) and its click is held back: the button is replaced, in
