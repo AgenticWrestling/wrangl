@@ -26,14 +26,32 @@ def key(img):
 def crop(box):
     return key(src.crop(box))
 
-# the burst: bbox is about x 578-1526, y 415-1299 in the 2000px source
-cx, cy, half = 1052, 857, 520
+def tight(img, pad, square):
+    """Crop to the visible pixels (alpha > 40) plus an even pad, centred; square pads the short side."""
+    al = np.asarray(img)[..., 3]
+    ys, xs = np.where(al > 40)
+    x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+    w, h = x1 - x0, y1 - y0
+    p = int(max(w, h) * pad)
+    if square:
+        side = max(w, h) + 2 * p
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        box = (round(cx - side / 2), round(cy - side / 2), round(cx + side / 2), round(cy + side / 2))
+    else:
+        box = (x0 - p, y0 - p, x1 + p, y1 + p)
+    canvas = Image.new("RGBA", (box[2] - box[0], box[3] - box[1]), (0, 0, 0, 0))
+    canvas.alpha_composite(img, (-box[0], -box[1]))
+    return canvas
+
+# the burst: bbox is about x 578-1526, y 415-1299 in the 2000px source. Key a generous crop, clear
+# the wordmark glow under the burst (it starts at source y~1240; the burst ends ~1245), then
+# crop to the star's own bounds so it sits centred with the same small pad on every side.
+cx, cy, half = 1052, 857, 640
 mark = crop((cx - half, cy - half, cx + half, cy + half))
-# the wordmark's glow starts just below the burst (source y~1240): clear everything under y=1252 (the burst ends ~1245)
 a = np.asarray(mark).copy()
 a[1252 - (cy - half):, :, 3] = 0
-mark = Image.fromarray(a)
-lock = crop((420, 380, 1580, 1640))
+mark = tight(Image.fromarray(a), 0.025, True)
+lock = tight(crop((380, 340, 1620, 1680)), 0.03, False)
 
 mark.resize((256, 256), Image.LANCZOS).save(out / "mark.png", optimize=True)
 w = 720
@@ -47,6 +65,6 @@ def tile(n, scale):
 
 (out / "icons").mkdir(exist_ok=True)
 for n in (64, 96, 180, 192, 512):
-    tile(n, 0.92).save(out / "icons" / f"{n}.png", optimize=True)
-tile(512, 0.62).save(out / "icons" / "512-maskable.png", optimize=True)  # inside the 80% safe circle
+    tile(n, 0.94).save(out / "icons" / f"{n}.png", optimize=True)
+tile(512, 0.58).save(out / "icons" / "512-maskable.png", optimize=True)  # inside the 80% safe circle
 print("ok")
