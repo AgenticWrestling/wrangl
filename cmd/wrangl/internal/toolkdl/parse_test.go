@@ -276,3 +276,21 @@ func TestJSONBodyWithNestedBraces(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestReservedNameAndAsync(t *testing.T) {
+	if _, err := Parse([]byte(strings.Replace(adrExample, "deploy_status", "result", 1))); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("reserved name: %v", err)
+	}
+	d, _ := Parse([]byte(adrExample)) // timeout 60: longer than the synchronous bound
+	if !d.IsAsync() || d.TimeoutSeconds() != 60 {
+		t.Fatalf("exec 60s: async=%v t=%d", d.IsAsync(), d.TimeoutSeconds())
+	}
+	d, _ = Parse([]byte(wrap(`exec { argv "uptime"; timeout 25 }`, "")))
+	if d.IsAsync() {
+		t.Fatal("25 s is still synchronous")
+	}
+	d, _ = Parse([]byte(wrap(`http { method "GET"; url "https://a.example.com/" }`, "")))
+	if d.IsAsync() || d.TimeoutSeconds() != DefaultHTTPTimeout {
+		t.Fatalf("default http: %d", d.TimeoutSeconds())
+	}
+}

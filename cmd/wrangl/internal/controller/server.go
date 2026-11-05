@@ -331,6 +331,9 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	// Executors for the library's tool kinds are registered here as they land (ADR 0003): http so far.
 	s.Runs.Custom = &tools.Engine{Svc: s.Tools, Executors: map[toolkdl.Kind]tools.Executor{toolkdl.KindHTTP: tools.NewHTTPExecutor()}, Approver: s.Runs, Open: s.Runs.QuestionOpen, Now: now, Log: s.log}
 	s.Runs.ApprovalHandlers[tools.ApprovalOp] = s.Runs.Custom.Approved
+	if err := s.Runs.Custom.Recover(context.Background()); err != nil { // calls of a previous process died with it
+		s.log.Warn("tool audit recovery", "err", err)
+	}
 	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
 	s.Runs.ToolHandlers["issue_get"] = issueTools.Get
 	s.Runs.ToolHandlers["issue_comments"] = issueTools.Comments

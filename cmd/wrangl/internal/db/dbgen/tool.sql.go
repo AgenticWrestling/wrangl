@@ -231,3 +231,50 @@ func (q *Queries) ListToolCallsForRun(ctx context.Context, runID int64) ([]ToolC
 	}
 	return items, rows.Err()
 }
+
+const insertRunningToolCall = `-- name: InsertRunningToolCall :one
+INSERT INTO tool_call (run_id, tool, status, at) VALUES (?1, ?2, 'running', ?3)
+RETURNING id
+`
+
+type InsertRunningToolCallParams struct {
+	RunID int64  `json:"run_id"`
+	Tool  string `json:"tool"`
+	At    string `json:"at"`
+}
+
+func (q *Queries) InsertRunningToolCall(ctx context.Context, arg InsertRunningToolCallParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertRunningToolCall, arg.RunID, arg.Tool, arg.At)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const finishToolCall = `-- name: FinishToolCall :exec
+UPDATE tool_call SET status = ?1, duration_ms = ?2, bytes = ?3
+WHERE id = ?4 AND status = 'running'
+`
+
+type FinishToolCallParams struct {
+	Status     string `json:"status"`
+	DurationMs int64  `json:"duration_ms"`
+	Bytes      int64  `json:"bytes"`
+	ID         int64  `json:"id"`
+}
+
+func (q *Queries) FinishToolCall(ctx context.Context, arg FinishToolCallParams) error {
+	_, err := q.db.ExecContext(ctx, finishToolCall, arg.Status, arg.DurationMs, arg.Bytes, arg.ID)
+	return err
+}
+
+const failRunningToolCalls = `-- name: FailRunningToolCalls :execrows
+UPDATE tool_call SET status = 'error' WHERE status = 'running'
+`
+
+func (q *Queries) FailRunningToolCalls(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, failRunningToolCalls)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

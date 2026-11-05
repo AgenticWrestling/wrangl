@@ -40,3 +40,14 @@ VALUES (sqlc.arg(run_id), sqlc.arg(tool), sqlc.arg(status), sqlc.arg(duration_ms
 
 -- name: ListToolCallsForRun :many
 SELECT * FROM tool_call WHERE run_id = ? ORDER BY id;
+
+-- name: InsertRunningToolCall :one
+INSERT INTO tool_call (run_id, tool, status, at) VALUES (sqlc.arg(run_id), sqlc.arg(tool), 'running', sqlc.arg(at))
+RETURNING id;
+
+-- name: FinishToolCall :exec
+UPDATE tool_call SET status = sqlc.arg(status), duration_ms = sqlc.arg(duration_ms), bytes = sqlc.arg(bytes)
+WHERE id = sqlc.arg(id) AND status = 'running';
+
+-- name: FailRunningToolCalls :execrows
+UPDATE tool_call SET status = 'error' WHERE status = 'running';

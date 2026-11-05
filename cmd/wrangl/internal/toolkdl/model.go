@@ -124,9 +124,9 @@ const (
 	MaxParams          = 32
 	MaxArgv            = 64
 	MaxArgLen          = 4096
-	DefaultExecTimeout = 30
+	DefaultExecTimeout = 20
 	MaxExecTimeout     = 600
-	DefaultHTTPTimeout = 30
+	DefaultHTTPTimeout = 20
 	MaxHTTPTimeout     = 120
 	DefaultOutputKB    = 64
 	MaxOutputKB        = 1024
@@ -173,3 +173,27 @@ func (d *Definition) OutputLimit() int {
 	}
 	return kb << 10
 }
+
+// AsyncAfter is the longest call, in seconds, that is answered in the same request. A tool
+// whose timeout is longer runs asynchronously: the call returns a call id at once and the
+// agent collects the result with ext_result (ADR 0003; the relay's NATS bound is 30 s).
+const AsyncAfter = 25
+
+// TimeoutSeconds is the tool's own per-call limit.
+func (d *Definition) TimeoutSeconds() int {
+	switch {
+	case d.Exec != nil:
+		return d.Exec.TimeoutS
+	case d.HTTP != nil:
+		return d.HTTP.TimeoutS
+	case d.MCPRemote != nil:
+		return d.MCPRemote.TimeoutS
+	}
+	return DefaultHTTPTimeout
+}
+
+// IsAsync reports whether calls can outlast the synchronous bound.
+func (d *Definition) IsAsync() bool { return d.TimeoutSeconds() > AsyncAfter }
+
+// ReservedNames cannot be tool names: ext_<name> would collide with a built-in companion tool.
+var ReservedNames = map[string]bool{"result": true}

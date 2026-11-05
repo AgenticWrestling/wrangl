@@ -137,6 +137,9 @@ func build(t *kdl.Node) (*Definition, error) {
 	if !nameRe.MatchString(name) {
 		return nil, fmt.Errorf("tool name %q must match %s", name, nameRe)
 	}
+	if ReservedNames[name] {
+		return nil, fmt.Errorf("tool name %q is reserved (ext_%s is a built-in tool)", name, name)
+	}
 	d := &Definition{Name: name}
 	// true = may repeat
 	idx, err := single(t, map[string]bool{"description": false, "effect": false, "run-kinds": false, "input": false, "exec": false, "http": false, "mcp-remote": false})

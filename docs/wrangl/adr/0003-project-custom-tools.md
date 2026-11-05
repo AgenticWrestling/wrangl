@@ -151,11 +151,21 @@ owner's claim and is not verified; the library UI says so.
 - Every resolved secret value of the call is removed from output and error text by exact match
   (also its base64 and URL-encoded forms) before the result is logged, audited or returned.
   Values never appear in logs, audit rows or assignments (tested).
-- Calls over the 30 s bound use accept / progress / result: `ExecTool` returns a call id at once
-  (`status: running`), the tool is then polled through an `ext_result` companion tool with that id, and
-  progress lines are retained for the poll. Tools declare `timeout` (default 30 s, max 600 s); those
-  above 25 s are always async. Results are held in memory with a TTL and in the audit row's status.
-  Details are fixed in the phase 1 PR; the 30 s relay bound itself is not raised.
+- Calls over the 30 s bound use accept / progress / result (built in phase 1g). A tool whose declared
+  `timeout` is above 25 s (`toolkdl.AsyncAfter`; the defaults are 20 s, so tools are synchronous unless
+  they ask for more; max 600 s for exec, 120 s for http) is async: `ExecTool` returns
+  `{call_id, status: "running"}` at once and the executor keeps running on the controller under its
+  own timeout. The shim serves tools only (no notifications), so the agent collects the outcome with the
+  built-in `ext_result {call_id, wait_s?, cancel?}` tool, which is declared only when an async tool is
+  visible to the run: `wait_s` (max 20, under the relay bound) makes polling a long poll. Executors report
+  progress with `Call.Progress`; the latest 20 lines (scrubbed, 200 characters each) come back with
+  `running` status. Limits: 3 running async calls per run and 16 in total; results are kept in memory for
+  30 minutes (20 finished per run) and are readable only by the run that made the call. A call is
+  cancelled by `ext_result {cancel: true}`, when its run ends, and at controller shutdown. The audit row
+  is written once, at accept (`running`), and updated once at the end (`ok`, `error`, `cancelled`); rows
+  left `running` by a crashed process are marked `error` at startup. `ext_result` is a reserved name:
+  no library tool may be called `result`. Missing secrets fail at accept, and destructive tools ask for
+  approval before anything starts. The 30 s relay bound itself is not raised.
 
 ### http tools: SSRF rules
 

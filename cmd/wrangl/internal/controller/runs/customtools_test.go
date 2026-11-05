@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -109,5 +110,69 @@ func TestExecToolCustomWithoutEngine(t *testing.T) {
 	m := newMaint(t)
 	if _, err := m.rs.ExecTool(context.Background(), runs.Scope{RunID: 1, Kind: "work", ProjectID: 1}, "ext_x", nil); !errors.Is(err, errs.Forbidden) {
 		t.Fatalf("%v", err)
+	}
+}
+
+const slowKDL = `tool "slow_report" {
+  description "A report that takes a while"
+  effect "read"
+  run-kinds "work"
+  exec { argv "report"; timeout 120 }
+}`
+
+// A long call is accepted with a call id, audited as running, and cancelled when its run ends.
+func TestLongToolCallIsCancelledWhenTheRunEnds(t *testing.T) {
+	m := newMaint(t)
+	ctx := context.Background()
+	runID := m.startRun(time.Minute)
+	started, stopped := make(chan struct{}, 1), make(chan struct{}, 1)
+	svc := &tools.Service{DB: m.d}
+	m.rs.Custom = &tools.Engine{Svc: svc, Now: m.rs.Now, Executors: map[toolkdl.Kind]tools.Executor{
+		toolkdl.KindExec: tools.ExecutorFunc(func(ctx context.Context, c *tools.Call) ([]byte, error) {
+			started <- struct{}{}
+			<-ctx.Done()
+			stopped <- struct{}{}
+			return nil, ctx.Err()
+		})}}
+	if _, err := svc.Add(ctx, slowKDL); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Enable(ctx, "p", "slow_report"); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := m.rs.ScopeForRun(ctx, runID)
+
+	out, err := m.rs.ExecTool(ctx, sc, "ext_slow_report", nil)
+	acc, _ := out.(map[string]any)
+	if err != nil || acc["status"] != "running" || acc["call_id"] == nil {
+		t.Fatalf("accept: %v %v", out, err)
+	}
+	<-started
+	if n := m.count(`SELECT COUNT(*) FROM tool_call WHERE run_id=? AND status='running'`, runID); n != 1 {
+		t.Fatalf("running rows: %d", n)
+	}
+	out, err = m.rs.ExecTool(ctx, sc, "ext_result", json.RawMessage(`{"call_id":"`+acc["call_id"].(string)+`"}`))
+	if err != nil || out.(map[string]any)["status"] != "running" {
+		t.Fatalf("poll: %v %v", out, err)
+	}
+
+	// the runner reports the run finished
+	if err := m.rs.HandleState(ctx, "wr.evt.1."+strconv.FormatInt(runID, 10)+".state", []byte(`{"state":"succeeded"}`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the long call outlived its run")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for m.count(`SELECT COUNT(*) FROM tool_call WHERE run_id=? AND status='cancelled'`, runID) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the audit row was not marked cancelled")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := m.count(`SELECT COUNT(*) FROM tool_call WHERE run_id=?`, runID); n != 1 {
+		t.Fatalf("one row per call, got %d", n)
 	}
 }

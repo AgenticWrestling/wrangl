@@ -147,6 +147,9 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 		s.recomputeTask(ctx, run.CurrentTaskID.Int64)
 	}
 	s.DB.Q.CancelRunQuestions(ctx, sql.NullInt64{Int64: runID, Valid: true})
+	if s.Custom != nil {
+		s.Custom.CancelRun(runID) // long tool calls die with their run
+	}
 	s.Log.Info("run finished", "run", runID, "state", st.State, "pushed", st.Pushed, "error", st.Error)
 	if s.OnRunFinished != nil {
 		s.OnRunFinished(ctx, runID)
