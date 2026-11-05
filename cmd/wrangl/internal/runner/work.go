@@ -213,6 +213,8 @@ type session struct {
 	// continuedFrom is the existing branch head a revise/continuation run started from:
 	// "ahead" counts commits past it.
 	continuedFrom string
+	// lastMsg is the agent's final message of its latest turn (from the Stop hook).
+	lastMsg string
 	// interactive drive (M9): one agent session; its Stop hook asks onStop for the next
 	// prompt, and when there is none the daemon ends the session.
 	interactive bool
@@ -1081,7 +1083,27 @@ func (w *Worker) chainNext(ctx context.Context, s *session, ch *chain) (string, 
 func nudgePrompt(n *proto.StackNext) string {
 	return fmt.Sprintf("You ended your turn without calling the task_complete tool for task %s (%q). "+
 		"If the task is finished, call task_complete with sqid %q and a short summary now. "+
-		"Otherwise, continue working on it until it is done.", n.Sqid, n.Title, n.Sqid)
+		"Otherwise, continue working on it until it is done. "+
+		"If you are blocked on a decision only the owner can make, do not end your turn: call the ask_question tool "+
+		"with your question and, where you can, options. The owner's answer comes back to you in this session.", n.Sqid, n.Title, n.Sqid)
+}
+
+// ownerReplyPrompt resumes the agent with what the owner typed in answer to the "what now?" card.
+func ownerReplyPrompt(n *proto.StackNext, text string) string {
+	return fmt.Sprintf("The owner replied about task %s (%q):\n\n%s\n\nContinue the task with this in mind. "+
+		"Call task_complete when it is finished, or ask_question if you need a further decision.", n.Sqid, n.Title, strings.TrimSpace(text))
+}
+
+// stoppedDetail is the Markdown body of the "what now?" question: the agent's own last message,
+// rendered as Markdown (falling back to the raw output lines for agents without a Stop message).
+func stoppedDetail(msg, rawTail string) string {
+	if strings.TrimSpace(msg) == "" {
+		return "Last output:\n\n```\n" + rawTail + "\n```"
+	}
+	if len(msg) > 6000 {
+		msg = msg[:6000] + "\n\n(truncated)"
+	}
+	return "**The agent's last message:**\n\n" + msg
 }
 
 // leafState asks the controller for a task's state.
@@ -1139,8 +1161,9 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 		}
 		s.logf("runner", "agent still has not completed %s; asking the owner", n.Sqid)
 		args, _ := json.Marshal(map[string]any{
-			"prompt":    fmt.Sprintf("The agent stopped twice without completing %s %q. What now?", n.Sqid, n.Title),
-			"detail_md": "Last output:\n\n```\n" + s.summary() + "\n```",
+			"prompt":          fmt.Sprintf("The agent stopped twice without completing %s %q. What now?", n.Sqid, n.Title),
+			"detail_md":       stoppedDetail(s.lastMessage(), s.summary()),
+			"allow_free_text": true, // type a reply and the agent resumes with it
 			"options": []map[string]string{
 				{"label": "Retry the task", "value": "retry"},
 				{"label": "Mark it complete", "value": "complete"},
@@ -1153,6 +1176,7 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 		}
 		var ans struct {
 			Answer string `json:"answer"`
+			Text   string `json:"text"`
 		}
 		json.Unmarshal(out, &ans)
 		switch ans.Answer {
@@ -1161,8 +1185,14 @@ func (w *Worker) ensureComplete(ctx context.Context, s *session, n *proto.StackN
 			return err
 		case "fail":
 			return errFailRun
-		default: // retry: a fresh turn on the same task, then the nudge rule again
-			code, err := w.turn(ctx, s, resume, n, timeout)
+		default: // retry: a fresh turn on the same task (with the owner's reply, if any), then the nudge rule again
+			retry := n
+			if strings.TrimSpace(ans.Text) != "" {
+				nn := *n
+				nn.Prompt = ownerReplyPrompt(n, ans.Text)
+				retry = &nn
+			}
+			code, err := w.turn(ctx, s, resume, retry, timeout)
 			*turns++
 			if err != nil {
 				return err

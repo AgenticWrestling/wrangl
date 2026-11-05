@@ -150,6 +150,7 @@ func (w *Worker) HookFor(runID int64, event string, payload json.RawMessage) err
 		if sess != nil {
 			sess.noteSession(ids.SessionID+ids.ConversationID, false)
 			sess.noteTranscriptPath(ids.TranscriptPath)
+			sess.noteLastMessage(stopMessage(event, payload))
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"seq": seq, "ts": time.Now().UTC(), "event": event, "payload": payload})

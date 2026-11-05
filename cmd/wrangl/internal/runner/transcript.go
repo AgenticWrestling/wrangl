@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
@@ -165,4 +166,35 @@ func (s *session) startTranscriptTail(ctx context.Context) <-chan struct{} {
 	}
 	go func() { defer close(done); t.run(ctx) }()
 	return done
+}
+
+// noteLastMessage keeps the agent's final message of its latest turn (the Stop hook carries it), so
+// a "what now?" question can show what the agent actually said instead of raw terminal lines.
+func (s *session) noteLastMessage(m string) {
+	if strings.TrimSpace(m) == "" {
+		return
+	}
+	s.mu.Lock()
+	s.lastMsg = m
+	s.mu.Unlock()
+}
+
+func (s *session) lastMessage() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastMsg
+}
+
+// stopMessage extracts last_assistant_message from a Stop hook payload ("" for other agents).
+func stopMessage(event string, payload json.RawMessage) string {
+	if !strings.EqualFold(event, "Stop") {
+		return ""
+	}
+	var p struct {
+		Last string `json:"last_assistant_message"`
+	}
+	if json.Unmarshal(payload, &p) != nil {
+		return ""
+	}
+	return p.Last
 }
