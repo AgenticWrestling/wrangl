@@ -53,7 +53,7 @@
 <div class="logwrap"><table class="logs plist">
 <thead><tr><th>Project</th><th class="num">Runners</th><th class="num">In progress</th><th class="num">Queued</th><th class="num">Backlog</th><th class="num">Inbox</th></tr></thead>
 {{range $i, $p := .Rows}}{{$k := print "pj" $i}}<tbody class="lrow prow" id="proj-{{$p.Slug}}" data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}">
-<tr class="expandable" data-on:click="if (!evt.target.closest('a,button')) {{sig "" $k}} = !{{sig "" $k}}" title="Show details" tabindex="0" data-on:keydown="(evt.key == 'Enter' || evt.key == ' ') && !evt.target.closest('a,button') && (evt.preventDefault(), {{sig "" $k}} = !{{sig "" $k}})">
+<tr{{template "exprow" props "Key" $k "Title" "Show details"}}>
 <td class="pname"><span class="caret" aria-hidden="true">▸</span> <a href="/projects/{{$p.Slug}}"><b>{{if $p.Name}}{{$p.Name}}{{else}}{{$p.Slug}}{{end}}</b></a> <code class="sqid">{{$p.Slug}}</code></td>
 <td class="num" data-label="Runners">{{template "cnt" $p.Runners}}</td>
 <td class="num" data-label="In progress">{{template "cnt" $p.InProgress}}</td>
