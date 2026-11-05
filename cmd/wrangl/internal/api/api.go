@@ -23,6 +23,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/tools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
@@ -86,6 +87,8 @@ type Deps struct {
 	Term         *TermHub
 	// Agents runs controller agents ("Ask?" on a task).
 	Agents *agents.Service
+	// Tools is the custom tool library (nil: built on Fleet.DB).
+	Tools *tools.Service
 }
 
 // Register mounts /api/v1 on mux.
@@ -94,6 +97,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	registerWork(mux, d)
 	registerTerm(mux, d)
 	registerAgentDefs(mux, d)
+	registerTools(mux, d)
 	registerSecrets(mux, d)
 	registerTargets(mux, d)
 	registerCosts(mux, d)

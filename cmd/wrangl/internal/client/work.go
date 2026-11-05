@@ -506,3 +506,47 @@ func (c *Client) ProjectThread(ctx context.Context, slug string) (json.RawMessag
 func (c *Client) ApplyProjectProposal(ctx context.Context, msgID int64, n int) error {
 	return c.json(ctx, http.MethodPost, fmt.Sprintf("/api/v1/project-thread/%d/apply/%d", msgID, n), nil, nil)
 }
+
+// --- custom tool library (docs/wrangl/adr/0003) ---
+
+func (c *Client) Tools(ctx context.Context) ([]proto.LibraryToolView, error) {
+	var out []proto.LibraryToolView
+	return out, c.json(ctx, http.MethodGet, "/api/v1/tools", nil, &out)
+}
+func (c *Client) ProjectTools(ctx context.Context, project string) ([]proto.LibraryToolView, error) {
+	var out []proto.LibraryToolView
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects/"+esc(project)+"/tools", nil, &out)
+}
+func (c *Client) Tool(ctx context.Context, name string) (proto.LibraryToolView, error) {
+	var out proto.LibraryToolView
+	return out, c.json(ctx, http.MethodGet, "/api/v1/tools/"+esc(name), nil, &out)
+}
+func (c *Client) AddTool(ctx context.Context, kdl string) (proto.LibraryToolView, error) {
+	var out proto.LibraryToolView
+	return out, c.json(ctx, http.MethodPost, "/api/v1/tools", proto.LibraryToolRequest{KDL: kdl}, &out)
+}
+func (c *Client) UpdateTool(ctx context.Context, name, kdl string) (proto.LibraryToolView, error) {
+	var out proto.LibraryToolView
+	return out, c.json(ctx, http.MethodPut, "/api/v1/tools/"+esc(name), proto.LibraryToolRequest{KDL: kdl}, &out)
+}
+func (c *Client) RemoveTool(ctx context.Context, name string, force bool) error {
+	p := "/api/v1/tools/" + esc(name)
+	if force {
+		p += "?force=1"
+	}
+	return c.json(ctx, http.MethodDelete, p, nil, nil)
+}
+
+// EnableTool enables (or with enable=false, disables) a library tool for a project.
+func (c *Client) EnableTool(ctx context.Context, project, name string, enable bool) error {
+	m := http.MethodPut
+	if !enable {
+		m = http.MethodDelete
+	}
+	return c.json(ctx, m, "/api/v1/projects/"+esc(project)+"/tools/"+esc(name), nil, nil)
+}
+
+// TestTool calls a tool enabled on a project with sample input.
+func (c *Client) TestTool(ctx context.Context, project, name string, input json.RawMessage) error {
+	return c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(project)+"/tools/"+esc(name)+"/test", proto.LibraryToolTestRequest{Input: input}, nil)
+}

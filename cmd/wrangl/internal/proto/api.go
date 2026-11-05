@@ -398,3 +398,27 @@ type ProjectSession struct {
 	Title string `json:"title"`
 	State string `json:"state"`
 }
+
+// LibraryToolView is a custom tool in the system-wide library (docs/wrangl/adr/0003). Declaration is
+// what runners see; KDL (only on the single-tool GET) is the owner's source.
+type LibraryToolView struct {
+	Name        string          `json:"name"`
+	Kind        string          `json:"kind"`
+	Effect      string          `json:"effect"`
+	Description string          `json:"description"`
+	Version     int64           `json:"version"`
+	RunKinds    []string        `json:"run_kinds"`
+	Projects    []string        `json:"projects"` // slugs the tool is enabled on
+	Declaration json.RawMessage `json:"declaration,omitempty"`
+	KDL         string          `json:"kdl,omitempty"`
+}
+
+// LibraryToolRequest adds or replaces a library tool from its KDL source.
+type LibraryToolRequest struct {
+	KDL string `json:"kdl"`
+}
+
+// LibraryToolTestRequest calls a tool enabled on a project with sample input.
+type LibraryToolTestRequest struct {
+	Input json.RawMessage `json:"input,omitempty"`
+}

@@ -384,3 +384,22 @@ type Agent struct {
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }
+
+type Tool struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Effect      string `json:"effect"`
+	Description string `json:"description"`
+	Kdl         string `json:"kdl"`
+	DeclJson    string `json:"decl_json"`
+	Version     int64  `json:"version"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+type ProjectTool struct {
+	ProjectID int64  `json:"project_id"`
+	ToolID    int64  `json:"tool_id"`
+	CreatedAt string `json:"created_at"`
+}

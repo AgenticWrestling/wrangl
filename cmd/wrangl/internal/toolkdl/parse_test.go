@@ -1,6 +1,7 @@
 package toolkdl
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -244,4 +245,23 @@ func FuzzParse(f *testing.F) {
 			t.Fatal("nil definition without error")
 		}
 	})
+}
+
+func TestDeclarationHidesExecutor(t *testing.T) {
+	d, err := Parse([]byte(adrExample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(d.Declaration())
+	s := string(b)
+	for _, leak := range []string{"kubectl", "kube.prod", "KUBECONFIG", "argv", "{{"} {
+		if strings.Contains(s, leak) {
+			t.Errorf("declaration leaks %q: %s", leak, s)
+		}
+	}
+	for _, want := range []string{`"enum":["staging","prod"]`, `"required":["env"]`, `"run_kinds":["work","revise"]`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("declaration missing %s: %s", want, s)
+		}
+	}
 }
