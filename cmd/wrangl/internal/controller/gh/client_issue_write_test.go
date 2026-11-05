@@ -110,6 +110,7 @@ func TestIssueWritesAgainstFakeGitHub(t *testing.T) {
 		case reflect.DeepEqual(p, map[string]string{"issues": "write"}):
 			sawWrite = true
 		case reflect.DeepEqual(p, map[string]string{"contents": "write", "pull_requests": "write"}):
+		case reflect.DeepEqual(p, map[string]string{"issues": "read", "pull_requests": "read"}):
 		default:
 			t.Fatalf("unexpected token permissions %v", p)
 		}
