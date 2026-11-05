@@ -109,12 +109,12 @@ func checkPWA(t *testing.T, e *workEnv, hc *http.Client, runner string, big, oth
 	get("/inbox", "plan_review", "another big job", `pre class="outline"`)
 	get("/settings", "enablePush", "tiny", "sheet-project", "Appearance", `id="fs-seg"`, `data-fs="1.15"`)
 	get("/static/app.css", "calc(16px * var(--fs, 1))")
-	get("/projects/web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/projects/web/settings", `class="pmore ppill"`, "All projects")
+	get("/projects/web", `class="projbar"`, `aria-label="New project"`, "sheet-project", "/projects/web/settings", `id="pm-title"`, "All projects")
 	get("/projects", "Projects", "＋ New project", `href="/projects/web"`)
 	get("/projects", `class="logs plist"`, `id="proj-web"`, `data-label="Inbox"`, "Runners now", "Recent activity", `href="/projects/web/settings"`,
 		`data-confirm="Archive web?`, "＋ New project", `data-bind="slug"`)
 	get("/", "Projects") // follows the redirect to /projects
-	if page := get("/projects/web", `<span>☰</span>Projects`); strings.Contains(page, "</span>Tasks</a>") {
+	if page := get("/projects/web", `<use href="#ni-projects"/></svg>Projects`); strings.Contains(page, "</span>Tasks</a>") {
 		t.Fatal("left panel still says Tasks")
 	}
 	// Old URLs redirect (not followed here) to the project page and its settings page.

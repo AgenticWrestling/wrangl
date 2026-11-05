@@ -147,7 +147,7 @@ agent:
 		t.Fatalf("want two run entries with a runner tag and nothing queued:\n%.1500s", page)
 	}
 	// The project page strip says one runner is active, and the API lists it with both sessions.
-	for _, want := range []string{`class="phead"`, `class="pstrip"`, "runners 1 active", "Edit goals &amp; repos", `data-confirm="Archive web?`, `class="showdone"`} {
+	for _, want := range []string{`class="phead"`, `class="pstrip"`, `aria-label="1 active runners"`, `aria-label="Edit goals and repos"`, `href="#ni-github"`, `data-confirm="Archive web?`, `class="showdone"`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("project page missing %q", want)
 		}

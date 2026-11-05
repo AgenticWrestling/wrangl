@@ -69,7 +69,7 @@ nav.tabs {
   border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
 }
 nav.tabs a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: var(--tabs-h); color: var(--dim); font-size: 0.72rem; position: relative; }
-nav.tabs a span:first-child { font-size: 1.2rem; line-height: 1.2; }
+nav.tabs .ni { width: 1.5rem; height: 1.5rem; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 nav.tabs a.on { color: var(--prog); font-weight: 600; }
 nav.tabs a.side-brand { display: none; } /* desktop only: see the min-width:900px block */
 .badge:empty { display: none; }
@@ -246,7 +246,7 @@ label.check { font-size: 0.95rem; }
   nav.tabs a { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; height: auto; padding: 10px 12px; border-radius: 10px; font-size: 0.98rem; }
   nav.tabs a:hover { background: var(--raised); color: var(--ink2); }
   nav.tabs a.on { background: color-mix(in srgb, var(--prog) 14%, transparent); }
-  nav.tabs a span:first-child { width: 1.4em; text-align: center; font-size: 1.1rem; }
+  nav.tabs .ni { width: 1.3rem; height: 1.3rem; }
   .badge { position: static; margin-left: auto; }
   header.top { padding-left: 24px; padding-right: 24px; }
   main { max-width: 900px; margin-left: 0; padding: 16px 24px; }
@@ -495,7 +495,7 @@ section.card.k-running { border-left: 4px solid var(--prog); }
 
 /* Project switcher: on a phone the current project is a pill that opens a menu (projects + All projects); from 900px up the left panel and the project bar do that. */
 .ppill { margin-bottom: 10px; }
-.ppill .menu a.all { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; color: var(--link); }
+.pmore .menu a.all { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; color: var(--link); }
 @media (max-width: 899px) { .projbar { display: none; } }
 @media (min-width: 900px) { .ppill { display: none; } }
 
@@ -577,3 +577,14 @@ a.tlink code { color: var(--link); }
 }
 /* the parent-task jump tag on In progress rows: long titles are elided */
 .tag.ptag { display: inline-block; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+/* line icons (sprite in layout.html) used in chips and buttons; the nav and header size their own */
+.ni { width: 1.1rem; height: 1.1rem; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.chip.ic, .btn.ic { display: inline-flex; align-items: center; gap: 6px; }
+.chip.ic { padding: 6px 10px; }
+.phead .about { text-align: left; }
+/* the page title is the project switcher */
+.ttl { display: inline-flex; min-width: 0; }
+.ttlbtn { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; color: inherit; font: inherit; font-size: 1.1rem; font-weight: 600; cursor: pointer; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ttlbtn:hover { background: var(--raised); }
+.ttlbtn .ni { color: var(--dim); }
