@@ -2,6 +2,7 @@ package web
 
 import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+	"regexp"
 
 	"context"
 	"database/sql"
@@ -64,7 +65,7 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		it := inboxItem{
 			DOM: fmt.Sprintf("q%d", q.ID), Key: fmt.Sprintf("q%d", q.ID), Bind: fmt.Sprintf("ans%d", q.ID),
 			Kind: q.Kind, Tag: "? needs input", TagClass: "k-questions", Task: q.Task, TaskTitle: q.TaskTitle, RunID: q.RunID,
-			Age: dbtime.Ago(q.CreatedAt, time.Now()), Title: q.Prompt, Chat: q.AllowFreeText, ChatHint: "Reply / feedback", Changes: changes[q.Task],
+			Age: dbtime.Ago(q.CreatedAt, time.Now()), Title: stripTaskPrefix(q.Prompt), Chat: q.AllowFreeText, ChatHint: "Reply / feedback", Changes: changes[q.Task],
 		}
 		switch q.Kind {
 		case "plan_review":
@@ -201,4 +202,15 @@ func (h *Handler) fetchRunDoc(ctx context.Context, runID int64) *runDocT {
 		return nil
 	}
 	return &runDocT{Name: files[0].Name, HTML: markdown(f.Data)}
+}
+
+// taskPrefix matches the "Task hIqdqc (#691): " lead-in agents put on questions; the card
+// already shows the task, so it is noise.
+var taskPrefix = regexp.MustCompile(`^\s*Task\s+[A-Za-z0-9]{4,8}(\s*\(#?\d+\))?\s*[:\-–—]\s*`)
+
+func stripTaskPrefix(s string) string {
+	if t := taskPrefix.ReplaceAllString(s, ""); t != "" {
+		return t
+	}
+	return s
 }

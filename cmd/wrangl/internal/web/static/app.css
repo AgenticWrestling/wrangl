@@ -479,9 +479,10 @@ section.card.k-running { border-left: 4px solid var(--prog); }
 
 /* Inbox cards: one layout for questions, task reviews, plan proposals and PRs. */
 .icard .actions { align-items: center; }
-.icard .chatbtn { margin-left: auto; background: none; border: 1px solid transparent; color: var(--dim); border-radius: 999px; width: 40px; height: 40px; display: grid; place-items: center; cursor: pointer; }
+.icard .chatbtn { background: none; border: 1px solid transparent; color: var(--dim); border-radius: 999px; width: 40px; height: 40px; display: grid; place-items: center; cursor: pointer; }
 .icard .chatbtn:hover, .icard .chatbtn[aria-pressed="true"] { color: var(--ink); background: var(--raised); border-color: var(--line); }
 .icard .chatbtn .fa { width: 1.25em; height: 1.25em; margin: 0; }
+.icard .chgink { margin: 0; text-decoration: none; }
 .icard textarea { width: 100%; margin-top: 8px; }
 .icard details.idetail { margin: 8px 0; }
 .icard details.idetail > summary { cursor: pointer; color: var(--dim); font-size: 0.88rem; }

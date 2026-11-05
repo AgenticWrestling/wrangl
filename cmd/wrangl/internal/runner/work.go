@@ -937,6 +937,7 @@ func (w *Worker) reportCheckpoint(ctx context.Context, s *session, n *proto.Stac
 	// the run is still going (and the work is backed up). The final push in finishRun repeats it.
 	if out, err := w.pushBranch(ctx, s.id, s.dir, s.a.GitToken, s.a.Branch); err != nil {
 		s.logf("runner", "checkpoint: push %s: %v: %s", s.a.Branch, err, strings.TrimSpace(out))
+		return // not on GitHub, so a "what changed" link to it would 404
 	}
 	if _, err := w.stack(ctx, "checkpoint", proto.StackRequest{RunID: s.a.RunID, Sqid: n.Sqid, Commit: sha}); err != nil {
 		s.logf("runner", "checkpoint: report %s: %v", n.Sqid, err)
