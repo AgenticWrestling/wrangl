@@ -411,6 +411,17 @@ type LibraryToolView struct {
 	Projects    []string        `json:"projects"` // slugs the tool is enabled on
 	Declaration json.RawMessage `json:"declaration,omitempty"`
 	KDL         string          `json:"kdl,omitempty"`
+	// Secrets is set/missing per declared secret for the project in the URL (project views
+	// only). Values are write-only and never appear.
+	Secrets []LibraryToolSecret `json:"secrets,omitempty"`
+}
+
+// LibraryToolSecret is the status of one secret a tool declares, for one project.
+type LibraryToolSecret struct {
+	Name string `json:"name"`
+	Env  string `json:"env,omitempty"` // exec tools: the environment variable it is exposed as
+	As   string `json:"as,omitempty"`  // env | file
+	Set  bool   `json:"set"`
 }
 
 // LibraryToolRequest adds or replaces a library tool from its KDL source.

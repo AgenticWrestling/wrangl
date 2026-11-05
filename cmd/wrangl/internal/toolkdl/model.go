@@ -134,3 +134,27 @@ const (
 	MaxBody            = 16 << 10
 	MaxPattern         = 256
 )
+
+// SecretSpec is one stored secret a tool needs. Env and As are set for exec secrets only; http
+// and mcp-remote tools splice {{secret.NAME}} into headers and bodies.
+type SecretSpec struct {
+	Name string `json:"name"`
+	Env  string `json:"env,omitempty"`
+	As   string `json:"as,omitempty"`
+}
+
+// SecretSpecs lists the secrets the definition needs, in declaration order.
+func (d *Definition) SecretSpecs() []SecretSpec {
+	if d.Exec != nil {
+		var out []SecretSpec
+		for _, s := range d.Exec.Secrets {
+			out = append(out, SecretSpec{Name: s.Name, Env: s.Env, As: s.As})
+		}
+		return out
+	}
+	var out []SecretSpec
+	for _, n := range d.SecretNames() {
+		out = append(out, SecretSpec{Name: n})
+	}
+	return out
+}

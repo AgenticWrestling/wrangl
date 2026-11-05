@@ -565,6 +565,7 @@ func (s *Server) routes() http.Handler {
 			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },
 			Has:  func(name string) bool { _, err := SecretGet(s.cfg.DataDir, name); return err == nil },
+			Get:  func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) },
 		}}
 	api.Register(mux, deps)
 	mux.HandleFunc("POST /gh/webhook", s.PRs.Webhook)

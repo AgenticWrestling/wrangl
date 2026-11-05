@@ -538,12 +538,25 @@ func (c *Client) RemoveTool(ctx context.Context, name string, force bool) error 
 }
 
 // EnableTool enables (or with enable=false, disables) a library tool for a project.
-func (c *Client) EnableTool(ctx context.Context, project, name string, enable bool) error {
-	m := http.MethodPut
+// Enabling returns the tool with its secret status for the project.
+func (c *Client) EnableTool(ctx context.Context, project, name string, enable bool) (proto.LibraryToolView, error) {
+	var out proto.LibraryToolView
+	p := "/api/v1/projects/" + esc(project) + "/tools/" + esc(name)
 	if !enable {
-		m = http.MethodDelete
+		return out, c.json(ctx, http.MethodDelete, p, nil, nil)
 	}
-	return c.json(ctx, m, "/api/v1/projects/"+esc(project)+"/tools/"+esc(name), nil, nil)
+	return out, c.json(ctx, http.MethodPut, p, nil, &out)
+}
+
+// ToolSecrets reports set/missing for the secrets a tool declares, in a project.
+func (c *Client) ToolSecrets(ctx context.Context, project, name string) ([]proto.LibraryToolSecret, error) {
+	var out []proto.LibraryToolSecret
+	return out, c.json(ctx, http.MethodGet, "/api/v1/projects/"+esc(project)+"/tools/"+esc(name)+"/secrets", nil, &out)
+}
+
+// SetToolSecret stores the value of a tool secret in a project (write-only).
+func (c *Client) SetToolSecret(ctx context.Context, project, secret, value string) error {
+	return c.do(ctx, http.MethodPut, "/api/v1/projects/"+esc(project)+"/tool-secrets/"+esc(secret), strings.NewReader(value), "text/plain", nil)
 }
 
 // TestTool calls a tool enabled on a project with sample input.

@@ -1,10 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -102,7 +106,7 @@ func TestToolEndpoints(t *testing.T) {
 	if rec = send(mux, "POST", "/api/v1/projects/alpha/tools/deploy_status/test", `{}`); rec.Code != 409 {
 		t.Fatalf("test before enable: %d %s", rec.Code, rec.Body)
 	}
-	if rec = send(mux, "PUT", "/api/v1/projects/alpha/tools/deploy_status", ""); rec.Code != 204 {
+	if rec = send(mux, "PUT", "/api/v1/projects/alpha/tools/deploy_status", ""); rec.Code != 200 {
 		t.Fatalf("enable: %d %s", rec.Code, rec.Body)
 	}
 	if rec = send(mux, "PUT", "/api/v1/projects/nope/tools/deploy_status", ""); rec.Code != 404 {
@@ -127,5 +131,124 @@ func TestToolEndpoints(t *testing.T) {
 	}
 	if rec = send(mux, "GET", "/api/v1/tools/deploy_status", ""); rec.Code != 404 {
 		t.Fatalf("after delete: %d", rec.Code)
+	}
+}
+
+// memStore is an in-memory secret store for tests.
+type memStore struct{ m map[string]string }
+
+func (s *memStore) store() *SecretStore {
+	return &SecretStore{
+		Set: func(name string, r io.Reader) error {
+			b, _ := io.ReadAll(r)
+			s.m[name] = strings.TrimSpace(string(b))
+			return nil
+		},
+		List: func() ([]string, error) { return nil, nil },
+		Has:  func(n string) bool { _, ok := s.m[n]; return ok },
+		Get: func(n string) ([]byte, error) {
+			if v, ok := s.m[n]; ok {
+				return []byte(v), nil
+			}
+			return nil, os.ErrNotExist
+		},
+	}
+}
+
+func TestToolSecretsNeverLeak(t *testing.T) {
+	const value = "s3cr3t-VALUE-9f2c1d"
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	d, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	d.W.Exec(`INSERT INTO project (slug, name) VALUES ('alpha', 'Alpha'), ('beta', 'Beta')`)
+	ms := &memStore{m: map[string]string{}}
+	mux := http.NewServeMux()
+	registerTools(mux, Deps{Fleet: &fleet.Service{DB: d}, Secrets: ms.store()})
+
+	var responses []string
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := send(mux, method, path, body)
+		responses = append(responses, rec.Body.String())
+		for k, v := range rec.Header() {
+			responses = append(responses, k+strings.Join(v, ","))
+		}
+		return rec
+	}
+	if rec := do("POST", "/api/v1/tools", kdlBody(toolKDL)); rec.Code != 201 {
+		t.Fatalf("add: %d %s", rec.Code, rec.Body)
+	}
+
+	// enabling reports the missing secret
+	rec := do("PUT", "/api/v1/projects/alpha/tools/deploy_status", "")
+	var v proto.LibraryToolView
+	json.Unmarshal(rec.Body.Bytes(), &v)
+	if rec.Code != 200 || len(v.Secrets) != 1 || v.Secrets[0].Name != "kube.prod" || v.Secrets[0].Set || v.Secrets[0].Env != "KUBECONFIG" || v.Secrets[0].As != "file" {
+		t.Fatalf("enable: %d %s", rec.Code, rec.Body)
+	}
+
+	// set it: namespaced per project, only for declared names
+	if rec := do("PUT", "/api/v1/projects/alpha/tool-secrets/kube.prod", value+"\n"); rec.Code != 204 {
+		t.Fatalf("set: %d %s", rec.Code, rec.Body)
+	}
+	if got := ms.m["tool.alpha.kube.prod"]; got != value {
+		t.Fatalf("stored under the wrong name: %v", ms.m)
+	}
+	if len(ms.m) != 1 {
+		t.Fatalf("unexpected store writes: %v", ms.m)
+	}
+	for _, c := range []struct {
+		path, body string
+		code       int
+	}{
+		{"/api/v1/projects/alpha/tool-secrets/other", value, 400},              // undeclared name: the value must not echo in the error
+		{"/api/v1/projects/alpha/tool-secrets/..%2Fx", value, 400},             // traversal attempt
+		{"/api/v1/projects/nope/tool-secrets/kube.prod", value, 404},           // unknown project
+		{"/api/v1/projects/alpha/tool-secrets/kube.prod", "   ", 400},          // empty
+		{"/api/v1/projects/alpha/tool-secrets/claude_oauth_token", value, 400}, // global secrets are out of reach
+	} {
+		if rec := do("PUT", c.path, c.body); rec.Code != c.code {
+			t.Errorf("PUT %s: %d %s, want %d", c.path, rec.Code, rec.Body, c.code)
+		}
+	}
+	if len(ms.m) != 1 {
+		t.Fatalf("rejected sets wrote: %v", ms.m)
+	}
+
+	// status: alpha set, beta missing
+	var st []proto.LibraryToolSecret
+	rec = do("GET", "/api/v1/projects/alpha/tools/deploy_status/secrets", "")
+	json.Unmarshal(rec.Body.Bytes(), &st)
+	if rec.Code != 200 || len(st) != 1 || !st[0].Set {
+		t.Fatalf("alpha status: %s", rec.Body)
+	}
+	do("PUT", "/api/v1/projects/beta/tools/deploy_status", "")
+	rec = do("GET", "/api/v1/projects/beta/tools/deploy_status/secrets", "")
+	json.Unmarshal(rec.Body.Bytes(), &st)
+	if len(st) != 1 || st[0].Set {
+		t.Fatalf("beta must not see alpha's secret: %s", rec.Body)
+	}
+	rec = do("GET", "/api/v1/projects/alpha/tools", "")
+	json.Unmarshal(rec.Body.Bytes(), &[]proto.LibraryToolView{})
+	for _, p := range []string{"/api/v1/tools", "/api/v1/tools/deploy_status", "/api/v1/projects/beta/tools", "/api/v1/projects/alpha/tools/nope/secrets"} {
+		do("GET", p, "")
+	}
+
+	for i, r := range responses {
+		if strings.Contains(r, value) {
+			t.Errorf("response %d contains the secret value: %s", i, r)
+		}
+	}
+	if strings.Contains(logs.String(), value) {
+		t.Errorf("log contains the secret value:\n%s", logs.String())
+	}
+	if !strings.Contains(logs.String(), "tool secret set") {
+		t.Errorf("expected an audit log line without the value, got %q", logs.String())
 	}
 }

@@ -14,6 +14,7 @@ type SecretStore struct {
 	Set  func(name string, r io.Reader) error
 	List func() ([]string, error)
 	Has  func(name string) bool
+	Get  func(name string) ([]byte, error) // for controller-side executors only; never served
 }
 
 func registerSecrets(mux *http.ServeMux, d Deps) {

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/toolkdl"
@@ -149,10 +150,17 @@ func toolCmd(g *Global) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := cl.EnableTool(cmd.Context(), project, args[0], on); err != nil {
+				t, err := cl.EnableTool(cmd.Context(), project, args[0], on)
+				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s on %s\n", verb, args[0], project)
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "%s %s on %s\n", verb, args[0], project)
+				for _, sc := range t.Secrets {
+					if !sc.Set {
+						fmt.Fprintf(out, "missing secret %s: set it with `wrangl tool secret set %s %s` (calls fail until then)\n", sc.Name, project, sc.Name)
+					}
+				}
 				return nil
 			},
 		}
@@ -200,7 +208,78 @@ func toolCmd(g *Global) *cobra.Command {
 	test.Flags().StringVarP(&file, "file", "f", "", "validate this KDL file without contacting the controller")
 	test.Flags().StringVar(&project, "project", "", "project the tool is enabled on")
 	test.Flags().StringVar(&input, "input", "", "sample input as a JSON object")
-	return group("tool", "Manage the system-wide custom tool library and enable tools per project", list, show, add, edit, rm, toggle(true), toggle(false), test)
+	return group("tool", "Manage the system-wide custom tool library and enable tools per project", list, show, add, edit, rm, toggle(true), toggle(false), test, toolSecretCmd(g))
+}
+
+// toolSecretCmd sets and reports per-project tool secrets. Values are write-only.
+func toolSecretCmd(g *Global) *cobra.Command {
+	set := &cobra.Command{
+		Use: "set <project> <name>", Short: "Store a tool secret for a project; the value is read from stdin (prompted without echo on a terminal)", Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			v, err := readSecretValue(cmd)
+			if err != nil {
+				return err
+			}
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			if err := c.SetToolSecret(cmd.Context(), args[0], args[1], v); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "stored tool secret %s for %s\n", args[1], args[0])
+			return nil
+		},
+	}
+	status := &cobra.Command{
+		Use: "status <project> <tool>", Short: "Show set/missing for each secret a tool declares in a project (never values)", Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			ss, err := c.ToolSecrets(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, ss, func(w io.Writer) {
+				fmt.Fprintln(w, "SECRET\tENV\tAS\tSTATUS")
+				for _, s := range ss {
+					st := "missing"
+					if s.Set {
+						st = "set"
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, dash(s.Env), dash(s.As), st)
+				}
+			})
+		},
+	}
+	return group("secret", "Per-project tool secrets (write-only)", set, status)
+}
+
+// readSecretValue reads the value from stdin, prompting without echo when stdin is a terminal.
+func readSecretValue(cmd *cobra.Command) (string, error) {
+	if f, ok := cmd.InOrStdin().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		fmt.Fprint(cmd.ErrOrStderr(), "Value (hidden): ")
+		b, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(cmd.ErrOrStderr())
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 64<<10+1))
+	if err != nil {
+		return "", err
+	}
+	if len(b) > 64<<10 {
+		return "", fmt.Errorf("secret is larger than 64 KiB")
+	}
+	v := strings.TrimSpace(string(b))
+	if v == "" {
+		return "", fmt.Errorf("empty secret value on stdin")
+	}
+	return v, nil
 }
 
 // editToolInEditor fetches the tool's source, lets the owner edit it in $VISUAL/$EDITOR and

@@ -38,7 +38,14 @@ func toolAPI(t *testing.T, calls *[]toolCall, status int) string {
 		}
 		v := proto.LibraryToolView{Name: "deploy_status", Kind: "exec", Effect: "read", Version: 2, RunKinds: []string{"work", "revise"}, Projects: []string{"alpha"}, KDL: cliToolKDL}
 		switch {
-		case r.Method == "DELETE" || (r.Method == "PUT" && strings.Contains(r.URL.Path, "/projects/")):
+		case r.Method == "PUT" && strings.Contains(r.URL.Path, "/tool-secrets/"):
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == "PUT" && strings.Contains(r.URL.Path, "/projects/"):
+			v.Secrets = []proto.LibraryToolSecret{{Name: "kube.prod", Env: "KUBECONFIG", As: "file"}}
+			json.NewEncoder(w).Encode(v)
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/secrets"):
+			json.NewEncoder(w).Encode([]proto.LibraryToolSecret{{Name: "kube.prod", Env: "KUBECONFIG", As: "file", Set: true}, {Name: "other"}})
+		case r.Method == "DELETE":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == "GET" && (r.URL.Path == "/api/v1/tools" || strings.HasSuffix(r.URL.Path, "/projects/alpha/tools")):
 			json.NewEncoder(w).Encode([]proto.LibraryToolView{v})
@@ -124,7 +131,7 @@ func TestToolEnableDisable(t *testing.T) {
 	url := toolAPI(t, &calls, 0)
 	out, err := run2(t, url, "tool", "enable", "deploy_status", "--project", "alpha")
 	last := calls[len(calls)-1]
-	if err != nil || !strings.Contains(out, "enabled deploy_status on alpha") || last.Method != "PUT" || last.Path != "/api/v1/projects/alpha/tools/deploy_status" {
+	if err != nil || !strings.Contains(out, "enabled deploy_status on alpha") || !strings.Contains(out, "wrangl tool secret set alpha kube.prod") || last.Method != "PUT" || last.Path != "/api/v1/projects/alpha/tools/deploy_status" {
 		t.Fatalf("enable: %v %q %+v", err, out, last)
 	}
 	out, err = run2(t, url, "tool", "disable", "deploy_status", "--project", "alpha")
@@ -167,5 +174,28 @@ func TestToolAPIError(t *testing.T) {
 	url := toolAPI(t, &calls, http.StatusConflict)
 	if _, err := run2(t, url, "tool", "enable", "deploy_status", "--project", "alpha"); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestToolSecretSetAndStatus(t *testing.T) {
+	var calls []toolCall
+	url := toolAPI(t, &calls, 0)
+	out, err := run(t, "hunter2-value\n", "--controller", url, "tool", "secret", "set", "alpha", "kube.prod")
+	last := calls[len(calls)-1]
+	if err != nil || last.Method != "PUT" || last.Path != "/api/v1/projects/alpha/tool-secrets/kube.prod" || last.Body != "hunter2-value" {
+		t.Fatalf("set: %v %q %+v", err, out, last)
+	}
+	if strings.Contains(out, "hunter2") {
+		t.Fatalf("value echoed: %q", out)
+	}
+	if _, err = run(t, "  \n", "--controller", url, "tool", "secret", "set", "alpha", "kube.prod"); err == nil {
+		t.Fatal("empty value should fail")
+	}
+	out, err = run2(t, url, "tool", "secret", "status", "alpha", "deploy_status")
+	if err != nil || !strings.Contains(out, "kube.prod") || !strings.Contains(out, "set") || !strings.Contains(out, "missing") {
+		t.Fatalf("status: %v %q", err, out)
+	}
+	if _, err = run2(t, url, "tool", "secret", "set", "alpha"); err == nil {
+		t.Fatal("name is required")
 	}
 }

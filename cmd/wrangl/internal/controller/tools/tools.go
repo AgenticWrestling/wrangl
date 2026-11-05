@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
@@ -17,7 +19,14 @@ import (
 )
 
 // Service owns the tool tables.
-type Service struct{ DB *db.DB }
+type Service struct {
+	DB *db.DB
+	// PutSecret and GetSecret are the controller's secret store (see secrets.go); nil disables
+	// secret management and makes every secret read as missing.
+	PutSecret func(name string, r io.Reader) error
+	GetSecret func(name string) ([]byte, error)
+	Log       *slog.Logger
+}
 
 // Tool is a stored library entry.
 type Tool struct {
