@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // wireIssueMeta is the part of GitHub's issue JSON the read tools need beyond the basics.
@@ -49,7 +50,7 @@ func notFound(err error) bool {
 
 // GetIssue implements IssueReader.
 func (c *Client) GetIssue(ctx context.Context, r Repo, number int64) (Issue, error) {
-	tok, _, err := c.RepoToken(ctx, r)
+	tok, _, err := c.issueReadToken(ctx, r)
 	if err != nil {
 		return Issue{}, err
 	}
@@ -68,7 +69,7 @@ func (c *Client) GetIssue(ctx context.Context, r Repo, number int64) (Issue, err
 
 // IssueComments implements IssueReader.
 func (c *Client) IssueComments(ctx context.Context, r Repo, number int64, page int) ([]IssueComment, bool, error) {
-	tok, _, err := c.RepoToken(ctx, r)
+	tok, _, err := c.issueReadToken(ctx, r)
 	if err != nil {
 		return nil, false, err
 	}
@@ -98,7 +99,7 @@ func (c *Client) IssueComments(ctx context.Context, r Repo, number int64, page i
 // SearchIssues implements IssueReader using GitHub's search API, restricted to this repository
 // and to issues (never pull requests).
 func (c *Client) SearchIssues(ctx context.Context, r Repo, query, state string, limit int) ([]Issue, error) {
-	tok, _, err := c.RepoToken(ctx, r)
+	tok, _, err := c.issueReadToken(ctx, r)
 	if err != nil {
 		return nil, err
 	}
@@ -122,4 +123,15 @@ func (c *Client) SearchIssues(ctx context.Context, r Repo, query, state string, 
 		}
 	}
 	return out, nil
+}
+
+// issueReadToken mints a token that can read issues. The repo token carries only contents and
+// pull_requests, which GitHub answers with 403 for an ordinary issue; if the installation has not
+// accepted issues access, fall back to it (it still lists the issues that are pull-request linked).
+func (c *Client) issueReadToken(ctx context.Context, r Repo) (string, time.Time, error) {
+	tok, exp, err := c.mintToken(ctx, r, map[string]string{"issues": "read", "pull_requests": "read"})
+	if err == nil {
+		return tok, exp, nil
+	}
+	return c.RepoToken(ctx, r)
 }

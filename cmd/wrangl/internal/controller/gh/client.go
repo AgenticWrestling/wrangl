@@ -208,7 +208,7 @@ var nextLink = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
 
 // Issues implements API (follows Link pagination; pull requests are skipped).
 func (c *Client) Issues(ctx context.Context, r Repo, state string) ([]Issue, error) {
-	tok, _, err := c.RepoToken(ctx, r)
+	tok, _, err := c.issueReadToken(ctx, r)
 	if err != nil {
 		return nil, err
 	}
