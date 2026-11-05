@@ -1,6 +1,6 @@
 # ADR 0005: Projects as the primary lens (routes, counts, runners, shared components, project chat)
 
-- Status: **Proposed** (the owner decides before the implementation subtasks start)
+- Status: **Accepted, implemented** (routes, counts, project page, shared components and project chat)
 - Task: 24biFM, under gmy0K3 (Projects as the primary lens). Later subtasks follow this note.
 - Builds on: the Tasks page (`web/templates/tasks.html`, `web.go` `tree`), the Inbox card (`icard`), the Logs/Fleet expandable rows, the ask-agent/thread machinery (`controller/agents`, `task_thread`), `run.queue_rank` and `POST /api/v1/runs/queue-order`, project archive (migration 34), per-project template caps (migration 25).
 - Caveat: the mockup (claude.ai artifact YbsRE5M4dVGTMCAwJh6LPG) needs a logged-in session and could not be fetched from the agent environment. This note works from the task description of gmy0K3; the implementer of the first UI subtask should check it against the mockup at desktop and phone widths and amend this ADR where they differ.

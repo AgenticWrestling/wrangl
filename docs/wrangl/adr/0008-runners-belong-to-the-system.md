@@ -1,6 +1,6 @@
-# ADR 0005: Runners belong to the system, not to a project
+# ADR 0008: Runners belong to the system, not to a project
 
-- Status: **Proposed** (the owner decides before any implementation starts)
+- Status: **Accepted, not built.** Runners are still launched and capped per project and template (`launched_for_project`). Renumbered from a second ADR 0005 (the other 0005 is [Projects as the primary lens](0005-projects-as-primary-lens.md)); nothing referenced this one by number except ADR 0007.
 - Task: JZ1IiM
 - Builds on: [ADR 0002](0002-remote-runners.md); migrations 00020 (`runner_template.max_sessions`) and 00025 (`project_template_limit`, `runner.launched_for_project`)
 - Touches (future work): `controller/scheduler` (`scheduler.go`, `assign.go`), `db/queries/run.sql` and `runner.sql`, `controller/projects`, `api`, web runners/project pages, `wrangl project edit`, `SKILL.md`, `INSTALL.md`, a DB migration, `runner/work.go` (secret files)

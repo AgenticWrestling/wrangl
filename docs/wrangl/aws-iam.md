@@ -72,11 +72,66 @@ Replace `ACCOUNT`, `REGION` and the runner role name.
 }
 ```
 
+### Optional: spend and other instances (Runners page)
+
+The Runners page shows month-to-date spend, a forecast, hourly burn and the instances in the
+account that wrangl did not launch (every region). Those are read-only calls that the policy above does not
+grant. Without them the rest of wrangl works and the page shows a note instead of figures. The
+first JSON block in this file is the one `deploy/wrangl/controller.sh` attaches; attach this one
+yourself if you want the figures:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SpendAndOtherInstances",
+      "Effect": "Allow",
+      "Action": [
+        "ce:GetCostAndUsage",
+        "ce:GetCostAndUsageWithResources",
+        "ce:GetCostForecast",
+        "pricing:GetProducts",
+        "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Cost Explorer must be enabled for the account, and per-resource data (Cost Explorer > Preferences)
+for the "most expensive other resources" list. Cost Explorer bills a small fee per request, so the
+controller caches and refreshes in the background (`controller/costs/costs.go`).
+
 ## Runner instance role (`wrangl-runner`)
 
-Attach `AmazonSSMManagedInstanceCore` so `ssm connect` works for debugging. Nothing else is
-needed in M2; runners talk only to the controller. Add model-provider access here later if a
-template uses Bedrock.
+Attach `AmazonSSMManagedInstanceCore` so `ssm connect` works for debugging. Runners talk only to the
+controller. Add model-provider access here if a template uses Bedrock.
+
+A runner that is the **driver** for a remote target (a Mac or Android emulator host, see
+[`android.md`](android.md) and [ADR 0002](adr/0002-remote-runners.md)) also needs the AWS CLI,
+the Session Manager plugin and permission to open a port-forward to the target:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": ["ssm:StartSession", "ssm:TerminateSession"],
+      "Resource": ["arn:aws:ec2:REGION:ACCOUNT:instance/*",
+                   "arn:aws:ssm:REGION::document/AWS-StartPortForwardingSession"] }
+  ]
+}
+```
+
+Scope the instance ARN to targets (for example with a `aws:ResourceTag/wrangl:managed` condition)
+rather than leaving it open.
+
+## Artifact bucket (only with `deploy/wrangl/controller.sh`)
+
+The script also gives the controller role `s3:GetObject` on `arn:aws:s3:::<bucket>/wrangl/*`, the
+private bucket the upgrade command uploads the three binaries to. It is not part of the policy
+above.
 
 ## Network
 

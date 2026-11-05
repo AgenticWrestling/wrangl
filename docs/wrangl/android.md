@@ -74,8 +74,8 @@ Its image needs, in the daemon's `PATH` (the real backend runs `aws`, `adb`, `sc
 Add these in the driver template's `setup_script` / `mise_toml`. Runners are launched with the
 instance profile named by `aws.runner_instance_profile` in the controller config; the driver's own
 calls to SSM use that profile, so it needs `ssm:StartSession` and `ssm:TerminateSession` for the
-target instance and the `AWS-StartPortForwardingSession` document, in addition to what
-[`aws-iam.md`](aws-iam.md) already lists. (That file does not yet list these; add them.)
+target instance and the `AWS-StartPortForwardingSession` document, in addition to the
+controller policy; [`aws-iam.md`](aws-iam.md) has the statement for the runner role.
 
 ## 4. Prepare the target image (the AMI)
 

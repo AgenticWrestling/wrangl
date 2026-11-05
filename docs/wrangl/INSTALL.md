@@ -413,7 +413,8 @@ sudo -u wrangl wrangl --config /etc/wrangl/controller.yaml controller secret set
 sudo -u wrangl wrangl --config /etc/wrangl/controller.yaml controller secret list
 ```
 
-The controller sends it to each run in the agent's process environment only. It's never
+(`wrangl agent auth claude`, described in 8.0, is the newer way to do the same thing from anywhere
+the CLI reaches the controller.) The controller sends it to each run in the agent's process environment only. It's never
 written to a runner's disk. Every runner draws on this one plan's usage limits.
 
 ## 8. A runner template, and the first runner
@@ -694,7 +695,7 @@ resolved, no push, failed, or branch updated) is recorded on the Logs page as a 
 that PR, and the run's status summary lists the conflicted files and how each was resolved. After a push the PR has a new head, so the old
 review is stale and the normal gates and review run again; a low-risk PR still auto-merges.
 
-CI results and merges done on GitHub arrive by webhook (step 10.4), with a reconcile poll every
+CI results and merges done on GitHub arrive by webhook (step 10, item 4), with a reconcile poll every
 15 minutes as a backstop.
 
 `wrangl logs search 'panic OR timeout' --project web` searches every run's output.
@@ -728,9 +729,9 @@ wrangl project restore web      # bring it back
   task, title}]}` when refused; otherwise the project and `cancelled_runs`),
   `POST /api/v1/projects/{slug}/restore`, and `GET /api/v1/projects?archived=active|archived|all`.
   Project JSON carries `archived` and `archived_at`.
-- **Web app:** archived projects are listed by `wrangl project list --archived`; the web app has
-  no Archive or Restore buttons yet (a design is in `docs/design/3c6W9Q/`), so archive and
-  restore from the CLI or API.
+- **Web app:** the Projects list and the project page have an **Archive** button (it asks first);
+  archived projects sit in a collapsed "Archived projects" section of the Projects list with
+  **Restore**. If runs are active, the web app refuses with the same list as the CLI.
 
 ## 10. Cloudflare Zero Trust, and the PWA
 
@@ -781,27 +782,35 @@ Access, with no inbound ports.
    `/healthz` must now carry a valid `Cf-Access-Jwt-Assertion` for that AUD, issued to
    `owner_email` or to a service token. The unix socket is unaffected. `owner_email` also
    becomes the VAPID contact for web push.
-   **Check:** `curl -i http://127.0.0.1:8080/tasks` on the controller returns 401, and the
+   **Check:** `curl -i http://127.0.0.1:8080/projects` on the controller returns 401, and the
    same page loads through the tunnel.
 
 ### 10.1 Install the PWA on your phone
 
 1. Open `https://wrangl.example.com/` on the phone and sign in to Access. The page lands on
-   Tasks.
+   Projects.
 2. **iOS (16.4+):** Share → **Add to Home Screen**, then open wrangl from the Home Screen icon.
    Web push only works from the installed app. **Android/Chrome:** menu → **Install app**.
 3. In the app: **Settings → Enable push on this device**, and allow notifications. The VAPID key
    pair is generated once at `<data_dir>/secrets/vapid.json`. Back it up with the rest of
    `secrets/`, because a new key invalidates every subscription.
-4. **Check:** push arrives when a question is asked (for example, plan a task with
-   **Split → Plan with agent**). Tapping it opens Inbox.
+4. **Check:** `wrangl push test` sends a test notification to every subscribed browser. In normal use
+   a push arrives for a new question or PR awaiting review, a failed run, an agent needing
+   attention, a runner going offline, a GitHub App that is missing for a repo, and runners that
+   repeatedly fail to enrol. Tapping one opens the Inbox (or the run or runner it is about).
 
-What the PWA does: **Tasks** (In progress, Queue and Backlog sections; drag a task by its ⠿ handle to reorder or re-parent it; ＋ New;
-open a task to edit, split, add subtasks or precursors, queue, or **Plan with agent**).
-**Runners** (cards with CPU/mem/disk and a CPU sparkline; detail page with cordon, drain and
-terminate). **Logs** (runs merged with runner, template and upgrade events; log filter, read-only live terminal, diff, file browser with markdown
-preview). **Inbox** (agent questions, plan proposals with Accept / Edit / Reject, and PR
-reviews). **Settings** (text size, projects, templates, launching a runner, push).
+What the PWA does (left nav on desktop, bottom bar on a phone): **Projects** (`/projects`: a table with
+runner, in-progress, queued, backlog and inbox counts per project; New project; Archive and Restore).
+A **project page** (`/projects/<slug>`) has a "Needs you" strip, In progress, Queue and Backlog sections
+(Queue, Dequeue, up/down, Stop, Queue all; drag a task by its handle to reorder or re-parent it), and a
+Comment button for the project chat with a controller agent. A **task page** (`/task/<sqid>`) edits, splits (by hand or with an agent), adds subtasks or precursors, queues, asks a
+controller agent, and shows runs, deliverables and history. **Runners** (cards with CPU/mem/disk and
+a CPU sparkline, AWS spend, other instances in the account; a detail page with cordon, drain and
+terminate; a web terminal). **Logs** (runs merged with runner, template and upgrade events; log filter,
+read-only live terminal, diff, file browser with markdown preview). **Inbox** (agent questions, plan
+proposals with Accept / Edit / Reject, PR reviews, task reviews, deliverables, and tool-failure
+notices). **Settings** (text size, push, projects, GitHub accounts, controller agents, runner
+templates with a Launch button; the Setup page holds GitHub accounts and agent credentials).
 
 If a session expires, the installed app shows Cloudflare's login page. Sign in again; a long
 Access session duration (step 2) keeps this rare.
@@ -911,12 +920,29 @@ keys, every enrolled runner's credentials stop working.
 
 ### Upgrades
 
+An upgrade ships **three** copies of the build: the controller's own binary
+(`/usr/local/bin/wrangl`, the one matching the host's architecture) and the two runner binaries
+`wrangl-linux-aarch64` and `wrangl-linux-x86_64` in `/var/lib/wrangl/bin/`, which the controller
+serves to runners at `/dl/wrangl-linux-<arch>`. Build all of them with `task build-wrangl`.
+
+If you used `deploy/wrangl/controller.sh`, one command does the rest:
+
+```sh
+task build-wrangl
+AWS_REGION=us-west-2 VPC_ID=vpc-... SUBNET_ID=subnet-... deploy/wrangl/controller.sh upgrade
+```
+
+It uploads the binaries to the artifact bucket and, over SSM, installs all three, verifies their
+sha256 and restarts `wrangl-controller`. By hand:
+
 1. Copy the new binaries.
 2. `sudo install` them to `/usr/local/bin/wrangl` and `/var/lib/wrangl/bin/`.
 3. `sudo systemctl restart wrangl-controller`.
 
-Migrations run on start. Runners keep running through the restart and reconnect. Newly
-launched runners download the new binary.
+Migrations run on start (`wrangl controller migrate status` shows where the database is; the
+files are `cmd/wrangl/internal/db/migrations/`, currently 00001 to 00036). Take a
+`wrangl controller backup` first if you want a way back. Runners keep running through the restart and reconnect.
+Newly launched runners download the new binary.
 
 **Existing runners upgrade themselves.** Each heartbeat carries the sha256 of the runner's
 own binary. When it doesn't match the binary the controller serves for that arch:
@@ -959,6 +985,7 @@ instance, the instance profiles and roles, the SG and the NAT gateway if you mad
 | `repo link`: "GitHub is not configured" / "not installed" | no App for the repo's owner (add the account on the Setup page) or the App isn't installed on that repo |
 | Run `failed`, "agent exited N" | `wrangl logs <run>` and `wrangl run attach <run>` show what the agent printed |
 | Run `blocked` | remaining subtasks wait on tasks outside the run; finish those, then `wrangl task queue` again |
+| Inbox item "Tool call failed: <tool>" | a tool the controller runs for the agent (GitHub issue tools, PR calls) hit a service error, such as the App missing `issues: write` (6.2a). The run carries on; fix the cause, then press Dismiss. Mistakes by the agent itself (bad arguments, unknown task) are not raised |
 | CLI from laptop: HTTP 403 from Cloudflare | the service-token policy is missing, or the `cf_service_token` id/secret are wrong |
 
 Useful on any runner (`ssm connect <region>/wrangl-<runner>`):

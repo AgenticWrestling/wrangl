@@ -1,4 +1,4 @@
-# EXPERIMENTAL (M9). Claude Code as one interactive session per assignment, with Remote
+# EXPERIMENTAL. Claude Code as one interactive session per assignment, with Remote
 # Control so you can watch or steer it from the Claude app. Checked against the Claude Code
 # docs on 2026-10-31 (code.claude.com/docs/en/{hooks,remote-control,authentication,
 # permissions,settings-reference}); not yet run on a real runner.

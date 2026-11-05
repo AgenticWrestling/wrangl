@@ -1,6 +1,6 @@
 # ADR 0006: Action state machine (processing, failed, superseded, timed out) for every user action
 
-- Status: **Proposed** (the owner decides before the implementation PRs start)
+- Status: **Accepted, not built.** Actions still post and morph without the processing/failed/superseded/timed-out states described here.
 - Task: t8AZpr. Depends on the Projects lens (gmy0K3, merged) and the Datastar cleanup (LhOrqs) for the templates it touches.
 - No application code is changed by this note.
 - Builds on: `web.go` `act` and the `actions` table, `icard` in `inbox.html` (`data-indicator`, `.card.busy`, `.spin`), the live SSE patch (`/ui/live`, kinds per view), `prs.Service.merge`, `fleet.Service`, `runs.Cancel`.
