@@ -180,6 +180,11 @@ guide's first-run checklist for what still needs a real account.
 
 ## Install and run
 
+Start at the documentation index, [`docs/wrangl/README.md`](docs/wrangl/README.md): install, first project,
+first task, the Inbox, and deep-dive guides on [projects](docs/wrangl/guide/projects.md),
+[tasks](docs/wrangl/guide/tasks.md), [runners](docs/wrangl/guide/runners.md) and
+[task scheduling](docs/wrangl/guide/scheduling.md).
+
 [`docs/wrangl/INSTALL.md`](docs/wrangl/INSTALL.md) covers AWS, the controller host, the GitHub Apps,
 the Claude token, templates, Cloudflare, and teardown. AWS setup (instance roles, security group,
 teardown): [`docs/wrangl/aws-iam.md`](docs/wrangl/aws-iam.md). Template examples are in

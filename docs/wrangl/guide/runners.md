@@ -289,3 +289,7 @@ reaped while idle.
 | Runner keeps getting reaped | It sat idle past `idle_timeout`; raise it in the template. |
 | Host runner does not have a tool the agent needs | The host runner does not apply templates; install it on the machine yourself. |
 | Cannot terminate a runner | It was adopted (including the host); stop the machine yourself. |
+
+## See also
+
+[Projects](projects.md) (limits), [Tasks](tasks.md) (runs), [Task scheduling](scheduling.md) (slots and the autoscaler), [index](../README.md).

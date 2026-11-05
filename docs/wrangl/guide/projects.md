@@ -248,3 +248,7 @@ wrangl issue sync web
 | **The project chat does not answer** | It runs a controller agent on the controller host (Settings → Controller agents; by default the `claude` CLI there). Check that the CLI is installed and logged in on that host, and the controller log. |
 | **`--notes-repo` is rejected** | Link the repo to the project first (`repo link`). |
 | **A conflicted PR is not fixed by itself** | `--auto-resolve` is off by default; use `wrangl pr resolve ID` or turn it on. |
+
+## See also
+
+[Tasks](tasks.md) (what runs inside a project), [Runners](runners.md) (what the limits cap), [Task scheduling](scheduling.md) (how queued runs get slots), [index](../README.md).

@@ -251,3 +251,7 @@ Work down this list.
   (see [ADR 0008](../adr/0008-runners-belong-to-the-system.md), also not built).
 - **A missing agent secret is not shown on the run.** It is logged by the controller and shown on the Setup
   page, but the run's status text stays empty.
+
+## See also
+
+[Projects](projects.md) (priority and limits), [Tasks](tasks.md) (runs and needs), [Runners](runners.md) (templates, versions, cordon), [index](../README.md).

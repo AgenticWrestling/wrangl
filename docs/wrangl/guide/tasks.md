@@ -313,3 +313,7 @@ wrangl question answer 17 approve
 | `task delete` refused | A run is working on the subtree; cancel it first. |
 | A split was rejected as "only open tasks can be split" | The task is in progress, in review or done. Reopen it, or add subtasks to a different parent. |
 | Auto-merge did not merge | It needs every gate, risk low, a type other than `ux`/`architecture`, and no conflicts; the PR-review question says which failed. |
+
+## See also
+
+[Projects](projects.md), [Runners](runners.md), [Task scheduling](scheduling.md) (what happens between `task queue` and a running session), [index](../README.md).
