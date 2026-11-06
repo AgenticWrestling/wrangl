@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
@@ -26,6 +28,42 @@ type runnerCard struct {
 	Run     *dbgen.Run
 	IdleFor string
 	Used    int64 // agent sessions in use (active runs); the limit is T.MaxSessions
+	Cost    *hostCost
+}
+
+// hostCost is the cost block on the controller host's card. It is derived from the cached
+// cost snapshot only (no AWS calls on page load): compute is the hourly rate times the time
+// the instance has run today / this month (an estimate); attached items are any per-resource
+// costs Cost Explorer reported under the instance's own id.
+type hostCost struct {
+	HourlyUSD, TodayUSD, MonthUSD float64
+	Indicative                    bool
+	Attached                      []costs.TopCost
+}
+
+func hostCostFor(snap costs.Snapshot, instanceID string, now time.Time) *hostCost {
+	for _, in := range snap.Instances {
+		if in.ID != instanceID || in.State != "running" || !in.PriceKnown {
+			continue
+		}
+		now = now.UTC()
+		since := func(start time.Time) float64 {
+			if in.LaunchedAt.After(start) {
+				start = in.LaunchedAt
+			}
+			return now.Sub(start).Hours() * in.HourlyUSD
+		}
+		hc := &hostCost{HourlyUSD: in.HourlyUSD, Indicative: in.Indicative,
+			TodayUSD: since(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)),
+			MonthUSD: since(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC))}
+		for _, t := range snap.Top.Items {
+			if t.Name == instanceID {
+				hc.Attached = append(hc.Attached, t)
+			}
+		}
+		return hc
+	}
+	return nil
 }
 
 func (h *Handler) runnerCard(ctx context.Context, r dbgen.Runner) runnerCard {
@@ -41,6 +79,9 @@ func (h *Handler) runnerCard(ctx context.Context, r dbgen.Runner) runnerCard {
 		c.Run = &run
 	}
 	c.Used, _ = db.RQ.CountActiveRunsForRunner(ctx, owner)
+	if r.Launched == 0 && r.InstanceID.Valid && h.D.Costs != nil {
+		c.Cost = hostCostFor(h.D.Costs.Cached(), r.InstanceID.String, time.Now())
+	}
 	return c
 }
 
