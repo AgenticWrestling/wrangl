@@ -27,6 +27,10 @@
     <span>CPU {{pct .M.CPUPercent}}</span><span>Mem {{pct .M.MemPercent}}</span><span>Disk {{pct .M.DiskPercent}}</span>
     <span class="grow"></span>{{spark .Spark}}
   </div>
+  {{with .Cost}}<div class="row small" title="Estimated from the on-demand rate and uptime; storage and transfer are in Top costs below">
+    <span>{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim"> ~</span>{{end}}</span><span>today ~{{usd .TodayUSD}}</span><span>month ~{{usd .MonthUSD}}</span>
+    {{range .Attached}}<span class="dim">{{.Service}} {{usd .USD}}</span>{{end}}
+  </div>{{end}}
   {{with .Run}}<div class="row small">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</div>
   {{else}}{{if .R.IdleSince.Valid}}<div class="row small dim">idle since {{ago .R.IdleSince.String}}</div>{{end}}{{end}}
 </a>{{end}}
