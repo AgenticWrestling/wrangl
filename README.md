@@ -189,7 +189,8 @@ first task, the Inbox, and deep-dive guides on [projects](docs/wrangl/guide/proj
 the Claude token, templates, Cloudflare, and teardown. AWS setup (instance roles, security group,
 teardown): [`docs/wrangl/aws-iam.md`](docs/wrangl/aws-iam.md). Template examples are in
 [`docs/wrangl/templates/`](docs/wrangl/templates/), and the agent skill that teaches Claude to drive
-the CLI is in [`docs/wrangl/skill/`](docs/wrangl/skill/).
+the CLI is embedded in the binary and installed by `wrangl setup`; its source is
+[`cmd/wrangl/internal/agentplugin/assets/skills/wrangl/`](cmd/wrangl/internal/agentplugin/assets/skills/wrangl/).
 
 ```sh
 task build-wrangl      # build/wrangl + build/wrangl-linux-{aarch64,x86_64}
