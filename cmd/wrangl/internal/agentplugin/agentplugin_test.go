@@ -165,3 +165,72 @@ func TestTheVersionMarkerIsWrittenLast(t *testing.T) {
 		t.Errorf("plugin.json was not restored: %v", err)
 	}
 }
+
+// TestAFailedRegistrationIsRetried is the regression for the defect the first real upgrade
+// exposed. The runner wrote the files, could not reach `claude`, and the controller then found
+// the VERSION marker current and did nothing -- so Claude was never told, and never would be,
+// because every later start read the same current marker.
+//
+// The fix is that Ensure keys on the REGISTERED marker instead. This drives the predicate
+// directly rather than through Ensure, which shells out to claude: the property is that a
+// directory written but not registered is not mistaken for a finished install.
+func TestAFailedRegistrationIsRetried(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Write(dir, "7.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	// What a write-then-fail-to-register start leaves behind.
+	if _, err := os.Stat(filepath.Join(dir, versionMarker)); err != nil {
+		t.Fatalf("version marker missing after Write: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, registeredMarker)); !os.IsNotExist(err) {
+		t.Fatalf("registered marker should not exist until Claude was told, got %v", err)
+	}
+	// A second Write is a no-op, which is exactly why the version marker must NOT be the
+	// thing Ensure consults.
+	changed, err := Write(dir, "7.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Error("Write reported a change on an unchanged version")
+	}
+	// Once registration succeeds the marker is written, and only then is the install finished.
+	if err := os.WriteFile(filepath.Join(dir, registeredMarker), []byte("7.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, registeredMarker))
+	if err != nil || strings.TrimSpace(string(b)) != "7.0.0" {
+		t.Errorf("registered marker = %q, %v; want 7.0.0", b, err)
+	}
+}
+
+// TestClaudeBinLooksBeyondPATH pins the other half of that finding: a systemd unit's PATH does
+// not include ~/.local/bin, which is where Claude Code installs itself.
+func TestClaudeBinLooksBeyondPATH(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", filepath.Join(home, "empty")) // nothing on PATH, as under systemd
+	if got := claudeBin(); got != "" {
+		t.Fatalf("claudeBin found %q with nothing installed", got)
+	}
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(bin, "claude")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := claudeBin(); got != p {
+		t.Errorf("claudeBin = %q, want %q: a unit with a minimal PATH would report claude missing", got, p)
+	}
+	// A non-executable file must not count: it would be found and then fail to run, which is a
+	// worse error than "not installed".
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := claudeBin(); got != "" {
+		t.Errorf("claudeBin = %q for a non-executable file, want \"\"", got)
+	}
+}

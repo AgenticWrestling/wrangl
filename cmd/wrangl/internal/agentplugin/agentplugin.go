@@ -60,8 +60,19 @@ const MarketplaceName = "wrangl"
 // PluginName is the plugin inside that marketplace.
 const PluginName = "wrangl"
 
-// versionMarker records the version last written, so an unchanged restart does nothing.
+// versionMarker records the version last WRITTEN, so an unchanged restart does no work.
 const versionMarker = ".wrangl-version"
+
+// registeredMarker records the version last successfully registered with Claude, which is a
+// different fact from the one above and must not share a marker with it.
+//
+// Measured on the first real upgrade: the runner daemon wrote the files, failed to register
+// because `claude` was not on its PATH, and the controller -- starting seconds later on the
+// same host -- found the version marker already current, took the cheap path and did nothing.
+// With one marker a transient registration failure is PERMANENT, because every later restart
+// reports "already current" while Claude has never been told. Two markers make the retry
+// happen on the next start.
+const registeredMarker = ".wrangl-registered"
 
 // DefaultDir is ~/.wrangl/agent-plugin.
 //
@@ -149,12 +160,31 @@ func Write(dir, version string) (changed bool, err error) {
 }
 
 // claudeBin is the Claude Code CLI, or "" when it is not installed.
+//
+// PATH is not enough, and that is measured rather than defensive. Both call sites are systemd
+// units -- `controller serve` and the runner daemon -- and systemd gives a unit a minimal PATH
+// that does not include ~/.local/bin, which is exactly where Claude Code installs itself. So
+// the first real upgrade logged "claude is not on PATH" on a host where `claude` was two
+// directories away. Checking PATH first keeps an explicitly chosen binary winning.
 func claudeBin() string {
-	p, err := exec.LookPath("claude")
+	if p, err := exec.LookPath("claude"); err == nil {
+		return p
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return p
+	for _, p := range []string{
+		filepath.Join(home, ".local", "bin", "claude"),
+		filepath.Join(home, ".claude", "local", "claude"),
+		filepath.Join(home, "bin", "claude"),
+		"/usr/local/bin/claude",
+	} {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
 }
 
 // run invokes claude with args, returning its combined output.
@@ -212,13 +242,15 @@ func Ensure(ctx context.Context, version string, log *slog.Logger) {
 		log.Warn("agent plugin: cannot locate home directory; skill not installed", "err", err)
 		return
 	}
-	changed, err := Write(dir, version)
-	switch {
-	case err != nil:
+	if _, err := Write(dir, version); err != nil {
 		log.Warn("agent plugin: could not write the skill", "dir", dir, "err", err)
 		return
-	case !changed:
-		log.Debug("agent plugin: already current", "dir", dir, "version", version)
+	}
+	// Keyed on what Claude was told, not on what was written. Write's own `changed` is
+	// deliberately ignored here: the two can disagree, and when they do it is because a
+	// previous start wrote the files and then failed to register them.
+	if reg, err := os.ReadFile(filepath.Join(dir, registeredMarker)); err == nil && strings.TrimSpace(string(reg)) == version {
+		log.Debug("agent plugin: already registered", "dir", dir, "version", version)
 		return
 	}
 	if claudeBin() == "" {
@@ -235,6 +267,10 @@ func Ensure(ctx context.Context, version string, log *slog.Logger) {
 	if err := Reload(ctx); err != nil {
 		log.Warn("agent plugin: registered but not reloaded; it updates on the next `claude plugin marketplace update`", "err", err)
 		return
+	}
+	// Last, and only on the success path, so any failure above is retried on the next start.
+	if err := os.WriteFile(filepath.Join(dir, registeredMarker), []byte(version+"\n"), 0o644); err != nil {
+		log.Warn("agent plugin: installed, but the marker could not be written; it will reinstall on every start", "err", err)
 	}
 	log.Info("agent plugin: skill installed and reloaded", "dir", dir, "version", version,
 		"plugin", PluginName+"@"+MarketplaceName)
