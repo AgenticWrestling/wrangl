@@ -40,6 +40,11 @@ type GitHubApp struct {
 type GitHub struct {
 	AuthorApp   GitHubApp `yaml:"author_app"`
 	ReviewerApp GitHubApp `yaml:"reviewer_app"`
+	// PATFile holds a personal access token, used for any owner that has no App. Relative
+	// paths resolve under data_dir, like the App keys. It is a fallback and not an override:
+	// an account that has an App keeps using it, and its per-repository hour-long tokens.
+	// See controller/gh/pat.go for what this mode cannot do.
+	PATFile string `yaml:"pat_file,omitempty"`
 }
 
 // Cloudflare holds the Access application used to verify requests.
