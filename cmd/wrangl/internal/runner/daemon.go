@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentplugin"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
@@ -71,6 +72,10 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
+	// The embedded skill, for the agent that runs here. Startup rather than an upgrade hook:
+	// a runner self-upgrades by replacing this binary and restarting, so this covers every
+	// upgrade without the upgrade path knowing about it. Ensure never fails.
+	go agentplugin.Ensure(ctx, Version, o.Log)
 	if o.Poweroff == nil {
 		o.Poweroff = func() error {
 			if cfg.Host || len(cfg.PoweroffCommand) == 0 {

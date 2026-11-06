@@ -28,6 +28,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentplugin"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/cfaccess"
@@ -510,6 +511,12 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.mu.Unlock()
 	s.log.Info("controller serving", "id", controllerID, "http", s.httpAddr, "unix", s.cfg.Listen.Unix,
 		"enroll", s.enrollAddr, "nats", s.natsURL, "aws", prov != nil)
+	// The embedded skill, refreshed for this binary's version. Startup rather than a dedicated
+	// upgrade hook: every upgrade path -- controller.sh upgrade, a package, a hand-copied
+	// binary -- restarts the process, so this is the one place that cannot be bypassed. It is
+	// after `ready` is closed and never returns an error, because a developer's Claude
+	// installation is not a dependency of the controller.
+	go agentplugin.Ensure(ctx, runner.Version, s.log)
 	close(s.ready)
 
 	select {
@@ -623,6 +630,25 @@ func (s *Server) github(ctx context.Context) (gh.API, error) {
 	}
 	s.multi = &gh.Multi{Lookup: s.Setup.Lookup}
 	s.Setup.Changed = s.multi.Forget
+	// A PAT, if one is configured, for owners with no App. Read once at startup: the file is a
+	// credential, so a read per request would widen the window in which it is on disk unguarded,
+	// and rotating it is a restart either way.
+	if p := s.cfg.GitHub.PATFile; p != "" {
+		b, err := os.ReadFile(s.cfg.Path(p))
+		switch {
+		case err != nil:
+			// Not fatal: an unreadable PAT must not stop a controller whose other accounts have
+			// Apps, and the NoAppError a caller then meets already names the remedy.
+			s.log.Warn("github pat_file unreadable; PAT mode disabled", "path", s.cfg.Path(p), "err", err)
+		default:
+			s.multi.PAT = strings.TrimSpace(string(b))
+			if s.multi.PAT == "" {
+				s.log.Warn("github pat_file is empty; PAT mode disabled", "path", s.cfg.Path(p))
+			} else {
+				s.log.Info("github PAT mode enabled for owners with no App", "path", s.cfg.Path(p))
+			}
+		}
+	}
 	// The single App of earlier versions (this Setup page's, or github.author_app in
 	// controller.yaml) becomes the account that owns it.
 	app := s.cfg.GitHub.AuthorApp

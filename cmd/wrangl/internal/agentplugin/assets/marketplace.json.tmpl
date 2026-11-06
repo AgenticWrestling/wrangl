@@ -1,0 +1,21 @@
+{
+  "name": "wrangl",
+  "owner": {
+    "name": "wrangl",
+    "url": "https://github.com/AgenticWrestling/wrangl"
+  },
+  "metadata": {
+    "description": "The wrangl skill, materialised from the wrangl binary on this host",
+    "version": "{{ .Version }}"
+  },
+  "plugins": [
+    {
+      "name": "wrangl",
+      "source": "./",
+      "description": "Drive wrangl, a self-hosted coding-agent fleet controller, from its CLI: backlog, runs, questions, PRs, runners and templates.",
+      "version": "{{ .Version }}",
+      "category": "development",
+      "keywords": ["wrangl", "backlog", "agents", "fleet", "runners"]
+    }
+  ]
+}

@@ -23,6 +23,11 @@ type Multi struct {
 	BaseURL string
 	// Role is "" for author Apps and "reviewer" for reviewer Apps; it only shapes errors.
 	Role string
+	// PAT is the fallback credential for an owner with no App: a personal access token, from
+	// github.pat_file in the controller config. It is a FALLBACK rather than an override, so an
+	// account that has an App keeps using it and the App's per-repository, hour-long tokens.
+	// Empty means the old behaviour, a *NoAppError.
+	PAT string
 
 	mu      sync.Mutex
 	clients map[string]*Client
@@ -37,7 +42,13 @@ type listed struct {
 func (m *Multi) client(owner string) (*Client, error) {
 	ref, ok := m.Lookup(owner)
 	if !ok || ref.AppID == 0 {
-		return nil, &NoAppError{Owner: owner, Role: m.Role}
+		if m.PAT == "" {
+			return nil, &NoAppError{Owner: owner, Role: m.Role}
+		}
+		// A PAT client is keyed separately from the App ones (AppID 0 would collide with the
+		// "no App" sentinel in the cache check below) and is not cached, because building one
+		// is a struct literal with no key to load.
+		return &Client{PAT: m.PAT, BaseURL: m.BaseURL, Role: m.Role}, nil
 	}
 	key := strings.ToLower(owner)
 	m.mu.Lock()

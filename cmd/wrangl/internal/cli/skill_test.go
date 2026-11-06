@@ -12,7 +12,7 @@ import (
 // Every `wrangl <command> [subcommand]` the skill names must exist, so the skill cannot drift
 // away from the CLI.
 func TestSkillCommandsExist(t *testing.T) {
-	b, err := os.ReadFile("../../../../docs/wrangl/skill/SKILL.md")
+	b, err := os.ReadFile("../agentplugin/assets/skills/wrangl/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
