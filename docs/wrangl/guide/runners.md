@@ -159,6 +159,11 @@ Each run gets its own git **worktree** (`runner/worktree.go`):
 
 - One **bare mirror per repo** is kept at `<agent home>/work/.repos/<hash>.git`, keyed by clone URL.
   Sessions of the same repo share one object store and one fetch, under a per-mirror lock.
+- The controller host's runner (`--host`) uses the same mechanism: no separate checkout is kept. Its
+  mirror for `AgenticWrestling/wrangl` is created by its first run and is fetched (`fetch --prune`,
+  with that run's per-assignment git token, never stored in git config) before every later run. The
+  mirror is bare and never worked in, and run worktrees are separate from it, so it stays clean. To
+  traverse the project, use a run's worktree. Nothing is built or tested on the controller host.
 - Each run works in `<agent home>/work/<run id>`, a worktree of that mirror on the run branch
   `wrangl/<sqid>-<attempt>`, so concurrent runs never touch each other's files, index or branch.
   Each worktree has its own commit identity.
