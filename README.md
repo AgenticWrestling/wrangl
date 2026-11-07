@@ -12,6 +12,11 @@ binary that runs as the **controller** (SQLite, embedded NATS + JetStream, HTTP 
 **runner**, plus the CLI/TUI client. Design:
 [`docs/superpowers/specs/2026-10-31-wrangl-design.md`](docs/superpowers/specs/2026-10-31-wrangl-design.md).
 
+<p align="center">
+  <img src="docs/screenshots/project-desktop.png" alt="A wrangl project page on desktop: ranked backlog with Queue buttons" width="640">
+  <img src="docs/screenshots/project-mobile.png" alt="The same project page in the installed phone app" width="170">
+</p>
+
 ## Why yet another metaharness??
 
 Because the agent harnesses are good and getting better, and what's missing is the layer above
