@@ -11,11 +11,11 @@ func TestPlacerEngineMatchesLegacyTickWithDefaultNeeds(t *testing.T) {
 	sets := [][]fixture{
 		nil,
 		{fixtures[0]},
-		{fixtures[2]},                // one busy runner with room
-		{fixtures[4]},                // a runner at the session ceiling
-		{fixtures[5], fixtures[6]},   // cordoned and draining: not supply
-		{fixtures[7]},                // behind on the template version
-		{fixtures[9], fixtures[3]},   // one launching, one nearly full
+		{fixtures[2]},              // one busy runner with room
+		{fixtures[4]},              // a runner at the session ceiling
+		{fixtures[5], fixtures[6]}, // cordoned and draining: not supply
+		{fixtures[7]},              // behind on the template version
+		{fixtures[9], fixtures[3]}, // one launching, one nearly full
 		fixtures[:4],
 		fixtures,
 	}

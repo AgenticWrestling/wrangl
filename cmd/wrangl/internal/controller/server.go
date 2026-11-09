@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
@@ -426,6 +427,9 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
 	sched.Engine = s.cfg.Placement.Engine
+	if s.Fleet.Prov != nil && s.Costs != nil {
+		sched.Menu = &menu.Lookup{EC2: s.Fleet.Prov.EC2, Prices: s.Costs, Region: s.cfg.AWS.Region}
+	}
 	sched.CancelRun = s.Runs.Cancel
 	sched.OnUnplaceable = func(runID int64, prompt string) {
 		s.Push.Notify(webpush.Notification{Title: "A run can't be placed", Body: prompt, URL: "/inbox", Tag: fmt.Sprintf("unplaceable%d", runID)})
