@@ -77,7 +77,7 @@ func TestPlaceVolumeGrowsWithHostedDisk(t *testing.T) {
 	}
 }
 
-func TestPlaceHostFirstAndProjectRoom(t *testing.T) {
+func TestPlaceHostFirst(t *testing.T) {
 	host := Runner{ID: 9, Claimable: true, Ceiling: i64(4), Cap: Need{big, big, big}}
 	paid := Runner{ID: 8, Claimable: true, Ceiling: i64(4), Cap: Need{big, big, big}}
 	r := run(1, Need{})
@@ -85,11 +85,6 @@ func TestPlaceHostFirstAndProjectRoom(t *testing.T) {
 	p := Place([]Run{r}, []RunnerIn{{Runner: paid, Template: 1}, {Runner: host, Template: 2}}, []Entry{legacyEntry()}, Limits{})
 	if len(p.Assign) != 1 || p.Assign[0].Runner != 9 {
 		t.Fatalf("the allowed host is tried first: %+v", p)
-	}
-	// A project with no room left cannot cause a launch.
-	p = Place([]Run{run(1, Need{})}, nil, []Entry{legacyEntry()}, Limits{Room: map[int64]int64{1: 9}, ProjectRoom: map[[2]int64]int64{{1, 1}: 0}})
-	if len(p.Launch) != 0 || len(p.Unplaceable) != 1 {
-		t.Fatalf("%+v", p)
 	}
 }
 

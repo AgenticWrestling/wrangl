@@ -9,47 +9,10 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 )
 
-// Replay: with the default 0/0/0 needs, the placer engine launches exactly what the legacy Tick launches.
-func TestPlacerEngineMatchesLegacyTickWithDefaultNeeds(t *testing.T) {
-	ctx := context.Background()
-	sets := [][]fixture{
-		nil,
-		{fixtures[0]},
-		{fixtures[2]},              // one busy runner with room
-		{fixtures[4]},              // a runner at the session ceiling
-		{fixtures[5], fixtures[6]}, // cordoned and draining: not supply
-		{fixtures[7]},              // behind on the template version
-		{fixtures[9], fixtures[3]}, // one launching, one nearly full
-		fixtures[:4],
-		fixtures,
-	}
-	for _, maxRunners := range []int{2, 9} {
-		for _, queued := range []int{0, 1, 5, 9} {
-			for n, fx := range sets {
-				run := func(engine string) (map[string]int, int) {
-					s, fake, _, d := setup(t, maxRunners)
-					s.Engine = engine
-					loadFixtures(t, d, fx)
-					queue(t, d, queued)
-					d.W.Exec(`UPDATE run SET template_id = 1`)
-					got, _ := s.Tick(ctx)
-					return got, len(fake.Runs)
-				}
-				lg, lr := run("")
-				pg, pr := run(EnginePlacer)
-				if lg["go"] != pg["go"] || lr != pr {
-					t.Fatalf("max_runners %d, %d queued, fixture set %d: legacy launched %v (%d instances), placer %v (%d)", maxRunners, queued, n, lg, lr, pg, pr)
-				}
-			}
-		}
-	}
-}
-
 // With real needs the placer packs by resources, not slots: three 3 GiB runs do not share a 4 GiB box.
 func TestPlacerEngineLaunchesByNeed(t *testing.T) {
 	ctx := context.Background()
 	s, fake, _, d := setup(t, 6)
-	s.Engine = EnginePlacer
 	queue(t, d, 3)
 	d.W.Exec(`UPDATE run SET template_id = 1, need_vcpu = 1, need_ram_mib = 3072, need_disk_gib = 5`)
 	// An enrolled 4 vCPU / 4 GiB runner: 3 GiB usable after the reserve, so one run fits, not four slots' worth.
@@ -69,7 +32,6 @@ func TestPlacerEngineLaunchesByNeed(t *testing.T) {
 func TestTooBigRaisesAPermanentItemAndResolvesWhenNeedsShrink(t *testing.T) {
 	ctx := context.Background()
 	s, fake, _, d := setup(t, 6)
-	s.Engine = EnginePlacer
 	if _, err := s.Fleet.CreateTemplate(ctx, []byte("name: alt\narch: arm64\nmin: {vcpu: 2, ram: 4GiB, disk: 20GiB}\nmax_runners: 1\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +62,6 @@ func TestTooBigRaisesAPermanentItemAndResolvesWhenNeedsShrink(t *testing.T) {
 func TestPlacerEngineStampsPriceAndNotesApproachingBudget(t *testing.T) {
 	ctx := context.Background()
 	s, fake, _, d := setup(t, 6)
-	s.Engine = EnginePlacer
 	queue(t, d, 1)
 	d.W.Exec(`UPDATE run SET template_id = 1`)
 	tt, _ := d.RQ.GetTemplate(ctx, 1)
@@ -130,7 +91,6 @@ func TestPlacerEngineStampsPriceAndNotesApproachingBudget(t *testing.T) {
 func TestBudgetGateReasonAndReclaim(t *testing.T) {
 	ctx := context.Background()
 	s, fake, _, d := setup(t, 6)
-	s.Engine = EnginePlacer
 	// An idle launched runner that costs 0.47/h and is too small for the queued run (so it cannot host it).
 	old, err := s.Fleet.Launch(ctx, "go")
 	if err != nil {
@@ -174,7 +134,6 @@ func dbgenPrice(id int64, usd float64) dbgen.SetRunnerPriceParams {
 func TestBudgetItemAndRaiseBudget(t *testing.T) {
 	ctx := context.Background()
 	s, fake, clk, d := setup(t, 6)
-	s.Engine = EnginePlacer
 	pushes := 0
 	s.OnUnplaceable = func(int64, string) { pushes++ }
 	// A busy runner (so nothing can be reclaimed) that costs 0.47/h.

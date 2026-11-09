@@ -43,7 +43,6 @@ func (h *Handler) viewProject(ctx context.Context, view string, r *http.Request,
 	d["P"], d["Repos"], d["Title"] = p, repos, p.Name
 	d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
 	d["Templates"], _ = db.RQ.ListTemplates(ctx)
-	d["Limits"], _ = h.D.Projects.Limits(ctx, p.Slug)
 	d["GitHub"] = h.D.Projects.GH != nil
 	d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
 	d["AutoResolve"] = false

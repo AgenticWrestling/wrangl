@@ -44,7 +44,6 @@ type args struct {
 	AutoResolve    *bool             `json:"auto_resolve"`
 	Priority       *int64            `json:"priority"`
 	NotesRepo      *string           `json:"notes_repo"`
-	Limits         map[string]int64  `json:"limits"`
 	Agent          *string           `json:"agent"`
 	CitationAudit  *bool             `json:"citation_audit"`
 	AllowTemplates *[]string         `json:"allow_templates"`
@@ -54,7 +53,7 @@ type args struct {
 func (a args) params() projects.ProjectParams {
 	return projects.ProjectParams{Name: a.Name, Description: a.Description, Template: a.Template,
 		PlanTemplate: a.PlanTemplate, AutoMerge: a.AutoMerge, AutoQueue: a.AutoQueue, AutoResolve: a.AutoResolve,
-		Priority: a.Priority, NotesRepo: a.NotesRepo, Limits: a.Limits, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates, Need: a.Need}
+		Priority: a.Priority, NotesRepo: a.NotesRepo, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates, Need: a.Need}
 }
 
 func parse(raw json.RawMessage) (args, error) {
@@ -101,9 +100,6 @@ func (s *Service) View(ctx context.Context, p dbgen.Project) map[string]any {
 		}
 	}
 	m["allow_templates"] = s.Projects.AllowedTemplates(ctx, p.ID)
-	if l, err := s.Projects.Limits(ctx, p.Slug); err == nil {
-		m["limits"] = l
-	}
 	repos := []string{}
 	if rows, err := s.DB.RQ.ListRepos(ctx, p.ID); err == nil {
 		for _, x := range rows {

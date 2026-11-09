@@ -120,9 +120,7 @@ type ProjectView struct {
 	AutoResolve bool   `json:"auto_resolve"`
 	Priority    int64  `json:"priority"`
 	NotesRepo   string `json:"notes_repo,omitempty"`
-	// Limits are the runner instances this project's demand may cause, per template.
-	Limits []ProjectLimit `json:"limits,omitempty"`
-	Agent  string         `json:"agent,omitempty"` // default agent definition
+	Agent       string `json:"agent,omitempty"` // default agent definition
 	// AllowTemplates: other templates (usually host) this project's runs may also use.
 	AllowTemplates []string `json:"allow_templates,omitempty"`
 	// Need is the effective resource need set for the project's tasks (default, or the project's own).
@@ -154,15 +152,6 @@ type ProjectArchiveResult struct {
 	CancelledRuns []int64     `json:"cancelled_runs"` // queued runs cancelled with 'project archived'
 }
 
-// ProjectLimit is a project's instance cap on one template. Ceiling is the template's own
-// max_runners; the effective cap is the smaller of the two.
-type ProjectLimit struct {
-	Template string `json:"template"`
-	Max      int64  `json:"max"`
-	Ceiling  int64  `json:"ceiling"`
-	Default  bool   `json:"default,omitempty"` // the project's default template
-}
-
 // ProjectRequest creates or patches a project (nil = unchanged).
 type ProjectRequest struct {
 	Slug           string            `json:"slug,omitempty"`
@@ -177,10 +166,8 @@ type ProjectRequest struct {
 	AutoResolve    *bool             `json:"auto_resolve,omitempty"`
 	Priority       *int64            `json:"priority,omitempty"`
 	NotesRepo      *string           `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
-	// Limits sets instance caps by template name; templates not listed keep theirs.
-	Limits        map[string]int64 `json:"limits,omitempty"`
-	Agent         *string          `json:"agent,omitempty"` // default agent name; "" clears
-	CitationAudit *bool            `json:"citation_audit,omitempty"`
+	Agent          *string           `json:"agent,omitempty"`      // default agent name; "" clears
+	CitationAudit  *bool             `json:"citation_audit,omitempty"`
 }
 
 // AgentView is a named agent definition (docs/wrangl/adr/0001).

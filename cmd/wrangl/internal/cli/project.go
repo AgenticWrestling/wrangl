@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -42,19 +41,6 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 		r.AllowTemplates = &v
 	}
 	r.AutoResolve = boolean("auto-resolve")
-	if f.Changed("limit") {
-		vals, _ := f.GetStringSlice("limit")
-		r.Limits = map[string]int64{}
-		for _, v := range vals {
-			name, num, ok := strings.Cut(v, "=")
-			n, err := strconv.ParseInt(num, 10, 64)
-			if !ok || name == "" || err != nil || n < 0 {
-				c.PrintErrln("--limit wants TEMPLATE=N (N >= 0), got", v)
-				os.Exit(2)
-			}
-			r.Limits[name] = n
-		}
-	}
 	if f.Changed("need") {
 		vals, _ := f.GetStringSlice("need")
 		patch, err := placement.ParsePatch(vals)
@@ -83,7 +69,6 @@ func projectFlags(c *cobra.Command) {
 	f.String("notes-repo", "", "linked repo (owner/name) that holds research reports under research/; empty clears")
 	f.Bool("citation-audit", false, "research PRs get an audit run that re-fetches every cited URL; unverified citations block auto-merge")
 	f.String("agent", "", "default agent definition (wrangl agent list); empty clears")
-	f.StringSlice("limit", nil, "max runner instances this project may cause on a template: TEMPLATE=N (repeatable)")
 	f.StringSlice("allow-template", nil, "other runner template this project may use, e.g. host (repeatable; replaces the list; empty clears)")
 	f.StringSlice("need", nil, "default resource need for this project's tasks: vcpu=N, ram=2GiB, disk=5GiB (repeatable; empty value clears, e.g. ram=)")
 	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
@@ -107,13 +92,6 @@ func printProject(w io.Writer, p proto.ProjectView) {
 	}
 	if p.Agent != "" {
 		fmt.Fprintf(w, "agent\t%s\n", p.Agent)
-	}
-	for _, l := range p.Limits {
-		note := ""
-		if l.Max > l.Ceiling {
-			note = fmt.Sprintf(" (effective %d: template max_runners)", l.Ceiling)
-		}
-		fmt.Fprintf(w, "limit %s\t%d%s\n", l.Template, l.Max, note)
 	}
 	if p.Description != "" {
 		fmt.Fprintf(w, "description\t%s\n", p.Description)

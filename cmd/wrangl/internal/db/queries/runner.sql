@@ -175,40 +175,18 @@ WHERE template_id = ? AND launched = 1 AND nkey_public IS NULL AND state = 'term
 -- name: SetRunnerLaunchedForProject :exec
 UPDATE runner SET launched_for_project = sqlc.narg(project_id) WHERE id = sqlc.arg(id);
 
--- name: UpsertProjectTemplateLimit :exec
-INSERT INTO project_template_limit (project_id, template_id, max_instances)
-VALUES (sqlc.arg(project_id), sqlc.arg(template_id), sqlc.arg(max_instances))
-ON CONFLICT (project_id, template_id) DO UPDATE SET max_instances = excluded.max_instances;
-
--- name: ListProjectTemplateLimits :many
--- Every template with the project's stored cap (NULL: default rule applies).
-SELECT t.id AS template_id, t.name AS template_name, t.max_runners,
-       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = t.id, 0) AS INTEGER) AS is_default
-FROM project p CROSS JOIN runner_template t
-LEFT JOIN project_template_limit l ON l.project_id = p.id AND l.template_id = t.id
-WHERE p.id = sqlc.arg(project_id)
-ORDER BY t.name;
-
 -- name: ProjectTemplateDemand :many
--- Queued runs per project and template, the runners already launched for that project on the
--- template, and its stored cap.
+-- Queued runs per project and template, and the runners already launched for that project on the
+-- template (attribution of launches).
 SELECT p.id AS project_id, CAST(COALESCE(r.template_id, k.template_id, p.default_template_id) AS INTEGER) AS template_id,
        CAST(COUNT(*) AS INTEGER) AS demand,
        CAST((SELECT COUNT(*) FROM runner n WHERE n.launched_for_project = p.id
              AND n.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
-             AND n.state <> 'terminated') AS INTEGER) AS live,
-       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = COALESCE(r.template_id, k.template_id, p.default_template_id), 0) AS INTEGER) AS is_default
+             AND n.state <> 'terminated') AS INTEGER) AS live
 FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
-LEFT JOIN project_template_limit l ON l.project_id = p.id
-     AND l.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
 WHERE r.state = 'queued' AND p.archived_at IS NULL AND COALESCE(r.template_id, k.template_id, p.default_template_id) IS NOT NULL
 GROUP BY p.id, COALESCE(r.template_id, k.template_id, p.default_template_id)
 ORDER BY p.priority DESC, p.id;
-
--- name: CountProjectRunners :one
--- Live (not terminated) runners launched for a project on a template.
-SELECT CAST(COUNT(*) AS INTEGER) FROM runner
-WHERE launched_for_project = sqlc.arg(project_id) AND template_id = sqlc.arg(template_id) AND state <> 'terminated';
 
 -- name: ListAllowedTemplates :many
 -- Templates (besides its own) the project may use, by name.

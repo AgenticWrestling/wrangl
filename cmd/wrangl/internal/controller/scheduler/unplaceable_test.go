@@ -141,7 +141,7 @@ func TestUnplaceableRaisedForStageOneReasons(t *testing.T) {
 
 	// A usable runner means the run just waits for it: the item resolves when the cause is gone.
 	d.W.Exec(`UPDATE runner_template SET failed_version = 0`)
-	d.W.Exec(`UPDATE project_template_limit SET max_instances = 0`)
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, template_version, cordoned) VALUES ('c0', 1, 'idle', 1, 1)`) // a cordoned runner fills max_runners
 	s.Assign(ctx)
 	if n, _, p := openItems(t, s); n != 1 || p != `{"reason":"capacity"}` {
 		t.Fatalf("capacity: %d %s", n, p)

@@ -426,7 +426,9 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
-	sched.Engine = s.cfg.Placement.Engine
+	if e := s.cfg.Placement.Engine; e != "" && e != "placer" {
+		s.log.Warn("placement.engine is deprecated and ignored: the resource-based planner is the only launch planner now", "engine", e)
+	}
 	if s.Fleet.Prov != nil && s.Costs != nil {
 		sched.Menu = &menu.Lookup{EC2: s.Fleet.Prov.EC2, Prices: s.Costs, Region: s.cfg.AWS.Region}
 	}

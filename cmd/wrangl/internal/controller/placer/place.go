@@ -37,9 +37,6 @@ type Limits struct {
 	// Room is how many more runners each template may launch (max_runners minus live; 0 when launching
 	// is blocked: failed version, backoff, enrol brake).
 	Room map[int64]int64
-	// ProjectRoom is how many more a project may cause on a template (its cap less what it has
-	// launched), keyed {project, template}. A missing key means no project limit.
-	ProjectRoom map[[2]int64]int64
 	// Budget, when set, caps what the plan may launch: committed spend plus a launch's price must stay
 	// within Limit (ADR 0009 section 8.2). Entries without a known price are not launched then.
 	Budget *Budget
@@ -73,7 +70,7 @@ type Blocked struct {
 
 // Reason codes of Blocked.
 const (
-	CodeCapacity = "capacity"      // cannot launch: no room, or a project limit
+	CodeCapacity = "capacity"      // cannot launch: the template has no room (max_runners)
 	CodeTooBig   = "too_big"       // no entry of its template could ever hold it
 	CodeBudget   = "budget"        // launching would exceed the hourly budget
 	CodePrice    = "price_unknown" // a budget is set and no entry that could hold it has a known price
@@ -145,10 +142,6 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 	room := map[int64]int64{}
 	for k, v := range lim.Room {
 		room[k] = v
-	}
-	proom := map[[2]int64]int64{}
-	for k, v := range lim.ProjectRoom {
-		proom[k] = v
 	}
 	committed := 0.0
 	if lim.Budget != nil {
@@ -223,8 +216,7 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 			plan.Unplaceable = append(plan.Unplaceable, Blocked{Run: r.ID, Code: CodeTooBig})
 			continue
 		}
-		pk := [2]int64{r.Project, r.Template}
-		if left, limited := proom[pk]; room[r.Template] <= 0 || (limited && left <= 0) {
+		if room[r.Template] <= 0 {
 			plan.Unplaceable = append(plan.Unplaceable, Blocked{Run: r.ID, Code: CodeCapacity})
 			continue
 		}
@@ -271,9 +263,6 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 			committed += e.commit(disk)
 		}
 		room[r.Template]--
-		if _, limited := proom[pk]; limited {
-			proom[pk]--
-		}
 		plan.Launch = append(plan.Launch, Launch{Entry: e, Project: r.Project, Runs: []int64{r.ID}, DiskGiB: e.volume(r.Need.DiskGiB)})
 		nv := &virt{RunnerIn: RunnerIn{Runner: entryRunner(e), Template: e.Template, Arriving: true}, id: -int64(len(plan.Launch)), launch: len(plan.Launch) - 1, entry: e}
 		nv.reserve(r.Need)

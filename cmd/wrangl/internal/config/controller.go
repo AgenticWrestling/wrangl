@@ -65,8 +65,8 @@ type Controller struct {
 	Placement  Placement  `yaml:"placement"`
 }
 
-// Placement selects the launch planner (ADR 0009): engine "legacy" (default, slot-based) or "placer"
-// (resource-based, uses runs' needs and templates' instance menus).
+// Placement is the placement section. Engine is deprecated: the resource-based planner is the only one;
+// the key is still read so existing files load.
 type Placement struct {
 	Engine string `yaml:"engine"`
 }

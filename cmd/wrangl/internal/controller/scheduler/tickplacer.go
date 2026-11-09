@@ -13,9 +13,6 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 )
 
-// EnginePlacer selects the resource-based launch planner (Scheduler.Engine).
-const EnginePlacer = "placer"
-
 const menuTTL = 10 * time.Minute
 
 type cachedMenu struct {
@@ -71,7 +68,7 @@ func (s *Scheduler) entriesFor(ctx context.Context, t dbgen.RunnerTemplate) []pl
 
 // tickPlacer is Tick with placer.Place: it plans which runners to launch from the queued runs' needs
 // (virtual packing onto existing and arriving runners first), then launches them under the same gates as
-// the legacy Tick: max_runners room, a failed template version, backoff, the enrol brake and project caps.
+// the legacy Tick: max_runners room, a failed template version, backoff, and the enrol brake.
 func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 	d := s.Fleet.DB
 	if s.backoff == nil {
@@ -96,7 +93,7 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 	}
 	tmpl := map[int64]dbgen.TemplateDemandRow{}
 	full := map[int64]dbgen.RunnerTemplate{}
-	lim := placer.Limits{Room: map[int64]int64{}, ProjectRoom: map[[2]int64]int64{}}
+	lim := placer.Limits{Room: map[int64]int64{}}
 	var entries []placer.Entry
 	for _, t := range trows {
 		tmpl[t.ID] = t
@@ -116,18 +113,9 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 	}
 	budget, _ := (&placement.Service{DB: d}).Budget(ctx)
 	if budget.LimitUSD != nil {
-		// With a budget, it is the guard: per-project limits are not consulted (max_runners stays).
+		// With a budget, it is the guard (max_runners stays as a per-template backstop).
 		lim.Budget = &placer.Budget{Limit: *budget.LimitUSD, Committed: budget.Committed}
 	}
-	for _, p := range pdem {
-		if lim.Budget != nil {
-			break
-		}
-		if tt, ok := tmpl[p.TemplateID]; ok {
-			lim.ProjectRoom[[2]int64{p.ProjectID, p.TemplateID}] = EffectiveCap(p.Stored, p.IsDefault == 1, tt.MaxRunners) - p.Live
-		}
-	}
-
 	// The queued runs, each on the template that hosts its agent session (a remote run's driver).
 	qrows, err := d.RQ.QueuedRunsForPlacement(ctx)
 	if err != nil {
@@ -144,15 +132,6 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 			mode, _, driver, err := s.Fleet.Connection(ctx, tid)
 			if err != nil || mode != "remote" {
 				continue
-			}
-			capacity := int64(0)
-			for _, p := range pdem {
-				if p.ProjectID == q.ProjectID && p.TemplateID == tid {
-					capacity = EffectiveCap(p.Stored, p.IsDefault == 1, 1<<30)
-				}
-			}
-			if capacity == 0 {
-				continue // a project capped at 0 targets does not get idle drivers
 			}
 			tid = driver
 		}

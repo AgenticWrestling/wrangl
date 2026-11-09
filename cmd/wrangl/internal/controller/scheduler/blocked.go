@@ -64,21 +64,11 @@ func (s *Scheduler) checkUnplaceable(ctx context.Context, r dbgen.QueuedRunsForA
 	code, why := "", ""
 	failed, _ := d.RQ.CountFailedEnrolments(ctx, dbgen.CountFailedEnrolmentsParams{TemplateID: t.ID, TerminatedAt: dbtime.Format(s.Now().Add(-EnrolFailWindow))})
 	live, _ := d.RQ.CountLiveRunners(ctx, t.ID)
-	var cap int64 = -1
-	if lims, err := d.RQ.ListProjectTemplateLimits(ctx, task.ProjectID); err == nil {
-		for _, l := range lims {
-			if l.TemplateID == t.ID {
-				cap = EffectiveCap(l.Stored, l.IsDefault == 1, l.MaxRunners)
-			}
-		}
-	}
 	switch {
 	case t.FailedVersion == t.Version:
 		code, why = ReasonLaunchBlocked, fmt.Sprintf("version %d of template `%s` failed to apply, so no runner is launched; fix it with `wrangl template edit`", t.Version, t.Name)
 	case failed >= MaxEnrolFailures:
 		code, why = ReasonLaunchBlocked, fmt.Sprintf("the last %d runners of template `%s` never enrolled, so launching is paused; check the template's image, user-data and network", failed, t.Name)
-	case cap == 0:
-		code, why = ReasonCapacity, fmt.Sprintf("this project may not launch runners of template `%s` (its limit is 0); raise it with `wrangl project edit --limit %s=N`", t.Name, t.Name)
 	case live >= t.MaxRunners:
 		code, why = ReasonCapacity, fmt.Sprintf("template `%s` is at its max_runners (%d) with no usable runner", t.Name, t.MaxRunners)
 	default:

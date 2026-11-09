@@ -1,7 +1,7 @@
 # Projects
 
 A project is the unit you plan, queue and review work in. This guide explains what one holds, how the
-project page works, how runner limits are computed, what archiving does, and how a project connects to
+project page works, what bounds runner launching, what archiving does, and how a project connects to
 GitHub. Related guides: tasks, runners and scheduling (in this directory, as they are written).
 
 ## 1. Concepts
@@ -26,7 +26,6 @@ task, so it belongs to the project the task is in.
 | **notes repo** | `--notes-repo owner/name` | A linked repo that holds research reports under `research/`. It must already be linked to the project; empty clears it. |
 | **resource need** | `--need vcpu=N --need ram=4GiB --need disk=10GiB` (repeatable; `ram=` clears) | Default resource need for the project's tasks, overriding the global default (`wrangl placement`). Recorded only; placement does not use it yet. |
 | **allowed templates** | `--allow-template T` (repeatable; replaces the list; empty clears) | Other templates whose runners this project's runs may use besides their own, usually `host`. A free allowed runner is used first; the autoscaler launches only when none has room. See the scheduling guide. |
-| **limits** | `--limit TEMPLATE=N` (repeatable) | How many runner instances this project's demand may launch per template (section 4). |
 
 Changing a flag with `project edit` changes only that setting.
 
@@ -52,13 +51,10 @@ under the table with a Restore button.
   first).
 - **Needs you.** The project's open Inbox items (questions, task reviews, PRs, tool-failure notices).
   Hidden when there are none.
-- **Bar.** An *In progress* filter chip (only leaf tasks being worked on now), the **runners chip**, the
-  **concurrency chip**, and **＋** for a new task.
+- **Bar.** An *In progress* filter chip (only leaf tasks being worked on now), the **runners chip**, and **＋** for a new task.
   - The runners chip counts runners that have a session for this project; its popover lists each one
     with its state, template and the tasks it is running. A runner that also hosts another project's
     session is tagged "also serving X".
-  - The concurrency chip lists `template ×N` for each template this project may launch, where N is the
-    effective cap (section 4), or "none". It links to the Runner limits card.
 - **In progress** (runs that are assigned or running, with their runner and the leaf being worked),
   **Queue** (queued runs in the order they will be assigned: your reordering first, then tree position,
   then first in first out) and **Backlog** (everything else, with "show done"). A queued or running
@@ -69,7 +65,7 @@ page or `wrangl task queue`), **Dequeue** and up/down on queued rows, **Stop** o
 all** on the Backlog header. Destructive buttons ask inline ("Yes / Cancel"), never with a browser dialog.
 
 **Settings page** (`/projects/<slug>/settings`): Goals & definition of done (markdown, edited in a sheet
-together with name and default template), Repositories (link and unlink), **Runner limits**, and the
+together with name and default template), Repositories (link and unlink), and the
 Custom tools placeholder. The older URLs `/tasks?project=<slug>`, `/backlog` and `/project/<slug>`
 redirect to these pages.
 
@@ -139,44 +135,21 @@ App to have `issues: write` (Apps created before that need the upgrade in INSTAL
 arguments and limits are in [agents.md](../agents.md#github-issue-tools) and
 [ADR 0004](../adr/0004-agent-github-issue-tools.md).
 
-## 4. Runner limits and the effective cap
+## 4. Runner limits
 
-Runners are a shared pool, but **launching** is capped per project and template so that an expensive
-template (a Mac, an emulator host) is never started by accident. For each (project, template) there
-is a stored limit; `EffectiveCap` (`controller/scheduler/scheduler.go`) turns it into the number of
-instances that project's demand may cause:
+Runners are a shared pool. There are **no per-project instance limits** any more (the old `--limit`, the
+"Runner limits" card and the concurrency chip were removed with the legacy launch tick; see the
+[scheduling guide](scheduling.md#6-the-autoscaler)). What bounds launching now:
 
-```
-stored  = the project's --limit for the template, if one was set
-        = otherwise 1 if the template is the project's default template, else 0
-cap     = min(stored, template max_runners)        # never below 0
-```
+- the template's `max_runners` (an account-wide backstop; the natural way to keep an expensive template such as
+  a Mac or an emulator host from being started in bulk),
+- the hourly budget, when one is set (`wrangl placement set --budget`), and
+- what queued runs actually need: runners are launched only for queued work, packed by resources.
 
-So by default a project may launch one instance of its default template and none of anything else.
-`max_runners` on the template is the account-wide ceiling for everyone and wins when it is lower. The
-Runner limits card shows the ceiling next to each field; the concurrency chip shows the cap.
-
-```sh
-wrangl project edit web --limit go-claude=3 --limit mac=1
-wrangl project show web            # shows the limits
-```
-
-How the cap is used:
-
-- It limits **launches**, not placement. Runs from any project may be assigned to any free session on
-  any runner of the right template. The count compared with the cap is the number of non-terminated
-  runners that were *launched for* this project (`runner.launched_for_project`), recorded when the
-  scheduler starts a runner on that project's behalf. A runner project A launched and project B now
-  uses still counts against A. This is a known weakness; the redesign is [ADR 0008](../adr/0008-runners-belong-to-the-system.md)
-  (accepted, not built) and [ADR 0007](../adr/0007-capabilities-and-capacity.md) (also not built).
-- When several projects want the same template at once, launches go to the higher-priority project
-  first (`PlanLaunches`); a project at its cap does not push its demand onto the next one, its runs
-  wait.
-- A runner has several sessions (`max_sessions`); one runner can serve a project's several queued
-  runs, so a cap of 1 does not mean one run at a time.
-- Remote templates (Mac, Android) count **targets** instead of runners, and their driver runner is
-  launched only as far as the project's cap on the remote template allows.
-- The controller agent's `fleet.launch` proposal is refused, naming the cap, if it would exceed it.
+A runner a project's demand caused is still recorded (`runner.launched_for_project`) for attribution, but it
+limits nothing. A project reaches a template at all through its default template, a per-task template, or
+`--allow-template`. The controller agent's `fleet.launch` proposal is refused, naming `max_runners`, if it
+would exceed it.
 
 ## 5. Archiving and restoring
 
@@ -216,9 +189,9 @@ All commands take `-o table|json|yaml`.
 
 | Command | Notes |
 |---|---|
-| `project create SLUG [flags]` | Flags as in section 1 (`--name --description --template --plan-template --agent --priority --auto-queue --auto-merge --auto-resolve --citation-audit --notes-repo --limit --allow-template --need`). |
+| `project create SLUG [flags]` | Flags as in section 1 (`--name --description --template --plan-template --agent --priority --auto-queue --auto-merge --auto-resolve --citation-audit --notes-repo --allow-template --need`). |
 | `project edit SLUG [flags]` | Same flags; only those given change. Refused on an archived project. |
-| `project show SLUG` | The settings, including limits. |
+| `project show SLUG` | The settings, including allowed templates and needs. |
 | `project list [--archived \| --all]` | Active projects by default; a STATUS column says which are archived. |
 | `project archive SLUG` / `project restore SLUG` | Section 5. |
 | `project delete SLUG` | Deletes the project and its tasks. |
@@ -239,8 +212,8 @@ wrangl issue sync web
 | Symptom | Cause and fix |
 |---|---|
 | **A queued run sits in the Queue with status "waiting: ..."** | The status text names the cause: a missing agent secret (`wrangl agent auth`), a repo without an installed App, a template that does not allow the agent, or no capacity. Read it with `wrangl run show ID`. See the scheduling guide for the full list. |
-| **Queued, nothing launches, status mentions no capacity** | Check the concurrency chip. If the template shows no `×N`, the project's cap is 0: a project only launches its default template by default. `wrangl project edit web --limit TEMPLATE=1`. Also check the template's `max_runners` (the ceiling) and whether the project is archived. |
-| **Cap is 2 but only 1 runner starts** | The effective cap is `min(project limit, template max_runners)`. Raise `max_runners` with `wrangl template edit`. The scheduler launches only for demand that the existing runners' free sessions cannot hold. |
+| **Queued, nothing launches, status mentions no capacity** | Check the template's `max_runners` and live count (Runners page), whether its current version failed to apply, the hourly budget (`wrangl placement show`), and whether the project is archived. After 15 minutes the run raises a "can't be placed" Inbox item naming the cause. |
+| **Max is 2 but only 1 runner starts** | The scheduler launches only for demand that the existing runners' free capacity cannot hold: a second runner starts only when queued runs do not fit the first one (by sessions, and by resource needs once they are set). |
 | **Another project's work is first** | Priority: higher `--priority` is served first, both in assignment and in launches. |
 | **`repo link` fails: "GitHub is not configured" / "not installed"** | The repo's owner has no App yet, or the App is not installed on that repo. Setup page → add the account → create/install the App → pick the repo. |
 | **`project archive` is refused and lists runs** | Wait for the listed runs or `wrangl run cancel ID`, then archive again. |

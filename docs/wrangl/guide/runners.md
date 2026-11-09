@@ -232,8 +232,7 @@ runs no wrangl: an EC2 Mac or an Android emulator host. A template with `mode: r
 `connection:` block (`driver_template`, `protocol` ssh or adb, `user`, `via` ssm or direct, `secret`)
 describes the **target**. The agent runs on a **driver** session of an ordinary runner and uses the
 `target_exec` and `target_put` tools. A run takes a target session and a driver session together.
-The controller launches targets when queued runs need one (within the project's cap on the remote
-template, default 0), probes them, marks them offline after three failed probes, reaps them after
+The controller launches targets when queued runs need one (within the remote template's `max_runners`), probes them, marks them offline after three failed probes, reaps them after
 `idle_timeout`, and fails the runs on a target that is gone or unreachable for two minutes as
 "target lost". `wrangl target list [--all]` and `wrangl target terminate NAME` manage them. There is no
 Runners-page card for targets yet. Details, costs and the Android recipe are in INSTALL.md 8.2 and

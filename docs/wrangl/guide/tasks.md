@@ -304,7 +304,7 @@ wrangl question answer 17 approve
 | `task queue` says "has no open work: N subtask(s) are in review" | Merge or request changes on their PRs, or `task reopen` a subtask. |
 | `task queue` says "overlaps a subtree a run is already working on" | Another run holds part of the subtree. `wrangl run list --state active`; wait, or `run cancel`. |
 | "no runner template" / "no repo" / "spans more than one repo" | Set `--template` / `--repo` on the task or an ancestor, or on the project; queue single-repo subtrees separately. |
-| Queued but never starts | See the run's status text (`wrangl run show ID`) and the scheduling guide: no free session, project limit 0, missing agent secret. |
+| Queued but never starts | See the run's status text (`wrangl run show ID`) and the scheduling guide: no free session, template at `max_runners`, missing agent secret. |
 | Run ended `blocked` | Remaining leaves need tasks outside the run. Finish or merge those; the run is re-queued when a PR merges, or `task queue` again. |
 | Leaf stays `in_review` and no PR appears | The run pushed nothing: a task-review item is in the Inbox (Accept / Reopen). Or CI is pending, or the PR needs your decision. |
 | Task `in_review`, PR merged on GitHub | The webhook or the 15-minute reconcile poll marks it done; check the webhook path in INSTALL step 10. |

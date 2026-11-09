@@ -161,7 +161,11 @@ func TestNeedsInputReleasesVCPUAfterGrace(t *testing.T) {
 	d.W.Exec(`INSERT INTO question (task_id, run_id, kind, prompt, created_at) VALUES (1, 1, 'agent', 'q?', ?)`, clk.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
 	queue(t, d, 1)
 	d.W.Exec(`UPDATE run SET template_id = 1, need_vcpu = 3, need_ram_mib = 1024, need_disk_gib = 5 WHERE state = 'queued'`)
-	newRun := func() int64 { var id int64; d.R.QueryRow(`SELECT id FROM run WHERE state = 'queued'`).Scan(&id); return id }
+	newRun := func() int64 {
+		var id int64
+		d.R.QueryRow(`SELECT id FROM run WHERE state = 'queued'`).Scan(&id)
+		return id
+	}
 
 	if _, err := s.claimRunner(ctx, newRun(), 1); err == nil {
 		t.Fatal("policy off: the waiting run still holds 3 of 4 vCPUs")

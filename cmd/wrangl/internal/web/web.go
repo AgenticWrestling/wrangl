@@ -1198,7 +1198,6 @@ var actions = map[string]actFn{
 	"fleet-launch":           actFleetLaunch,
 	"project-new":            actProjectNew,
 	"project-save":           actProjectSave,
-	"project-limit":          actProjectLimit,
 	"repo-notes":             actRepoNotes,
 	"repo-link":              actRepoLink,
 	"template-save":          actTemplateSave,

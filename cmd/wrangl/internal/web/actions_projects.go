@@ -49,17 +49,6 @@ func actProjectSave(h *Handler, a *actReq) (res actResult, err error) {
 	return
 }
 
-func actProjectLimit(h *Handler, a *actReq) (res actResult, err error) {
-	var n int64
-	if n, err = strconv.ParseInt(a.q.Get("n"), 10, 64); err != nil || n < 0 {
-		err = fmt.Errorf("limit must be a whole number, 0 or more")
-		return
-	}
-	err = h.D.Projects.SetLimits(a.ctx, a.q.Get("slug"), map[string]int64{a.q.Get("template"): n})
-	res.msg = fmt.Sprintf("%s limit on %s: %d", a.q.Get("slug"), a.q.Get("template"), n)
-	return
-}
-
 func actRepoNotes(h *Handler, a *actReq) (res actResult, err error) {
 	err = h.D.Projects.SetNotesRepo(a.ctx, a.q.Get("slug"), a.q.Get("repo"))
 	res.msg = "notes repo saved"
