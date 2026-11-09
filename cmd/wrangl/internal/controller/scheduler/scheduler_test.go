@@ -433,3 +433,30 @@ func TestArchivedProjectIsInert(t *testing.T) {
 		t.Fatalf("restored project not served: %v", got)
 	}
 }
+
+func TestResolveRunsAreOfferedSlotsFirst(t *testing.T) {
+	s, _, _, d := setup(t, 1)
+	ctx := context.Background()
+	queue(t, d, 2) // runs 1 and 2: work, queued first
+	d.W.Exec(`INSERT INTO run (task_id, kind) VALUES (2, 'resolve')`)
+	qs, err := d.RQ.QueuedRunsForAssignment(ctx)
+	if err != nil || len(qs) != 3 {
+		t.Fatalf("%v %d", err, len(qs))
+	}
+	if qs[0].Kind != "resolve" || qs[1].ID != 1 || qs[2].ID != 2 {
+		t.Fatalf("order %s %d %d: resolve first, the rest unchanged", qs[0].Kind, qs[1].ID, qs[2].ID)
+	}
+
+	// With no free slot the resolve run says why it waits; work runs are left alone.
+	d.W.Exec(`UPDATE runner_template SET agent_json = '{"start":["true"]}'`)
+	d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, clone_url) VALUES (1, 'o', 'n', 'main', 'file:///x')`)
+	d.W.Exec(`UPDATE run SET template_id = 1, repo_id = 1`)
+	if _, err := s.Assign(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	d.R.QueryRow(`SELECT status_text FROM run WHERE kind = 'resolve'`).Scan(&status)
+	if !strings.Contains(status, "no free runner slot") {
+		t.Fatalf("resolve status %q", status)
+	}
+}
