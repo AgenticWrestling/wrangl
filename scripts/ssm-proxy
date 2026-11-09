@@ -1,0 +1,23 @@
+#!/bin/sh
+# ssm-proxy <ssh-alias> <proxy command...>
+#
+# Use as an ssh ProxyCommand. First tries a plain, non-interactive ssh to
+# <ssh-alias>; if that fails (EIC keys expire after 60s), runs
+# `ssm ssh --no-connect <ssh-alias>` to push a fresh key (refreshing SSO if
+# needed). Then execs the real proxy command (aws ec2-instance-connect
+# open-tunnel ...). All diagnostics go to stderr; stdout belongs to ssh.
+export PATH="$HOME/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+alias_name=$1
+shift
+
+if ! ssh -n -o BatchMode=yes -o ConnectTimeout=20 -o ControlMaster=no \
+        -o ControlPath=none "$alias_name" true >/dev/null 2>&1; then
+  echo "ssm-proxy: plain ssh to $alias_name failed; pushing EIC key via ssm" >&2
+  ssm ssh --no-connect "$alias_name" >&2 </dev/null || {
+    echo "ssm-proxy: ssm ssh failed for $alias_name" >&2
+    exit 1
+  }
+fi
+
+exec "$@"

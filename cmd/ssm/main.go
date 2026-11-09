@@ -22,6 +22,9 @@ import (
 	"github.com/nreid/devhost/cmd/ssm/internal/vpc"
 )
 
+// profileFlag holds the value of the global --profile flag, if set.
+var profileFlag string
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -32,12 +35,38 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.PersistentFlags().StringVar(&profileFlag, "profile", "", "AWS profile to use (skips the profile picker; falls back to $AWS_PROFILE)")
 	root.AddCommand(connectCmd(), tunnelCmd(), setupCmd(), sshCmd(), startCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, friendlyError(err))
 		os.Exit(1)
 	}
+}
+
+// selectProfile returns the profile to use: --profile flag, then $AWS_PROFILE,
+// then an interactive picker sorted by most-recently-used.
+func selectProfile(ctx context.Context) (string, error) {
+	if profileFlag != "" {
+		_ = ssmaws.RecordProfileUsage(profileFlag)
+		return profileFlag, nil
+	}
+	if envProfile := os.Getenv("AWS_PROFILE"); envProfile != "" {
+		_ = ssmaws.RecordProfileUsage(envProfile)
+		return envProfile, nil
+	}
+
+	profiles, err := ssmaws.ListProfiles()
+	if err != nil {
+		return "", fmt.Errorf("listing profiles: %w", err)
+	}
+	profiles = ssmaws.SortProfilesByMRU(profiles)
+	profile, err := ui.PickProfile(ctx, profiles)
+	if err != nil {
+		return "", err
+	}
+	_ = ssmaws.RecordProfileUsage(profile)
+	return profile, nil
 }
 
 // friendlyError maps noisy AWS SDK errors to actionable messages.
@@ -93,16 +122,10 @@ func refreshSSO(profile string) error {
 // to a running instance. If args is empty or no region/name provided, lists
 // all running instances for interactive selection.
 func resolveTarget(ctx context.Context, args []string, defaultRegion string) (string, *ssmaws.Instance, error) {
-	profiles, err := ssmaws.ListProfiles()
-	if err != nil {
-		return "", nil, fmt.Errorf("listing profiles: %w", err)
-	}
-	profiles = ssmaws.SortProfilesByMRU(profiles)
-	profile, err := ui.PickProfile(ctx, profiles)
+	profile, err := selectProfile(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	_ = ssmaws.RecordProfileUsage(profile)
 
 	// Proactively refresh SSO token before any API call.
 	if expired, _ := ssmaws.SSOTokenExpired(profile); expired {
@@ -284,7 +307,8 @@ func waitForPort(port, timeoutSecs int) error {
 }
 
 func sshCmd() *cobra.Command {
-	return &cobra.Command{
+	var noConnect bool
+	cmd := &cobra.Command{
 		Use:   "ssh [region[/[user@]name]]",
 		Short: "SSH into an instance via EIC (pushes key then execs ssh)",
 		Args:  cobra.MaximumNArgs(1),
@@ -321,6 +345,12 @@ func sshCmd() *cobra.Command {
 			var inst *ssmaws.Instance
 			var err error
 			if knownProfile != "" {
+				if expired, _ := ssmaws.SSOTokenExpired(knownProfile); expired {
+					fmt.Fprintf(os.Stderr, "SSO session expired for profile %q. Refreshing...\n", knownProfile)
+					if loginErr := refreshSSO(knownProfile); loginErr != nil {
+						return fmt.Errorf("sso login: %w", loginErr)
+					}
+				}
 				inst, err = ssmaws.ResolveInstance(cmd.Context(), knownProfile, defaultRegion, strippedArgs[0])
 				if err != nil {
 					return err
@@ -347,6 +377,10 @@ func sshCmd() *cobra.Command {
 				return fmt.Errorf("SSH config: %w", err)
 			}
 
+			if noConnect {
+				return nil
+			}
+
 			sshPath, err := exec.LookPath("ssh")
 			if err != nil {
 				return fmt.Errorf("ssh not found in PATH: %w", err)
@@ -354,6 +388,8 @@ func sshCmd() *cobra.Command {
 			return syscall.Exec(sshPath, []string{"ssh", inst.Name}, os.Environ())
 		},
 	}
+	cmd.Flags().BoolVar(&noConnect, "no-connect", false, "Push the EIC key and update ~/.ssh/config, but don't start ssh (for use from ProxyCommand wrappers)")
+	return cmd
 }
 
 // stripUserFromArg parses optional user@ prefix from the name part of a
@@ -382,16 +418,10 @@ func startCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			profiles, err := ssmaws.ListProfiles()
-			if err != nil {
-				return fmt.Errorf("listing profiles: %w", err)
-			}
-			profiles = ssmaws.SortProfilesByMRU(profiles)
-			profile, err := ui.PickProfile(ctx, profiles)
+			profile, err := selectProfile(ctx)
 			if err != nil {
 				return err
 			}
-			_ = ssmaws.RecordProfileUsage(profile)
 
 			if expired, _ := ssmaws.SSOTokenExpired(profile); expired {
 				fmt.Fprintf(os.Stderr, "SSO session expired for profile %q. Refreshing...\n", profile)
