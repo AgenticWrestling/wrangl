@@ -251,6 +251,7 @@ touched, and ownership is re-checked on each instance before it is terminated.`,
 		runnerAction(g, "uncordon", "Resume assigning work"),
 		runnerAction(g, "drain", "Stop new work; terminate once idle (controller-launched runners)"),
 		terminate, token, teardown,
+		fleetConnect(g), fleetTunnel(g),
 	)
 }
 

@@ -33,6 +33,7 @@ type EC2API interface {
 // Session is an AWS account + region pair with its EC2 client.
 type Session struct {
 	Profile, Region string
+	Cfg             aws.Config // for clients awsx does not wrap (EIC, SSM, CloudWatch)
 	EC2             EC2API
 	// Wait blocks until the instance is running; replaced in tests.
 	Wait func(ctx context.Context, id string) error
@@ -45,7 +46,7 @@ func NewSession(ctx context.Context, profile, region string) (*Session, error) {
 		return nil, err
 	}
 	c := ec2.NewFromConfig(cfg)
-	return &Session{Profile: profile, Region: cfg.Region, EC2: c, Wait: func(ctx context.Context, id string) error {
+	return &Session{Profile: profile, Region: cfg.Region, Cfg: cfg, EC2: c, Wait: func(ctx context.Context, id string) error {
 		return ec2.NewInstanceRunningWaiter(c).Wait(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{id}}, 5*time.Minute)
 	}}, nil
 }
