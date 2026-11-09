@@ -70,21 +70,12 @@ func TestUpsertHostBlock(t *testing.T) {
 	}
 }
 
-func TestLookupHostReadsLegacyMarkers(t *testing.T) {
-	d := home(t)
-	os.MkdirAll(filepath.Join(d, ".ssh"), 0o700)
-	os.WriteFile(filepath.Join(d, ".ssh", "config"), []byte("Host old\n  # ssm-region: eu-west-1\n  # ssm-profile: prod\n  HostName i-1\n  User bob\n"), 0o600)
-	m := devbox.LookupHost("old")
+func TestLookupHost(t *testing.T) {
+	home(t)
+	devbox.UpsertHostBlock(devbox.HostBlock{Name: "box", InstanceID: "i-1", Region: "eu-west-1", Profile: "prod", User: "bob"})
+	m := devbox.LookupHost("box")
 	if m.Region != "eu-west-1" || m.Profile != "prod" || m.User != "bob" || m.InstanceID != "i-1" {
 		t.Fatalf("%+v", m)
-	}
-	devbox.UpsertHostBlock(devbox.HostBlock{Name: "old", InstanceID: "i-1", Region: "eu-west-1", Profile: "prod", User: "bob"})
-	if m := devbox.LookupHost("old"); m.Region != "eu-west-1" || m.Profile != "prod" {
-		t.Fatalf("after upsert %+v", m)
-	}
-	data, _ := os.ReadFile(filepath.Join(d, ".ssh", "config"))
-	if strings.Contains(string(data), "ssm-region") {
-		t.Fatal("legacy markers must be replaced")
 	}
 	if (devbox.LookupHost("none") != devbox.HostMeta{}) {
 		t.Fatal("unknown host must be zero")

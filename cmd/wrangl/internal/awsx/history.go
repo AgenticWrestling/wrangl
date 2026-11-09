@@ -19,24 +19,9 @@ func historyPath() (string, error) {
 	return filepath.Join(home, ".config", "wrangl", "dev-history.json"), nil
 }
 
-// legacyHistoryPath is where the old ssm tool kept its history; read when the new file is
-// missing so MRU order survives the move.
-func legacyHistoryPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".config", "ssm", "history.json")
-}
-
 func readHistory(path string) (history, bool) {
 	var h history
 	data, err := os.ReadFile(path)
-	if err != nil && os.IsNotExist(err) {
-		if lp := legacyHistoryPath(); lp != "" {
-			data, err = os.ReadFile(lp)
-		}
-	}
 	if err != nil || json.Unmarshal(data, &h) != nil {
 		return history{}, false
 	}

@@ -9,14 +9,13 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/awsx"
 )
 
-func TestHistoryMRUAndLegacy(t *testing.T) {
+func TestHistoryMRU(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	os.MkdirAll(filepath.Join(home, ".config", "ssm"), 0o700)
-	os.WriteFile(filepath.Join(home, ".config", "ssm", "history.json"), []byte(`{"profiles":["b"]}`), 0o600)
-	if got := awsx.SortProfilesByMRU([]string{"a", "b", "c"}); !slices.Equal(got, []string{"b", "a", "c"}) {
-		t.Fatalf("legacy history ignored: %v", got)
+	if got := awsx.SortProfilesByMRU([]string{"a", "b", "c"}); !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Fatalf("no history yet must keep the order: %v", got)
 	}
+	awsx.RecordProfileUsage("b")
 	if err := awsx.RecordProfileUsage("c"); err != nil {
 		t.Fatal(err)
 	}

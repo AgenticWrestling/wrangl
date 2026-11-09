@@ -146,11 +146,11 @@ func ensureSSHRule(ctx context.Context, c Endpoints, sgID, cidr string) error {
 	return err
 }
 
-// LegacyRuleDescription marks the all-ports-from-my-IP rules the old ssm tool created.
+// LegacyRuleDescription is the description of the all-ports-from-my-IP rules an earlier standalone
+// tool added to security groups (wrangl never creates them).
 const LegacyRuleDescription = "ssm-managed"
 
-// FindLegacyRules returns, per security group, the permissions carrying the old ssm-managed
-// marker. wrangl never creates these; `dev setup` only reports and optionally revokes them.
+// FindLegacyRules returns, per security group, the permissions carrying that marker. wrangl never creates these; `dev setup` only reports and optionally revokes them.
 func FindLegacyRules(ctx context.Context, c Endpoints, sgIDs []string) (map[string][]types.IpPermission, error) {
 	found := map[string][]types.IpPermission{}
 	for _, sg := range sgIDs {

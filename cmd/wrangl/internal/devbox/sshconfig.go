@@ -87,7 +87,7 @@ func UpsertHostBlock(b HostBlock) error {
 	return os.WriteFile(path, []byte(rest+b.Render()+extra), 0o600)
 }
 
-// LookupHost reads the metadata of a managed Host block (the old `# ssm-*` markers count).
+// LookupHost reads the metadata of a managed Host block.
 // A zero value means the host is not found.
 func LookupHost(name string) HostMeta {
 	path, err := configPath()
@@ -113,7 +113,7 @@ func LookupHost(name string) HostMeta {
 		for _, p := range []struct {
 			prefix string
 			dst    *string
-		}{{"# wrangl-region: ", &m.Region}, {"# ssm-region: ", &m.Region}, {"# wrangl-profile: ", &m.Profile}, {"# ssm-profile: ", &m.Profile}, {"User ", &m.User}, {"HostName ", &m.InstanceID}} {
+		}{{"# wrangl-region: ", &m.Region}, {"# wrangl-profile: ", &m.Profile}, {"User ", &m.User}, {"HostName ", &m.InstanceID}} {
 			if v, ok := strings.CutPrefix(t, p.prefix); ok {
 				*p.dst = v
 			}
@@ -125,8 +125,7 @@ func LookupHost(name string) HostMeta {
 // removeHostBlock cuts the named block out of content and returns the rest plus the block's
 // unmanaged lines.
 func removeHostBlock(content, name string) (rest, extra string) {
-	managed := []string{"# wrangl-region:", "# wrangl-profile:", "# ssm-region:", "# ssm-profile:",
-		"HostName ", "User ", "IdentityFile ", "IdentitiesOnly ", "ProxyCommand ", "ControlMaster ", "ControlPath ", "ControlPersist "}
+	managed := []string{"# wrangl-region:", "# wrangl-profile:", "HostName ", "User ", "IdentityFile ", "IdentitiesOnly ", "ProxyCommand ", "ControlMaster ", "ControlPath ", "ControlPersist "}
 	isManaged := func(t string) bool {
 		for _, p := range managed {
 			if strings.HasPrefix(t, p) {

@@ -394,3 +394,7 @@ Deviations from the plan above, found while building it:
 - The `Applier`/`ApplyScript` parity is tested in `runner/applyscript_test.go`; `Applier` itself is unchanged.
 - Binary size: 69.5 MB before, 72.7 MB after (host build, `-s -w`), +3.1 MB; the picker stays go-fuzzyfinder.
 - Not run against real AWS; unit tests use fakes for EC2, EIC, SSM and CloudWatch. `TestMCPShimListsToolsAndRelays` in `runner` fails on the base commit as well and is unrelated.
+
+### Removal (done)
+
+`cmd/ssm`, its Taskfile tasks and variables, the README section, the ssm spec and plans under `docs/superpowers`, `.superpowers/sdd/progress.md` and the doc references are gone; `go mod tidy` changes nothing. The legacy-compat reads (the old `~/.config/ssm/history.json` and `# ssm-*` ssh markers) were **removed** with it, because the goal is that nothing refers to the tool; only the `ssm-managed` security-group rule cleanup (`dev setup --revoke-legacy-rules`) stays, since those rules may still exist in AWS accounts.

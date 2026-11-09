@@ -200,7 +200,7 @@ type sshPlan struct {
 }
 
 // planSSH resolves arg to an instance and a login user. A bare name that is a Host block written
-// by wrangl dev (or the old ssm tool) reuses its region and profile, so no picker is needed.
+// by wrangl dev reuses its region and profile, so no picker is needed.
 func planSSH(ctx context.Context, o *devOpts, arg string) (*sshPlan, error) {
 	r := o.resolver()
 	t := awsx.ParseTarget(arg)
@@ -433,7 +433,7 @@ machine you can ssh to (it does not have to be on AWS).`,
 	f.StringVar(&user, "user", "", "user the tools are installed for (default: user@ of TARGET, else ec2-user)")
 	f.DurationVar(&idle, "idle-stop", 0, "also power the instance off after this long idle (e.g. 4h)")
 	f.BoolVar(&dry, "dry-run", false, "print the script that would run and exit")
-	f.BoolVar(&revoke, "revoke-legacy-rules", false, "remove the all-ports 'ssm-managed' security group rules the old ssm tool created")
+	f.BoolVar(&revoke, "revoke-legacy-rules", false, "remove the all-ports 'ssm-managed' security group rules an earlier standalone tool created")
 	return c
 }
 
@@ -473,7 +473,7 @@ func runOverSSH(ctx context.Context, host, script string, out, errw io.Writer) e
 	return nil
 }
 
-// warnLegacyRules reports (and with revoke, removes) the all-ports ingress rules the old ssm
+// warnLegacyRules reports (and with revoke, removes) the all-ports ingress rules an earlier
 // tool added for the caller's IP; wrangl never creates them.
 func warnLegacyRules(ctx context.Context, p *sshPlan, revoke bool, w io.Writer) {
 	c := ec2.NewFromConfig(p.s.Cfg)
@@ -483,13 +483,13 @@ func warnLegacyRules(ctx context.Context, p *sshPlan, revoke bool, w io.Writer) 
 	}
 	if revoke {
 		if err := eic.RevokeLegacyRules(ctx, c, rules); err != nil {
-			fmt.Fprintf(w, "could not revoke the old ssm-managed rules: %v\n", err)
+			fmt.Fprintf(w, "could not revoke the 'ssm-managed' rules: %v\n", err)
 			return
 		}
-		fmt.Fprintln(w, "revoked the old ssm-managed security group rules")
+		fmt.Fprintln(w, "revoked the 'ssm-managed' security group rules")
 		return
 	}
 	for sg := range rules {
-		fmt.Fprintf(w, "warning: security group %s has an all-ports 'ssm-managed' rule from the old ssm tool; remove it with --revoke-legacy-rules (wrangl dev uses SSM and EIC and needs no open ports)\n", sg)
+		fmt.Fprintf(w, "warning: security group %s has an all-ports 'ssm-managed' rule from an earlier standalone tool; remove it with --revoke-legacy-rules (wrangl dev uses SSM and EIC and needs no open ports)\n", sg)
 	}
 }

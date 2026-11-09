@@ -106,9 +106,3 @@ Start at the index, [`docs/wrangl/README.md`](docs/wrangl/README.md).
 | [Templates](docs/wrangl/templates/), [agents](docs/wrangl/agents.md), [Android](docs/wrangl/android.md) | runner templates and agent definitions |
 | [Decisions (ADRs)](docs/wrangl/adr/) | why it is built this way |
 | [DEVELOPMENT](docs/wrangl/DEVELOPMENT.md), [release notes](docs/releases/) | building from source, the web UI conventions, releasing |
-
-## Also in this repo: ssm
-
-A separate single-binary tool, `ssm`, for connecting to, tunnelling into and provisioning EC2 instances
-via AWS SSM and EC2 Instance Connect. Build it with `task build`; see `ssm --help` and
-[`docs/superpowers/specs/2026-06-26-ssm-tool-design.md`](docs/superpowers/specs/2026-06-26-ssm-tool-design.md).

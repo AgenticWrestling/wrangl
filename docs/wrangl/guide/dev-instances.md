@@ -2,8 +2,7 @@
 
 `wrangl dev` is for EC2 instances that are yours (a dev box, the controller itself, a runner you want
 to poke at), as opposed to the runners the controller launches. It talks to AWS with your own
-credentials and **never needs a controller**, so it works before one exists (INSTALL.md step 5). It
-replaces the separate `ssm` tool; the reasoning is in [ADR 0010](../adr/0010-fold-ssm-into-wrangl.md).
+credentials and **never needs a controller**, so it works before one exists (INSTALL.md step 5). The reasoning is in [ADR 0010](../adr/0010-fold-ssm-into-wrangl.md).
 
 You need the AWS CLI v2 and, for `connect` and `tunnel`, the
 [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
@@ -84,6 +83,4 @@ and `logs:PutLogEvents`), and without that you get the last 24,000 characters wh
 any machine you can reach, AWS or not. `--idle-stop 4h` also installs a timer that powers the instance
 off (an EBS-backed instance then stops) after that long with no load and nobody logged in.
 
-If you used the old `ssm` tool: `dev setup` warns about the all-ports `ssm-managed` security group
-rules it created and `--revoke-legacy-rules` removes them; old `~/.ssh/config` entries and the MRU
-history are picked up automatically.
+Security groups edited by an earlier standalone tool may carry an all-ports rule described `ssm-managed`: `dev setup` warns about it and `--revoke-legacy-rules` removes it.
