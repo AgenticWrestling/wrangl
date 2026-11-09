@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"net/http"
 	"strconv"
@@ -106,8 +107,7 @@ func (h *Handler) viewTemplate(ctx context.Context, view string, r *http.Request
 		return err
 	}
 	d["T"], d["Title"] = t, "Template "+t.Name
-	var types []string
-	json.Unmarshal([]byte(t.InstanceTypes), &types)
+	types := menu.Names(t.InstanceTypes)
 	ticked := map[string]bool{}
 	for _, x := range types {
 		ticked[x] = true

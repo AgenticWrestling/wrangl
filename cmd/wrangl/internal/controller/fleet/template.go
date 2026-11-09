@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,14 +36,14 @@ type TemplateFile struct {
 		RAM  string `yaml:"ram"`
 		Disk string `yaml:"disk"`
 	} `yaml:"min"`
-	InstanceTypes []string `yaml:"instance_types"`
-	AMI           string   `yaml:"ami"`
-	MaxRunners    *int     `yaml:"max_runners"`
-	MaxSessions   *int     `yaml:"max_sessions"` // concurrent agent sessions per runner (default 4)
-	IdleTimeout   string   `yaml:"idle_timeout"`
-	MiseTOML      string   `yaml:"mise_toml"`
-	SetupScript   string   `yaml:"setup_script"`
-	Agent         any      `yaml:"agent"`
+	InstanceTypes []menu.Entry `yaml:"instance_types"` // names, or { type, price } objects
+	AMI           string       `yaml:"ami"`
+	MaxRunners    *int         `yaml:"max_runners"`
+	MaxSessions   *int         `yaml:"max_sessions"` // concurrent agent sessions per runner (default 4)
+	IdleTimeout   string       `yaml:"idle_timeout"`
+	MiseTOML      string       `yaml:"mise_toml"`
+	SetupScript   string       `yaml:"setup_script"`
+	Agent         any          `yaml:"agent"`
 	// Agents lists the named agent definitions allowed on this template (wrangl agent list).
 	Agents []string `yaml:"agents"`
 	// Mode is local (default: the template describes runners that run the agent) or remote (it
@@ -137,7 +138,7 @@ func ParseTemplate(b []byte) (dbgen.CreateTemplateParams, error) {
 		f.AMI = defaultAMI[f.Arch]
 	}
 	if f.InstanceTypes == nil {
-		f.InstanceTypes = []string{}
+		f.InstanceTypes = []menu.Entry{}
 	}
 	it, _ := json.Marshal(f.InstanceTypes)
 	agent, err := json.Marshal(normalize(f.Agent))

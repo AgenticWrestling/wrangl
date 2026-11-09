@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"io"
 	"log/slog"
@@ -268,8 +269,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 	if sums[unameArch(t.Arch)] == "" {
 		return zero, fmt.Errorf("%w: no %s runner binary: copy build/wrangl-linux-%s to %s", ErrInvalid, t.Arch, unameArch(t.Arch), s.BinDir)
 	}
-	var types []string
-	json.Unmarshal([]byte(t.InstanceTypes), &types)
+	types := menu.Names(t.InstanceTypes)
 
 	name := s.newName(ctx)
 	plain, hash := newToken()

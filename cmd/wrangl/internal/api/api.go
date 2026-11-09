@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"io"
 	"net"
@@ -336,10 +337,7 @@ func templateView(t dbgen.RunnerTemplate) proto.TemplateView {
 		MinDiskGiB: t.MinDiskGib, AMI: t.Ami, MaxRunners: t.MaxRunners, MaxSessions: t.MaxSessions, IdleTimeoutS: t.IdleTimeoutS,
 		Version: t.Version, FailedVersion: t.FailedVersion, MiseTOML: t.MiseToml, SetupScript: t.SetupScript, Agent: json.RawMessage(t.AgentJson),
 	}
-	json.Unmarshal([]byte(t.InstanceTypes), &v.InstanceTypes)
-	if v.InstanceTypes == nil {
-		v.InstanceTypes = []string{}
-	}
+	v.InstanceTypes = menu.Names(t.InstanceTypes)
 	return v
 }
 

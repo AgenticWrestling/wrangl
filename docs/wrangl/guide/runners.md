@@ -57,7 +57,7 @@ Fields (`controller/fleet/template.go`; unknown keys are rejected):
 | `name` | Lowercase letters, digits, `-`, max 40. Cannot be renamed. |
 | `arch` | `arm64` (default) or `x86_64`. |
 | `min` | `vcpu`, `ram`, `disk` (e.g. `8GiB`, `40GiB`). Used to pick an instance type, and checked against what the machine reports at enrolment (10% tolerance on RAM and disk). |
-| `instance_types` | Optional list; empty means "the cheapest type that fits `min`". Wrangl does not look at KVM or GPU, so list types when it matters (see android.md). |
+| `instance_types` | Optional list; empty means "the cheapest type that fits `min`". Wrangl does not look at KVM or GPU, so list types when it matters (see android.md). An entry is a type name or `{ type: c7g.xlarge, price: 0.145 }`; the explicit hourly price overrides the live lookup. Launch order is still the list order; the entries are also the instance menu for need-based launching (not wired in yet): capacity comes from EC2, price from the template, then the pricing API, then a built-in estimate, and an entry with no known price will not be launched. |
 | `ami` | Default: the latest Amazon Linux 2023 for the arch (a public SSM parameter). |
 | `max_runners` | Account-wide ceiling of instances of this template (default 1). Caps every project's launches. |
 | `max_sessions` | Concurrent agent sessions per runner (default 4, at least 1). |
