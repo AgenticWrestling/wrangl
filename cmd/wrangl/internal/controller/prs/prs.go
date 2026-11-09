@@ -59,6 +59,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	reviewed map[int64]string // pr id -> head sha a review run was queued for
+	restart  map[int64]bool   // PR id -> its resolve run was cancelled because the base moved: queue a fresh one when it ends (guarded by mu)
 	resolved map[int64]string // PR id -> head sha an automatic resolve run was queued for (guarded by mu)
 	audited  map[int64]string // PR id -> head sha a citation audit was queued for (guarded by mu)
 }
@@ -1032,6 +1033,9 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 				err = s.Evaluate(ctx, pr.ID)
 			} else {
 				err = s.RefreshMergeable(ctx, pr.ID)
+				if err == nil {
+					s.restartResolveIfBaseMoved(ctx, pr, branch)
+				}
 			}
 			if err != nil {
 				s.Log.Warn("push webhook PR", "pr", pr.Url, "err", err)
@@ -1207,6 +1211,67 @@ Before ending, call report_status with a summary that lists each conflicted file
 	return b.String()
 }
 
+// restartResolveIfBaseMoved: a push to the base branch while a Smart Merge run is working makes
+// its work stale. Cancel the run, close the questions it asked, and queue a fresh run once the
+// old one has ended (a running run is cancelled asynchronously).
+func (s *Service) restartResolveIfBaseMoved(ctx context.Context, pr dbgen.PullRequest, branch string) {
+	repo, _, err := s.repo(ctx, pr.RepoID)
+	if err != nil || repo.DefaultBranch != branch {
+		return
+	}
+	runs, err := s.DB.RQ.ResolveRunsForPR(ctx, dbnull.Int(pr.ID))
+	if err != nil {
+		return
+	}
+	v := MergeStateOf(pr.Mergeable, runs)
+	if v.State != ViewResolving {
+		return
+	}
+	if _, err := s.DB.Q.CancelPRBlockingQuestions(ctx, dbnull.Int(pr.ID)); err != nil {
+		s.Log.Warn("close stale questions", "pr", pr.Url, "err", err)
+	}
+	s.mu.Lock()
+	if s.restart == nil {
+		s.restart = map[int64]bool{}
+	}
+	s.restart[pr.ID] = true
+	s.mu.Unlock()
+	s.logPR(ctx, pr, "info", fmt.Sprintf("Smart Merge restarting on PR #%d", pr.GhNumber),
+		fmt.Sprintf("%s moved while run %d was resolving; the run is cancelled and its open questions closed.", branch, v.RunID))
+	if err := s.Runs.Cancel(ctx, v.RunID); err != nil {
+		s.Log.Warn("cancel stale resolve run", "pr", pr.Url, "err", err)
+		return
+	}
+	s.requeueResolve(ctx, pr.ID)
+}
+
+// requeueResolve queues the fresh run of a restart once the old run is over.
+func (s *Service) requeueResolve(ctx context.Context, prID int64) {
+	s.mu.Lock()
+	want := s.restart[prID]
+	s.mu.Unlock()
+	if !want {
+		return
+	}
+	pr, err := s.DB.RQ.GetPR(ctx, prID)
+	if err != nil || pr.State != "open" {
+		return
+	}
+	v := s.MergeView(ctx, pr)
+	if v.State == ViewResolving {
+		return // the cancelled run has not ended yet; recordResolveOutcome tries again
+	}
+	s.mu.Lock()
+	delete(s.restart, prID)
+	s.mu.Unlock()
+	if v.State != ViewConflicted {
+		return // resolved meanwhile, or out of attempts
+	}
+	if _, _, err := s.queueResolve(ctx, pr); err != nil {
+		s.Log.Warn("restart resolve", "pr", pr.Url, "err", err)
+	}
+}
+
 // recordResolveOutcome writes what a finished resolve run did to the PR timeline.
 func (s *Service) recordResolveOutcome(ctx context.Context, run dbgen.Run) {
 	if !run.PrID.Valid {
@@ -1216,6 +1281,7 @@ func (s *Service) recordResolveOutcome(ctx context.Context, run dbgen.Run) {
 	if err != nil {
 		return
 	}
+	defer s.requeueResolve(ctx, pr.ID)
 	summary := strings.TrimSpace(run.StatusText)
 	switch {
 	case run.State == "succeeded" && run.Pushed == 1:

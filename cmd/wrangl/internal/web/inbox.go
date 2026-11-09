@@ -57,12 +57,18 @@ type inboxItem struct {
 	ChatHint        string
 	Actions         []inboxAction
 	Changes         changeLink
-	SubmitURL       string // what Ctrl+Enter in the comment box posts
+	SubmitURL       string      // what Ctrl+Enter in the comment box posts
+	Subs            []inboxItem // questions blocking this PR, answerable inline
 }
 
 // inboxItems builds the Inbox: questions of every kind, then open pull requests.
 func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs []dbgen.ListPRsRow, changes map[string]changeLink) []inboxItem {
 	var out []inboxItem
+	prOpen := map[int64]bool{}
+	for _, r := range prs {
+		prOpen[r.PullRequest.ID] = r.PullRequest.State == "open"
+	}
+	subs := map[int64][]inboxItem{} // PR id -> the questions blocking it
 	for _, q := range qs {
 		it := inboxItem{
 			DOM: fmt.Sprintf("q%d", q.ID), Key: fmt.Sprintf("q%d", q.ID), Bind: fmt.Sprintf("ans%d", q.ID),
@@ -101,6 +107,11 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Actions = append(it.Actions, inboxAction{Label: "Send", Class: "primary", URL: fmt.Sprintf("/ui/act/answer?id=%d", id)})
 		}
 		it.SubmitURL = submitURL(it, q.AllowFreeText)
+		if q.PRID != 0 && prOpen[q.PRID] {
+			it.Tag, it.TagClass = "⛔ blocks merge", "k-failed"
+			subs[q.PRID] = append(subs[q.PRID], it)
+			continue
+		}
 		out = append(out, it)
 	}
 	for _, r := range prs {
@@ -154,6 +165,7 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			{Label: "Close", Class: "danger", Confirm: "Close without merging?", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=close", p.ID)},
 		}...)
 		it.SubmitURL = submitURL(it, false)
+		it.Subs = subs[p.ID]
 		out = append(out, it)
 	}
 	return out

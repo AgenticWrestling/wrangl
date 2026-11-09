@@ -341,3 +341,46 @@ func TestUnknownMergeableRepollsUntilKnown(t *testing.T) {
 		t.Fatalf("not re-polled: %q", got)
 	}
 }
+
+func TestBaseMovingRestartsResolveAndClosesItsQuestions(t *testing.T) {
+	s, f := mergeableFixture(t)
+	s.Runs = &runs.Service{DB: s.DB, Log: s.Log, Bus: &events.Bus{}, Now: time.Now}
+	ctx := context.Background()
+	f.SetMergeable(1, gh.MergeConflicted)
+	if err := s.ResolveConflicts(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	// The resolve run asked a blocking question (the run tool links it to the PR).
+	s.DB.W.Exec(`INSERT INTO question (task_id, run_id, kind, prompt) VALUES (1, 2, 'agent', 'which side?')`)
+	if err := s.DB.Q.SetQuestionPR(ctx, dbgen.SetQuestionPRParams{PrID: dbnull.Int(1), ID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if pr, err := s.DB.RQ.QuestionPRID(ctx, 1); err != nil || pr.Int64 != 1 {
+		t.Fatalf("link %v %v", pr, err)
+	}
+	// main moves: the queued run is cancelled, a fresh one queued, the stale question closed.
+	body := `{"ref":"refs/heads/main","repository":{"name":"app","owner":{"login":"acme"}}}`
+	if err := s.handleEvent(ctx, "push", []byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	s.DB.R.QueryRow(`SELECT state FROM question WHERE id = 1`).Scan(&state)
+	if state != "cancelled" {
+		t.Fatalf("stale question %q", state)
+	}
+	var cancelled, queued int
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM run WHERE kind = 'resolve' AND state = 'cancelled'`).Scan(&cancelled)
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM run WHERE kind = 'resolve' AND state = 'queued'`).Scan(&queued)
+	if cancelled != 1 || queued != 1 {
+		t.Fatalf("cancelled %d, queued %d", cancelled, queued)
+	}
+	// A push that is not to the base branch leaves the new run alone.
+	body = `{"ref":"refs/heads/other","repository":{"name":"app","owner":{"login":"acme"}}}`
+	if err := s.handleEvent(ctx, "push", []byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM run WHERE kind = 'resolve' AND state = 'queued'`).Scan(&queued)
+	if queued != 1 {
+		t.Fatalf("queued %d after an unrelated push", queued)
+	}
+}

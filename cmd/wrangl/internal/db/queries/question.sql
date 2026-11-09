@@ -31,3 +31,13 @@ WHERE id = sqlc.arg(id) AND state = 'open';
 -- name: CancelRunQuestions :exec
 -- Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
 UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error');
+
+-- name: SetQuestionPR :exec
+INSERT OR REPLACE INTO question_pr (pr_id, question_id) VALUES (?, ?);
+
+-- name: QuestionPRID :one
+SELECT pr_id FROM question_pr WHERE question_id = ?;
+
+-- name: CancelPRBlockingQuestions :execrows
+-- A restarted resolve run's questions are stale: close them.
+UPDATE question SET state = 'cancelled' WHERE state = 'open' AND id IN (SELECT question_id FROM question_pr WHERE pr_id = ?);
