@@ -40,7 +40,13 @@ type Limits struct {
 	// ProjectRoom is how many more a project may cause on a template (its cap less what it has
 	// launched), keyed {project, template}. A missing key means no project limit.
 	ProjectRoom map[[2]int64]int64
+	// Budget, when set, caps what the plan may launch: committed spend plus a launch's price must stay
+	// within Limit (ADR 0009 section 8.2). Entries without a known price are not launched then.
+	Budget *Budget
 }
+
+// Budget is the hourly cost ceiling and what is already committed (USD per hour).
+type Budget struct{ Limit, Committed float64 }
 
 // Assignment puts a run on a runner. In Plan.Wait the runner is still arriving, so the run stays
 // queued; Runner is then the runner's ID, or -n for the n-th launch of the plan.
@@ -59,12 +65,18 @@ type Launch struct {
 type Blocked struct {
 	Run  int64
 	Code string
+	// For CodeBudget: the cheapest entry that would have fit but for the budget, what it would add,
+	// and the budget figures.
+	Type                   string
+	Adds, Committed, Limit float64
 }
 
 // Reason codes of Blocked.
 const (
-	CodeCapacity = "capacity" // cannot launch: no room, or a project limit
-	CodeTooBig   = "too_big"  // no entry of its template could ever hold it
+	CodeCapacity = "capacity"      // cannot launch: no room, or a project limit
+	CodeTooBig   = "too_big"       // no entry of its template could ever hold it
+	CodeBudget   = "budget"        // launching would exceed the hourly budget
+	CodePrice    = "price_unknown" // a budget is set and no entry that could hold it has a known price
 )
 
 // Plan is the result of one pass.
@@ -92,6 +104,15 @@ func (v *virt) reserve(n Need) {
 func entryRunner(e Entry) Runner {
 	c := e.Ceiling
 	return Runner{Claimable: true, Cap: e.Cap, Ceiling: &c}
+}
+
+// commit is what launching the entry commits: its price, 24 hours of it for an EC2 Mac host.
+func (e Entry) commit(hostedDisk int64) float64 {
+	p := e.price(hostedDisk)
+	if len(e.Type) >= 3 && e.Type[:3] == "mac" {
+		return p * 24
+	}
+	return p
 }
 
 func (e Entry) volume(hostedDisk int64) int64 { return max(e.MinDiskGiB, hostedDisk+e.ReserveDiskGiB) }
@@ -128,6 +149,10 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 	proom := map[[2]int64]int64{}
 	for k, v := range lim.ProjectRoom {
 		proom[k] = v
+	}
+	committed := 0.0
+	if lim.Budget != nil {
+		committed = lim.Budget.Committed
 	}
 	byTemplate := map[int64][]Entry{}
 	for _, e := range entries {
@@ -195,13 +220,40 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 			}
 		}
 		if len(holders) == 0 {
-			plan.Unplaceable = append(plan.Unplaceable, Blocked{r.ID, CodeTooBig})
+			plan.Unplaceable = append(plan.Unplaceable, Blocked{Run: r.ID, Code: CodeTooBig})
 			continue
 		}
 		pk := [2]int64{r.Project, r.Template}
 		if left, limited := proom[pk]; room[r.Template] <= 0 || (limited && left <= 0) {
-			plan.Unplaceable = append(plan.Unplaceable, Blocked{r.ID, CodeCapacity})
+			plan.Unplaceable = append(plan.Unplaceable, Blocked{Run: r.ID, Code: CodeCapacity})
 			continue
+		}
+		if lim.Budget != nil { // the budget gate: only entries with a known price that fit under the ceiling
+			var fit []Entry
+			cheapest, cheapestAdds := "", 0.0
+			priced := false
+			for _, e := range holders {
+				if e.HourlyUSD == nil {
+					continue
+				}
+				priced = true
+				_, disk := pack(e, r, runs[i+1:])
+				adds := e.commit(disk)
+				if committed+adds <= lim.Budget.Limit {
+					fit = append(fit, e)
+				} else if cheapest == "" || adds < cheapestAdds {
+					cheapest, cheapestAdds = e.Type, adds
+				}
+			}
+			if len(fit) == 0 {
+				code := CodeBudget
+				if !priced {
+					code = CodePrice
+				}
+				plan.Unplaceable = append(plan.Unplaceable, Blocked{Run: r.ID, Code: code, Type: cheapest, Adds: cheapestAdds, Committed: committed, Limit: lim.Budget.Limit})
+				continue
+			}
+			holders = fit
 		}
 		best, bestHosted, bestScore, bestPrice := -1, 0, 0.0, 0.0
 		for j, e := range holders {
@@ -214,6 +266,10 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 			}
 		}
 		e := holders[best]
+		if lim.Budget != nil {
+			_, disk := pack(e, r, runs[i+1:])
+			committed += e.commit(disk)
+		}
 		room[r.Template]--
 		if _, limited := proom[pk]; limited {
 			proom[pk]--

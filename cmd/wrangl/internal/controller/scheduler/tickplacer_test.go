@@ -2,9 +2,11 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/placer"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 )
 
 // Replay: with the default 0/0/0 needs, the placer engine launches exactly what the legacy Tick launches.
@@ -123,4 +125,48 @@ func TestPlacerEngineStampsPriceAndNotesApproachingBudget(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("the note is once per crossing, got %d", n)
 	}
+}
+
+func TestBudgetGateReasonAndReclaim(t *testing.T) {
+	ctx := context.Background()
+	s, fake, _, d := setup(t, 6)
+	s.Engine = EnginePlacer
+	// An idle launched runner that costs 0.47/h and is too small for the queued run (so it cannot host it).
+	old, err := s.Fleet.Launch(ctx, "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.W.Exec(`UPDATE runner SET state = 'idle', idle_since = '2026-01-01T00:00:00.000Z', template_version = 1, vcpu = 2, ram_mib = 4096, disk_gib = 30 WHERE id = ?`, old.ID)
+	d.Q.SetRunnerPrice(ctx, dbgenPrice(old.ID, 0.47))
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1, need_vcpu = 4, need_ram_mib = 6000, need_disk_gib = 5`)
+	tt, _ := d.RQ.GetTemplate(ctx, 1)
+	price := 0.145
+	s.menus = map[int64]cachedMenu{1: {version: tt.Version, at: s.Now(), entries: []placer.Entry{{Template: 1, Type: "m7g.large", Cap: placer.Need{VCPU: 4, RAMMiB: 7168, DiskGiB: 400}, Ceiling: 4, HourlyUSD: &price}}}}
+	d.W.Exec(`UPDATE placement_config SET budget_hourly_usd = 0.50`)
+	before := len(fake.Runs)
+	s.Tick(ctx)
+	var reason, state string
+	d.R.QueryRow(`SELECT blocked_reason FROM run`).Scan(&reason)
+	d.R.QueryRow(`SELECT state FROM runner WHERE id = ?`, old.ID).Scan(&state)
+	if reason != "waiting: hourly budget $0.50 reached ($0.47 in use; m7g.large would add $0.145)" {
+		t.Fatalf("reason %q", reason)
+	}
+	if state != "terminated" {
+		t.Fatalf("the idle runner that cannot host the run should be reclaimed, state %s", state)
+	}
+	if len(fake.Runs) != before {
+		t.Fatal("nothing may launch past the ceiling in the same pass")
+	}
+	// With the idle runner gone the next tick has room and launches; the stale reason is cleared.
+	got, terr := s.Tick(ctx)
+	t.Log(got, terr)
+	d.R.QueryRow(`SELECT blocked_reason FROM run`).Scan(&reason)
+	if len(fake.Runs) != before+1 || reason != "" {
+		t.Fatalf("launches %d, reason %q", len(fake.Runs)-before, reason)
+	}
+}
+
+func dbgenPrice(id int64, usd float64) dbgen.SetRunnerPriceParams {
+	return dbgen.SetRunnerPriceParams{RunnerID: id, HourlyUsd: sql.NullFloat64{Float64: usd, Valid: true}}
 }

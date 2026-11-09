@@ -352,3 +352,14 @@ func (q *Queries) CommittedHourlyUSD(ctx context.Context) (float64, error) {
 	err := row.Scan(&column_1)
 	return column_1, err
 }
+
+const clearBudgetBlock = `-- name: ClearBudgetBlock :exec
+UPDATE run SET blocked_reason = '', status_text = CASE WHEN status_text = blocked_reason THEN '' ELSE status_text END
+WHERE id = ? AND state = 'queued' AND blocked_reason LIKE 'waiting: hourly budget%'
+`
+
+// Drop a budget waiting reason the budget no longer explains.
+func (q *Queries) ClearBudgetBlock(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, clearBudgetBlock, id)
+	return err
+}

@@ -365,6 +365,9 @@ func (s *Scheduler) block(ctx context.Context, runID int64, reason string) {
 // blockNoSlot explains a run that found no claimable runner slot on a template.
 func (s *Scheduler) blockNoSlot(ctx context.Context, runID, templateID int64) {
 	d := s.Fleet.DB
+	if run, err := d.RQ.GetRun(ctx, runID); err == nil && strings.HasPrefix(run.BlockedReason, "waiting: hourly budget") {
+		return // the launch planner said why: the budget
+	}
 	t, err := d.RQ.GetTemplate(ctx, templateID)
 	if err != nil {
 		return

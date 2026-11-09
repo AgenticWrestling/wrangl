@@ -290,15 +290,24 @@ Work down this list.
   with *Edit this task's needs* (opens the task; lowering the needs from there re-resolves the queued run
   and the item resolves itself on the next tick), *Use template X* for templates that could hold it, and
   *Cancel the task's run*. *Edit this task's needs* is also offered on the temporary items.
-- **Hourly budget accounting (not enforced yet).** `wrangl placement set --budget 0.50` sets an hourly cost
-  ceiling (`--budget none` removes it). With the placer engine each launched runner gets its price stamped
-  (instance price plus its volume at the gp3 rate; unknown prices count as 0). *Committed* spend is the sum
-  over every runner that has not been terminated, so launching, draining and offline runners count; the
-  host is free. `placement show`, `fleet list` and the Runners page show spend against the budget, and a
-  Logs note ("Hourly spend $0.42 of $0.50") fires once when it reaches 80%, re-arming below 70%. Nothing
-  is blocked by the budget yet: the launch gate comes next. An EC2 Mac host will count 24 hours of its
-  price when it is launched (it bills a 24-hour minimum); Mac targets are not in the sum yet. Runners
-  launched by the legacy engine have no price stamped, so they are not counted.
+- **Hourly budget.** `wrangl placement set --budget 0.50` sets an hourly cost ceiling (`--budget none`
+  removes it). It is enforced by the placer engine (`placement: { engine: placer }`); the legacy tick
+  ignores it. Each launched runner gets its price stamped (instance price plus its volume at the gp3 rate;
+  a menu entry with no known price is not launched while a budget is set: give it `price:` in the
+  template). *Committed* spend is the sum over every runner that has not been terminated, so launching,
+  draining and offline runners count; the host is free; launches planned earlier in the same pass count
+  too. A launch is allowed only if committed plus its price stays within the budget (an EC2 Mac host counts
+  24 hours of its price). `placement show`, `fleet list` and the Runners page show spend against the budget,
+  and a Logs note fires once at 80%, re-arming below 70%.
+
+  At the ceiling the run waits and says exactly why (`waiting: hourly budget $0.50 reached ($0.47 in use;
+  c7g.xlarge would add $0.145)`). Before giving up the scheduler reclaims: an idle launched runner with no
+  active run that cannot host any queued run is terminated now instead of after its idle timeout, so the
+  next tick can launch. Runners that could host a queued run are never reclaimed. While a budget is set,
+  per-project limits (`--limit`) are not consulted for launching (the rows are kept); a template's
+  `max_runners` still applies as a backstop. With no budget everything behaves as before. Mac targets
+  are not in the sum yet, and runners launched by the legacy engine have no price, so they are not
+  counted. The Inbox item for a run stuck on the budget is not built yet.
 - **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is

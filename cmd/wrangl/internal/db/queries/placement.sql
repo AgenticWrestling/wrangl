@@ -99,3 +99,8 @@ ON CONFLICT (runner_id) DO UPDATE SET hourly_usd = excluded.hourly_usd;
 -- offline ones too).
 SELECT CAST(COALESCE(SUM(c.hourly_usd), 0) AS REAL) FROM runner n JOIN runner_capacity c ON c.runner_id = n.id
 WHERE n.state <> 'terminated';
+
+-- name: ClearBudgetBlock :exec
+-- Drop a budget waiting reason the budget no longer explains.
+UPDATE run SET blocked_reason = '', status_text = CASE WHEN status_text = blocked_reason THEN '' ELSE status_text END
+WHERE id = ? AND state = 'queued' AND blocked_reason LIKE 'waiting: hourly budget%';

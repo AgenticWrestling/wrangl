@@ -92,3 +92,42 @@ func TestPlaceHostFirstAndProjectRoom(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+func TestPlaceBudgetGate(t *testing.T) {
+	cheap := Entry{Template: 1, Type: "a.large", Cap: Need{2, 4096, 100}, Ceiling: 4, HourlyUSD: f64(0.20)}
+	dear := Entry{Template: 1, Type: "b.xlarge", Cap: Need{4, 8192, 100}, Ceiling: 4, HourlyUSD: f64(0.40)}
+	need := Need{1, 1024, 1}
+	room := map[int64]int64{1: 9}
+	// 0.47 committed of 0.50: a 0.20 launch does not fit; the reason names the cheapest entry.
+	p := Place([]Run{run(1, need)}, nil, []Entry{cheap, dear}, Limits{Room: room, Budget: &Budget{Limit: 0.50, Committed: 0.47}})
+	if len(p.Launch) != 0 || len(p.Unplaceable) != 1 || p.Unplaceable[0].Code != CodeBudget || p.Unplaceable[0].Type != "a.large" || p.Unplaceable[0].Adds != 0.20 {
+		t.Fatalf("%+v", p)
+	}
+	// Room under the budget: the entry that fits is chosen even if another would score better.
+	p = Place([]Run{run(1, need)}, nil, []Entry{cheap, dear}, Limits{Room: room, Budget: &Budget{Limit: 0.50, Committed: 0.25}})
+	if len(p.Launch) != 1 || p.Launch[0].Entry.Type != "a.large" {
+		t.Fatalf("%+v", p)
+	}
+	// Launches planned in the same pass count: two 2-vCPU runs need two a.large (0.40) but only one fits in 0.30.
+	two := Need{2, 1024, 1}
+	p = Place([]Run{run(1, two), run(2, two)}, nil, []Entry{cheap}, Limits{Room: room, Budget: &Budget{Limit: 0.30, Committed: 0}})
+	if len(p.Launch) != 1 || len(p.Unplaceable) != 1 || p.Unplaceable[0].Run != 2 {
+		t.Fatalf("one tick must not launch past the ceiling: %+v", p)
+	}
+	// Unknown price fails closed under a budget, and is fine without one.
+	unpriced := Entry{Template: 1, Type: "c.large", Cap: Need{2, 4096, 100}, Ceiling: 4}
+	p = Place([]Run{run(1, need)}, nil, []Entry{unpriced}, Limits{Room: room, Budget: &Budget{Limit: 5}})
+	if len(p.Launch) != 0 || p.Unplaceable[0].Code != CodePrice {
+		t.Fatalf("%+v", p)
+	}
+	p = Place([]Run{run(1, need)}, nil, []Entry{unpriced}, Limits{Room: room})
+	if len(p.Launch) != 1 {
+		t.Fatalf("%+v", p)
+	}
+	// A Mac host commits 24 hours.
+	mac := Entry{Template: 1, Type: "mac2.metal", Cap: Need{8, 16384, 100}, Ceiling: 4, HourlyUSD: f64(0.65)}
+	p = Place([]Run{run(1, need)}, nil, []Entry{mac}, Limits{Room: room, Budget: &Budget{Limit: 10}})
+	if len(p.Launch) != 0 || p.Unplaceable[0].Code != CodeBudget {
+		t.Fatalf("%+v", p)
+	}
+}

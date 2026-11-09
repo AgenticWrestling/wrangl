@@ -114,7 +114,15 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 		}
 		entries = append(entries, s.entriesFor(ctx, ft)...)
 	}
+	budget, _ := (&placement.Service{DB: d}).Budget(ctx)
+	if budget.LimitUSD != nil {
+		// With a budget, it is the guard: per-project limits are not consulted (max_runners stays).
+		lim.Budget = &placer.Budget{Limit: *budget.LimitUSD, Committed: budget.Committed}
+	}
 	for _, p := range pdem {
+		if lim.Budget != nil {
+			break
+		}
 		if tt, ok := tmpl[p.TemplateID]; ok {
 			lim.ProjectRoom[[2]int64{p.ProjectID, p.TemplateID}] = EffectiveCap(p.Stored, p.IsDefault == 1, tt.MaxRunners) - p.Live
 		}
@@ -173,6 +181,7 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 	plan := placer.Place(runs, runners, entries, lim)
 
 	s.raiseTooBig(ctx, plan, runs, runners, entries, full)
+	s.budgetBlocks(ctx, plan, runs, runners)
 
 	failed := map[int64]bool{}
 	for _, l := range plan.Launch {
