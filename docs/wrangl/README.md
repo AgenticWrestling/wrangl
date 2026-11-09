@@ -63,5 +63,5 @@ runners and hands the questions and pull requests back to you. The top-level
 | [0005 Projects as the primary lens](adr/0005-projects-as-primary-lens.md) | accepted, built |
 | [0006 Action state machine](adr/0006-action-state-machine.md) | accepted, **not built** |
 | [0007 Capabilities vs capacity](adr/0007-capabilities-and-capacity.md) | accepted, **not built**; slots/pools/caps superseded by 0009 |
-| [0009 Resource-based placement, cost budget, unplaceable item](adr/0009-resource-based-placement.md) | proposed, **not built** |
+| [0009 Resource-based placement, cost budget, unplaceable item](adr/0009-resource-based-placement.md) | accepted 2026-11-09, **being built** (stage by stage) |
 | [0008 Runners belong to the system](adr/0008-runners-belong-to-the-system.md) | accepted, **not built** (was a second "0005") |

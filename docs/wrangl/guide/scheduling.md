@@ -226,9 +226,11 @@ Work down this list.
 
 ## 9. Known limits
 
-> These are the behaviours that surprise people today. [ADR 0007](../adr/0007-capabilities-and-capacity.md)
-> proposes the fix (capability-based placement and a capacity model). It is accepted but **not built**:
-> nothing below has changed.
+> These are the behaviours that surprise people today. [ADR 0009](../adr/0009-resource-based-placement.md)
+> (resource needs, an hourly cost budget, the host as a placement target) is the accepted fix, with the
+> capability-tag half still in [ADR 0007](../adr/0007-capabilities-and-capacity.md). It is being built in
+> stages and **none of it is built yet**: nothing below has changed. Interim: the `wrangl` project runs on
+> the host template, so it uses the idle controller host's slots.
 
 - **One template per run, no fallback.** A run is bound to the single template resolved when it was
   queued. If every runner of that template is busy, capped or cordoned, the run waits even when another

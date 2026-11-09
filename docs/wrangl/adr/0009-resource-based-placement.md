@@ -1,6 +1,6 @@
 # ADR 0009: Resource-based placement, an hourly cost budget, and the "unplaceable" Inbox item
 
-- Status: **Proposed, not built.** Nothing here exists in the code. The owner reads and decides before it merges.
+- Status: **Accepted 2026-11-09 (the owner adopted every recommendation in section 12), not built.** Implementation is tracked by the milestone "Resource-based placement (ADR 0009)" in the wrangl project; stages ship one at a time. Interim: the `wrangl` project's template was switched to `host` on 2026-11-09 (the host runner has Go, mise and an authenticated `claude`), so it uses the idle controller host's four slots; there is no overflow to `go-claude` until stage 1 task 3 lands.
 - Task: TMB6BJ
 - Supersedes (in part): [ADR 0007 (capabilities vs capacity)](0007-capabilities-and-capacity.md). See section 9 for what survives and what does not. ADR 0007's status line is updated to point here; its body is kept for the verified context it records.
 - Builds on: [ADR 0002](0002-remote-runners.md), [ADR 0008 (runners belong to the system)](0008-runners-belong-to-the-system.md); migrations 00020 (`max_sessions`), 00025 (`project_template_limit`, `runner.launched_for_project`), 00027 (remote targets), 00036 (the `tool_error` question kind, the pattern reused here)
@@ -405,7 +405,9 @@ Each stage ships alone and is safe if later stages never land. Stage 1 is the ow
 
 ADR 0007 stages 2 (tags, probes, requirements, `agent:` requirement). Slots in anywhere after stage 1; it adds the capability line to `fits`.
 
-## 12. Open questions for the owner, with recommendations
+## 12. Decisions (the owner's questions and the answers adopted)
+
+Each recommendation below is the decision; the italic text is what was recommended and is now binding. Implementers do not need to ask again.
 
 1. **Task lowering its needs?** *Recommend yes from owner surfaces (floored), raise-only for agent tools* (section 4.1). Alternative: only raise, simpler but wastes capacity.
 2. **Default global need set** 1 vCPU / 2 GiB / 5 GiB gives 3 sessions on a 4 vCPU / 8 GiB box (RAM-bound), fewer than today's 4. *Recommend starting with 1 / 1.5 GiB / 5 GiB if you want to keep four, or accept three and lean on the budget.*
