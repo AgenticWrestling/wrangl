@@ -116,7 +116,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		Position                                                                      *posArg
 		Percent                                                                       *int
 		Limit                                                                         *int
-		Type                                                                          string
+		Type, Archived                                                                string
 		TargetDate                                                                    *string `json:"target_date"`
 		// ask_question
 		DetailMD      string                 `json:"detail_md"`
@@ -137,13 +137,21 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 	}
 	switch tool {
 	case "project_list":
-		ps, err := s.DB.RQ.ListProjects(ctx, db.ProjectsActive)
+		filter := db.ProjectsActive
+		switch a.Archived {
+		case "", "active":
+		case "archived", "all":
+			filter = a.Archived
+		default:
+			return nil, fmt.Errorf("%w: archived must be active, archived or all", errs.Invalid)
+		}
+		ps, err := s.DB.RQ.ListProjects(ctx, filter)
 		if err != nil {
 			return nil, err
 		}
 		out := []map[string]any{}
 		for _, p := range ps {
-			m := map[string]any{"slug": p.Slug, "name": p.Name, "auto_merge": p.AutoMerge == 1, "auto_queue": p.AutoQueue == 1}
+			m := map[string]any{"slug": p.Slug, "name": p.Name, "auto_merge": p.AutoMerge == 1, "auto_queue": p.AutoQueue == 1, "archived": p.ArchivedAt.Valid}
 			if p.DefaultTemplateID.Valid {
 				if t, err := s.DB.RQ.GetTemplate(ctx, p.DefaultTemplateID.Int64); err == nil {
 					m["template"] = t.Name
@@ -450,7 +458,8 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
 
 	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments",
-		"issue_comment", "issue_create", "issue_edit", "issue_close", "issue_link_task":
+		"issue_comment", "issue_create", "issue_edit", "issue_close", "issue_link_task",
+		"project_get", "project_create", "project_edit", "project_archive", "project_restore", "project_delete":
 		h := s.ToolHandlers[tool]
 		if h == nil {
 			return nil, fmt.Errorf("%s is not available on this controller", tool)

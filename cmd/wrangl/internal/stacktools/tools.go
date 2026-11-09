@@ -78,10 +78,24 @@ var All = []mcp.Tool{
 		InputSchema: raw(`{"type":"object","required":["children"],"properties":{"chain":{"type":"boolean","description":"each top-level subtask needs the previous"},"rationale_md":{"type":"string"},"children":{"type":"array","items":{"type":"object","required":["title"],"properties":{"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"children":{"type":"array"}}}}}}`)},
 }
 
+var projectProps = `"name":{"type":"string","description":"display name"},"description":{"type":"string"},"template":{"type":"string","description":"default runner template name (empty clears)"},"plan_template":{"type":"string","description":"runner template for plan runs (empty = same as template)"},"auto_merge":{"type":"boolean","description":"auto-merge PRs that pass every gate and review as low risk"},"auto_queue":{"type":"boolean","description":"queue new top-level tasks automatically"},"auto_resolve":{"type":"boolean","description":"auto-merge queues Smart Merge for a conflicted PR"},"priority":{"type":"integer","description":"scheduling priority across projects (higher first)"},"notes_repo":{"type":"string","description":"linked repo owner/name holding research reports (empty clears)"},"limits":{"type":"object","additionalProperties":{"type":"integer"},"description":"max runner instances this project may cause, by template name"},"agent":{"type":"string","description":"default agent definition name (empty clears)"},"citation_audit":{"type":"boolean","description":"audit research PRs' citations before auto-merge"}`
+
 // UserTools are only for the owner's own agents (the controller's /mcp endpoint).
 var UserTools = []mcp.Tool{
-	{Name: "project_list", Description: "List projects (slug, name, default template, auto-merge).",
-		InputSchema: mcp.Schema(nil)},
+	{Name: "project_list", Description: "List projects (slug, name, default template, auto-merge). archived: active (default), archived or all.",
+		InputSchema: raw(`{"type":"object","properties":{"archived":{"type":"string","enum":["active","archived","all"]}}}`)},
+	{Name: "project_get", Description: "Show one project in full: settings, template and plan template, agent, per-template limits, notes repo, linked repos, archived flag.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string"}, "slug")},
+	{Name: "project_create", Description: "Create a project. slug is lowercase letters, digits and dashes (max 40). Link repos separately.",
+		InputSchema: raw(`{"type":"object","required":["slug"],"properties":{"slug":{"type":"string"},` + projectProps + `}}`)},
+	{Name: "project_edit", Description: "Edit a project: only the fields you pass change (an empty string clears a template, agent or notes repo).",
+		InputSchema: raw(`{"type":"object","required":["slug"],"properties":{"slug":{"type":"string"},` + projectProps + `}}`)},
+	{Name: "project_archive", Description: "Archive a project: hide it and its tasks and cancel its queued runs. Refused while a run is active. Restorable with project_restore.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string"}, "slug")},
+	{Name: "project_restore", Description: "Restore an archived project.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string"}, "slug")},
+	{Name: "project_delete", Description: "Permanently delete a project and all its tasks (irreversible; refused while a run is active). Pass confirm equal to the slug. Prefer project_archive.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string", "confirm": "string"}, "slug", "confirm")},
 	{Name: "task_queue", Description: "Queue a task (and its open subtasks) to run on a runner. Returns the run id.",
 		InputSchema: mcp.Schema(map[string]string{"sqid": "string"}, "sqid")},
 	{Name: "run_list", Description: "List recent runs, optionally filtered by state (queued, active, needs_input, succeeded, failed, ...) and project.",

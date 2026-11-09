@@ -39,6 +39,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/plans"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projecttools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
@@ -325,6 +326,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
 	s.Runs.ToolHandlers["issue_get"] = issueTools.Get
 	s.Runs.ToolHandlers["issue_comments"] = issueTools.Comments
+	(&projecttools.Service{DB: s.db, Projects: s.Projects}).Register(s.Runs)
 	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
 	s.Runs.ToolHandlers["submit_citation_audit"] = s.PRs.SubmitCitationAudit
 	s.Deliverables = &deliverables.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "deliverables"), Bus: s.Bus, Log: s.log}
