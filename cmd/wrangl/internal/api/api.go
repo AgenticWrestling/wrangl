@@ -176,6 +176,11 @@ func Register(mux *http.ServeMux, d Deps) {
 				return proto.RunnerView{}, err
 			}
 		}
+		if len(req.Guard) > 0 {
+			if err := (&placement.Service{DB: f.DB}).SetGuard(r.Context(), row.ID, req.Guard); err != nil {
+				return proto.RunnerView{}, err
+			}
+		}
 		v := runnerView(row, "", 0)
 		v.Capacity = capacityView(r.Context(), f.DB, row)
 		return v, nil

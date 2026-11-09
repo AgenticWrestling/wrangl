@@ -15,6 +15,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"io"
 	"log/slog"
 	"net"
@@ -503,6 +504,18 @@ func (s *Service) Heartbeat(ctx context.Context, subject string, data []byte) er
 	s.hist.add(id, hb, s.now())
 	if r, err := s.DB.RQ.GetRunner(ctx, id); err == nil {
 		s.Bus.Runner(r.Name)
+	}
+	if st, changed, err := (&placement.Service{DB: s.DB}).ApplyHeartbeat(ctx, id, hb); err != nil {
+		s.Log.Warn("guard", "runner", id, "err", err)
+	} else if changed {
+		if r, err := s.DB.RQ.GetRunner(ctx, id); err == nil {
+			if st.Closed {
+				s.note(ctx, "runner", "warn", r.Name, "Runner closed by the guard", st.Reason+"; no new sessions until it recovers")
+			} else {
+				s.note(ctx, "runner", "info", r.Name, "Runner reopened by the guard", "back under its thresholds")
+			}
+			s.Bus.Runner(r.Name)
+		}
 	}
 	if err := s.reconcileBinary(ctx, id, hb); err != nil {
 		s.Log.Warn("runner upgrade", "runner", id, "err", err)

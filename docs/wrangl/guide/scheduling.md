@@ -290,6 +290,13 @@ Work down this list.
   with *Edit this task's needs* (opens the task; lowering the needs from there re-resolves the queued run
   and the item resolves itself on the next tick), *Use template X* for templates that could hold it, and
   *Cancel the task's run*. *Edit this task's needs* is also offered on the temporary items.
+- **The measured guard (off by default).** Reservation says what was promised; the guard says what is
+  true. `wrangl fleet set host --guard load1=6,mem=85,disk=85` (empty value stops guarding one measure)
+  closes a runner to **new** assignments when its heartbeat shows load, memory or disk over a threshold for
+  two samples in a row, and reopens it after two samples under 90% of every threshold. Running sessions are
+  never touched. A closed runner is not claimable and not supply (so the autoscaler launches elsewhere),
+  shows a "closed" pill with the reason (`disk 87% > 85%`) on its card, in `fleet show`, and writes a Logs
+  note when it closes or reopens. No thresholds, no guard.
 - **Hourly budget.** `wrangl placement set --budget 0.50` sets an hourly cost ceiling (`--budget none`
   removes it). It is enforced by the placer engine (`placement: { engine: placer }`); the legacy tick
   ignores it. Each launched runner gets its price stamped (instance price plus its volume at the gp3 rate;

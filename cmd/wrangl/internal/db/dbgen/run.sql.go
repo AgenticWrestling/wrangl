@@ -103,6 +103,7 @@ WHERE id = (
     WHERE n.template_id = ?1 AND n.state IN ('idle', 'busy') AND n.cordoned = 0
       AND n.drain_requested = 0
       AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
       AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
            AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
     ORDER BY (n.state = 'busy') DESC, n.idle_since
@@ -241,6 +242,7 @@ SELECT CAST(EXISTS (
     WHERE n.template_id = ?1 AND n.state IN ('idle', 'busy') AND n.cordoned = 0
       AND n.drain_requested = 0
       AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
       AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
            AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
 ) AS INTEGER) AS free

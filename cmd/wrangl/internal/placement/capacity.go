@@ -30,6 +30,8 @@ type Capacity struct {
 	UsedVCPU, UsedRAMMiB, UsedDiskGiB int64
 	MaxSessions                       *int64 // optional ceiling
 	Explicit                          bool   // some value set by the owner
+	GuardClosed                       bool   // closed to new assignments by the measured guard
+	GuardReason                       string
 }
 
 // DeriveCapacity is the capacity of a runner from its facts: a launched box minus the reserve; an
@@ -62,6 +64,9 @@ func (s *Service) RunnerCapacity(ctx context.Context, r dbgen.Runner) (Capacity,
 	if row.MaxSessions.Valid {
 		m := row.MaxSessions.Int64
 		c.MaxSessions = &m
+	}
+	if _, st, err := s.RunnerGuard(ctx, r.ID); err == nil {
+		c.GuardClosed, c.GuardReason = st.Closed, st.Reason
 	}
 	u, err := s.DB.RQ.SumActiveNeeds(ctx, r.ID)
 	if err != nil {

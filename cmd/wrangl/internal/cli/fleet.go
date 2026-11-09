@@ -65,6 +65,9 @@ func capacityText(c *proto.CapacityView) string {
 	if c.Explicit {
 		s += " (set)"
 	}
+	if c.GuardClosed {
+		s += " · CLOSED by guard: " + c.GuardReason
+	}
 	return s
 }
 
@@ -156,15 +159,30 @@ func fleetCmd(g *Global) *cobra.Command {
 		Use: "set <runner>", Short: "Set what a runner can hold: --capacity vcpu=6,ram=12GiB,disk=20GiB", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			caps, _ := cmd.Flags().GetStringSlice("capacity")
-			patch, err := placement.ParsePatch(caps)
-			if err != nil {
-				return err
+			guards, _ := cmd.Flags().GetStringSlice("guard")
+			if len(caps) == 0 && len(guards) == 0 {
+				return errors.New("give --capacity and/or --guard")
+			}
+			var patch map[string]string
+			var err error
+			if len(caps) > 0 {
+				if patch, err = placement.ParsePatch(caps); err != nil {
+					return err
+				}
+			}
+			guard := map[string]string{}
+			for _, g := range guards {
+				k, v, ok := strings.Cut(g, "=")
+				if !ok || k == "" {
+					return fmt.Errorf("--guard wants load1=N, mem=PCT or disk=PCT (empty value stops guarding it), got %q", g)
+				}
+				guard[strings.TrimSpace(k)] = v
 			}
 			c, err := apiClient(g)
 			if err != nil {
 				return err
 			}
-			r, err := c.SetRunner(cmd.Context(), args[0], proto.RunnerPatch{Capacity: patch})
+			r, err := c.SetRunner(cmd.Context(), args[0], proto.RunnerPatch{Capacity: patch, Guard: guard})
 			if err != nil {
 				return err
 			}
@@ -172,7 +190,7 @@ func fleetCmd(g *Global) *cobra.Command {
 		},
 	}
 	set.Flags().StringSlice("capacity", nil, "capacity FIELD=VALUE: vcpu=N, ram=12GiB, disk=20GiB (comma separated or repeated; empty value derives it from the machine again)")
-	set.MarkFlagRequired("capacity")
+	set.Flags().StringSlice("guard", nil, "measured guard thresholds that close the runner to NEW work: load1=6,mem=85,disk=85 (percent; empty value stops guarding it)")
 
 	var tmpl string
 	var count int

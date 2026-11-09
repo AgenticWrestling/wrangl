@@ -55,5 +55,5 @@ func capacityView(ctx context.Context, db *db.DB, r dbgen.Runner) *proto.Capacit
 		return nil
 	}
 	return &proto.CapacityView{VCPU: c.VCPU, RAMMiB: c.RAMMiB, DiskGiB: c.DiskGiB, UsedVCPU: c.UsedVCPU, UsedRAMMiB: c.UsedRAMMiB,
-		UsedDiskGiB: c.UsedDiskGiB, MaxSessions: c.MaxSessions, Explicit: c.Explicit}
+		UsedDiskGiB: c.UsedDiskGiB, MaxSessions: c.MaxSessions, Explicit: c.Explicit, GuardClosed: c.GuardClosed, GuardReason: c.GuardReason}
 }

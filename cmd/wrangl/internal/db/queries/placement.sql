@@ -42,7 +42,8 @@ FROM run WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', '
 SELECT n.id, n.name, n.state, n.idle_since, n.launched, n.vcpu, n.ram_mib, n.disk_gib, t.max_sessions
 FROM runner n JOIN runner_template t ON t.id = n.template_id
 WHERE n.template_id = ? AND n.state IN ('idle', 'busy') AND n.cordoned = 0 AND n.drain_requested = 0
-  AND n.template_version = t.version AND n.upgrade_sha = '';
+  AND n.template_version = t.version AND n.upgrade_sha = ''
+  AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1);
 
 -- name: ClaimRunner :one
 -- Atomically claim one runner for a run needing need_*: the claimable conditions, the session
@@ -52,6 +53,7 @@ WHERE n.template_id = ? AND n.state IN ('idle', 'busy') AND n.cordoned = 0 AND n
 UPDATE runner SET state = 'busy', idle_since = NULL
 WHERE runner.id = sqlc.arg(id) AND runner.state IN ('idle', 'busy') AND runner.cordoned = 0 AND runner.drain_requested = 0
   AND runner.upgrade_sha = ''
+  AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = runner.id AND g.closed_by_guard = 1)
   AND runner.template_version = (SELECT t.version FROM runner_template t WHERE t.id = runner.template_id)
   AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = runner.id
        AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
@@ -104,3 +106,14 @@ WHERE n.state <> 'terminated';
 -- Drop a budget waiting reason the budget no longer explains.
 UPDATE run SET blocked_reason = '', status_text = CASE WHEN status_text = blocked_reason THEN '' ELSE status_text END
 WHERE id = ? AND state = 'queued' AND blocked_reason LIKE 'waiting: hourly budget%';
+
+-- name: GetRunnerGuard :one
+SELECT guard_load1, guard_mem_pct, guard_disk_pct, closed_by_guard, guard_breaches, guard_oks, guard_reason
+FROM runner_capacity WHERE runner_id = ?;
+
+-- name: SetRunnerGuardThresholds :exec
+INSERT INTO runner_capacity (runner_id, guard_load1, guard_mem_pct, guard_disk_pct) VALUES (?, ?, ?, ?)
+ON CONFLICT (runner_id) DO UPDATE SET guard_load1 = excluded.guard_load1, guard_mem_pct = excluded.guard_mem_pct, guard_disk_pct = excluded.guard_disk_pct;
+
+-- name: SetRunnerGuardState :exec
+UPDATE runner_capacity SET closed_by_guard = ?, guard_breaches = ?, guard_oks = ?, guard_reason = ? WHERE runner_id = ?;

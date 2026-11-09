@@ -171,6 +171,7 @@ SELECT n.id, n.name, n.state, n.idle_since, n.launched, n.vcpu, n.ram_mib, n.dis
 FROM runner n JOIN runner_template t ON t.id = n.template_id
 WHERE n.template_id = ? AND n.state IN ('idle', 'busy') AND n.cordoned = 0 AND n.drain_requested = 0
   AND n.template_version = t.version AND n.upgrade_sha = ''
+  AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
 `
 
 type ClaimableRunnersRow struct {
@@ -210,6 +211,7 @@ const claimRunner = `-- name: ClaimRunner :one
 UPDATE runner SET state = 'busy', idle_since = NULL
 WHERE runner.id = ?1 AND runner.state IN ('idle', 'busy') AND runner.cordoned = 0 AND runner.drain_requested = 0
   AND runner.upgrade_sha = ''
+  AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = runner.id AND g.closed_by_guard = 1)
   AND runner.template_version = (SELECT t.version FROM runner_template t WHERE t.id = runner.template_id)
   AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = runner.id
        AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling'))
@@ -361,5 +363,61 @@ WHERE id = ? AND state = 'queued' AND blocked_reason LIKE 'waiting: hourly budge
 // Drop a budget waiting reason the budget no longer explains.
 func (q *Queries) ClearBudgetBlock(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, clearBudgetBlock, id)
+	return err
+}
+
+const getRunnerGuard = `-- name: GetRunnerGuard :one
+SELECT guard_load1, guard_mem_pct, guard_disk_pct, closed_by_guard, guard_breaches, guard_oks, guard_reason
+FROM runner_capacity WHERE runner_id = ?
+`
+
+type GetRunnerGuardRow struct {
+	GuardLoad1    sql.NullFloat64 `json:"guard_load1"`
+	GuardMemPct   sql.NullFloat64 `json:"guard_mem_pct"`
+	GuardDiskPct  sql.NullFloat64 `json:"guard_disk_pct"`
+	ClosedByGuard int64           `json:"closed_by_guard"`
+	GuardBreaches int64           `json:"guard_breaches"`
+	GuardOks      int64           `json:"guard_oks"`
+	GuardReason   string          `json:"guard_reason"`
+}
+
+func (q *Queries) GetRunnerGuard(ctx context.Context, runnerID int64) (GetRunnerGuardRow, error) {
+	row := q.db.QueryRowContext(ctx, getRunnerGuard, runnerID)
+	var i GetRunnerGuardRow
+	err := row.Scan(&i.GuardLoad1, &i.GuardMemPct, &i.GuardDiskPct, &i.ClosedByGuard, &i.GuardBreaches, &i.GuardOks, &i.GuardReason)
+	return i, err
+}
+
+const setRunnerGuardThresholds = `-- name: SetRunnerGuardThresholds :exec
+INSERT INTO runner_capacity (runner_id, guard_load1, guard_mem_pct, guard_disk_pct) VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (runner_id) DO UPDATE SET guard_load1 = excluded.guard_load1, guard_mem_pct = excluded.guard_mem_pct, guard_disk_pct = excluded.guard_disk_pct
+`
+
+type SetRunnerGuardThresholdsParams struct {
+	RunnerID     int64           `json:"runner_id"`
+	GuardLoad1   sql.NullFloat64 `json:"guard_load1"`
+	GuardMemPct  sql.NullFloat64 `json:"guard_mem_pct"`
+	GuardDiskPct sql.NullFloat64 `json:"guard_disk_pct"`
+}
+
+func (q *Queries) SetRunnerGuardThresholds(ctx context.Context, arg SetRunnerGuardThresholdsParams) error {
+	_, err := q.db.ExecContext(ctx, setRunnerGuardThresholds, arg.RunnerID, arg.GuardLoad1, arg.GuardMemPct, arg.GuardDiskPct)
+	return err
+}
+
+const setRunnerGuardState = `-- name: SetRunnerGuardState :exec
+UPDATE runner_capacity SET closed_by_guard = ?1, guard_breaches = ?2, guard_oks = ?3, guard_reason = ?4 WHERE runner_id = ?5
+`
+
+type SetRunnerGuardStateParams struct {
+	ClosedByGuard int64  `json:"closed_by_guard"`
+	GuardBreaches int64  `json:"guard_breaches"`
+	GuardOks      int64  `json:"guard_oks"`
+	GuardReason   string `json:"guard_reason"`
+	RunnerID      int64  `json:"runner_id"`
+}
+
+func (q *Queries) SetRunnerGuardState(ctx context.Context, arg SetRunnerGuardStateParams) error {
+	_, err := q.db.ExecContext(ctx, setRunnerGuardState, arg.ClosedByGuard, arg.GuardBreaches, arg.GuardOks, arg.GuardReason, arg.RunnerID)
 	return err
 }

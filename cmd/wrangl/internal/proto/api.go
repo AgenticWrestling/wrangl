@@ -48,12 +48,18 @@ type CapacityView struct {
 	UsedDiskGiB int64  `json:"used_disk_gib"`
 	MaxSessions *int64 `json:"max_sessions,omitempty"`
 	Explicit    bool   `json:"explicit,omitempty"` // set by the owner rather than derived from the machine
+	// GuardClosed: the measured guard has closed the runner to new work; GuardReason says why.
+	GuardClosed bool   `json:"guard_closed,omitempty"`
+	GuardReason string `json:"guard_reason,omitempty"`
 }
 
 // RunnerPatch is PATCH /api/v1/runners/{name}: Capacity sets fields (vcpu, ram, disk); an empty value
 // goes back to deriving that field from the machine.
 type RunnerPatch struct {
 	Capacity map[string]string `json:"capacity,omitempty"`
+	// Guard sets the measured-guard thresholds: load1, mem (percent), disk (percent); an empty value stops
+	// guarding that measure.
+	Guard map[string]string `json:"guard,omitempty"`
 }
 
 // TemplateView is a runner template as the API returns it.

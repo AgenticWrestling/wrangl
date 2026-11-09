@@ -144,7 +144,8 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
              FROM runner n
              WHERE n.template_id = t.id AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
                AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
-               AND (n.state NOT IN ('idle', 'busy') OR n.template_version = t.version)) AS INTEGER) AS supply,
+               AND (n.state NOT IN ('idle', 'busy') OR n.template_version = t.version)
+               AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)) AS INTEGER) AS supply,
        CAST((SELECT COUNT(*) FROM runner n
              WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
 FROM runner_template t
@@ -237,7 +238,8 @@ WHERE a.id <> sqlc.arg(template_id)
                                          AND COALESCE(r2.template_id, k.template_id, (SELECT p.default_template_id FROM project p WHERE p.id = k.project_id)) = sqlc.arg(template_id)))
   AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
   AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
-  AND (n.state NOT IN ('idle', 'busy') OR n.template_version = a.version);
+  AND (n.state NOT IN ('idle', 'busy') OR n.template_version = a.version)
+  AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1);
 
 -- name: CountLiveRunners :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM runner WHERE template_id = ? AND state <> 'terminated';

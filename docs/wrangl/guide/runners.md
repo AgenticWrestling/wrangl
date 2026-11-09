@@ -269,6 +269,7 @@ reaped while idle.
 |---|---|
 | `template create -f FILE` / `edit NAME [-f FILE]` / `show NAME` / `list` / `delete NAME` | templates |
 | `fleet list [--all]` / `fleet show NAME` | runners; `show` has the template log and last error |
+| `fleet set NAME --guard load1=6,mem=85,disk=85` | measured guard: close the runner to new work when load/memory/disk stay over these (empty value stops guarding that measure); off by default |
 | `fleet set NAME --capacity vcpu=6,ram=12GiB,disk=20GiB` | what a runner can hold for resource placement (empty value = derive from the machine); `show` prints reserved/capacity |
 | `fleet launch --template T [--count N]` | launch EC2 runners now (the scheduler also launches on demand) |
 | `fleet cordon\|uncordon\|drain\|terminate NAME` | section 7 |

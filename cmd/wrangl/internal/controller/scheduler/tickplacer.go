@@ -272,6 +272,9 @@ func (s *Scheduler) placerRunners(ctx context.Context, tmpl map[int64]dbgen.Temp
 			if err != nil {
 				return nil, err
 			}
+			if c.GuardClosed {
+				continue // closed to new work by the measured guard: not supply
+			}
 			active, _ := d.RQ.CountActiveRunsForRunner(ctx, sql.NullInt64{Int64: r.ID, Valid: true})
 			out = append(out, placer.RunnerIn{Template: r.TemplateID, Runner: placer.Runner{ID: r.ID, Claimable: true, Busy: r.State == "busy",
 				IdleSince: r.IdleSince.String, Active: active, Ceiling: &ceiling,

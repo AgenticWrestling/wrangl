@@ -128,3 +128,26 @@ func TestClaimRunnerAgreesWithFits(t *testing.T) {
 		_ = s
 	}
 }
+
+// A runner closed by the guard is not claimable and not supply; running sessions are untouched.
+func TestGuardClosedRunnerIsNotClaimedAndNotSupply(t *testing.T) {
+	ctx := context.Background()
+	s, fake, _, d := setup(t, 2)
+	loadFixtures(t, d, []fixture{{state: "idle", version: 1, idle: "2026-01-02T00:00:00.000Z", launched: 1}})
+	d.W.Exec(`INSERT INTO runner_capacity (runner_id, closed_by_guard, guard_reason) VALUES (1, 1, 'disk 90% > 85%')`)
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1`)
+	if _, err := s.claimRunner(ctx, 1, 1); err == nil {
+		t.Fatal("a closed runner must not be claimed")
+	}
+	if free, _ := d.RQ.FreeRunnerSlot(ctx, 1); free != 0 {
+		t.Fatal("a closed runner has no free slot")
+	}
+	if got, _ := s.Tick(ctx); got["go"] != 1 || len(fake.Runs) != 1 {
+		t.Fatalf("a closed runner is not supply, so one is launched: %v", got)
+	}
+	d.W.Exec(`UPDATE runner_capacity SET closed_by_guard = 0`)
+	if _, err := s.claimRunner(ctx, 1, 1); err != nil {
+		t.Fatalf("reopened: %v", err)
+	}
+}
