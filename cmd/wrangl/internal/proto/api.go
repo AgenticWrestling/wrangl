@@ -319,24 +319,25 @@ type MessageRequest struct {
 
 // RunView is a run as the API returns it.
 type RunView struct {
-	ID         int64  `json:"id"`
-	Task       string `json:"task"`
-	TaskTitle  string `json:"task_title"`
-	Project    string `json:"project"`
-	Kind       string `json:"kind"`
-	State      string `json:"state"`
-	Runner     string `json:"runner,omitempty"`
-	Current    string `json:"current,omitempty"` // sqid of the leaf in progress
-	Branch     string `json:"branch"`
-	Session    string `json:"session,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Pushed     bool   `json:"pushed"`
-	BaseSHA    string `json:"base_sha,omitempty"`
-	HeadSHA    string `json:"head_sha,omitempty"`
-	Error      string `json:"error,omitempty"`
-	QueuedAt   string `json:"queued_at"`
-	StartedAt  string `json:"started_at,omitempty"`
-	FinishedAt string `json:"finished_at,omitempty"`
+	ID           int64  `json:"id"`
+	Task         string `json:"task"`
+	TaskTitle    string `json:"task_title"`
+	Project      string `json:"project"`
+	Kind         string `json:"kind"`
+	State        string `json:"state"`
+	Runner       string `json:"runner,omitempty"`
+	BlockedSince string `json:"blocked_since,omitempty"` // queued runs: since when the status says why it waits
+	Current      string `json:"current,omitempty"`       // sqid of the leaf in progress
+	Branch       string `json:"branch"`
+	Session      string `json:"session,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Pushed       bool   `json:"pushed"`
+	BaseSHA      string `json:"base_sha,omitempty"`
+	HeadSHA      string `json:"head_sha,omitempty"`
+	Error        string `json:"error,omitempty"`
+	QueuedAt     string `json:"queued_at"`
+	StartedAt    string `json:"started_at,omitempty"`
+	FinishedAt   string `json:"finished_at,omitempty"`
 }
 
 // LogView is a stored log line.

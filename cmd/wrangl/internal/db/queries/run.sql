@@ -78,7 +78,9 @@ SELECT CAST(EXISTS (
 ) AS INTEGER) AS free;
 
 -- name: AssignRun :execrows
-UPDATE run SET state = 'assigned', runner_id = sqlc.arg(runner_id), session_name = sqlc.arg(session_name)
+UPDATE run SET state = 'assigned', runner_id = sqlc.arg(runner_id), session_name = sqlc.arg(session_name),
+    status_text = CASE WHEN blocked_reason <> '' AND status_text = blocked_reason THEN '' ELSE status_text END,
+    blocked_since = NULL, blocked_reason = ''
 WHERE id = sqlc.arg(id) AND state = 'queued';
 
 -- name: UnassignRun :exec
@@ -201,3 +203,22 @@ WHERE r.state = 'running'
 
 -- name: SetRunQueueRank :execrows
 UPDATE run SET queue_rank = sqlc.arg(queue_rank) WHERE id = sqlc.arg(id) AND state = 'queued';
+
+-- name: SetRunBlocked :execrows
+-- Say why a queued run waits. Written only when the text changes (so a steady wait costs no
+-- writes); blocked_since keeps the first time the run was seen blocked.
+UPDATE run SET status_text = sqlc.arg(reason), blocked_reason = sqlc.arg(reason),
+    blocked_since = COALESCE(blocked_since, sqlc.arg(now))
+WHERE id = sqlc.arg(id) AND state = 'queued' AND (blocked_reason <> sqlc.arg(reason) OR status_text <> sqlc.arg(reason));
+
+-- name: TemplateRunnerCounts :one
+-- What the template's runners are doing, for the waiting reason: still coming up, usable but
+-- full, and live but not claimable (cordoned, draining, behind on version or upgrading).
+SELECT
+  CAST(COALESCE(SUM(n.state IN ('launching', 'enrolling', 'provisioning')), 0) AS INTEGER) AS launching,
+  CAST(COALESCE(SUM(n.state IN ('idle', 'busy') AND n.cordoned = 0 AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = ''), 0) AS INTEGER) AS usable,
+  CAST(COALESCE(SUM(n.state IN ('idle', 'busy') AND NOT (n.cordoned = 0 AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = '')), 0) AS INTEGER) AS unavailable
+FROM runner n JOIN runner_template t ON t.id = n.template_id
+WHERE n.template_id = sqlc.arg(template_id);

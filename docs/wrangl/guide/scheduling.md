@@ -115,8 +115,11 @@ a time, the slot is not counted until the run is marked assigned right after.
 | **Project archived** | not listed; the run was cancelled on archive | restore the project and queue again |
 | **Launch not allowed** (section 6) | `queued`; demand shown on the Runners page | raise the limit, fix the template |
 
-A run that is merely waiting for a slot never gets a status text. The reason text is set only for the
-visible hold-backs in the table.
+A run waiting for a slot also gets a reason, with counts: `waiting: no runner of template T yet`, or
+`waiting: no free slot on template T (2 full, 1 starting, 1 cordoned, draining or updating)`; a remote
+template with no free target says `waiting: no free target for template T`, and a work run whose
+precursors are unfinished says so. The text is stored with the run (`blocked_reason`, `blocked_since`),
+rewritten only when it changes, and cleared when the run is assigned.
 
 ## 6. The autoscaler
 
@@ -205,8 +208,8 @@ Work down this list.
 
 1. **Look at the run.** `wrangl run show ID` (the status line) or the run page `/run/ID`. A
    `waiting: ...` text names the cause (agent, secret, GitHub App). `wrangl run list --state queued` shows
-   the Status column for all queued runs. On the project page a queued row only shows a "queued" pill; the
-   reason is on the run, not the row.
+   the Status column for all queued runs. `run show` also prints `waiting since`; the run page shows the
+   same, and each Queue row on the project page carries the reason beside the run link.
 2. **Is it behind other work?** The Queue section is in assignment order. Runs above it, on its template,
    hold the free slots first. A higher-priority project goes ahead of yours.
 3. **Is there a slot?** Runners page: the Templates card shows `N queued · live/max` per template. A

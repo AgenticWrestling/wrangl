@@ -135,7 +135,7 @@ func (q *Queries) GetPR(ctx context.Context, id int64) (PullRequest, error) {
 }
 
 const latestBlockedRuns = `-- name: LatestBlockedRuns :many
-SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, r.guidance, r.queue_rank FROM run r
+SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, r.guidance, r.queue_rank, r.blocked_since, r.blocked_reason FROM run r
 WHERE r.state = 'blocked' AND r.kind IN ('work', 'revise')
   AND r.id = (SELECT MAX(x.id) FROM run x WHERE x.task_id = r.task_id)
 `
@@ -178,6 +178,8 @@ func (q *Queries) LatestBlockedRuns(ctx context.Context) ([]Run, error) {
 			&i.ContinueBranch,
 			&i.Guidance,
 			&i.QueueRank,
+			&i.BlockedSince,
+			&i.BlockedReason,
 		); err != nil {
 			return nil, err
 		}
@@ -464,7 +466,7 @@ const queueSpecialRun = `-- name: QueueSpecialRun :one
 INSERT INTO run (task_id, kind, attempt, template_id, repo_id, branch, session_uuid, prompt_override, pr_id, continue_branch)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6,
         ?7, ?8, ?9, ?10)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason
 `
 
 type QueueSpecialRunParams struct {
@@ -522,6 +524,8 @@ func (q *Queries) QueueSpecialRun(ctx context.Context, arg QueueSpecialRunParams
 		&i.ContinueBranch,
 		&i.Guidance,
 		&i.QueueRank,
+		&i.BlockedSince,
+		&i.BlockedReason,
 	)
 	return i, err
 }

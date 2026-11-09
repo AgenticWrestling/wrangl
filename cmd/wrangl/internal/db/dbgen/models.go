@@ -255,6 +255,8 @@ type Run struct {
 	ContinueBranch int64           `json:"continue_branch"`
 	Guidance       string          `json:"guidance"`
 	QueueRank      sql.NullFloat64 `json:"queue_rank"`
+	BlockedSince   sql.NullString  `json:"blocked_since"`
+	BlockedReason  string          `json:"blocked_reason"`
 }
 
 type Runner struct {

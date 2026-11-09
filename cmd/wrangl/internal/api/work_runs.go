@@ -16,7 +16,7 @@ func runView(x dbgen.ListRunsRow) proto.RunView {
 	return proto.RunView{ID: x.Run.ID, Task: x.TaskSqid, TaskTitle: x.TaskTitle, Project: x.ProjectSlug, Kind: x.Run.Kind,
 		State: x.Run.State, Runner: x.RunnerName, Current: x.CurrentSqid, Branch: x.Run.Branch, Session: x.Run.SessionName,
 		Status: x.Run.StatusText, Pushed: x.Run.Pushed == 1, BaseSHA: x.Run.BaseSha, HeadSHA: x.Run.HeadSha,
-		Error: x.Run.Error, QueuedAt: x.Run.QueuedAt, StartedAt: x.Run.StartedAt.String, FinishedAt: x.Run.FinishedAt.String}
+		BlockedSince: x.Run.BlockedSince.String, Error: x.Run.Error, QueuedAt: x.Run.QueuedAt, StartedAt: x.Run.StartedAt.String, FinishedAt: x.Run.FinishedAt.String}
 }
 
 func registerRuns(mux *http.ServeMux, d Deps) {

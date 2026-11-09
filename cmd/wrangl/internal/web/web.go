@@ -726,6 +726,7 @@ type runEntry struct {
 	Flat         bool            // In progress: Node is the leaf being worked, listed on its own
 	ParentSqid   string          // Flat: the leaf's parent, for the jump button
 	ParentTitle  string
+	Waiting      string // Queue: why the run is not assigned yet
 }
 
 // taskSections is what the Tasks page lists: running, queued and the rest.
@@ -1009,6 +1010,9 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 		}
 		taken[n] = true
 		e := &runEntry{Node: n, RunID: r.Run.ID, Rank: r.Run.QueueRank, Kind: r.Run.Kind, State: r.Run.State, Runner: r.RunnerName, Current: r.CurrentSqid}
+		if r.Run.State == "queued" {
+			e.Waiting = r.Run.BlockedReason
+		}
 		if c := bySqid[r.CurrentSqid]; c != nil {
 			e.CurrentTitle = c.Title
 		}
