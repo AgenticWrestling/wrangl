@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
@@ -243,16 +242,8 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 			mux.ServeHTTP(rw, r)
 		}),
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			if uc, ok := c.(*net.UnixConn); ok {
-				if raw, err := uc.SyscallConn(); err == nil {
-					var cred *syscall.Ucred
-					raw.Control(func(fd uintptr) {
-						cred, _ = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
-					})
-					if cred != nil {
-						return context.WithValue(ctx, peerKey{}, cred.Uid)
-					}
-				}
+			if uid, ok := peerUID(c); ok {
+				return context.WithValue(ctx, peerKey{}, uid)
 			}
 			return ctx
 		},

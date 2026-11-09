@@ -32,6 +32,10 @@ runners and hands the questions and pull requests back to you. The top-level
 
 ## Reference
 
+- **Design and development.** [DESIGN.md](DESIGN.md) (architecture and what each feature does),
+  [DEVELOPMENT.md](DEVELOPMENT.md) (build from source, web UI conventions, releasing) and the
+  [release notes](../releases/).
+- **MCP.** [mcp.md](mcp.md): the owner's MCP endpoint, how to connect it, and every tool.
 - **CLI.** `wrangl --help` and `wrangl COMMAND --help` are authoritative. The agent skill that maps the
   commands for Claude is [skill/SKILL.md](skill/SKILL.md).
 - **Agents.** [agents.md](agents.md): how each agent's hooks, sessions, MCP and auth plug in, and the

@@ -82,6 +82,19 @@ ls build/
 # wrangl  wrangl-linux-aarch64  wrangl-linux-x86_64
 ```
 
+**Without Go or Task:** every [release](https://github.com/AgenticWrestling/wrangl/releases) carries the
+same binaries. Install the CLI with the `curl | sh` command in the [README](../../README.md#getting-started),
+and for the controller host fetch the two runner binaries into `build/`:
+
+```sh
+mkdir -p build && cd build
+for a in aarch64 x86_64; do
+  curl -fsSLo wrangl-linux-$a https://github.com/AgenticWrestling/wrangl/releases/latest/download/wrangl-linux-$a
+  chmod +x wrangl-linux-$a
+done
+cd .. && ln -sf wrangl-linux-x86_64 build/wrangl   # or the binary that matches this machine
+```
+
 `build/wrangl` is for your laptop, as the CLI. The two `wrangl-linux-*` binaries go on the
 controller, which serves them to runners as they boot.
 
