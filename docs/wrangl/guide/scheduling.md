@@ -256,8 +256,11 @@ Work down this list.
   `wrangl project edit SLUG --need ram=4GiB`, `wrangl task create|edit --need ram=8GiB` (empty value
   clears a field; owner floors 1 vCPU / 512 MiB / 1 GiB; Settings has a Placement card for the
   defaults). Agent tools (`task_create`, `task_update`) may only raise a need. The default is `0/0/0`
-  ("not set") and nothing reads the values yet, so placement is unchanged: runner capacity and the fit
-  check come in later tasks.
+  ("not set"). When a run is queued (work, plan, review, revise, resolve) the resolved set is copied
+  onto it (`run.need_*`, with `need_source` saying which layer each field came from). Editing a default,
+  project or task affects runs queued afterwards, never queued or running ones; a retry is a new run
+  and gets a new snapshot. Nothing reads the snapshot yet, so placement is unchanged: runner capacity
+  and the fit check come in later tasks.
 - **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is

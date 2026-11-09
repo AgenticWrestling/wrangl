@@ -1106,3 +1106,21 @@ func (q *Queries) SetQueuedRunTemplate(ctx context.Context, arg SetQueuedRunTemp
 	_, err := q.db.ExecContext(ctx, setQueuedRunTemplate, arg.TemplateID, arg.ID)
 	return err
 }
+
+const setRunNeed = `-- name: SetRunNeed :exec
+UPDATE run SET need_vcpu = ?1, need_ram_mib = ?2, need_disk_gib = ?3,
+    need_source = ?4 WHERE id = ?5
+`
+
+type SetRunNeedParams struct {
+	NeedVcpu    int64  `json:"need_vcpu"`
+	NeedRamMib  int64  `json:"need_ram_mib"`
+	NeedDiskGib int64  `json:"need_disk_gib"`
+	NeedSource  string `json:"need_source"`
+	ID          int64  `json:"id"`
+}
+
+func (q *Queries) SetRunNeed(ctx context.Context, arg SetRunNeedParams) error {
+	_, err := q.db.ExecContext(ctx, setRunNeed, arg.NeedVcpu, arg.NeedRamMib, arg.NeedDiskGib, arg.NeedSource, arg.ID)
+	return err
+}

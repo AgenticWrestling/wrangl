@@ -6,6 +6,7 @@ package placement
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -247,23 +248,31 @@ func (s *Service) TaskNeed(ctx context.Context, taskID int64) (Need, error) {
 
 // Resolve layers global < project < task for a task.
 func (s *Service) Resolve(ctx context.Context, projectID, taskID int64) (Resolved, error) {
-	g, err := s.Global(ctx)
+	return resolve(ctx, s.DB.RQ, projectID, taskID)
+}
+
+func resolve(ctx context.Context, q *dbgen.Queries, projectID, taskID int64) (Resolved, error) {
+	gc, err := q.GetPlacementConfig(ctx)
 	if err != nil {
-		return g, err
+		return Resolved{}, err
 	}
-	g.Source = map[string]string{"vcpu": "default", "ram": "default", "disk": "default"}
+	g := Resolved{VCPU: gc.NeedVcpu, RAMMiB: gc.NeedRamMib, DiskGiB: gc.NeedDiskGib,
+		Source: map[string]string{"vcpu": "default", "ram": "default", "disk": "default"}}
 	layers := []struct {
 		name string
-		get  func() (Need, error)
+		row  func() (dbgen.OptionalNeed, error)
 	}{
-		{"project", func() (Need, error) { return s.ProjectNeed(ctx, projectID) }},
-		{"task", func() (Need, error) { return s.TaskNeed(ctx, taskID) }},
+		{"project", func() (dbgen.OptionalNeed, error) { return q.GetProjectNeed(ctx, projectID) }},
+		{"task", func() (dbgen.OptionalNeed, error) { return q.GetTaskNeed(ctx, taskID) }},
 	}
 	for _, l := range layers {
-		n, err := l.get()
-		if err != nil {
+		row, err := l.row()
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		} else if err != nil {
 			return g, err
 		}
+		n := fromRow(row)
 		set := func(f string, v *int64, dst *int64) {
 			if v != nil {
 				*dst, g.Source[f] = *v, l.name
@@ -274,6 +283,23 @@ func (s *Service) Resolve(ctx context.Context, projectID, taskID int64) (Resolve
 		set("disk", n.DiskGiB, &g.DiskGiB)
 	}
 	return g, nil
+}
+
+// Snapshot writes the resolved need set of the run's task onto the run (ADR 0009 section 5). Call it
+// where a run is queued, with the same querier (so inside the queueing transaction). From then on
+// placement reads only run.need_*: editing a default, project or task affects runs queued afterwards,
+// never queued or active ones.
+func Snapshot(ctx context.Context, q *dbgen.Queries, run dbgen.Run) error {
+	t, err := q.GetTask(ctx, run.TaskID)
+	if err != nil {
+		return err
+	}
+	r, err := resolve(ctx, q, t.ProjectID, t.ID)
+	if err != nil {
+		return err
+	}
+	src, _ := json.Marshal(r.Source)
+	return q.SetRunNeed(ctx, dbgen.SetRunNeedParams{NeedVcpu: r.VCPU, NeedRamMib: r.RAMMiB, NeedDiskGib: r.DiskGiB, NeedSource: string(src), ID: run.ID})
 }
 
 // SetTask applies a patch to a task's overrides. From an owner surface it may raise, lower or clear

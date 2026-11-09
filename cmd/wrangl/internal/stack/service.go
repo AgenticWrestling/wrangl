@@ -968,6 +968,9 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 			TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: dbnull.Int(templateID), RepoID: dbnull.Int(repoID),
 			Branch: fmt.Sprintf("wrangl/%s-%d", sqid, n+1), SessionUuid: uuid,
 		})
+		if err == nil {
+			err = placement.Snapshot(ctx, q, run)
+		}
 		if err == nil && chosen != nil {
 			err = q.SetRunAgent(ctx, dbgen.SetRunAgentParams{AgentID: sql.NullInt64{Int64: chosen.ID, Valid: true}, ID: run.ID})
 		}

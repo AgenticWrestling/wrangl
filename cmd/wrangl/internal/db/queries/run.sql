@@ -228,3 +228,7 @@ UPDATE task SET template_id = sqlc.narg(template_id) WHERE id = sqlc.arg(id);
 
 -- name: SetQueuedRunTemplate :exec
 UPDATE run SET template_id = sqlc.arg(template_id) WHERE id = sqlc.arg(id) AND state = 'queued';
+
+-- name: SetRunNeed :exec
+UPDATE run SET need_vcpu = sqlc.arg(need_vcpu), need_ram_mib = sqlc.arg(need_ram_mib), need_disk_gib = sqlc.arg(need_disk_gib),
+    need_source = sqlc.arg(need_source) WHERE id = sqlc.arg(id);
