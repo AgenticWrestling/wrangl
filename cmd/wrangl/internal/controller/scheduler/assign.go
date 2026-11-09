@@ -63,6 +63,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		}
 		assigned = append(assigned, r.ID)
 	}
+	s.resolveUnplaceable(ctx, assigned)
 	return assigned, errors.Join(errs...)
 }
 
@@ -283,6 +284,7 @@ func (s *Scheduler) assignOn(ctx context.Context, r dbgen.QueuedRunsForAssignmen
 		}
 		return err
 	}
+	d.Q.CancelRunQuestions(ctx, sql.NullInt64{Int64: r.ID, Valid: true})
 	s.Fleet.Bus.Run(r.ID) // queued -> assigned: live pages move it from Queue to In progress
 	if target != nil {
 		if err := d.Q.BindRunTarget(ctx, r.ID, targetRow.ID); err != nil {

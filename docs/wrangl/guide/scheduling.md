@@ -251,6 +251,12 @@ Work down this list.
   `wrangl project edit wrangl --template go-claude --allow-template host --limit go-claude=1`
   (raise the limit for more overflow runners). Queued and new runs of the project then fill the host's
   slots first and launch `go-claude` runners only for what does not fit.
+- **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
+  item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
+  changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is
+  one open item per run; it resolves itself when the run is assigned or no longer queued. The scheduler
+  can raise it (`NoteUnplaceable`); the stage-1 triggers (missing template, failed version, caps full)
+  are wired separately.
 - **Runs waiting on precursors still count as demand.** Queued work runs with no ready leaf are
   included in `demand`, so they can cause a launch for slots that stay empty.
 - **`needs_input` runs hold their slot.** A run waiting on your answer still occupies a session, so one

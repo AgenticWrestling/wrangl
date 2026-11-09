@@ -30,4 +30,20 @@ WHERE id = sqlc.arg(id) AND state = 'open';
 
 -- name: CancelRunQuestions :exec
 -- Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
-UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error');
+UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error', 'unplaceable');
+
+-- name: UpdateOpenQuestion :exec
+-- The reason an open item (unplaceable) is about changed: reword it in place.
+UPDATE question SET prompt = sqlc.arg(prompt), detail_md = sqlc.arg(detail_md), payload_json = sqlc.arg(payload_json)
+WHERE id = sqlc.arg(id) AND state = 'open';
+
+-- name: DeleteQuestionOptions :exec
+DELETE FROM question_option WHERE question_id = ?;
+
+-- name: ResolveQuestion :execrows
+UPDATE question SET state = 'cancelled', answer_text = sqlc.arg(text) WHERE id = sqlc.arg(id) AND state = 'open';
+
+-- name: ListOpenUnplaceable :many
+-- Open unplaceable items with the state of their run (NULL: the run is gone).
+SELECT q.id, q.run_id, r.state AS run_state FROM question q LEFT JOIN run r ON r.id = q.run_id
+WHERE q.kind = 'unplaceable' AND q.state = 'open';

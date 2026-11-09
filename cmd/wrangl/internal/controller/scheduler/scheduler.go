@@ -44,6 +44,11 @@ type Scheduler struct {
 	// recent runners of the template never enrolled.
 	OnLaunchStuck func(template string, failed int64)
 
+	// OnUnplaceable is called when a run first lands in the Inbox as unplaceable.
+	OnUnplaceable func(runID int64, prompt string)
+	// CancelRun cancels a run (the "cancel the task's run" answer).
+	CancelRun func(ctx context.Context, runID int64) error
+
 	mu         sync.Mutex
 	askedStuck map[int64]time.Time
 	backoff    map[int64]*backoff

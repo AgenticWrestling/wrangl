@@ -1058,3 +1058,31 @@ func (q *Queries) TemplateRunnerCounts(ctx context.Context, templateID int64) (T
 	err := row.Scan(&i.Launching, &i.Usable, &i.Unavailable)
 	return i, err
 }
+
+const setTaskTemplate = `-- name: SetTaskTemplate :exec
+UPDATE task SET template_id = ?1 WHERE id = ?2
+`
+
+type SetTaskTemplateParams struct {
+	TemplateID sql.NullInt64 `json:"template_id"`
+	ID         int64         `json:"id"`
+}
+
+func (q *Queries) SetTaskTemplate(ctx context.Context, arg SetTaskTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskTemplate, arg.TemplateID, arg.ID)
+	return err
+}
+
+const setQueuedRunTemplate = `-- name: SetQueuedRunTemplate :exec
+UPDATE run SET template_id = ?1 WHERE id = ?2 AND state = 'queued'
+`
+
+type SetQueuedRunTemplateParams struct {
+	TemplateID sql.NullInt64 `json:"template_id"`
+	ID         int64         `json:"id"`
+}
+
+func (q *Queries) SetQueuedRunTemplate(ctx context.Context, arg SetQueuedRunTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, setQueuedRunTemplate, arg.TemplateID, arg.ID)
+	return err
+}

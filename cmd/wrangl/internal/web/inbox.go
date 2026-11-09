@@ -74,6 +74,8 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Details = append(it.Details, inboxDetail{Summary: "Proposed split", Pre: outlineFromPayload(q.Payload), Open: true})
 		case "task_review":
 			it.Tag = "◐ task review"
+		case "unplaceable":
+			it.Tag, it.TagClass = "⛔ can't be placed", "k-failed"
 		case "tool_error":
 			it.Tag, it.TagClass = "⚠ tool failed", "k-failed"
 		}
@@ -92,7 +94,7 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 				cls = "primary"
 			}
 			it.Actions = append(it.Actions, inboxAction{
-				Label: o.Label, Tip: o.Description, Class: cls, NeedsText: o.Value == "reopen",
+				Label: o.Label, Tip: o.Description, Class: cls + map[bool]string{true: "danger"}[o.Value == "cancel_run"], NeedsText: o.Value == "reopen",
 				URL: fmt.Sprintf("/ui/act/answer?id=%d&value=%s", id, url.QueryEscape(o.Value)),
 			})
 		}

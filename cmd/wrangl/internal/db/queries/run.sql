@@ -222,3 +222,9 @@ SELECT
       AND n.template_version = t.version AND n.upgrade_sha = '')), 0) AS INTEGER) AS unavailable
 FROM runner n JOIN runner_template t ON t.id = n.template_id
 WHERE n.template_id = sqlc.arg(template_id);
+
+-- name: SetTaskTemplate :exec
+UPDATE task SET template_id = sqlc.narg(template_id) WHERE id = sqlc.arg(id);
+
+-- name: SetQueuedRunTemplate :exec
+UPDATE run SET template_id = sqlc.arg(template_id) WHERE id = sqlc.arg(id) AND state = 'queued';
