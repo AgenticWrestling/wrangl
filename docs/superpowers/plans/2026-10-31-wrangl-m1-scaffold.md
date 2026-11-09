@@ -69,7 +69,7 @@ M1 is complete. Where the implementation differs from this plan, the code is aut
 **Files:** modify `go.mod`, `go.sum`, `Taskfile.yml`; create `cmd/wrangl/main.go`, `cmd/wrangl/internal/cli/root.go`
 
 - [ ] **Step 1:** `go get github.com/spf13/cobra modernc.org/sqlite github.com/pressly/goose/v3 github.com/sqids/sqids-go github.com/nats-io/nats-server/v2 github.com/nats-io/nats.go gopkg.in/yaml.v3`
-- [ ] **Step 2:** Taskfile targets (existing `ssm` targets unchanged):
+- [ ] **Step 2:** Taskfile targets:
 
 ```yaml
   build-wrangl:
@@ -87,7 +87,7 @@ M1 is complete. Where the implementation differs from this plan, the code is aut
     cmds: [sqlc diff]
 ```
 
-- [ ] **Step 3:** `main.go` mirrors `cmd/ssm/main.go`: `signal.NotifyContext`, `cli.NewRoot().ExecuteContext(ctx)`, print error, exit 1.
+- [ ] **Step 3:** `main.go`: `signal.NotifyContext`, `cli.NewRoot().ExecuteContext(ctx)`, print error, exit 1.
 
 ### Task 2: Full command tree with stubs
 

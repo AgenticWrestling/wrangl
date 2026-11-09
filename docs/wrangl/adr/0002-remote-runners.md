@@ -78,7 +78,7 @@ AWS-StartPortForwardingSession`), run by the runner daemon on the driver, one li
 (session, target port) on loopback. The target needs the SSM agent and an instance profile (EC2
 Mac and standard Android hosts can have both).
 - Pros: no security-group ingress; auth is IAM, not network position; the same mechanism the
-  project already uses for `cmd/ssm`.
+  project already uses for `wrangl dev tunnel` (formerly the separate `ssm` tool).
 - Cons: the driver's role needs `ssm:StartSession` on that instance; the session plugin must be on
   the driver; tunnels drop and have idle limits; one extra hop of latency.
 
