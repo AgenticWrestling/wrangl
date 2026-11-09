@@ -62,6 +62,13 @@ type Controller struct {
 	GitHub     GitHub     `yaml:"github"`
 	Cloudflare Cloudflare `yaml:"cloudflare"`
 	Web        Web        `yaml:"web"`
+	Placement  Placement  `yaml:"placement"`
+}
+
+// Placement selects the launch planner (ADR 0009): engine "legacy" (default, slot-based) or "placer"
+// (resource-based, uses runs' needs and templates' instance menus).
+type Placement struct {
+	Engine string `yaml:"engine"`
 }
 
 // Default controller paths and addresses.

@@ -274,7 +274,19 @@ Work down this list.
   left over), then busy before idle, then the longest idle. The claim is one conditional statement that
   re-checks all of it. With the default `0/0/0` needs nothing but the session ceiling limits a runner and
   the order is the old busy-then-longest-idle, so behaviour is unchanged until you set real needs. The
-  autoscaler still plans by session slots, not resources.
+  autoscaler still plans by session slots, not resources by default.
+
+  **The resource-based launch planner** is opt-in: set `placement: { engine: placer }` in
+  `controller.yaml` (default `legacy`, the slot-based tick described in section 6). It takes the queued
+  runs in queue order and packs them virtually onto existing runners, then onto runners that are still
+  arriving (including ones it plans this pass), and only then launches: for each unplaced run it picks
+  the template's instance-menu entry with the lowest price per hosted run (ties: more hosted runs, then
+  lower price, then name), credits that launch with every later queued run it can host, and sizes the
+  volume to the hosted disk needs plus the reserve. The old gates still apply (`max_runners`, a failed
+  template version, backoff, the enrol brake, project limits). With the default `0/0/0` needs and no
+  menu it launches exactly what the legacy tick launches (a replay test checks this); needs and a menu
+  make it launch by resources. A run no menu entry could ever hold is planned as "too big" but not yet
+  raised in the Inbox.
 - **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is

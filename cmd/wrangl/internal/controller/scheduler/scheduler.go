@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"log/slog"
 	"sync"
@@ -44,6 +45,15 @@ type Scheduler struct {
 	// recent runners of the template never enrolled.
 	OnLaunchStuck func(template string, failed int64)
 
+	// Engine picks the launch planner: "legacy" (or empty) is the slot-based Tick; "placer" plans launches
+	// with placer.Place from the runs' resource needs and the templates' instance menus.
+	Engine string
+	// Menu resolves instance menus (capacity and price); nil leaves every template with a single
+	// legacy entry (the template's own instance choice, session slots only).
+	Menu *menu.Lookup
+
+	menus map[int64]cachedMenu
+
 	// OnUnplaceable is called when a run first lands in the Inbox as unplaceable.
 	OnUnplaceable func(runID int64, prompt string)
 	// CancelRun cancels a run (the "cancel the task's run" answer).
@@ -68,6 +78,9 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 	defer s.mu.Unlock()
 	if s.backoff == nil {
 		s.backoff, s.warned = map[int64]*backoff{}, map[int64]int64{}
+	}
+	if s.Engine == EnginePlacer {
+		return s.tickPlacer(ctx)
 	}
 	rows, err := s.Fleet.DB.RQ.TemplateDemand(ctx)
 	if err != nil {

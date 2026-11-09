@@ -251,6 +251,12 @@ func unameArch(ec2Arch string) string {
 
 // Launch starts one runner on a new EC2 instance.
 func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, error) {
+	return s.LaunchSized(ctx, template, "", 0)
+}
+
+// LaunchSized starts one runner of the template as a chosen instance type (empty: the template's own
+// choice) with a volume of at least diskGiB (0: the template's minimum).
+func (s *Service) LaunchSized(ctx context.Context, template, instanceType string, diskGiB int64) (dbgen.Runner, error) {
 	var zero dbgen.Runner
 	if s.Prov == nil {
 		return zero, ErrNoAWS
@@ -270,6 +276,13 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 		return zero, fmt.Errorf("%w: no %s runner binary: copy build/wrangl-linux-%s to %s", ErrInvalid, t.Arch, unameArch(t.Arch), s.BinDir)
 	}
 	types := menu.Names(t.InstanceTypes)
+	if instanceType != "" {
+		types = []string{instanceType}
+	}
+	disk := int(t.MinDiskGib)
+	if diskGiB > t.MinDiskGib {
+		disk = int(diskGiB)
+	}
 
 	name := s.newName(ctx)
 	plain, hash := newToken()
@@ -285,7 +298,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 	}
 	inst, err := s.Prov.Launch(ctx, provision.Spec{
 		Runner: name, Template: t.Name, Arch: t.Arch,
-		MinVCPU: int(t.MinVcpu), MinRAMMiB: int(t.MinRamMib), DiskGiB: int(t.MinDiskGib),
+		MinVCPU: int(t.MinVcpu), MinRAMMiB: int(t.MinRamMib), DiskGiB: disk,
 		InstanceTypes: types, AMI: t.Ami, SubnetID: s.SubnetID, SecurityGroupID: s.SecurityGroupID,
 		InstanceProfile: s.InstanceProfile, UserData: ud,
 	})

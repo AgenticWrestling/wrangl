@@ -251,3 +251,41 @@ func (q *Queries) ClaimRunner(ctx context.Context, arg ClaimRunnerParams) (Claim
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
 }
+
+const queuedRunsForPlacement = `-- name: QueuedRunsForPlacement :many
+SELECT r.id, k.project_id, CAST(COALESCE(r.template_id, k.template_id, p.default_template_id) AS INTEGER) AS template_id,
+       r.need_vcpu, r.need_ram_mib, r.need_disk_gib
+FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
+WHERE r.state = 'queued' AND p.archived_at IS NULL
+ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, k.rank, r.queued_at
+`
+
+type QueuedRunsForPlacementRow struct {
+	ID          int64         `json:"id"`
+	ProjectID   int64         `json:"project_id"`
+	TemplateID  sql.NullInt64 `json:"template_id"`
+	NeedVcpu    int64         `json:"need_vcpu"`
+	NeedRamMib  int64         `json:"need_ram_mib"`
+	NeedDiskGib int64         `json:"need_disk_gib"`
+}
+
+// Queued runs in assignment order with the template their demand is counted on and their need snapshot.
+func (q *Queries) QueuedRunsForPlacement(ctx context.Context) ([]QueuedRunsForPlacementRow, error) {
+	rows, err := q.db.QueryContext(ctx, queuedRunsForPlacement)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []QueuedRunsForPlacementRow{}
+	for rows.Next() {
+		var i QueuedRunsForPlacementRow
+		if err := rows.Scan(&i.ID, &i.ProjectID, &i.TemplateID, &i.NeedVcpu, &i.NeedRamMib, &i.NeedDiskGib); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}

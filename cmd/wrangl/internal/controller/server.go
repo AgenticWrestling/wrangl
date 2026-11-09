@@ -425,6 +425,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	sched.Engine = s.cfg.Placement.Engine
 	sched.CancelRun = s.Runs.Cancel
 	sched.OnUnplaceable = func(runID int64, prompt string) {
 		s.Push.Notify(webpush.Notification{Title: "A run can't be placed", Body: prompt, URL: "/inbox", Tag: fmt.Sprintf("unplaceable%d", runID)})

@@ -72,3 +72,11 @@ WHERE runner.id = sqlc.arg(id) AND runner.state IN ('idle', 'busy') AND runner.c
        - (SELECT COALESCE(SUM(r.need_disk_gib), 0) FROM run r WHERE r.runner_id = runner.id
           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')))
 RETURNING id, name;
+
+-- name: QueuedRunsForPlacement :many
+-- Queued runs in assignment order with the template their demand is counted on and their need snapshot.
+SELECT r.id, k.project_id, CAST(COALESCE(r.template_id, k.template_id, p.default_template_id) AS INTEGER) AS template_id,
+       r.need_vcpu, r.need_ram_mib, r.need_disk_gib
+FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
+WHERE r.state = 'queued' AND p.archived_at IS NULL
+ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, k.rank, r.queued_at;
