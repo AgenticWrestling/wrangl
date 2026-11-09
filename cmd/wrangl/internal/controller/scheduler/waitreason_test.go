@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,4 +91,51 @@ func tmplName(d *db.DB) string {
 	var n string
 	d.R.QueryRow(`SELECT name FROM runner_template WHERE id = 1`).Scan(&n)
 	return n
+}
+
+func TestAllowedHostIsUsedFirstAndCountsAsSupply(t *testing.T) {
+	s, fake, _, d := setup(t, 2)
+	ctx := context.Background()
+	if _, err := s.Fleet.CreateTemplate(ctx, []byte("name: host\narch: arm64\nmin: {vcpu: 2, ram: 4GiB, disk: 20GiB}\nmax_runners: 1\n")); err != nil {
+		t.Fatal(err)
+	}
+	d.W.Exec(`UPDATE runner_template SET agent_json = '{"start":["true"]}'`)
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, idle_since, template_version) VALUES ('h1', 2, 'idle', '2026-01-01T00:00:00.000Z', (SELECT version FROM runner_template WHERE id = 2))`)
+	d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, clone_url) VALUES (1, 'o', 'n', 'main', 'file:///x')`)
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1, repo_id = 1`)
+
+	// Not allowed: the host is invisible, the run waits and the autoscaler launches.
+	if _, err := s.Assign(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var reason string
+	d.R.QueryRow(`SELECT blocked_reason FROM run`).Scan(&reason)
+	if reason == "" {
+		t.Fatal("the run should wait when the host is not allowed")
+	}
+	if got, _ := s.Tick(ctx); got["go"] != 1 {
+		t.Fatalf("expected a launch without the allowance: %v", got)
+	}
+
+	// Allowed: the host's free slots are supply (no launch) and the run is tried on the host first.
+	fake.Runs = nil
+	d.W.Exec(`UPDATE runner SET state = 'terminated' WHERE template_id = 1`)
+	d.W.Exec(`INSERT INTO project_allowed_template (project_id, template_id) VALUES (1, 2)`)
+	if got, _ := s.Tick(ctx); len(got) != 0 {
+		t.Fatalf("launched although the allowed host has room: %v", got)
+	}
+	_, err := s.Assign(ctx)
+	if err == nil || !strings.Contains(err.Error(), "h1") {
+		t.Fatalf("the run should have been offered to the host runner h1, got %v", err)
+	}
+
+	// Host full: overflow launches again.
+	d.W.Exec(`UPDATE runner_template SET max_sessions = 1 WHERE id = 2`)
+	d.W.Exec(`UPDATE runner SET state = 'busy' WHERE name = 'h1'`)
+	d.W.Exec(`INSERT INTO task (project_id, rank, title) VALUES (1, 'V998', 'x')`)
+	d.W.Exec(`INSERT INTO run (task_id, state, runner_id) VALUES ((SELECT id FROM task WHERE rank = 'V998'), 'running', (SELECT id FROM runner WHERE name = 'h1'))`)
+	if got, _ := s.Tick(ctx); got["go"] != 1 {
+		t.Fatalf("expected overflow launch when the host is full: %v", got)
+	}
 }

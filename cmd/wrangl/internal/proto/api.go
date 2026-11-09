@@ -98,6 +98,8 @@ type ProjectView struct {
 	// Limits are the runner instances this project's demand may cause, per template.
 	Limits []ProjectLimit `json:"limits,omitempty"`
 	Agent  string         `json:"agent,omitempty"` // default agent definition
+	// AllowTemplates: other templates (usually host) this project's runs may also use.
+	AllowTemplates []string `json:"allow_templates,omitempty"`
 	// CitationAudit: research PRs get an audit run that re-fetches every cited URL before merge.
 	CitationAudit bool `json:"citation_audit"`
 	// Archived is set when the project is archived (hidden and inert); ArchivedAt is when.
@@ -136,16 +138,17 @@ type ProjectLimit struct {
 
 // ProjectRequest creates or patches a project (nil = unchanged).
 type ProjectRequest struct {
-	Slug         string  `json:"slug,omitempty"`
-	Name         *string `json:"name,omitempty"`
-	Description  *string `json:"description,omitempty"`
-	Template     *string `json:"template,omitempty"`
-	PlanTemplate *string `json:"plan_template,omitempty"`
-	AutoMerge    *bool   `json:"auto_merge,omitempty"`
-	AutoQueue    *bool   `json:"auto_queue,omitempty"`
-	AutoResolve  *bool   `json:"auto_resolve,omitempty"`
-	Priority     *int64  `json:"priority,omitempty"`
-	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
+	Slug           string    `json:"slug,omitempty"`
+	Name           *string   `json:"name,omitempty"`
+	Description    *string   `json:"description,omitempty"`
+	Template       *string   `json:"template,omitempty"`
+	PlanTemplate   *string   `json:"plan_template,omitempty"`
+	AllowTemplates *[]string `json:"allow_templates,omitempty"` // replaces the list; empty clears
+	AutoMerge      *bool     `json:"auto_merge,omitempty"`
+	AutoQueue      *bool     `json:"auto_queue,omitempty"`
+	AutoResolve    *bool     `json:"auto_resolve,omitempty"`
+	Priority       *int64    `json:"priority,omitempty"`
+	NotesRepo      *string   `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
 	// Limits sets instance caps by template name; templates not listed keep theirs.
 	Limits        map[string]int64 `json:"limits,omitempty"`
 	Agent         *string          `json:"agent,omitempty"` // default agent name; "" clears

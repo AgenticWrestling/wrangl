@@ -36,6 +36,10 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 	r.AutoMerge, r.AutoQueue = boolean("auto-merge"), boolean("auto-queue")
 	r.NotesRepo, r.Agent = str("notes-repo"), str("agent")
 	r.CitationAudit = boolean("citation-audit")
+	if f.Changed("allow-template") {
+		v, _ := f.GetStringSlice("allow-template")
+		r.AllowTemplates = &v
+	}
 	r.AutoResolve = boolean("auto-resolve")
 	if f.Changed("limit") {
 		vals, _ := f.GetStringSlice("limit")
@@ -70,12 +74,16 @@ func projectFlags(c *cobra.Command) {
 	f.Bool("citation-audit", false, "research PRs get an audit run that re-fetches every cited URL; unverified citations block auto-merge")
 	f.String("agent", "", "default agent definition (wrangl agent list); empty clears")
 	f.StringSlice("limit", nil, "max runner instances this project may cause on a template: TEMPLATE=N (repeatable)")
+	f.StringSlice("allow-template", nil, "other runner template this project may use, e.g. host (repeatable; replaces the list; empty clears)")
 	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
 }
 
 func printProject(w io.Writer, p proto.ProjectView) {
 	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\nnotes repo\t%s\n",
 		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
+	if len(p.AllowTemplates) > 0 {
+		fmt.Fprintf(w, "also allowed\t%s\n", strings.Join(p.AllowTemplates, ", "))
+	}
 	if p.Archived {
 		fmt.Fprintf(w, "archived\t%s\n", p.ArchivedAt)
 	}

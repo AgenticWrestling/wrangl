@@ -84,6 +84,9 @@ func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
 		if remote[t.ID] {
 			continue // remote templates launch targets, below
 		}
+		// Slots on templates the waiting projects may also use (the host) are supply too.
+		extra, _ := s.Fleet.DB.RQ.AllowedSupply(ctx, t.ID)
+		t.Supply += extra
 		need := t.Demand - t.Supply // sessions still without a slot
 		perHost := max(t.MaxSessions, 1)
 		hosts := (need + perHost - 1) / perHost // each new runner brings max_sessions slots

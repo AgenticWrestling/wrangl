@@ -208,3 +208,33 @@ ORDER BY p.priority DESC, p.id;
 -- Live (not terminated) runners launched for a project on a template.
 SELECT CAST(COUNT(*) AS INTEGER) FROM runner
 WHERE launched_for_project = sqlc.arg(project_id) AND template_id = sqlc.arg(template_id) AND state <> 'terminated';
+
+-- name: ListAllowedTemplates :many
+-- Templates (besides its own) the project may use, by name.
+SELECT t.id, t.name FROM project_allowed_template a JOIN runner_template t ON t.id = a.template_id
+WHERE a.project_id = ? ORDER BY t.name;
+
+-- name: ListAllowedTemplatesForTask :many
+SELECT a.template_id FROM project_allowed_template a JOIN task k ON k.project_id = a.project_id
+WHERE k.id = ? ORDER BY a.template_id;
+
+-- name: ClearAllowedTemplates :exec
+DELETE FROM project_allowed_template WHERE project_id = ?;
+
+-- name: AddAllowedTemplate :exec
+INSERT OR IGNORE INTO project_allowed_template (project_id, template_id) VALUES (?, ?);
+
+-- name: AllowedSupply :one
+-- Free session slots (claimable runners, plus runners still coming up) on templates that projects
+-- with queued runs on this template may also use. The autoscaler counts them as supply.
+SELECT CAST(COALESCE(SUM(MAX(a.max_sessions - (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
+                  AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0) AS INTEGER) AS supply
+FROM runner n JOIN runner_template a ON a.id = n.template_id
+WHERE a.id <> sqlc.arg(template_id)
+  AND a.id IN (SELECT pa.template_id FROM project_allowed_template pa
+               WHERE pa.project_id IN (SELECT k.project_id FROM run r2 JOIN task k ON k.id = r2.task_id
+                                       WHERE r2.state = 'queued'
+                                         AND COALESCE(r2.template_id, k.template_id, (SELECT p.default_template_id FROM project p WHERE p.id = k.project_id)) = sqlc.arg(template_id)))
+  AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
+  AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
+  AND (n.state NOT IN ('idle', 'busy') OR n.template_version = a.version);

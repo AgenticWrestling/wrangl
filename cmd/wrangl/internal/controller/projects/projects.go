@@ -44,6 +44,7 @@ type ProjectParams struct {
 	Limits                 map[string]int64 // instance caps by template name
 	Agent                  *string          // default agent definition by name; "" clears
 	CitationAudit          *bool            // audit research PRs' citations before merge
+	AllowTemplates         *[]string        // other templates this project's runs may use (the host); empty clears
 }
 
 func (s *Service) templateID(ctx context.Context, name string) (sql.NullInt64, error) {
@@ -102,7 +103,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil {
+	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -168,7 +169,50 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 	if err == nil && p.NotesRepo != nil {
 		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
 	}
+	if err == nil && p.AllowTemplates != nil {
+		err = s.SetAllowedTemplates(ctx, slug, *p.AllowTemplates)
+	}
 	return out, err
+}
+
+// SetAllowedTemplates replaces the templates (besides each run's own) the project's runs may use.
+func (s *Service) SetAllowedTemplates(ctx context.Context, slug string, names []string) error {
+	p, err := s.activeProject(ctx, slug)
+	if err != nil {
+		return err
+	}
+	ids := []int64{}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		t, err := s.DB.RQ.GetTemplateByName(ctx, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: template %q", errs.NotFound, name)
+		} else if err != nil {
+			return err
+		}
+		ids = append(ids, t.ID)
+	}
+	if err := s.DB.Q.ClearAllowedTemplates(ctx, p.ID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.DB.Q.AddAllowedTemplate(ctx, dbgen.AddAllowedTemplateParams{ProjectID: p.ID, TemplateID: id}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AllowedTemplates names the templates the project may use besides a run's own.
+func (s *Service) AllowedTemplates(ctx context.Context, projectID int64) []string {
+	rows, _ := s.DB.RQ.ListAllowedTemplates(ctx, projectID)
+	out := []string{}
+	for _, r := range rows {
+		out = append(out, r.Name)
+	}
+	return out
 }
 
 // SetDefaultAgent sets (or with "" clears) the project's default agent definition.

@@ -24,6 +24,7 @@ task, so it belongs to the project the task is in.
 | **auto-resolve** | `--auto-resolve` | When auto-merge meets a conflicted PR it queues Smart Merge (an agent merges the base branch in) instead of asking you. Default off. |
 | **citation audit** | `--citation-audit` | For research PRs, an extra read-only run re-fetches every cited URL; unverified citations block auto-merge. |
 | **notes repo** | `--notes-repo owner/name` | A linked repo that holds research reports under `research/`. It must already be linked to the project; empty clears it. |
+| **allowed templates** | `--allow-template T` (repeatable; replaces the list; empty clears) | Other templates whose runners this project's runs may use besides their own, usually `host`. A free allowed runner is used first; the autoscaler launches only when none has room. See the scheduling guide. |
 | **limits** | `--limit TEMPLATE=N` (repeatable) | How many runner instances this project's demand may launch per template (section 4). |
 
 Changing a flag with `project edit` changes only that setting.
@@ -214,7 +215,7 @@ All commands take `-o table|json|yaml`.
 
 | Command | Notes |
 |---|---|
-| `project create SLUG [flags]` | Flags as in section 1 (`--name --description --template --plan-template --agent --priority --auto-queue --auto-merge --auto-resolve --citation-audit --notes-repo --limit`). |
+| `project create SLUG [flags]` | Flags as in section 1 (`--name --description --template --plan-template --agent --priority --auto-queue --auto-merge --auto-resolve --citation-audit --notes-repo --limit --allow-template`). |
 | `project edit SLUG [flags]` | Same flags; only those given change. Refused on an archived project. |
 | `project show SLUG` | The settings, including limits. |
 | `project list [--archived \| --all]` | Active projects by default; a STATUS column says which are archived. |

@@ -192,7 +192,34 @@ func (s *Scheduler) mintToken(ctx context.Context, runID int64, repo dbgen.Repo)
 	return token, nil
 }
 
+// assignOne places a run on a runner. A project that allows other templates (the host, usually)
+// tries those first, so a free host is used before cloud runners, then the run's own template.
+// With none allowed this is exactly the single attempt on the run's template.
 func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignmentRow) error {
+	allowed, err := s.Fleet.DB.RQ.ListAllowedTemplatesForTask(ctx, r.TaskID)
+	if err != nil {
+		return err
+	}
+	for _, id := range allowed {
+		if id == r.TemplateID.Int64 {
+			continue
+		}
+		alt := r
+		alt.TemplateID = sql.NullInt64{Int64: id, Valid: true}
+		err := s.assignOn(ctx, alt, false)
+		if err == nil {
+			return nil
+		}
+		if !tolerated(err) {
+			return err
+		}
+	}
+	return s.assignOn(ctx, r, true)
+}
+
+// assignOn tries one template's runners. final says no other template is left to try, so a miss is
+// explained on the run.
+func (s *Scheduler) assignOn(ctx context.Context, r dbgen.QueuedRunsForAssignmentRow, final bool) error {
 	d := s.Fleet.DB
 	tmpl, err := d.RQ.GetTemplate(ctx, r.TemplateID.Int64)
 	if err != nil {
@@ -214,14 +241,18 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	// Neither is claimed until both exist.
 	slotTemplate, maxSessions, target, targetRow, err := s.claimTarget(ctx, r, tmpl)
 	if errors.Is(err, sql.ErrNoRows) {
-		s.block(ctx, r.ID, WaitReasonTarget(tmpl.Name))
+		if final {
+			s.block(ctx, r.ID, WaitReasonTarget(tmpl.Name))
+		}
 		return err
 	}
 	if err != nil {
 		return err
 	}
 	if free, err := d.RQ.FreeRunnerSlot(ctx, slotTemplate); err == nil && free == 0 {
-		s.blockNoSlot(ctx, r.ID, slotTemplate)
+		if final {
+			s.blockNoSlot(ctx, r.ID, slotTemplate)
+		}
 		return sql.ErrNoRows // no runner has a free session: nothing to mint a token for yet
 	}
 	// Mint the repo token before claiming a runner: a failure here must not touch the runner (a claim
@@ -232,7 +263,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	}
 	runner, err := d.Q.ClaimIdleRunner(ctx, slotTemplate)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if final && errors.Is(err, sql.ErrNoRows) {
 			s.blockNoSlot(ctx, r.ID, slotTemplate)
 		}
 		return err // sql.ErrNoRows: no idle runner

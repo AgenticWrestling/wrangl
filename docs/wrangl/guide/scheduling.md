@@ -232,16 +232,25 @@ Work down this list.
 > These are the behaviours that surprise people today. [ADR 0009](../adr/0009-resource-based-placement.md)
 > (resource needs, an hourly cost budget, the host as a placement target) is the accepted fix, with the
 > capability-tag half still in [ADR 0007](../adr/0007-capabilities-and-capacity.md). It is being built in
-> stages and **none of it is built yet**: nothing below has changed. Interim: the `wrangl` project runs on
-> the host template, so it uses the idle controller host's slots.
+> stages; so far built: waiting reasons, the version-behind supply fix and allowed templates (below).
 
-- **One template per run, no fallback.** A run is bound to the single template resolved when it was
-  queued. If every runner of that template is busy, capped or cordoned, the run waits even when another
-  template's runners sit idle; the scheduler never reassigns it to a compatible template.
-- **The adopted host runner is invisible to projects on other templates.** It belongs to one template
-  (usually `host`). A run queued on any other template never uses it, however idle it is. It also counts
-  toward `live` for its template's `max_runners`, which can leave less room to launch cloud runners of
-  that template.
+- **One template per run, unless the project allows more.** A run is bound to the single template
+  resolved when it was queued. By default, if every runner of that template is busy, capped or cordoned,
+  the run waits even when another template's runners sit idle. A project can opt in to more with
+  `wrangl project edit SLUG --allow-template host`: its runs then try the allowed templates' runners
+  first (so a free host is used before cloud runners), then their own template's, and the autoscaler
+  counts free allowed slots as supply, launching only on overflow. Agent allow-lists, secrets and
+  session limits are those of the template whose runner is used.
+- **The host is invisible to projects that do not allow it.** The adopted host runner belongs to one
+  template (usually `host`); without `--allow-template host` a run queued on any other template never
+  uses it, however idle it is. It also counts toward `live` for its template's `max_runners`, which can
+  leave less room to launch cloud runners of that template.
+
+  One-time owner action to let the `wrangl` project use the host and overflow to EC2 (it is pinned to a
+  single template today):
+  `wrangl project edit wrangl --template go-claude --allow-template host --limit go-claude=1`
+  (raise the limit for more overflow runners). Queued and new runs of the project then fill the host's
+  slots first and launch `go-claude` runners only for what does not fit.
 - **Runs waiting on precursors still count as demand.** Queued work runs with no ready leaf are
   included in `demand`, so they can cause a launch for slots that stay empty.
 - **`needs_input` runs hold their slot.** A run waiting on your answer still occupies a session, so one

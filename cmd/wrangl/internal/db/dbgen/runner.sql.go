@@ -912,3 +912,105 @@ func (q *Queries) CountProjectRunners(ctx context.Context, arg CountProjectRunne
 	err := row.Scan(&column_1)
 	return column_1, err
 }
+
+const addAllowedTemplate = `-- name: AddAllowedTemplate :exec
+INSERT OR IGNORE INTO project_allowed_template (project_id, template_id) VALUES (?, ?)
+`
+
+type AddAllowedTemplateParams struct {
+	ProjectID  int64 `json:"project_id"`
+	TemplateID int64 `json:"template_id"`
+}
+
+func (q *Queries) AddAllowedTemplate(ctx context.Context, arg AddAllowedTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, addAllowedTemplate, arg.ProjectID, arg.TemplateID)
+	return err
+}
+
+const allowedSupply = `-- name: AllowedSupply :one
+SELECT CAST(COALESCE(SUM(MAX(a.max_sessions - (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
+                  AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0) AS INTEGER) AS supply
+FROM runner n JOIN runner_template a ON a.id = n.template_id
+WHERE a.id <> ?1
+  AND a.id IN (SELECT pa.template_id FROM project_allowed_template pa
+               WHERE pa.project_id IN (SELECT k.project_id FROM run r2 JOIN task k ON k.id = r2.task_id
+                                       WHERE r2.state = 'queued'
+                                         AND COALESCE(r2.template_id, k.template_id, (SELECT p.default_template_id FROM project p WHERE p.id = k.project_id)) = ?1))
+  AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
+  AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
+  AND (n.state NOT IN ('idle', 'busy') OR n.template_version = a.version)
+`
+
+// Free session slots (claimable runners, plus runners still coming up) on templates that projects
+// with queued runs on this template may also use. The autoscaler counts them as supply.
+func (q *Queries) AllowedSupply(ctx context.Context, templateID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, allowedSupply, templateID)
+	var supply int64
+	err := row.Scan(&supply)
+	return supply, err
+}
+
+const clearAllowedTemplates = `-- name: ClearAllowedTemplates :exec
+DELETE FROM project_allowed_template WHERE project_id = ?
+`
+
+func (q *Queries) ClearAllowedTemplates(ctx context.Context, projectID int64) error {
+	_, err := q.db.ExecContext(ctx, clearAllowedTemplates, projectID)
+	return err
+}
+
+const listAllowedTemplates = `-- name: ListAllowedTemplates :many
+SELECT t.id, t.name FROM project_allowed_template a JOIN runner_template t ON t.id = a.template_id
+WHERE a.project_id = ? ORDER BY t.name
+`
+
+type ListAllowedTemplatesRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// Templates (besides its own) the project may use, by name.
+func (q *Queries) ListAllowedTemplates(ctx context.Context, projectID int64) ([]ListAllowedTemplatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllowedTemplates, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllowedTemplatesRow{}
+	for rows.Next() {
+		var i ListAllowedTemplatesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
+
+const listAllowedTemplatesForTask = `-- name: ListAllowedTemplatesForTask :many
+SELECT a.template_id FROM project_allowed_template a JOIN task k ON k.project_id = a.project_id
+WHERE k.id = ? ORDER BY a.template_id
+`
+
+func (q *Queries) ListAllowedTemplatesForTask(ctx context.Context, id int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listAllowedTemplatesForTask, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var template_id int64
+		if err := rows.Scan(&template_id); err != nil {
+			return nil, err
+		}
+		items = append(items, template_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
