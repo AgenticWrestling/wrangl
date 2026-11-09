@@ -238,3 +238,6 @@ WHERE a.id <> sqlc.arg(template_id)
   AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
   AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
   AND (n.state NOT IN ('idle', 'busy') OR n.template_version = a.version);
+
+-- name: CountLiveRunners :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner WHERE template_id = ? AND state <> 'terminated';

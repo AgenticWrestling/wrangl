@@ -255,8 +255,11 @@ Work down this list.
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is
   one open item per run; it resolves itself when the run is assigned or no longer queued. The scheduler
-  can raise it (`NoteUnplaceable`); the stage-1 triggers (missing template, failed version, caps full)
-  are wired separately.
+  raises it when the run's template is gone (at once, no *Keep waiting*), and, after the run has waited
+  15 minutes with no runner live, starting or free on its template, when the template's current version
+  failed to apply, the enrol brake paused launching, the project's limit is 0, or the template is at
+  `max_runners` (the temporary reasons `launch_blocked` and `capacity`). A run that merely waits for a
+  busy or starting runner never raises it.
 - **Runs waiting on precursors still count as demand.** Queued work runs with no ready leaf are
   included in `demand`, so they can cause a launch for slots that stay empty.
 - **`needs_input` runs hold their slot.** A run waiting on your answer still occupies a session, so one

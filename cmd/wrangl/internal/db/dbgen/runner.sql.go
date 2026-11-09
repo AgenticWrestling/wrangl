@@ -1014,3 +1014,14 @@ func (q *Queries) ListAllowedTemplatesForTask(ctx context.Context, id int64) ([]
 	}
 	return items, rows.Err()
 }
+
+const countLiveRunners = `-- name: CountLiveRunners :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner WHERE template_id = ? AND state <> 'terminated'
+`
+
+func (q *Queries) CountLiveRunners(ctx context.Context, templateID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLiveRunners, templateID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}

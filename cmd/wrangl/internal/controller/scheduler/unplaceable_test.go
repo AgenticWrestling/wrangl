@@ -103,3 +103,52 @@ func TestUnplaceableAnswers(t *testing.T) {
 		t.Fatalf("cancel: %v %d", err, cancelled)
 	}
 }
+
+func TestUnplaceableRaisedForStageOneReasons(t *testing.T) {
+	s, _, clk, d := setup(t, 1)
+	ctx := context.Background()
+	d.W.Exec(`UPDATE runner_template SET agent_json = '{"start":["true"]}'`)
+	d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, clone_url) VALUES (1, 'o', 'n', 'main', 'file:///x')`)
+
+	// A run whose template is gone: at once.
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET repo_id = 1`)
+	s.Assign(ctx)
+	if n, _, p := openItems(t, s); n != 1 || p != `{"reason":"no_capability"}` {
+		t.Fatalf("no_capability: %d %s", n, p)
+	}
+
+	// A failed template version: only after 15 minutes of waiting.
+	d.W.Exec(`UPDATE run SET state = 'cancelled'`)
+	s.Assign(ctx) // resolves the first item
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1, repo_id = 1 WHERE state = 'queued'`)
+	d.W.Exec(`UPDATE runner_template SET failed_version = version`)
+	s.Assign(ctx)
+	if n, _, _ := openItems(t, s); n != 0 {
+		t.Fatal("raised before the wait elapsed")
+	}
+	clk.Advance(10 * time.Minute)
+	s.Assign(ctx)
+	if n, _, _ := openItems(t, s); n != 0 {
+		t.Fatal("raised after 10 minutes")
+	}
+	clk.Advance(6 * time.Minute)
+	s.Assign(ctx)
+	if n, _, p := openItems(t, s); n != 1 || p != `{"reason":"launch_blocked"}` {
+		t.Fatalf("launch_blocked: %d %s", n, p)
+	}
+
+	// A usable runner means the run just waits for it: the item resolves when the cause is gone.
+	d.W.Exec(`UPDATE runner_template SET failed_version = 0`)
+	d.W.Exec(`UPDATE project_template_limit SET max_instances = 0`)
+	s.Assign(ctx)
+	if n, _, p := openItems(t, s); n != 1 || p != `{"reason":"capacity"}` {
+		t.Fatalf("capacity: %d %s", n, p)
+	}
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, template_version) VALUES ('r1', 1, 'launching', 1)`)
+	s.Assign(ctx)
+	if n, _, p := openItems(t, s); n != 1 || p != `{"reason":"capacity"}` {
+		t.Fatalf("item should stay until the run is placed: %d %s", n, p)
+	}
+}

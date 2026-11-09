@@ -30,6 +30,9 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 	var errs []error
 	for _, r := range queued {
 		if !r.TemplateID.Valid || !r.RepoID.Valid {
+			if !r.TemplateID.Valid {
+				s.checkUnplaceable(ctx, r)
+			}
 			continue
 		}
 		// Work runs need a leaf ready right now; review/revise/plan runs carry their prompt.
@@ -37,6 +40,8 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 			if err := s.assignOne(ctx, r); err != nil {
 				if !tolerated(err) {
 					errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
+				} else if errors.Is(err, sql.ErrNoRows) {
+					s.checkUnplaceable(ctx, r)
 				}
 				continue
 			}
@@ -58,6 +63,8 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		if err := s.assignOne(ctx, r); err != nil {
 			if !tolerated(err) { // no idle runner is normal
 				errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
+			} else if errors.Is(err, sql.ErrNoRows) {
+				s.checkUnplaceable(ctx, r)
 			}
 			continue
 		}
