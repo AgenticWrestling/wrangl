@@ -239,7 +239,7 @@ func TestAgentMigrationWrapsTemplates(t *testing.T) {
 	}
 }
 
-// Migration 00045 drops project_template_limit; its down recreates and reseeds the table (1 for a
+// Migration 00046 drops project_template_limit; its down recreates and reseeds the table (1 for a
 // project's default template, 0 for every other) the way 00025 did.
 func TestProjectTemplateLimitDownRecreatesIt(t *testing.T) {
 	d, _ := open(t)
@@ -251,7 +251,7 @@ func TestProjectTemplateLimitDownRecreatesIt(t *testing.T) {
 	}
 	exec(t, d, `INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('go','[tools]','{}',2,4096,20), ('mac','[tools]','{}',2,4096,20)`)
 	exec(t, d, `INSERT INTO project (slug, name, default_template_id) VALUES ('a','A',1), ('b','B',2)`)
-	raw, err := os.ReadFile("migrations/00045_drop_project_template_limit.sql")
+	raw, err := os.ReadFile("migrations/00046_drop_project_template_limit.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

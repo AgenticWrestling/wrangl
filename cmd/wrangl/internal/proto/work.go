@@ -192,6 +192,7 @@ type StackReply struct {
 	OK    bool       `json:"ok"`
 	Error string     `json:"error,omitempty"`
 	Next  *StackNext `json:"next,omitempty"`
+	Token string     `json:"token,omitempty"` // "token" op: a freshly minted repo token (empty without GitHub)
 }
 
 // RunRef addresses a run on a runner (cmd.cancel, cmd.diff, cmd.tree, cmd.file).
@@ -249,6 +250,7 @@ type QuestionView struct {
 	TaskTitle     string           `json:"task_title"`
 	Project       string           `json:"project"`
 	RunID         int64            `json:"run_id,omitempty"`
+	PRID          int64            `json:"pr_id,omitempty"` // the pull request this question blocks
 	Prompt        string           `json:"prompt"`
 	DetailMD      string           `json:"detail_md,omitempty"`
 	AllowFreeText bool             `json:"allow_free_text"`

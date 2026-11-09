@@ -56,6 +56,10 @@ SELECT id FROM run WHERE repo_id = ? AND branch = ? AND kind IN ('work', 'revise
 SELECT CAST(COUNT(*) AS INTEGER) FROM run
 WHERE pr_id = ? AND kind = sqlc.arg(kind) AND state NOT IN ('succeeded', 'failed', 'blocked', 'cancelled');
 
+-- name: ResolveRunsForPR :many
+-- Every Smart Merge run of the PR, newest first.
+SELECT id, state, pushed FROM run WHERE pr_id = ? AND kind = 'resolve' ORDER BY id DESC;
+
 -- name: OpenQuestionForPR :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM question
 WHERE kind = 'pr_review' AND state = 'open' AND json_extract(payload_json, '$.pr_id') = CAST(sqlc.arg(pr_id) AS INTEGER);

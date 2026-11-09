@@ -240,6 +240,9 @@ func (s *Service) view(ctx context.Context, q dbgen.Question) (proto.QuestionVie
 	if q.PayloadJson != "" && q.PayloadJson != "{}" {
 		v.Payload = json.RawMessage(q.PayloadJson)
 	}
+	if pr, err := s.DB.RQ.QuestionPRID(ctx, q.ID); err == nil {
+		v.PRID = pr.Int64
+	}
 	opts, err := s.DB.RQ.ListQuestionOptions(ctx, q.ID)
 	if err != nil {
 		return v, err

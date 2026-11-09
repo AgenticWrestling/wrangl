@@ -65,7 +65,7 @@ branch to GitHub. Do the steps in order. Each step ends with a check.
 | A Claude Pro, Max, Team or Enterprise plan, with Claude Code installed on your laptop | step 7 |
 | A Cloudflare account with Zero Trust (the free plan is enough), and a domain on Cloudflare | step 10 (optional for now) |
 | Go 1.26+, [Task](https://taskfile.dev) and git on your laptop | step 2 |
-| This repo's `ssm` tool (`task install`) | connecting to the controller without opening port 22 |
+| The `aws` CLI's Session Manager plugin and `wrangl dev` (part of the `wrangl` binary) | connecting to the controller without opening port 22 |
 
 Pick a region and use it throughout:
 
@@ -152,7 +152,7 @@ cat > ec2-trust.json <<'EOF'
 EOF
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
-# Runner role: Session Manager only (so you can `ssm connect` to a runner to debug).
+# Runner role: Session Manager only (so you can `wrangl fleet connect` to a runner to debug).
 aws iam create-role --role-name wrangl-runner --assume-role-policy-document file://ec2-trust.json
 aws iam attach-role-policy --role-name wrangl-runner \
   --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
@@ -198,16 +198,16 @@ aws ec2 run-instances \
 ```
 
 Note the private IP (for example `10.0.1.5`): runners will be told to dial it. Connect with
-this repo's tool:
+`wrangl dev` (it is part of the `wrangl` binary you built in section 2; no controller is needed):
 
 ```sh
-ssm connect "$AWS_REGION/wrangl-controller"
+wrangl dev connect "$AWS_REGION/wrangl-controller"
 ```
 
 ### 5.2 Copy the binaries over
 
-Use `ssm setup "$AWS_REGION/wrangl-controller"` once to get an SSH config entry that goes
-through EC2 Instance Connect, then:
+Use `wrangl dev ssh --prepare-network "$AWS_REGION/wrangl-controller"` once (then exit) to get an
+SSH config entry that goes through EC2 Instance Connect, then:
 
 ```sh
 scp build/wrangl-linux-aarch64 build/wrangl-linux-x86_64 wrangl-controller:/tmp/
@@ -896,7 +896,7 @@ Watch these the first time and report anything odd:
 |---|---|---|
 | `fleet launch` | `journalctl -u wrangl-controller`, EC2 console | instance running, tagged `wrangl:managed=true`, `wrangl:controller=wr-…`, `wrangl:runner`, `wrangl:template`; volume and ENI tagged too |
 | IAM policy | controller log on launch/terminate | no `UnauthorizedOperation`; if you see one, the message names the missing action |
-| Enrolment | `fleet list` (enrolling → provisioning) | if stuck in `launching`: `ssm connect` to the runner, read `/var/log/cloud-init-output.log` |
+| Enrolment | `fleet list` (enrolling → provisioning) | if stuck in `launching`: `wrangl fleet connect NAME` (or `wrangl dev connect`) to the runner, read `/var/log/cloud-init-output.log` |
 | `mise install` | `fleet show <runner>` template log | tools installed under `/home/agent/.local/share/mise` |
 | `repo link` | CLI output | base branch detected; otherwise the account's App isn't installed on that repo |
 | Claude Code | `wrangl run attach <id>` | the agent works in the repo; `exited N` failures show its output in `wrangl logs <id>` |
@@ -1001,6 +1001,6 @@ instance, the instance profiles and roles, the SG and the NAT gateway if you mad
 | Inbox item "Tool call failed: <tool>" | a tool the controller runs for the agent (GitHub issue tools, PR calls) hit a service error, such as the App missing `issues: write` (6.2a). The run carries on; fix the cause, then press Dismiss. Mistakes by the agent itself (bad arguments, unknown task) are not raised |
 | CLI from laptop: HTTP 403 from Cloudflare | the service-token policy is missing, or the `cf_service_token` id/secret are wrong |
 
-Useful on any runner (`ssm connect <region>/wrangl-<runner>`):
+Useful on any runner (`wrangl dev connect <region>/wrangl-<runner>`):
 - `sudo wrangl --config /etc/wrangl/runner.yaml runner status`
 - `journalctl -u wrangl-runner`

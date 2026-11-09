@@ -47,3 +47,13 @@ UPDATE question SET state = 'cancelled', answer_text = sqlc.arg(text) WHERE id =
 -- Open unplaceable items with the state of their run (NULL: the run is gone).
 SELECT q.id, q.run_id, r.state AS run_state FROM question q LEFT JOIN run r ON r.id = q.run_id
 WHERE q.kind = 'unplaceable' AND q.state = 'open';
+
+-- name: SetQuestionPR :exec
+INSERT OR REPLACE INTO question_pr (pr_id, question_id) VALUES (?, ?);
+
+-- name: QuestionPRID :one
+SELECT pr_id FROM question_pr WHERE question_id = ?;
+
+-- name: CancelPRBlockingQuestions :execrows
+-- A restarted resolve run's questions are stale: close them.
+UPDATE question SET state = 'cancelled' WHERE state = 'open' AND id IN (SELECT question_id FROM question_pr WHERE pr_id = ?);

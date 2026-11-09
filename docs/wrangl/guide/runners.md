@@ -222,6 +222,7 @@ runner that sends no hash has self-upgrade off.
 | **Drain** | `fleet drain NAME` | Cordons, and terminates the instance once it has nothing left (idle, offline, enrolling or provisioning). Running work finishes first. Launched runners only; uncordoning cancels the drain. |
 | **Terminate** | `fleet terminate NAME` | Terminates the instance **now**. Runs on it are not stopped gracefully: once the runner is gone they fail as "runner lost" (after the 10-minute grace for lost runners) and a work run is retried once. Refused for adopted runners. |
 | `fleet teardown` | `fleet teardown [--region --profile --controller-id --all-controllers -y]` | Talks to AWS directly, not the controller: terminates every instance tagged `wrangl:managed=true` (for this controller unless `--all-controllers`). Works when the controller is gone. |
+| `fleet connect` / `fleet tunnel` | `fleet connect NAME`, `fleet tunnel NAME RPORT[:LPORT]` | Open an SSM shell or a port forward to the runner's EC2 instance for debugging, with your own AWS credentials (the AWS CLI and Session Manager plugin). Your own instances: [dev-instances.md](dev-instances.md). |
 
 A failed template apply cordons the runner automatically. A `cordoned` runner that is idle is still
 reaped after its idle timeout.
@@ -286,7 +287,7 @@ reaped while idle.
 |---|---|
 | `fleet launch`: "listen.enroll must be the controller's private VPC IP" | `listen.nats` and `listen.enroll` are still loopback; see INSTALL.md 5.4. |
 | `fleet launch`: "no aarch64 runner binary" | Put `wrangl-linux-aarch64` (and `-x86_64`) in `<data dir>/bin/`. |
-| Runner stuck `launching` or `enrolling` | The instance cannot reach the controller on 4222-4223 (security group), has no NAT, or the request IP did not match; read `/var/log/cloud-init-output.log` over `ssm connect`. The reaper terminates it after 15 minutes. |
+| Runner stuck `launching` or `enrolling` | The instance cannot reach the controller on 4222-4223 (security group), has no NAT, or the request IP did not match; read `/var/log/cloud-init-output.log` over `wrangl fleet connect NAME`. The reaper terminates it after 15 minutes. |
 | Enrolment rejected: "below template minimums" | The machine is smaller than `min`; fix the template or the instance type. |
 | Runner is `idle` but my run waits | The runner is cordoned or draining, is on an older template version or binary (it is catching up), is at `max_sessions`, or belongs to a different template. `wrangl fleet show NAME`. |
 | Runner `provisioning` for long | A template apply (mise downloads) is running; the log is on the runner page. 30 minutes is the limit. |

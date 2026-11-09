@@ -56,6 +56,9 @@ type Service struct {
 	// OnAgentNotice is called when an agent's Notification hook fires (Claude Code: it needs
 	// permission, or has been idle waiting): the owner should look. message is the agent's text.
 	OnAgentNotice func(run dbgen.Run, message string)
+	// RepoToken mints a fresh git token for a repo (nil: no GitHub, no token). Installation tokens
+	// expire after an hour, so runners ask for one at each push instead of reusing the assignment's.
+	RepoToken func(ctx context.Context, repo dbgen.Repo) (string, error)
 }
 
 func (s *Service) ts() string { return dbtime.Format(s.Now()) }
@@ -269,6 +272,27 @@ func (s *Service) HandleStack(ctx context.Context, m *nats.Msg) {
 			return
 		}
 		reply(proto.StackReply{OK: true})
+	case "token":
+		run, err := s.DB.RQ.GetRun(ctx, req.RunID)
+		if err != nil {
+			fail(err)
+			return
+		}
+		if s.RepoToken == nil || !run.RepoID.Valid {
+			reply(proto.StackReply{OK: true})
+			return
+		}
+		repo, err := s.DB.RQ.GetRepo(ctx, run.RepoID.Int64)
+		if err != nil {
+			fail(err)
+			return
+		}
+		tok, err := s.RepoToken(ctx, repo)
+		if err != nil {
+			fail(err)
+			return
+		}
+		reply(proto.StackReply{OK: true, Token: tok})
 	case "tool":
 		var tr proto.ToolRequest
 		json.Unmarshal(m.Data, &tr)

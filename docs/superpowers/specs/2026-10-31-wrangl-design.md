@@ -19,7 +19,7 @@ commands:
 - **Client** — CLI and TUI commands that talk to the controller's HTTP/2 + SSE API. The PWA
   uses that same API surface.
 
-It lives in the `devhost` repo next to `ssm`, as `cmd/wrangl`.
+It lives in the `devhost` repo, as `cmd/wrangl`.
 
 ### Goals
 
@@ -867,7 +867,7 @@ sqlc 1.31.1, the full schema migrates up and down. Checked:
 | D10 | Datastar + templ + goldmark; single user; client API is HTTP/2 + SSE |
 | D11 | Controller is a small EC2 host in the runners' VPC/SG; keep Cloudflare ZT; GitHub webhooks via Access bypass path + HMAC |
 | D12 | Web push in v1 |
-| D13 | Name: **wrangl**; same repo as `ssm` |
+| D13 | Name: **wrangl** |
 | D14 | Agent auth: `claude setup-token` token held by controller, injected per run; Remote Control optional/experimental (M9) |
 | D15 | Hierarchical tasks, ranked within parent, immutable sqids, same-project precursors; parents are containers |
 | D16 | Blocked work: skip to next ready leaf; if none, release runner, run → `blocked`, auto-continue when precursors complete |

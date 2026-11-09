@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/spf13/cobra"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/awsx"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
@@ -35,19 +35,9 @@ func metricsCols(m json.RawMessage) (cpu, mem, disk string) {
 
 // TeardownEC2 is overridable in tests so teardown can run against a fake.
 var TeardownEC2 = func(ctx context.Context, region, profile string) (provision.EC2API, error) {
-	opts := []func(*awsconfig.LoadOptions) error{}
-	if region != "" {
-		opts = append(opts, awsconfig.WithRegion(region))
-	}
-	if profile != "" {
-		opts = append(opts, awsconfig.WithSharedConfigProfile(profile))
-	}
-	ac, err := awsconfig.LoadDefaultConfig(ctx, opts...)
+	ac, err := awsx.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return nil, err
-	}
-	if ac.Region == "" {
-		return nil, errors.New("no AWS region: pass --region or set AWS_REGION")
 	}
 	return ec2.NewFromConfig(ac), nil
 }
@@ -324,6 +314,7 @@ touched, and ownership is re-checked on each instance before it is terminated.`,
 		runnerAction(g, "uncordon", "Resume assigning work"),
 		runnerAction(g, "drain", "Stop new work; terminate once idle (controller-launched runners)"),
 		terminate, token, teardown,
+		fleetConnect(g), fleetTunnel(g),
 	)
 }
 

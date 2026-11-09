@@ -273,6 +273,12 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
 		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, ApprovalHandlers: map[string]func(context.Context, json.RawMessage) error{}, Bus: s.Bus}
+	if ghAPI != nil {
+		s.Runs.RepoToken = func(ctx context.Context, repo dbgen.Repo) (string, error) {
+			tok, _, err := ghAPI.RepoToken(ctx, projects.GHRepo(repo))
+			return tok, err
+		}
+	}
 	reviewer, hasReviewer, err := s.reviewer()
 	if err != nil {
 		return err
@@ -285,7 +291,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			s.log.Warn("github webhook secret unreadable; webhooks disabled", "err", err)
 		}
 	}
-	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
+	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus, RepollDelay: 3 * time.Second}
 	vapid, err := webpush.EnsureKeys(SecretsDir(s.cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("VAPID keys: %w", err)

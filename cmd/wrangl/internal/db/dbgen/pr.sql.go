@@ -747,3 +747,34 @@ func (q *Queries) SetPRMergeable(ctx context.Context, arg SetPRMergeableParams) 
 	_, err := q.db.ExecContext(ctx, setPRMergeable, arg.Mergeable, arg.ID)
 	return err
 }
+
+const resolveRunsForPR = `-- name: ResolveRunsForPR :many
+SELECT id, state, pushed FROM run WHERE pr_id = ? AND kind = 'resolve' ORDER BY id DESC
+`
+
+type ResolveRunsForPRRow struct {
+	ID     int64  `json:"id"`
+	State  string `json:"state"`
+	Pushed int64  `json:"pushed"`
+}
+
+// Every Smart Merge run of the PR, newest first.
+func (q *Queries) ResolveRunsForPR(ctx context.Context, prID sql.NullInt64) ([]ResolveRunsForPRRow, error) {
+	rows, err := q.db.QueryContext(ctx, resolveRunsForPR, prID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResolveRunsForPRRow
+	for rows.Next() {
+		var i ResolveRunsForPRRow
+		if err := rows.Scan(&i.ID, &i.State, &i.Pushed); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
