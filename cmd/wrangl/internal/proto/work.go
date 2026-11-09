@@ -250,6 +250,7 @@ type QuestionView struct {
 	TaskTitle     string           `json:"task_title"`
 	Project       string           `json:"project"`
 	RunID         int64            `json:"run_id,omitempty"`
+	PRID          int64            `json:"pr_id,omitempty"` // the pull request this question blocks
 	Prompt        string           `json:"prompt"`
 	DetailMD      string           `json:"detail_md,omitempty"`
 	AllowFreeText bool             `json:"allow_free_text"`

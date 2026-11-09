@@ -53,9 +53,13 @@ type Service struct {
 	// QueueResolve overrides how auto-merge queues Smart Merge for a conflicted PR (tests).
 	// Nil: autoResolve. It must be idempotent (one resolve run per PR at a time).
 	QueueResolve func(ctx context.Context, pr dbgen.PullRequest) error
+	// RepollDelay is how long to wait before re-reading a mergeable state GitHub reported as
+	// "unknown" (still computing). Zero: no re-poll.
+	RepollDelay time.Duration
 
 	mu       sync.Mutex
 	reviewed map[int64]string // pr id -> head sha a review run was queued for
+	restart  map[int64]bool   // PR id -> its resolve run was cancelled because the base moved: queue a fresh one when it ends (guarded by mu)
 	resolved map[int64]string // PR id -> head sha an automatic resolve run was queued for (guarded by mu)
 	audited  map[int64]string // PR id -> head sha a citation audit was queued for (guarded by mu)
 }
@@ -411,8 +415,98 @@ func (s *Service) RefreshMergeable(ctx context.Context, prID int64) error {
 		if pr.Mergeable != before {
 			s.Bus.PR(pr.ID)
 		}
+		if pr.Mergeable == gh.MergeUnknown {
+			s.repoll(pr.ID, 3)
+		}
 	}
 	return nil
+}
+
+// repoll re-reads a PR's mergeable state a few times while GitHub is still computing it.
+func (s *Service) repoll(prID int64, left int) {
+	if s.RepollDelay <= 0 || left <= 0 {
+		return
+	}
+	time.AfterFunc(s.RepollDelay, func() {
+		ctx := context.Background()
+		pr, err := s.DB.RQ.GetPR(ctx, prID)
+		if err != nil || pr.State != "open" || pr.Mergeable != gh.MergeUnknown {
+			return
+		}
+		_, ghr, err := s.repo(ctx, pr.RepoID)
+		if err != nil {
+			return
+		}
+		live, err := s.gh(ghr).GetPR(ctx, ghr, pr.GhNumber)
+		if err != nil || live.State != "open" {
+			return
+		}
+		s.storeMergeable(ctx, &pr, live.Mergeable)
+		if pr.Mergeable != gh.MergeUnknown {
+			s.Bus.PR(pr.ID)
+			return
+		}
+		s.repoll(prID, left-1)
+	})
+}
+
+// MaxResolveAttempts caps Smart Merge runs per PR; after that the PR needs a human.
+const MaxResolveAttempts = 3
+
+// Merge states shown on cards (MergeView.State).
+const (
+	ViewClean      = "clean"       // Approve & merge
+	ViewChecking   = "checking"    // GitHub is still computing mergeability; buttons do not flip
+	ViewConflicted = "conflicted"  // Smart Merge replaces Approve & merge
+	ViewResolving  = "resolving"   // a Smart Merge run is active
+	ViewNeedsHuman = "needs_human" // conflicted and the attempt cap is spent
+)
+
+// MergeView is what a card needs to render a PR's mergeability.
+type MergeView struct {
+	State    string
+	RunID    int64 // the active resolve run (ViewResolving)
+	DiffRun  int64 // the newest resolve run that pushed: its diff is the resolution to review
+	Attempts int
+}
+
+// MergeStateOf derives the card state from the stored mergeable state and the PR's resolve runs
+// (newest first).
+func MergeStateOf(mergeable string, runs []dbgen.ResolveRunsForPRRow) MergeView {
+	v := MergeView{Attempts: len(runs)}
+	for _, r := range runs {
+		if v.DiffRun == 0 && r.State == "succeeded" && r.Pushed == 1 {
+			v.DiffRun = r.ID
+		}
+	}
+	for _, r := range runs {
+		switch r.State {
+		case "succeeded", "failed", "blocked", "cancelled":
+		default:
+			v.State, v.RunID = ViewResolving, r.ID
+			return v
+		}
+	}
+	switch {
+	case mergeable == gh.MergeUnknown:
+		v.State = ViewChecking
+	case mergeable != gh.MergeConflicted:
+		v.State = ViewClean
+	case v.Attempts >= MaxResolveAttempts:
+		v.State = ViewNeedsHuman
+	default:
+		v.State = ViewConflicted
+	}
+	return v
+}
+
+// MergeView reads a PR's card state.
+func (s *Service) MergeView(ctx context.Context, pr dbgen.PullRequest) MergeView {
+	runs, err := s.DB.RQ.ResolveRunsForPR(ctx, dbnull.Int(pr.ID))
+	if err != nil {
+		s.Log.Warn("resolve runs", "pr", pr.Url, "err", err)
+	}
+	return MergeStateOf(pr.Mergeable, runs)
 }
 
 // autoMergeable: the App that opened the PR can merge it, so auto-merge needs no reviewer App.
@@ -939,6 +1033,9 @@ func (s *Service) handleEvent(ctx context.Context, event string, body []byte) er
 				err = s.Evaluate(ctx, pr.ID)
 			} else {
 				err = s.RefreshMergeable(ctx, pr.ID)
+				if err == nil {
+					s.restartResolveIfBaseMoved(ctx, pr, branch)
+				}
 			}
 			if err != nil {
 				s.Log.Warn("push webhook PR", "pr", pr.Url, "err", err)
@@ -1030,6 +1127,9 @@ func (s *Service) ResolveConflicts(ctx context.Context, prID int64) error {
 		// The base moved but nothing conflicts: GitHub merges it in; no agent needed.
 		return s.updateBranch(ctx, pr)
 	}
+	if v := s.MergeView(ctx, pr); v.State == ViewNeedsHuman {
+		return fmt.Errorf("%w: PR %d has had %d Smart Merge attempts; it needs a human", errs.Conflict, pr.ID, v.Attempts)
+	}
 	_, queued, err := s.queueResolve(ctx, pr)
 	if err != nil {
 		return err
@@ -1111,6 +1211,67 @@ Before ending, call report_status with a summary that lists each conflicted file
 	return b.String()
 }
 
+// restartResolveIfBaseMoved: a push to the base branch while a Smart Merge run is working makes
+// its work stale. Cancel the run, close the questions it asked, and queue a fresh run once the
+// old one has ended (a running run is cancelled asynchronously).
+func (s *Service) restartResolveIfBaseMoved(ctx context.Context, pr dbgen.PullRequest, branch string) {
+	repo, _, err := s.repo(ctx, pr.RepoID)
+	if err != nil || repo.DefaultBranch != branch {
+		return
+	}
+	runs, err := s.DB.RQ.ResolveRunsForPR(ctx, dbnull.Int(pr.ID))
+	if err != nil {
+		return
+	}
+	v := MergeStateOf(pr.Mergeable, runs)
+	if v.State != ViewResolving {
+		return
+	}
+	if _, err := s.DB.Q.CancelPRBlockingQuestions(ctx, dbnull.Int(pr.ID)); err != nil {
+		s.Log.Warn("close stale questions", "pr", pr.Url, "err", err)
+	}
+	s.mu.Lock()
+	if s.restart == nil {
+		s.restart = map[int64]bool{}
+	}
+	s.restart[pr.ID] = true
+	s.mu.Unlock()
+	s.logPR(ctx, pr, "info", fmt.Sprintf("Smart Merge restarting on PR #%d", pr.GhNumber),
+		fmt.Sprintf("%s moved while run %d was resolving; the run is cancelled and its open questions closed.", branch, v.RunID))
+	if err := s.Runs.Cancel(ctx, v.RunID); err != nil {
+		s.Log.Warn("cancel stale resolve run", "pr", pr.Url, "err", err)
+		return
+	}
+	s.requeueResolve(ctx, pr.ID)
+}
+
+// requeueResolve queues the fresh run of a restart once the old run is over.
+func (s *Service) requeueResolve(ctx context.Context, prID int64) {
+	s.mu.Lock()
+	want := s.restart[prID]
+	s.mu.Unlock()
+	if !want {
+		return
+	}
+	pr, err := s.DB.RQ.GetPR(ctx, prID)
+	if err != nil || pr.State != "open" {
+		return
+	}
+	v := s.MergeView(ctx, pr)
+	if v.State == ViewResolving {
+		return // the cancelled run has not ended yet; recordResolveOutcome tries again
+	}
+	s.mu.Lock()
+	delete(s.restart, prID)
+	s.mu.Unlock()
+	if v.State != ViewConflicted {
+		return // resolved meanwhile, or out of attempts
+	}
+	if _, _, err := s.queueResolve(ctx, pr); err != nil {
+		s.Log.Warn("restart resolve", "pr", pr.Url, "err", err)
+	}
+}
+
 // recordResolveOutcome writes what a finished resolve run did to the PR timeline.
 func (s *Service) recordResolveOutcome(ctx context.Context, run dbgen.Run) {
 	if !run.PrID.Valid {
@@ -1120,6 +1281,7 @@ func (s *Service) recordResolveOutcome(ctx context.Context, run dbgen.Run) {
 	if err != nil {
 		return
 	}
+	defer s.requeueResolve(ctx, pr.ID)
 	summary := strings.TrimSpace(run.StatusText)
 	switch {
 	case run.State == "succeeded" && run.Pushed == 1:

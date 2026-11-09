@@ -278,3 +278,41 @@ func (q *Queries) ListQuestions(ctx context.Context, openOnly int64) ([]ListQues
 	}
 	return items, nil
 }
+
+const setQuestionPR = `-- name: SetQuestionPR :exec
+INSERT OR REPLACE INTO question_pr (pr_id, question_id) VALUES (?, ?)
+`
+
+type SetQuestionPRParams struct {
+	PrID sql.NullInt64 `json:"pr_id"`
+	ID   int64         `json:"id"`
+}
+
+func (q *Queries) SetQuestionPR(ctx context.Context, arg SetQuestionPRParams) error {
+	_, err := q.db.ExecContext(ctx, setQuestionPR, arg.PrID, arg.ID)
+	return err
+}
+
+const questionPRID = `-- name: QuestionPRID :one
+SELECT pr_id FROM question_pr WHERE question_id = ?
+`
+
+func (q *Queries) QuestionPRID(ctx context.Context, id int64) (sql.NullInt64, error) {
+	row := q.db.QueryRowContext(ctx, questionPRID, id)
+	var pr_id sql.NullInt64
+	err := row.Scan(&pr_id)
+	return pr_id, err
+}
+
+const cancelPRBlockingQuestions = `-- name: CancelPRBlockingQuestions :execrows
+UPDATE question SET state = 'cancelled' WHERE state = 'open' AND id IN (SELECT question_id FROM question_pr WHERE pr_id = ?)
+`
+
+// A restarted resolve run's questions are stale: close them.
+func (q *Queries) CancelPRBlockingQuestions(ctx context.Context, prID sql.NullInt64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelPRBlockingQuestions, prID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

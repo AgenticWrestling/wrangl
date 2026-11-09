@@ -18,4 +18,5 @@
     <span class="grow"></span>{{if .Changes.URL}}<a class="tag commit chgink" href="{{.Changes.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Changes.Title}}">{{faicon "edit"}}{{.Changes.Label}} ↗</a>{{end}}
     {{if .Chat}}<button type="button" class="chatbtn" aria-label="Add a comment" title="Comment" data-attr:aria-pressed="{{sig "c" $k}}" data-on:click="{{sig "c" $k}} = !{{sig "c" $k}}">{{faicon "comment"}}</button>{{end}}
   </div>
+  {{if .Subs}}<div class="isubs">{{range .Subs}}{{template "icard" .}}{{end}}</div>{{end}}
 </section>{{end}}

@@ -444,6 +444,12 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		if err != nil {
 			return nil, err
 		}
+		if run.Kind == "resolve" && run.PrID.Valid {
+			// A Smart Merge question blocks the PR: the Inbox nests it under the review card.
+			if err := s.DB.Q.SetQuestionPR(ctx, dbgen.SetQuestionPRParams{PrID: run.PrID, ID: q.ID}); err != nil {
+				return nil, err
+			}
+		}
 		return map[string]any{"question_id": q.ID}, nil
 
 	case "report_status":

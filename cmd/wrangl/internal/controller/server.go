@@ -290,7 +290,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			s.log.Warn("github webhook secret unreadable; webhooks disabled", "err", err)
 		}
 	}
-	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
+	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus, RepollDelay: 3 * time.Second}
 	vapid, err := webpush.EnsureKeys(SecretsDir(s.cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("VAPID keys: %w", err)

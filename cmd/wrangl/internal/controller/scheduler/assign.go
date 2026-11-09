@@ -35,6 +35,10 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		// Work runs need a leaf ready right now; review/revise/plan runs carry their prompt.
 		if r.Kind != "work" {
 			if err := s.assignOne(ctx, r); err != nil {
+				if errors.Is(err, sql.ErrNoRows) && r.Kind == "resolve" {
+					// Resolve runs go first; say why one is still queued.
+					q.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: no free runner slot", ID: r.ID})
+				}
 				if !tolerated(err) {
 					errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
 				}

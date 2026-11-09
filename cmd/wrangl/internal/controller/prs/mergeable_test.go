@@ -273,3 +273,114 @@ func mustPR(t *testing.T, s *Service, id int64) dbgen.PullRequest {
 	}
 	return pr
 }
+
+func TestMergeStateOf(t *testing.T) {
+	run := func(id int64, state string, pushed int64) dbgen.ResolveRunsForPRRow {
+		return dbgen.ResolveRunsForPRRow{ID: id, State: state, Pushed: pushed}
+	}
+	failed := []dbgen.ResolveRunsForPRRow{run(3, "failed", 0), run(2, "failed", 0), run(1, "failed", 0)}
+	cases := []struct {
+		name      string
+		mergeable string
+		runs      []dbgen.ResolveRunsForPRRow
+		want      string
+	}{
+		{"clean", gh.MergeClean, nil, ViewClean},
+		{"unknown is checking, not conflicted", gh.MergeUnknown, nil, ViewChecking},
+		{"conflicted", gh.MergeConflicted, nil, ViewConflicted},
+		{"conflicted with an active run", gh.MergeConflicted, []dbgen.ResolveRunsForPRRow{run(1, "running", 0)}, ViewResolving},
+		{"queued run counts as active", gh.MergeUnknown, []dbgen.ResolveRunsForPRRow{run(1, "queued", 0)}, ViewResolving},
+		{"one failed attempt can retry", gh.MergeConflicted, failed[:1], ViewConflicted},
+		{"cap reached", gh.MergeConflicted, failed, ViewNeedsHuman},
+		{"resolved PR returns to clean", gh.MergeClean, []dbgen.ResolveRunsForPRRow{run(1, "succeeded", 1)}, ViewClean},
+	}
+	for _, c := range cases {
+		if got := MergeStateOf(c.mergeable, c.runs).State; got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	if v := MergeStateOf(gh.MergeClean, []dbgen.ResolveRunsForPRRow{run(5, "succeeded", 0), run(4, "succeeded", 1)}); v.DiffRun != 4 {
+		t.Errorf("DiffRun %d, want 4", v.DiffRun)
+	}
+}
+
+func TestResolveConflictsCapsAttemptsAtThree(t *testing.T) {
+	s, f := mergeableFixture(t)
+	ctx := context.Background()
+	f.SetMergeable(1, gh.MergeConflicted)
+	for i := 1; i <= MaxResolveAttempts; i++ {
+		if err := s.ResolveConflicts(ctx, 1); err != nil {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+		s.DB.W.Exec(`UPDATE run SET state = 'failed' WHERE kind = 'resolve'`)
+	}
+	if err := s.ResolveConflicts(ctx, 1); err == nil || !strings.Contains(err.Error(), "needs a human") {
+		t.Fatalf("fourth attempt: %v", err)
+	}
+	if n, _ := resolveRuns(t, s); n != MaxResolveAttempts {
+		t.Fatalf("%d resolve runs", n)
+	}
+	if v := s.MergeView(ctx, mustPR(t, s, 1)); v.State != ViewNeedsHuman {
+		t.Fatalf("state %q", v.State)
+	}
+}
+
+func TestUnknownMergeableRepollsUntilKnown(t *testing.T) {
+	s, f := mergeableFixture(t)
+	s.RepollDelay = 5 * time.Millisecond
+	f.SetMergeable(1, gh.MergeUnknown)
+	if err := s.RefreshMergeable(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	f.SetMergeable(1, gh.MergeConflicted)
+	deadline := time.Now().Add(2 * time.Second)
+	for mergeableOf(t, s, 1) != gh.MergeConflicted && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := mergeableOf(t, s, 1); got != gh.MergeConflicted {
+		t.Fatalf("not re-polled: %q", got)
+	}
+}
+
+func TestBaseMovingRestartsResolveAndClosesItsQuestions(t *testing.T) {
+	s, f := mergeableFixture(t)
+	s.Runs = &runs.Service{DB: s.DB, Log: s.Log, Bus: &events.Bus{}, Now: time.Now}
+	ctx := context.Background()
+	f.SetMergeable(1, gh.MergeConflicted)
+	if err := s.ResolveConflicts(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	// The resolve run asked a blocking question (the run tool links it to the PR).
+	s.DB.W.Exec(`INSERT INTO question (task_id, run_id, kind, prompt) VALUES (1, 2, 'agent', 'which side?')`)
+	if err := s.DB.Q.SetQuestionPR(ctx, dbgen.SetQuestionPRParams{PrID: dbnull.Int(1), ID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if pr, err := s.DB.RQ.QuestionPRID(ctx, 1); err != nil || pr.Int64 != 1 {
+		t.Fatalf("link %v %v", pr, err)
+	}
+	// main moves: the queued run is cancelled, a fresh one queued, the stale question closed.
+	body := `{"ref":"refs/heads/main","repository":{"name":"app","owner":{"login":"acme"}}}`
+	if err := s.handleEvent(ctx, "push", []byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	s.DB.R.QueryRow(`SELECT state FROM question WHERE id = 1`).Scan(&state)
+	if state != "cancelled" {
+		t.Fatalf("stale question %q", state)
+	}
+	var cancelled, queued int
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM run WHERE kind = 'resolve' AND state = 'cancelled'`).Scan(&cancelled)
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM run WHERE kind = 'resolve' AND state = 'queued'`).Scan(&queued)
+	if cancelled != 1 || queued != 1 {
+		t.Fatalf("cancelled %d, queued %d", cancelled, queued)
+	}
+	// A push that is not to the base branch leaves the new run alone.
+	body = `{"ref":"refs/heads/other","repository":{"name":"app","owner":{"login":"acme"}}}`
+	if err := s.handleEvent(ctx, "push", []byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.R.QueryRow(`SELECT COUNT(*) FROM run WHERE kind = 'resolve' AND state = 'queued'`).Scan(&queued)
+	if queued != 1 {
+		t.Fatalf("queued %d after an unrelated push", queued)
+	}
+}

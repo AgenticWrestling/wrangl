@@ -627,3 +627,4 @@ li.task > .row > .iconfirm .iq { flex: 1 1 12rem; }
 .bar .rchip { display: inline-flex; }
 button.chip.ic { background: none; color: inherit; font: inherit; cursor: pointer; }
 .bar > .btn.primary { padding-left: 16px; padding-right: 16px; font-size: 1.1rem; line-height: 1; }
+.icard .isubs { margin: .75rem 0 0 1.25rem; padding-left: .75rem; border-left: 2px solid var(--line); display: grid; gap: .5rem; }

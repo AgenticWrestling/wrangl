@@ -43,11 +43,12 @@ ORDER BY r.id DESC
 LIMIT sqlc.arg(lim);
 
 -- name: QueuedRunsForAssignment :many
+-- Smart Merge (resolve) runs are short and unblock a PR: they are offered a slot ahead of everything else.
 SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt, r.kind, r.continue_branch,
        CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
 FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
 WHERE r.state = 'queued' AND p.archived_at IS NULL
-ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at;
+ORDER BY (r.kind = 'resolve') DESC, p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at;
 
 -- name: ClaimIdleRunner :one
 -- A runner on the template with a free session slot, at the template's current version and not
