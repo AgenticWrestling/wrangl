@@ -134,6 +134,10 @@ func (s *Service) syncAgents(ctx context.Context, t dbgen.RunnerTemplate, yamlBo
 	if err := s.syncMode(ctx, t, yamlBody); err != nil {
 		return err
 	}
+	defer func() {
+		s.setProvides(ctx, t.ID, TemplateProvides(yamlBody))
+		s.SyncCapabilities(ctx)
+	}()
 	if names := TemplateAgents(yamlBody); len(names) > 0 {
 		if err := agentdef.SetTemplateAgents(ctx, s.DB.Q, t.ID, names); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -465,6 +469,8 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 	if err != nil {
 		return nil, err
 	}
+	s.SyncCapabilities(ctx) // the new runner carries its template's tags
+	s.recordProbe(ctx, resp.RunnerID, req.Facts)
 	s.Log.Info("runner enrolled", "runner", resp.Name, "id", resp.RunnerID, "from", remoteIP)
 	s.note(ctx, "runner", "info", resp.Name, "Runner enrolled", "from "+remoteIP)
 	return &resp, nil

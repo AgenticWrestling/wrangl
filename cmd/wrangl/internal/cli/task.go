@@ -98,6 +98,7 @@ func taskCmd(g *Global) *cobra.Command {
 			req.Template, _ = f.GetString("template")
 			req.Issue, _ = f.GetString("issue")
 			req.Needs, _ = f.GetStringSlice("needs")
+			req.Require, _ = f.GetStringSlice("require")
 			if v, _ := f.GetStringSlice("need"); len(v) > 0 {
 				if req.Need, err = placement.ParsePatch(v); err != nil {
 					return err
@@ -128,6 +129,7 @@ func taskCmd(g *Global) *cobra.Command {
 	cf.String("template", "", "runner template (default: inherited)")
 	cf.String("issue", "", "linked GitHub issue (owner/name#number)")
 	cf.StringSlice("needs", nil, "precursor task sqids")
+	cf.StringSlice("require", nil, "capability requirement: arch=arm64, tool:go>=1.22, agent:claude (repeatable)")
 	cf.StringSlice("need", nil, "resource need FIELD=VALUE: vcpu=N, ram=8GiB, disk=5GiB (repeatable)")
 	cf.String("type", "", typeHelp)
 	positionFlags(create)
@@ -203,6 +205,9 @@ func taskCmd(g *Global) *cobra.Command {
 					fmt.Fprintf(w, "target\t%s\n", t.TargetDate)
 				}
 				printNeed(w, t.Need)
+				if len(t.Requires) > 0 {
+					fmt.Fprintf(w, "requires\t%s\n", strings.Join(t.Requires, ", "))
+				}
 				if t.Summary != "" {
 					fmt.Fprintf(w, "summary\t%s\n", t.Summary)
 				}
@@ -262,6 +267,8 @@ func taskCmd(g *Global) *cobra.Command {
 				t, _ := cmd.Flags().GetString("target-date")
 				req.TargetDate = &t
 			}
+			req.Require, _ = cmd.Flags().GetStringSlice("require")
+			req.Unrequire, _ = cmd.Flags().GetStringSlice("unrequire")
 			if v, _ := cmd.Flags().GetStringSlice("need"); len(v) > 0 {
 				if req.Need, err = placement.ParsePatch(v); err != nil {
 					return err
@@ -271,6 +278,8 @@ func taskCmd(g *Global) *cobra.Command {
 			return err
 		},
 	}
+	edit.Flags().StringSlice("require", nil, "capability requirement to add: arch=arm64, tool:go>=1.22 (repeatable)")
+	edit.Flags().StringSlice("unrequire", nil, "capability requirement to remove, by key (repeatable)")
 	edit.Flags().StringSlice("need", nil, "resource need FIELD=VALUE: vcpu=N, ram=8GiB, disk=5GiB (repeatable; empty value clears)")
 	edit.Flags().String("title", "", "new title")
 	edit.Flags().String("prompt", "", "new prompt")

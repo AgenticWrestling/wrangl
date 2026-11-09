@@ -273,6 +273,23 @@ Work down this list.
   with *Edit this task's needs* (opens the task; lowering the needs from there re-resolves the queued run
   and the item resolves itself on the next tick), *Use template X* for templates that could hold it, and
   *Cancel the task's run*. *Edit this task's needs* is also offered on the temporary items.
+- **Capability tags and requirements.** Placement can also match on what a runner can *do*, not just
+  its size. A **template provides tags**: `arch=arm64`, `agent:claude` for each agent on its allow-list,
+  `tool:go=1.22` for each tool in its mise `[tools]`, plus whatever its file lists under `provides:`
+  (`provides: [net=vpn, gpu=none]`). A **runner carries** its template's tags, plus what it probed about
+  itself at enrolment (`tool:docker`, and `agent:claude=authed` when claude is installed and signed in); tags
+  are kept in step with the template every few minutes. A **project, task or queued run requires** tags:
+  `wrangl project edit SLUG --require tool:go>=1.22 --require net=public|vpn`, `wrangl task create|edit
+  --require gpu` (`--unrequire KEY` removes one). Forms: `key=value`, `key>=1.22` (dotted version at
+  least), `key=a|b` (one of), bare `key` (present). A task's requirement on a key replaces the project's
+  for that key. The resolved set is copied onto the run when it is queued (like needs), together with
+  `agent:NAME` for the agent it will use, so a runner whose template does not allow that agent is skipped
+  instead of tried and failed. A run fits a runner only if the runner's tags satisfy all of it (this is the
+  capability line of `Fits`); the planner launches only menu entries whose template provides the tags; a
+  requirement no template provides raises the "can't be placed" item at once (reason `no_capability`, no
+  *Keep waiting*) and it resolves itself when the requirement is changed. `fleet show`, `template show`
+  and the runner card show tags. Nothing requires anything by default, and a runner with no tags yet is
+  unrestricted, so existing setups behave as before.
 - **The measured guard (off by default).** Reservation says what was promised; the guard says what is
   true. `wrangl fleet set host --guard load1=6,mem=85,disk=85` (empty value stops guarding one measure)
   closes a runner to **new** assignments when its heartbeat shows load, memory or disk over a threshold for

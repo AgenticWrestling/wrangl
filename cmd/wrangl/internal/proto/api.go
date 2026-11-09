@@ -36,6 +36,7 @@ type RunnerView struct {
 	BinarySHA       string          `json:"binary_sha,omitempty"`  // running wrangl binary
 	UpgradeSHA      string          `json:"upgrade_sha,omitempty"` // pending self-upgrade target
 	Capacity        *CapacityView   `json:"capacity,omitempty"`
+	Tags            []string        `json:"tags,omitempty"` // capability tags (arch, tools, agents)
 }
 
 // CapacityView is what a runner can hold and what its active runs reserved (ADR 0009 section 6).
@@ -64,6 +65,8 @@ type RunnerPatch struct {
 
 // TemplateView is a runner template as the API returns it.
 type TemplateView struct {
+	Tags          []string        `json:"tags,omitempty"`     // capability tags the template provides
+	Provides      []string        `json:"provides,omitempty"` // the extra tags its file declares (provides:)
 	Name          string          `json:"name"`
 	Description   string          `json:"description,omitempty"`
 	Arch          string          `json:"arch"`
@@ -125,6 +128,8 @@ type ProjectView struct {
 	AllowTemplates []string `json:"allow_templates,omitempty"`
 	// Need is the effective resource need set for the project's tasks (default, or the project's own).
 	Need *NeedView `json:"need,omitempty"`
+	// Requires are the project's capability requirements.
+	Requires []string `json:"requires,omitempty"`
 	// CitationAudit: research PRs get an audit run that re-fetches every cited URL before merge.
 	CitationAudit bool `json:"citation_audit"`
 	// Archived is set when the project is archived (hidden and inert); ArchivedAt is when.
@@ -161,13 +166,16 @@ type ProjectRequest struct {
 	PlanTemplate   *string           `json:"plan_template,omitempty"`
 	AllowTemplates *[]string         `json:"allow_templates,omitempty"` // replaces the list; empty clears
 	Need           map[string]string `json:"need,omitempty"`            // resource needs by field; empty value clears
-	AutoMerge      *bool             `json:"auto_merge,omitempty"`
-	AutoQueue      *bool             `json:"auto_queue,omitempty"`
-	AutoResolve    *bool             `json:"auto_resolve,omitempty"`
-	Priority       *int64            `json:"priority,omitempty"`
-	NotesRepo      *string           `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
-	Agent          *string           `json:"agent,omitempty"`      // default agent name; "" clears
-	CitationAudit  *bool             `json:"citation_audit,omitempty"`
+	// Require adds capability requirements (arch=arm64, tool:go>=1.22, agent:claude); Unrequire removes by key.
+	Require       []string `json:"require,omitempty"`
+	Unrequire     []string `json:"unrequire,omitempty"`
+	AutoMerge     *bool    `json:"auto_merge,omitempty"`
+	AutoQueue     *bool    `json:"auto_queue,omitempty"`
+	AutoResolve   *bool    `json:"auto_resolve,omitempty"`
+	Priority      *int64   `json:"priority,omitempty"`
+	NotesRepo     *string  `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
+	Agent         *string  `json:"agent,omitempty"`      // default agent name; "" clears
+	CitationAudit *bool    `json:"citation_audit,omitempty"`
 }
 
 // AgentView is a named agent definition (docs/wrangl/adr/0001).
@@ -272,6 +280,7 @@ type TaskDetail struct {
 	CreatedBy  string          `json:"created_by"`
 	Summary    string          `json:"summary,omitempty"`
 	Need       *NeedView       `json:"need,omitempty"`
+	Requires   []string        `json:"requires,omitempty"` // the task's own capability requirements
 	Children   []TaskRef       `json:"children"`
 	Precursors []TaskRef       `json:"precursors"`
 	Dependents []TaskRef       `json:"dependents"`
@@ -325,7 +334,9 @@ type TaskCreateRequest struct {
 	Needs    []string `json:"needs,omitempty"`
 	// Need sets resource needs, e.g. {"ram": "8GiB"} (see ADR 0009).
 	Need map[string]string `json:"need,omitempty"`
-	Type string            `json:"type,omitempty"` // code | ux | architecture | spec | docs | review | release | milestone | feature
+	// Require adds capability requirements for the task's runs (arch=arm64, tool:go>=1.22).
+	Require []string `json:"require,omitempty"`
+	Type    string   `json:"type,omitempty"` // code | ux | architecture | spec | docs | review | release | milestone | feature
 	// TargetDate is YYYY-MM-DD.
 	TargetDate string `json:"target_date,omitempty"`
 }
@@ -337,6 +348,9 @@ type TaskPatchRequest struct {
 	Type   *string `json:"type,omitempty"`
 	// Need changes resource needs; an empty value clears the field back to inherit.
 	Need map[string]string `json:"need,omitempty"`
+	// Require adds capability requirements, Unrequire removes them by key.
+	Require   []string `json:"require,omitempty"`
+	Unrequire []string `json:"unrequire,omitempty"`
 	// TargetDate: YYYY-MM-DD; "" clears it; nil leaves it.
 	TargetDate *string `json:"target_date,omitempty"`
 }

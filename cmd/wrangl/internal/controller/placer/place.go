@@ -1,5 +1,7 @@
 package placer
 
+import "github.com/agenticwrestling/wrangl/cmd/wrangl/internal/capability"
+
 // Run is a queued run to place, in queue order (project priority, queue rank, rank, queued time).
 type Run struct {
 	ID      int64
@@ -9,6 +11,8 @@ type Run struct {
 	Template int64
 	Allowed  []int64
 	Need     Need
+	// Reqs are the run's capability requirements (snapshotted when it was queued).
+	Reqs []capability.Requirement
 }
 
 // RunnerIn is an existing runner as of one snapshot: Runner plus where it lives. Arriving runners are
@@ -22,9 +26,10 @@ type RunnerIn struct {
 // Entry is something a template can launch: one menu entry (or the template itself when it has none).
 type Entry struct {
 	Template int64
-	Type     string // "" = the template's own choice (legacy)
-	Cap      Need   // what sessions can use on a fresh runner of this type
-	Ceiling  int64  // session ceiling (the template's max_sessions)
+	Type     string          // "" = the template's own choice (legacy)
+	Cap      Need            // what sessions can use on a fresh runner of this type
+	Tags     capability.Tags // the capabilities a runner of this entry has (its template's)
+	Ceiling  int64           // session ceiling (the template's max_sessions)
 	// HourlyUSD is the type's price; nil = unknown (only matters once a budget exists).
 	HourlyUSD *float64
 	// Volume sizing: the runner's disk is max(MinDiskGiB, hosted disk needs + ReserveDiskGiB).
@@ -70,10 +75,11 @@ type Blocked struct {
 
 // Reason codes of Blocked.
 const (
-	CodeCapacity = "capacity"      // cannot launch: the template has no room (max_runners)
-	CodeTooBig   = "too_big"       // no entry of its template could ever hold it
-	CodeBudget   = "budget"        // launching would exceed the hourly budget
-	CodePrice    = "price_unknown" // a budget is set and no entry that could hold it has a known price
+	CodeCapacity     = "capacity"      // cannot launch: the template has no room (max_runners)
+	CodeTooBig       = "too_big"       // no entry of its template could ever hold it
+	CodeNoCapability = "no_capability" // no entry of its template provides a required capability
+	CodeBudget       = "budget"        // launching would exceed the hourly budget
+	CodePrice        = "price_unknown" // a budget is set and no entry that could hold it has a known price
 )
 
 // Plan is the result of one pass.
@@ -100,7 +106,7 @@ func (v *virt) reserve(n Need) {
 
 func entryRunner(e Entry) Runner {
 	c := e.Ceiling
-	return Runner{Claimable: true, Cap: e.Cap, Ceiling: &c}
+	return Runner{Claimable: true, Cap: e.Cap, Ceiling: &c, Tags: e.Tags}
 }
 
 // commit is what launching the entry commits: its price, 24 hours of it for an EC2 Mac host.
@@ -169,7 +175,7 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 			pool = append(pool, rr)
 			by[rr.ID] = v
 		}
-		if c := Candidates(r.Need, pool); len(c) > 0 {
+		if c := Candidates(r.Need, pool, r.Reqs...); len(c) > 0 {
 			return by[c[0].ID]
 		}
 		return nil
@@ -207,13 +213,21 @@ func Place(runs []Run, runners []RunnerIn, entries []Entry, lim Limits) Plan {
 		}
 		// 3. launch.
 		var holders []Entry
+		sized := false // some entry is big enough, whatever it provides
 		for _, e := range byTemplate[r.Template] {
 			if Fits(r.Need, entryRunner(e)) {
-				holders = append(holders, e)
+				sized = true
+				if capability.Match(r.Reqs, e.Tags) {
+					holders = append(holders, e)
+				}
 			}
 		}
 		if len(holders) == 0 {
-			plan.Unplaceable = append(plan.Unplaceable, Blocked{Run: r.ID, Code: CodeTooBig})
+			code := CodeTooBig
+			if sized {
+				code = CodeNoCapability
+			}
+			plan.Unplaceable = append(plan.Unplaceable, Blocked{Run: r.ID, Code: code})
 			continue
 		}
 		if room[r.Template] <= 0 {

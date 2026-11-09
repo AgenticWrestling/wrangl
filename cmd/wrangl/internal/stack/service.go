@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/capability"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"regexp"
@@ -253,6 +254,7 @@ type CreateParams struct {
 	Issue    string // owner/name#number; optional
 	Needs    []string
 	Need     map[string]string // resource needs (ram=4GiB); owner or, from an agent, raise-only
+	Require  []string          // capability requirements (arch=arm64, tool:go>=1.22)
 	Type     string            // dbtypes.TaskType name; "" = inherit the parent's, else code
 	// TargetDate is YYYY-MM-DD; "" = none.
 	TargetDate string
@@ -284,6 +286,11 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 	}
 	if _, err := placement.Apply(placement.Need{}, c.Need); err != nil {
 		return dbgen.Task{}, err // refuse a bad need before anything is created
+	}
+	for _, r := range c.Require {
+		if _, err := capability.Parse(r); err != nil {
+			return dbgen.Task{}, err
+		}
 	}
 	var out dbgen.Task
 	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
@@ -367,6 +374,9 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 	if err == nil && len(c.Need) > 0 {
 		err = s.SetNeed(ctx, out.Sqid.String, c.Need, c.Actor)
 	}
+	if err == nil && len(c.Require) > 0 {
+		err = s.EditRequire(ctx, out.Sqid.String, c.Require, nil)
+	}
 	return out, err
 }
 
@@ -434,6 +444,20 @@ func (s *Service) Edit(ctx context.Context, sqid string, title, prompt *string, 
 		return s.event(ctx, q, sqid, actor, "update", diff)
 	})
 	return out, err
+}
+
+// EditRequire adds (arch=arm64, tool:go>=1.22, agent:claude) and removes (by key) capability requirements
+// on a task. Runs queued afterwards carry them.
+func (s *Service) EditRequire(ctx context.Context, sqid string, add, remove []string) error {
+	t, err := s.liveTask(ctx, s.DB.RQ, sqid)
+	if err != nil {
+		return err
+	}
+	if err := (&placement.Service{DB: s.DB}).EditRequirements(ctx, placement.OwnerTask, t.ID, add, remove); err != nil {
+		return err
+	}
+	s.Changed(sqid)
+	return nil
 }
 
 // SetNeed changes a task's resource needs (ADR 0009 section 4). The owner may raise, lower or clear a
@@ -997,6 +1021,11 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 		})
 		if err == nil {
 			err = placement.Snapshot(ctx, q, run)
+		}
+		if err == nil && chosen != nil {
+			// The agent it will use is a requirement on the runner: a runner whose template does not allow
+			// it (or that is not signed in to it) is filtered rather than tried and failed.
+			err = q.SetRequirement(ctx, placement.OwnerRun, run.ID, "agent:"+strings.ToLower(chosen.Name), "exists", "")
 		}
 		if err == nil && chosen != nil {
 			err = q.SetRunAgent(ctx, dbgen.SetRunAgentParams{AgentID: sql.NullInt64{Int64: chosen.ID, Valid: true}, ID: run.ID})

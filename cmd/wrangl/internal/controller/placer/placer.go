@@ -2,7 +2,11 @@
 // run fits a runner, and in what order the runners that fit are tried. It has no database and no clock.
 package placer
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/capability"
+)
 
 // Need is what a run reserves (its queue-time snapshot). 0/0/0 reserves nothing: only the session
 // ceiling then limits a runner, exactly as before resources existed.
@@ -18,6 +22,8 @@ type Runner struct {
 	Cap, Used Need   // capacity and what active runs reserved
 	Active    int64  // active runs
 	Ceiling   *int64 // optional session ceiling; nil = none
+	// Tags are the runner's capabilities (arch, tools, agents...); requirements are matched against them.
+	Tags capability.Tags
 	// HourlyUSD is the runner's price; nil = free (the host).
 	HourlyUSD *float64
 }
@@ -28,9 +34,10 @@ func (r Runner) Free() Need {
 }
 
 // Fits reports whether a run with need n can be placed on r: the runner is claimable, every resource
-// the run needs is free (a need of 0 is not checked), and the session ceiling has room.
-func Fits(n Need, r Runner) bool {
-	if !r.Claimable {
+// the run needs is free (a need of 0 is not checked), the session ceiling has room, and the runner's
+// capabilities satisfy the run's requirements (none = anything; a runner with no tags is unrestricted).
+func Fits(n Need, r Runner, reqs ...capability.Requirement) bool {
+	if !r.Claimable || !capability.Match(reqs, r.Tags) {
 		return false
 	}
 	f := r.Free()
@@ -66,10 +73,10 @@ func leftover(n Need, r Runner) float64 {
 // Candidates returns the runners n fits, best first: cheapest (the free host first), then fullest
 // (smallest leftover, which keeps whole runners empty so they can be reaped), then busy before idle,
 // then the longest idle, then lowest id.
-func Candidates(n Need, runners []Runner) []Runner {
+func Candidates(n Need, runners []Runner, reqs ...capability.Requirement) []Runner {
 	var out []Runner
 	for _, r := range runners {
-		if Fits(n, r) {
+		if Fits(n, r, reqs...) {
 			out = append(out, r)
 		}
 	}

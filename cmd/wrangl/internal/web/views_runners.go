@@ -33,6 +33,7 @@ type runnerCard struct {
 	Cost    *hostCost
 	Spec    string // instance type, size and zone, whichever are known
 	Cap     string // used/capacity per resource
+	Tags    string // capability tags
 	Guard   string // why the measured guard has closed the runner to new work ("" = open)
 }
 
@@ -90,6 +91,9 @@ func (h *Handler) runnerCard(ctx context.Context, r dbgen.Runner) runnerCard {
 		c.Cost = hostCostFor(snap, r.InstanceID.String, time.Now())
 	}
 	c.Spec = runnerSpec(r, snap)
+	if tags, err := placement.RunnerTags(ctx, db.RQ); err == nil {
+		c.Tags = strings.Join(tags[r.ID].Format(), " · ")
+	}
 	if cp, err := (&placement.Service{DB: db}).RunnerCapacity(ctx, r); err == nil {
 		c.Cap = fmt.Sprintf("vCPU %d/%d · RAM %s/%s · disk %s/%s", cp.UsedVCPU, cp.VCPU, placement.Format("ram", cp.UsedRAMMiB), placement.Format("ram", cp.RAMMiB),
 			placement.Format("disk", cp.UsedDiskGiB), placement.Format("disk", cp.DiskGiB))

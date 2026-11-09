@@ -142,8 +142,10 @@ func Register(mux *http.ServeMux, d Deps) {
 			return
 		}
 		out := []proto.RunnerView{}
+		rtags, _ := placement.RunnerTags(r.Context(), f.DB.RQ)
 		for _, row := range rows {
 			v := runnerView(row.Runner, row.TemplateName, 0)
+			v.Tags = rtags[row.Runner.ID].Format()
 			v.Capacity = capacityView(r.Context(), f.DB, row.Runner)
 			out = append(out, v)
 		}
@@ -163,6 +165,8 @@ func Register(mux *http.ServeMux, d Deps) {
 		v := runnerView(row, t.Name, t.IdleTimeoutS)
 		v.WantVersion = t.Version
 		v.TemplateLog = row.TemplateLog
+		rtags, _ := placement.RunnerTags(r.Context(), f.DB.RQ)
+		v.Tags = rtags[row.ID].Format()
 		v.Capacity = capacityView(r.Context(), f.DB, row)
 		writeJSON(w, http.StatusOK, v)
 	})
@@ -265,8 +269,13 @@ func Register(mux *http.ServeMux, d Deps) {
 			return
 		}
 		out := []proto.TemplateView{}
+		tags, _ := placement.TemplateTags(r.Context(), f.DB.RQ)
+		provides, _ := placement.TemplateProvides(r.Context(), f.DB.RQ)
 		for _, t := range rows {
-			out = append(out, templateView(t))
+			v := templateView(t)
+			v.Tags = tags[t.ID].Format()
+			v.Provides = provides[t.ID]
+			out = append(out, v)
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -276,7 +285,12 @@ func Register(mux *http.ServeMux, d Deps) {
 			writeErr(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, templateView(t))
+		v := templateView(t)
+		tags, _ := placement.TemplateTags(r.Context(), f.DB.RQ)
+		v.Tags = tags[t.ID].Format()
+		pv, _ := placement.TemplateProvides(r.Context(), f.DB.RQ)
+		v.Provides = pv[t.ID]
+		writeJSON(w, http.StatusOK, v)
 	})
 	mux.HandleFunc("POST /api/v1/templates", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))

@@ -48,7 +48,8 @@ type Scheduler struct {
 	// legacy entry (the template's own instance choice, session slots only).
 	Menu *menu.Lookup
 
-	menus map[int64]cachedMenu
+	menus       map[int64]cachedMenu
+	lastCapSync time.Time
 
 	// OnUnplaceable is called when a run first lands in the Inbox as unplaceable.
 	OnUnplaceable func(runID int64, prompt string)
@@ -201,6 +202,7 @@ func (s *Scheduler) LaunchFor(ctx context.Context, project, template string, cou
 
 // Loop ticks every interval until ctx ends.
 func (s *Scheduler) Loop(ctx context.Context, interval time.Duration) {
+	s.syncCapabilitiesEvery(ctx)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {

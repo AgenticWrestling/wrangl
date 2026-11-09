@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/capability"
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
@@ -91,6 +92,9 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 	for _, id := range remoteIDs {
 		remote[id] = true
 	}
+	s.syncCapabilitiesEvery(ctx)
+	tmplTags, _ := placement.TemplateTags(ctx, d.RQ)
+	runnerTags, _ := placement.RunnerTags(ctx, d.RQ)
 	tmpl := map[int64]dbgen.TemplateDemandRow{}
 	full := map[int64]dbgen.RunnerTemplate{}
 	lim := placer.Limits{Room: map[int64]int64{}}
@@ -109,7 +113,10 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 		if t.Demand > 0 && s.launchBlocked(ctx, t, now) {
 			lim.Room[t.ID] = 0
 		}
-		entries = append(entries, s.entriesFor(ctx, ft)...)
+		for _, e := range s.entriesFor(ctx, ft) {
+			e.Tags = tmplTags[ft.ID]
+			entries = append(entries, e)
+		}
 	}
 	budget, _ := (&placement.Service{DB: d}).Budget(ctx)
 	if budget.LimitUSD != nil {
@@ -128,7 +135,9 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 			continue
 		}
 		tid := q.TemplateID.Int64
+		driverRun := false
 		if remote[tid] {
+			driverRun = true
 			mode, _, driver, err := s.Fleet.Connection(ctx, tid)
 			if err != nil || mode != "remote" {
 				continue
@@ -149,17 +158,22 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 				others = append(others, id)
 			}
 		}
-		runs = append(runs, placer.Run{ID: q.ID, Project: q.ProjectID, Template: tid, Allowed: others,
+		reqs, _ := placement.Requirements(ctx, d.RQ, placement.OwnerRun, q.ID)
+		if driverRun {
+			reqs = capability.WithoutAgent(reqs)
+		}
+		runs = append(runs, placer.Run{ID: q.ID, Project: q.ProjectID, Template: tid, Allowed: others, Reqs: reqs,
 			Need: placer.Need{VCPU: q.NeedVcpu, RAMMiB: q.NeedRamMib, DiskGiB: q.NeedDiskGib}})
 	}
 
-	runners, err := s.placerRunners(ctx, tmpl, full)
+	runners, err := s.placerRunners(ctx, tmpl, full, runnerTags, tmplTags)
 	if err != nil {
 		return nil, err
 	}
 	plan := placer.Place(runs, runners, entries, lim)
 
 	s.raiseTooBig(ctx, plan, runs, runners, entries, full)
+	s.raiseNoCapability(ctx, plan, runs, entries, full)
 	s.budgetBlocks(ctx, plan, runs, runners)
 
 	failed := map[int64]bool{}
@@ -227,7 +241,7 @@ func (s *Scheduler) launchBlocked(ctx context.Context, t dbgen.TemplateDemandRow
 
 // placerRunners snapshots the runners that count as supply: claimable idle and busy ones, and ones
 // still coming up. Runners behind on the template version, cordoned, draining, upgrading or offline are not.
-func (s *Scheduler) placerRunners(ctx context.Context, tmpl map[int64]dbgen.TemplateDemandRow, full map[int64]dbgen.RunnerTemplate) ([]placer.RunnerIn, error) {
+func (s *Scheduler) placerRunners(ctx context.Context, tmpl map[int64]dbgen.TemplateDemandRow, full map[int64]dbgen.RunnerTemplate, runnerTags, tmplTags map[int64]capability.Tags) ([]placer.RunnerIn, error) {
 	d := s.Fleet.DB
 	rows, err := d.RQ.ListRunners(ctx, 0)
 	if err != nil {
@@ -256,7 +270,7 @@ func (s *Scheduler) placerRunners(ctx context.Context, tmpl map[int64]dbgen.Temp
 			}
 			active, _ := d.RQ.CountActiveRunsForRunner(ctx, sql.NullInt64{Int64: r.ID, Valid: true})
 			out = append(out, placer.RunnerIn{Template: r.TemplateID, Runner: placer.Runner{ID: r.ID, Claimable: true, Busy: r.State == "busy",
-				IdleSince: r.IdleSince.String, Active: active, Ceiling: &ceiling,
+				IdleSince: r.IdleSince.String, Tags: runnerTags[r.ID], Active: active, Ceiling: &ceiling,
 				Cap:  placer.Need{VCPU: c.VCPU, RAMMiB: c.RAMMiB, DiskGiB: c.DiskGiB},
 				Used: placer.Need{VCPU: c.UsedVCPU, RAMMiB: c.UsedRAMMiB, DiskGiB: c.UsedDiskGiB}}})
 		case "launching", "enrolling", "provisioning":
@@ -266,7 +280,7 @@ func (s *Scheduler) placerRunners(ctx context.Context, tmpl map[int64]dbgen.Temp
 					capacity = e.Cap
 				}
 			}
-			out = append(out, placer.RunnerIn{Template: r.TemplateID, Arriving: true, Runner: placer.Runner{ID: r.ID, Claimable: true,
+			out = append(out, placer.RunnerIn{Template: r.TemplateID, Arriving: true, Runner: placer.Runner{ID: r.ID, Claimable: true, Tags: tmplTags[r.TemplateID],
 				Ceiling: &ceiling, Cap: capacity}})
 		}
 	}

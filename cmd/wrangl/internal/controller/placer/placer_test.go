@@ -1,6 +1,10 @@
 package placer
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/capability"
+)
 
 func i64(v int64) *int64 { return &v }
 
@@ -58,5 +62,43 @@ func TestCandidatesLegacyOrder(t *testing.T) {
 	c := Candidates(Need{}, rs)
 	if len(c) != 3 || c[0].ID != 3 || c[1].ID != 2 || c[2].ID != 1 {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestFitsCapabilityLine(t *testing.T) {
+	arm, _ := capability.Parse("arch=arm64")
+	gpu, _ := capability.Parse("gpu")
+	r := Runner{ID: 1, Claimable: true, Tags: capability.Tags{"arch": "arm64"}}
+	if !Fits(Need{}, r, arm) || Fits(Need{}, r, arm, gpu) || !Fits(Need{}, r) {
+		t.Fatal("every requirement must hold; none means anything")
+	}
+	if !Fits(Need{}, Runner{ID: 2, Claimable: true}, arm, gpu) {
+		t.Fatal("a runner with no tags is unrestricted")
+	}
+	c := Candidates(Need{}, []Runner{r, {ID: 3, Claimable: true, Tags: capability.Tags{"arch": "x86_64"}}}, arm)
+	if len(c) != 1 || c[0].ID != 1 {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestPlaceRequirementsChooseEntriesAndRunnersAndFlagNoCapability(t *testing.T) {
+	gpu, _ := capability.Parse("gpu")
+	plain := Entry{Template: 1, Type: "plain", Cap: Need{4, 8192, 100}, Ceiling: 4, Tags: capability.Tags{"arch": "arm64"}}
+	withGPU := Entry{Template: 1, Type: "gpu", Cap: Need{4, 8192, 100}, Ceiling: 4, Tags: capability.Tags{"arch": "arm64", "gpu": ""}}
+	r := run(1, Need{})
+	r.Reqs = []capability.Requirement{gpu}
+	p := Place([]Run{r}, nil, []Entry{plain, withGPU}, Limits{Room: map[int64]int64{1: 9}})
+	if len(p.Launch) != 1 || p.Launch[0].Entry.Type != "gpu" {
+		t.Fatalf("launch the entry that provides it: %+v", p)
+	}
+	p = Place([]Run{r}, nil, []Entry{plain}, Limits{Room: map[int64]int64{1: 9}})
+	if len(p.Launch) != 0 || len(p.Unplaceable) != 1 || p.Unplaceable[0].Code != CodeNoCapability {
+		t.Fatalf("nothing provides it: %+v", p)
+	}
+	// An existing runner without the tag is skipped even though it has room.
+	noGPU := Runner{ID: 5, Claimable: true, Tags: capability.Tags{"arch": "arm64"}, Cap: Need{big, big, big}, Ceiling: i64(4)}
+	p = Place([]Run{r}, []RunnerIn{{Runner: noGPU, Template: 1}}, []Entry{withGPU}, Limits{Room: map[int64]int64{1: 9}})
+	if len(p.Assign) != 0 || len(p.Launch) != 1 {
+		t.Fatalf("%+v", p)
 	}
 }

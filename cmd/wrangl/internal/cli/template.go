@@ -79,6 +79,7 @@ func templateCmd(g *Global) *cobra.Command {
 				fmt.Fprintf(w, "name\t%s\narch\t%s\nminimum\t%d vCPU, %d MiB, %d GiB\ninstance types\t%v\nami\t%s\nmax runners\t%d\nidle timeout\t%s\nversion\t%d\n",
 					t.Name, t.Arch, t.MinVCPU, t.MinRAMMiB, t.MinDiskGiB, t.InstanceTypes, t.AMI, t.MaxRunners,
 					time.Duration(t.IdleTimeoutS)*time.Second, t.Version)
+				fmt.Fprintf(w, "tags\t%s\n", strings.Join(t.Tags, ", "))
 				fmt.Fprintf(w, "mise.toml\t\n%s\nagent\t%s\n", t.MiseTOML, t.Agent)
 			})
 		},
@@ -145,6 +146,9 @@ func TemplateYAML(t proto.TemplateView) []byte {
 	}
 	if t.SetupScript != "" {
 		doc["setup_script"] = t.SetupScript
+	}
+	if len(t.Provides) > 0 {
+		doc["provides"] = t.Provides
 	}
 	if m, ok := agent.(map[string]any); ok && len(m) > 0 {
 		doc["agent"] = agent

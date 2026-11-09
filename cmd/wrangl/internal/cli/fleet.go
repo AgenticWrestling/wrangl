@@ -130,6 +130,7 @@ func fleetCmd(g *Global) *cobra.Command {
 					{"machine", fmt.Sprintf("%s, %d vCPU, %d MiB, %d GiB", dash(r.Arch), r.VCPU, r.RAMMiB, r.DiskGiB)},
 					{"cpu / mem / disk", cpu + " / " + mem + " / " + disk},
 					{"capacity", capacityText(r.Capacity)},
+					{"tags", dash(strings.Join(r.Tags, ", "))},
 					{"last heartbeat", dbtime.AgoShort(r.LastHeartbeatAt, now) + " ago"},
 				}
 				if r.State == "idle" && r.Launched {

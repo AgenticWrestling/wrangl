@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"net/http"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/issuestore"
@@ -36,7 +37,7 @@ func projectView(ctx context.Context, d Deps, p dbgen.Project) proto.ProjectView
 	}
 	ca, _ := db.RQ.GetProjectCitationAudit(ctx, p.ID)
 	ar, _ := db.RQ.GetProjectAutoResolve(ctx, p.ID)
-	return proto.ProjectView{AutoResolve: ar == 1, CitationAudit: ca == 1, Agent: d.Projects.DefaultAgent(ctx, p.ID), AllowTemplates: d.Projects.AllowedTemplates(ctx, p.ID), Need: needView(ctx, d, p.ID, 0), NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
+	return proto.ProjectView{AutoResolve: ar == 1, CitationAudit: ca == 1, Agent: d.Projects.DefaultAgent(ctx, p.ID), AllowTemplates: d.Projects.AllowedTemplates(ctx, p.ID), Need: needView(ctx, d, p.ID, 0), Requires: (&placement.Service{DB: d.Fleet.DB}).RequirementStrings(ctx, placement.OwnerProject, p.ID), NotesRepo: notes, Slug: p.Slug, Name: p.Name, Description: p.Description,
 		Template: templateName(ctx, d, p.DefaultTemplateID), PlanTemplate: templateName(ctx, d, p.PlanTemplateID),
 		AutoMerge: p.AutoMerge == 1, AutoQueue: p.AutoQueue == 1, Priority: p.Priority,
 		Archived: p.ArchivedAt.Valid, ArchivedAt: p.ArchivedAt.String}
@@ -44,7 +45,7 @@ func projectView(ctx context.Context, d Deps, p dbgen.Project) proto.ProjectView
 
 func projectParams(r proto.ProjectRequest) projects.ProjectParams {
 	return projects.ProjectParams{Name: r.Name, Description: r.Description, Template: r.Template,
-		PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, AutoResolve: r.AutoResolve, Priority: r.Priority, NotesRepo: r.NotesRepo, Agent: r.Agent, CitationAudit: r.CitationAudit, AllowTemplates: r.AllowTemplates, Need: r.Need}
+		PlanTemplate: r.PlanTemplate, AutoMerge: r.AutoMerge, AutoQueue: r.AutoQueue, AutoResolve: r.AutoResolve, Priority: r.Priority, NotesRepo: r.NotesRepo, Agent: r.Agent, CitationAudit: r.CitationAudit, AllowTemplates: r.AllowTemplates, Need: r.Need, Require: r.Require, Unrequire: r.Unrequire}
 }
 
 // projectIDFromQuery resolves the optional ?project=slug filter (0 = all projects).

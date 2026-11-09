@@ -45,6 +45,7 @@ type ProjectParams struct {
 	Agent                  *string           // default agent definition by name; "" clears
 	CitationAudit          *bool             // audit research PRs' citations before merge
 	Need                   map[string]string // resource needs by field (vcpu, ram, disk); empty value clears
+	Require, Unrequire     []string          // capability requirements to add (arch=arm64) / remove (by key)
 	AllowTemplates         *[]string         // other templates this project's runs may use (the host); empty clears
 }
 
@@ -104,7 +105,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.CitationAudit != nil || p.Agent != nil || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 {
+	if p.CitationAudit != nil || p.Agent != nil || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 || len(p.Require) > 0 || len(p.Unrequire) > 0 {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -169,6 +170,9 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 	}
 	if err == nil && len(p.Need) > 0 {
 		_, err = (&placement.Service{DB: s.DB}).SetProject(ctx, cur.ID, p.Need)
+	}
+	if err == nil && (len(p.Require) > 0 || len(p.Unrequire) > 0) {
+		err = (&placement.Service{DB: s.DB}).EditRequirements(ctx, placement.OwnerProject, cur.ID, p.Require, p.Unrequire)
 	}
 	if err == nil && p.AllowTemplates != nil {
 		err = s.SetAllowedTemplates(ctx, slug, *p.AllowTemplates)

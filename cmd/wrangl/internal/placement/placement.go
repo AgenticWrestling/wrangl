@@ -304,7 +304,10 @@ func Snapshot(ctx context.Context, q *dbgen.Queries, run dbgen.Run) error {
 		return err
 	}
 	src, _ := json.Marshal(r.Source)
-	return q.SetRunNeed(ctx, dbgen.SetRunNeedParams{NeedVcpu: r.VCPU, NeedRamMib: r.RAMMiB, NeedDiskGib: r.DiskGiB, NeedSource: string(src), ID: run.ID})
+	if err := q.SetRunNeed(ctx, dbgen.SetRunNeedParams{NeedVcpu: r.VCPU, NeedRamMib: r.RAMMiB, NeedDiskGib: r.DiskGiB, NeedSource: string(src), ID: run.ID}); err != nil {
+		return err
+	}
+	return SnapshotRequirements(ctx, q, run)
 }
 
 // SetTask applies a patch to a task's overrides. From an owner surface it may raise, lower or clear

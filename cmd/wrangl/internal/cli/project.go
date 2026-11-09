@@ -41,6 +41,8 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 		r.AllowTemplates = &v
 	}
 	r.AutoResolve = boolean("auto-resolve")
+	r.Require, _ = f.GetStringSlice("require")
+	r.Unrequire, _ = f.GetStringSlice("unrequire")
 	if f.Changed("need") {
 		vals, _ := f.GetStringSlice("need")
 		patch, err := placement.ParsePatch(vals)
@@ -70,6 +72,8 @@ func projectFlags(c *cobra.Command) {
 	f.Bool("citation-audit", false, "research PRs get an audit run that re-fetches every cited URL; unverified citations block auto-merge")
 	f.String("agent", "", "default agent definition (wrangl agent list); empty clears")
 	f.StringSlice("allow-template", nil, "other runner template this project may use, e.g. host (repeatable; replaces the list; empty clears)")
+	f.StringSlice("require", nil, "capability requirement for this project's runs: arch=arm64, tool:go>=1.22, agent:claude, net=public|vpn (repeatable)")
+	f.StringSlice("unrequire", nil, "remove a capability requirement by key (repeatable)")
 	f.StringSlice("need", nil, "default resource need for this project's tasks: vcpu=N, ram=2GiB, disk=5GiB (repeatable; empty value clears, e.g. ram=)")
 	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
 }
@@ -78,6 +82,9 @@ func printProject(w io.Writer, p proto.ProjectView) {
 	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\nnotes repo\t%s\n",
 		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
 	printNeed(w, p.Need)
+	if len(p.Requires) > 0 {
+		fmt.Fprintf(w, "requires\t%s\n", strings.Join(p.Requires, ", "))
+	}
 	if len(p.AllowTemplates) > 0 {
 		fmt.Fprintf(w, "also allowed\t%s\n", strings.Join(p.AllowTemplates, ", "))
 	}
