@@ -285,8 +285,11 @@ Work down this list.
   volume to the hosted disk needs plus the reserve. The old gates still apply (`max_runners`, a failed
   template version, backoff, the enrol brake, project limits). With the default `0/0/0` needs and no
   menu it launches exactly what the legacy tick launches (a replay test checks this); needs and a menu
-  make it launch by resources. A run no menu entry could ever hold is planned as "too big" but not yet
-  raised in the Inbox.
+  make it launch by resources. A run whose need exceeds every machine its template can launch and every
+  runner it may use is raised in the Inbox at once as "can't be placed" (permanent: no *Keep waiting*),
+  with *Edit this task's needs* (opens the task; lowering the needs from there re-resolves the queued run
+  and the item resolves itself on the next tick), *Use template X* for templates that could hold it, and
+  *Cancel the task's run*. *Edit this task's needs* is also offered on the temporary items.
 - **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is

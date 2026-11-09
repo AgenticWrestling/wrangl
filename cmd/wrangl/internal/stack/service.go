@@ -449,8 +449,35 @@ func (s *Service) SetNeed(ctx context.Context, sqid string, patch map[string]str
 	if err := s.event(ctx, s.DB.Q, sqid, actor, "update", map[string]any{"need": patch}); err != nil {
 		return err
 	}
+	if actor == User {
+		s.resnapshotUnplaceable(ctx, t.ID)
+	}
 	s.Changed(sqid)
 	return nil
+}
+
+// resnapshotUnplaceable re-resolves the need of the task's queued runs that wait on an open
+// "can't be placed" item, so that editing the needs from that item can make the run placeable (ADR 0009
+// section 5: queued runs otherwise keep the snapshot they were queued with).
+func (s *Service) resnapshotUnplaceable(ctx context.Context, taskID int64) {
+	rows, err := s.DB.R.QueryContext(ctx, `SELECT r.id FROM run r JOIN question q ON q.run_id = r.id AND q.kind = 'unplaceable' AND q.state = 'open'
+		WHERE r.task_id = ? AND r.state = 'queued'`, taskID)
+	if err != nil {
+		return
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		if run, err := s.DB.RQ.GetRun(ctx, id); err == nil {
+			placement.Snapshot(ctx, s.DB.Q, run)
+		}
+	}
 }
 
 // SetType changes a task's type.

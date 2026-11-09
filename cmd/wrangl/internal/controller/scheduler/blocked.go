@@ -84,7 +84,7 @@ func (s *Scheduler) checkUnplaceable(ctx context.Context, r dbgen.QueuedRunsForA
 	default:
 		return
 	}
-	s.NoteUnplaceable(ctx, r.ID, Unplaceable{Code: code, Templates: others(t.ID),
+	s.NoteUnplaceable(ctx, r.ID, Unplaceable{Code: code, EditNeeds: true, Templates: others(t.ID),
 		Prompt: fmt.Sprintf("Can't place %s: %s", label, why),
 		Detail: fmt.Sprintf("`%s %s` has been waiting since %s: %s.", label, task.Title, run.BlockedSince.String, why)})
 }

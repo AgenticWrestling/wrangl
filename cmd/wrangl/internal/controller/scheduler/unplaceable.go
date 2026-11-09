@@ -19,6 +19,7 @@ const (
 	ReasonNoCapability  = "no_capability"  // the pinned template is missing: permanent
 	ReasonLaunchBlocked = "launch_blocked" // failed template version, enrol brake, caps full: temporary
 	ReasonCapacity      = "capacity"       // every runner full and no launch allowed: temporary
+	ReasonTooBig        = "too_big"        // the need exceeds every machine any template can launch and every runner: permanent
 )
 
 // WaitAgain is how long a "keep waiting" answer silences the same reason for a run.
@@ -31,11 +32,15 @@ type Unplaceable struct {
 	Detail    string   // markdown
 	Templates []string // other templates that could host it ("use template X" options, at most 3)
 	Permanent bool     // no "keep waiting" option
+	EditNeeds bool     // offer "edit this task's needs" (a link to the task; the item stays open)
 	Extra     map[string]any
 }
 
 func (u Unplaceable) options() []proto.QuestionOption {
 	var o []proto.QuestionOption
+	if u.EditNeeds {
+		o = append(o, proto.QuestionOption{Label: "Edit this task's needs", Value: "edit_needs", Description: "Open the task to change what it needs; the item resolves itself once the run can be placed."})
+	}
 	if !u.Permanent {
 		o = append(o, proto.QuestionOption{Label: "Keep waiting", Value: "wait", Description: "The run stays queued with its reason; this is raised again if the reason changes or after 24 hours."})
 	}
@@ -147,7 +152,7 @@ func (s *Scheduler) resolveUnplaceable(ctx context.Context, assigned []int64) {
 // run, use_template:NAME moves the task and its queued run to that template.
 func (s *Scheduler) Answer(ctx context.Context, q dbgen.Question, value, _ string) error {
 	switch {
-	case value == "wait":
+	case value == "wait", value == "edit_needs":
 		return nil
 	case value == "cancel_run":
 		if s.CancelRun == nil || !q.RunID.Valid {

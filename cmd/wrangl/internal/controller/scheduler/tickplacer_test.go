@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"testing"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/placer"
 )
 
 // Replay: with the default 0/0/0 needs, the placer engine launches exactly what the legacy Tick launches.
@@ -59,5 +61,36 @@ func TestPlacerEngineLaunchesByNeed(t *testing.T) {
 	// has no menu, so each launch is a single legacy entry with unbounded capacity hosting both.
 	if got["go"] != 1 || len(fake.Runs) != 1 {
 		t.Fatalf("launched %v (%d instances)", got, len(fake.Runs))
+	}
+}
+
+func TestTooBigRaisesAPermanentItemAndResolvesWhenNeedsShrink(t *testing.T) {
+	ctx := context.Background()
+	s, fake, _, d := setup(t, 6)
+	s.Engine = EnginePlacer
+	if _, err := s.Fleet.CreateTemplate(ctx, []byte("name: alt\narch: arm64\nmin: {vcpu: 2, ram: 4GiB, disk: 20GiB}\nmax_runners: 1\n")); err != nil {
+		t.Fatal(err)
+	}
+	queue(t, d, 1)
+	// The legacy template has unbounded capacity, so use a runner-less template with a bounded menu entry
+	// by pre-seeding the menu cache.
+	d.W.Exec(`UPDATE run SET template_id = 1, need_vcpu = 1, need_ram_mib = 65536, need_disk_gib = 5`)
+	tt, _ := d.RQ.GetTemplate(ctx, 1)
+	s.menus = map[int64]cachedMenu{1: {version: tt.Version, at: s.Now(), entries: []placer.Entry{{Template: 1, Type: "m7g.2xlarge", Cap: placer.Need{VCPU: 8, RAMMiB: 31744, DiskGiB: 400}, Ceiling: 4}}}}
+	s.Tick(ctx)
+	var n int
+	var prompt, opts string
+	d.R.QueryRow(`SELECT COUNT(*), COALESCE(MAX(prompt), '') FROM question WHERE kind = 'unplaceable' AND state = 'open' AND json_extract(payload_json, '$.reason') = 'too_big'`).Scan(&n, &prompt)
+	d.R.QueryRow(`SELECT group_concat(value) FROM (SELECT value FROM question_option ORDER BY position)`).Scan(&opts)
+	if n != 1 || len(fake.Runs) != 0 || prompt == "" || opts != "edit_needs,use_template:alt,cancel_run" {
+		t.Fatalf("items %d prompt %q options %q launches %d", n, prompt, opts, len(fake.Runs))
+	}
+	// Lowering the needs from the item re-snapshots the run; the next tick resolves the item and launches.
+	// (stack.SetNeed does this; here the run is updated directly.)
+	d.W.Exec(`UPDATE run SET need_ram_mib = 4096`)
+	s.Tick(ctx)
+	d.R.QueryRow(`SELECT COUNT(*) FROM question WHERE kind = 'unplaceable' AND state = 'open'`).Scan(&n)
+	if n != 0 || len(fake.Runs) != 1 {
+		t.Fatalf("open items %d, launches %d", n, len(fake.Runs))
 	}
 }

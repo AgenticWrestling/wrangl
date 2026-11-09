@@ -172,6 +172,8 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 	}
 	plan := placer.Place(runs, runners, entries, lim)
 
+	s.raiseTooBig(ctx, plan, runs, runners, entries, full)
+
 	failed := map[int64]bool{}
 	for _, l := range plan.Launch {
 		t := tmpl[l.Entry.Template]

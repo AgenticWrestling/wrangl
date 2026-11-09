@@ -89,6 +89,10 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		}
 		id := q.ID
 		for _, o := range q.Options {
+			if o.Value == "edit_needs" { // not an answer: it opens the task, the item stays until the run can be placed
+				it.Links = append(it.Links, inboxLink{Text: o.Label, URL: "/task/" + q.Task})
+				continue
+			}
 			cls := ""
 			if o.Value == "accept" || o.Value == "approve" || o.Value == "yes" {
 				cls = "primary"
