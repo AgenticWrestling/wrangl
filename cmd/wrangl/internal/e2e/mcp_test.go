@@ -134,6 +134,39 @@ func TestRemoteMCP(t *testing.T) {
 	if out, isErr := tool("project_delete", map[string]any{"slug": "scratch", "confirm": "scratch"}); isErr || !strings.Contains(out, `"deleted":"scratch"`) {
 		t.Fatalf("project_delete: %s", out)
 	}
+	// REST-bridged tools
+	for _, want := range []string{`"question_list"`, `"question_answer"`, `"run_get"`, `"repo_link"`, `"pr_list"`, `"runner_list"`, `"template_get"`, `"task_dequeue"`, `"issue_sync"`} {
+		if !strings.Contains(string(res), want) {
+			t.Errorf("tools/list missing %s", want)
+		}
+	}
+	if out, isErr := tool("template_get", map[string]any{"name": "tiny"}); isErr || !strings.Contains(out, `"name":"tiny"`) {
+		t.Fatalf("template_get: %s", out)
+	}
+	if out, isErr := tool("template_list", map[string]any{}); isErr || !strings.Contains(out, `"tiny"`) {
+		t.Fatalf("template_list: %s", out)
+	}
+	if out, isErr := tool("question_list", map[string]any{}); isErr || !strings.HasPrefix(out, "[") {
+		t.Fatalf("question_list: %s", out)
+	}
+	if out, isErr := tool("pr_list", map[string]any{"state": "all"}); isErr || !strings.HasPrefix(out, "[") {
+		t.Fatalf("pr_list: %s", out)
+	}
+	if out, isErr := tool("runner_list", map[string]any{"all": true}); isErr {
+		t.Fatalf("runner_list: %s", out)
+	}
+	if out, isErr := tool("run_get", map[string]any{"id": 99999}); !isErr || !strings.Contains(out, "404") {
+		t.Fatalf("run_get of a missing run: %s %v", out, isErr)
+	}
+	if out, isErr := tool("template_delete", map[string]any{"name": "tiny", "confirm": "nope"}); !isErr || !strings.Contains(out, "irreversible") {
+		t.Fatalf("template_delete without confirm: %s %v", out, isErr)
+	}
+	if out, isErr := tool("project_tree", map[string]any{"slug": "web"}); isErr || !strings.HasPrefix(out, "[") {
+		t.Fatalf("project_tree: %s", out)
+	}
+	if out, isErr := tool("repo_list", map[string]any{"project": "web"}); isErr {
+		t.Fatalf("repo_list: %s", out)
+	}
 	out, isErr := tool("task_create", map[string]any{"project": "web", "title": "from my laptop agent"})
 	var root struct{ Sqid string }
 	if json.Unmarshal([]byte(out), &root); isErr || root.Sqid == "" {

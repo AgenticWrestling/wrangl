@@ -30,6 +30,7 @@ import (
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/apitools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/cfaccess"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/deliverables"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
@@ -577,8 +578,12 @@ func (s *Server) routes() http.Handler {
 	ui.Register(mux)
 	// M10: the owner's own agents get the work-stack tools over MCP (Streamable HTTP).
 	// Same exposure as /api/v1: the unix socket, and TCP behind Cloudflare Access.
-	remote := &mcp.Server{Name: "wrangl", Version: runner.Version, Tools: stacktools.For("user"),
+	bridge := &apitools.Service{Handler: mux}
+	remote := &mcp.Server{Name: "wrangl", Version: runner.Version, Tools: append(stacktools.For("user"), apitools.Tools()...),
 		Call: func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+			if apitools.Has(name) {
+				return bridge.Call(ctx, name, args)
+			}
 			return s.Runs.ExecTool(ctx, runs.UserScope(), name, args)
 		}}
 	mux.Handle("/mcp", remote.HTTPHandler())
