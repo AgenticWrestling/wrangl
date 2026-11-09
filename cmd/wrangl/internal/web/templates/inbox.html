@@ -12,6 +12,7 @@
   <h3>{{.Title}}</h3>
   {{if .Body}}<div class="prose">{{.Body}}</div>{{end}}
   {{range .Details}}<details data-preserve-attr="open" class="idetail"{{if .Open}} open{{end}}><summary>{{.Summary}}</summary>{{if .Pre}}<pre class="outline">{{.Pre}}</pre>{{end}}{{if .HTML}}<div class="prose">{{.HTML}}</div>{{end}}</details>{{end}}
+  {{if .Diff}}<details data-preserve-attr="open" class="idetail chg" data-on:toggle__once="evt.target.open &amp;&amp; @get('{{.Diff}}&amp;k={{.Key}}')"><summary>Changes</summary><div id="chg-{{.Key}}" class="chgbody" data-ignore-morph><p class="dim small">Loading…</p></div></details>{{end}}
   {{if .Chat}}{{template "composer" props "Bind" .Bind "Rows" 3 "Placeholder" .ChatHint "Show" (sig "c" $k) "Submit" .SubmitURL}}{{end}}
   <div class="actions wrap">
     {{range .Actions}}<button class="btn {{.Class}}"{{if .Confirm}} data-confirm="{{.Confirm}}" data-confirm-yes="{{.Label}}"{{end}}{{if .Tip}} title="{{.Tip}}"{{end}} data-indicator:b{{$k}} data-attr:disabled="{{sig "b" $k}}" data-on:click="{{if .NeedsText}}!({{sig "" $.Bind}} || '').trim() ? ({{sig "c" $k}} = true) : {{end}}@post('{{.URL}}')">{{if .Busy}}<span data-show="!{{sig "b" $k}}">{{.Label}}</span><span data-show="{{sig "b" $k}}" style="display:none"><span class="spin" aria-hidden="true"></span> {{.Busy}}</span>{{else}}{{.Label}}{{end}}</button>{{end}}
@@ -20,3 +21,10 @@
   </div>
   {{if .Subs}}<div class="isubs">{{range .Subs}}{{template "icard" .}}{{end}}</div>{{end}}
 </section>{{end}}
+
+{{define "changes-body"}}{{if .Err}}<p class="dim small">Couldn't load the changes: {{.Err}}</p>{{else}}
+<p class="small dim">{{len .Files}} file{{if ne (len .Files) 1}}s{{end}} · <span class="add">+{{.Adds}}</span> <span class="del">−{{.Dels}}</span>{{if .Link}} · <a href="{{.Link}}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>{{end}}</p>
+{{if .Commits}}<p class="small chgcommits">{{if .Current}}<a href="#" data-on:click__prevent="@get('{{.Base}}')">all changes</a>{{else}}<strong>all changes</strong>{{end}}{{range .Commits}} · {{if eq .SHA $.Current}}<strong>{{.Subject}}</strong>{{else}}<a href="#" title="{{.SHA}}" data-on:click__prevent="@get('{{$.Base}}&amp;commit={{.SHA}}')">{{.Subject}}</a>{{end}}{{end}}</p>{{end}}
+{{range .Files}}<details data-preserve-attr="open" class="chgfile"><summary><code>{{if .OldPath}}{{.OldPath}} → {{end}}{{.Path}}</code> <span class="dim small">{{.Status}}</span> {{if .Binary}}<span class="dim small">binary</span>{{else}}<span class="add">+{{.Additions}}</span> <span class="del">−{{.Deletions}}</span>{{end}}</summary>
+{{if .Binary}}<p class="dim small">Binary file not shown.</p>{{else if .Truncated}}<p class="dim small">Too large to show here. <a href="{{.Link}}" target="_blank" rel="noopener noreferrer">View on GitHub ↗</a></p>{{else}}<pre class="udiff">{{range .Lines}}<span class="{{.Class}}">{{.Text}}</span>{{end}}</pre>{{end}}</details>{{end}}
+{{end}}{{end}}
