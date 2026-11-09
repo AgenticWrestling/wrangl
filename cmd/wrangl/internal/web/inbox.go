@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	prsvc "github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
@@ -117,9 +118,20 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		if p.Risk.Valid {
 			it.Pills = append(it.Pills, inboxPill{Text: "risk: " + p.Risk.String, Class: "risk-" + p.Risk.String})
 		}
-		conflicted := p.Mergeable == "conflicted"
-		if conflicted {
+		mv := h.D.PRs.MergeView(ctx, p)
+		if mv.DiffRun != 0 && mv.State == prsvc.ViewClean {
+			it.Links = append(it.Links, inboxLink{Text: "conflict resolution diff", URL: fmt.Sprintf("/run/%d/diff", mv.DiffRun)})
+		}
+		switch mv.State {
+		case prsvc.ViewChecking:
+			it.Pills = append(it.Pills, inboxPill{Text: "checking mergeability…"})
+		case prsvc.ViewConflicted:
 			it.Pills = append(it.Pills, inboxPill{Text: "conflicts", Class: "risk-high"})
+		case prsvc.ViewResolving:
+			it.Pills = append(it.Pills, inboxPill{Text: "Smart Merge running", Class: "risk-high"})
+			it.Links = append(it.Links, inboxLink{Text: fmt.Sprintf("Smart Merge run %d", mv.RunID), URL: fmt.Sprintf("/run/%d", mv.RunID)})
+		case prsvc.ViewNeedsHuman:
+			it.Pills = append(it.Pills, inboxPill{Text: "conflicts: needs a human", Class: "risk-high"})
 		}
 		if p.Checks != "" {
 			it.Pills = append(it.Pills, inboxPill{Text: "checks: " + p.Checks})
@@ -128,11 +140,16 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Details = append(it.Details, inboxDetail{Summary: "Review", HTML: markdown(p.ReviewSummaryMd)})
 		}
 		it.Actions = nil
-		if conflicted {
-			it.Actions = append(it.Actions, inboxAction{Label: "Smart Merge", Class: "primary", Confirm: "Queue an agent run that merges the base branch into the PR branch and resolves the conflicts?", Busy: "Queuing…", URL: fmt.Sprintf("/ui/act/pr-resolve?id=%d", p.ID)})
+		switch mv.State {
+		case prsvc.ViewConflicted:
+			it.Actions = append(it.Actions, inboxAction{Label: "Smart Merge (conflicts)", Class: "primary", Confirm: "Queue an agent run that merges the base branch into the PR branch and resolves the conflicts?", Busy: "Queuing…", URL: fmt.Sprintf("/ui/act/pr-resolve?id=%d", p.ID)})
+		case prsvc.ViewResolving, prsvc.ViewNeedsHuman:
+			// No merge button: wait for the run, or hand the conflicts to a human.
+		default:
+			// clean, or still checking: the button must not flip while GitHub computes.
+			it.Actions = append(it.Actions, inboxAction{Label: "Approve & merge", Class: "primary", Confirm: "Approve and merge?", Busy: "Merging…", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=approve", p.ID)})
 		}
 		it.Actions = append(it.Actions, []inboxAction{
-			{Label: "Approve & merge", Class: map[bool]string{false: "primary"}[!conflicted], Confirm: "Approve and merge?", Busy: "Merging…", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=approve", p.ID)},
 			{Label: "Request changes", NeedsText: true, URL: fmt.Sprintf("/ui/act/pr?id=%d&op=request-changes", p.ID)},
 			{Label: "Close", Class: "danger", Confirm: "Close without merging?", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=close", p.ID)},
 		}...)
