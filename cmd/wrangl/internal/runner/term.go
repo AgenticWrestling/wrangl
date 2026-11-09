@@ -108,10 +108,10 @@ func (w *Worker) TermResize(id string, sz proto.TermSize) error {
 	return nil
 }
 
-// shellTools are installed via mise the first time a shell opens on a runner, so basic
+// ShellTools are installed via mise the first time a shell opens on a runner, so basic
 // runners that never open one don't pay for them. They live in conf.d, which Apply leaves
 // alone (it owns config.toml).
-const shellTools = `[tools]
+const ShellTools = `[tools]
 bat = "latest"
 lsd = "latest"
 dust = "latest"
@@ -127,7 +127,7 @@ if [ ! -e "$marker" ] && [ -x "$WRANGL_MISE" ]; then
   printf '\033[1mSetting up shell environment…\033[0m (bat lsd dust duf fd ripgrep tldr; first shell only)\r\n'
   mkdir -p "$HOME/.config/mise/conf.d" "$HOME/.local/state/wrangl"
   cat > "$HOME/.config/mise/conf.d/wrangl-shell.toml" <<'EOF'
-` + shellTools + `EOF
+` + ShellTools + `EOF
   if "$WRANGL_MISE" install --yes; then
     touch "$marker"
     printf '\033[32mShell environment ready.\033[0m\r\n'
