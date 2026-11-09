@@ -48,10 +48,9 @@ use the EC2 pricing page for the type you pick.
 
 Billing is per running instance, so the controls that matter are:
 
-- **Project cap, default 0.** A project's cap for a template is 1 only if it is the project's default
-  template, otherwise 0 (migration 00025 seeds this; later projects/templates get the same rule).
-  Opt in with `wrangl project edit PROJ --limit android=1`; see it with `wrangl project show PROJ`.
-  The effective cap is also bounded by the template's `max_runners` (1 in the example).
+- **`max_runners` bounds it.** There are no per-project instance limits any more: the template's
+  `max_runners` (1 in the example) is what keeps emulator hosts from being started in bulk. Only queue
+  work on this template deliberately (`wrangl project edit PROJ --template android`, or a per-task template).
 - **`idle_timeout`.** The controller reaps a target with no sessions after this long (default 30m,
   20m in the example). A booted emulator is reused by back-to-back runs while it lasts.
 - **`wrangl target list`** shows live targets, their state and sessions; **`wrangl target terminate
@@ -114,7 +113,6 @@ the emulator is up; see section 6.
 
 ```
 wrangl template create -f docs/wrangl/templates/remote-android.yaml    # edit ami / instance_types / driver first
-wrangl project edit PROJ --limit android=1                             # opt in (default is 0)
 wrangl project edit PROJ --template android                            # or queue work whose template is android
 wrangl target list
 ```

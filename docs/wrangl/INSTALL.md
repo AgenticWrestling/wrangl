@@ -569,8 +569,8 @@ driver (`aws ssm start-session`, so the driver needs the AWS CLI + the Session M
 `ssm:StartSession`), or directly with `via: direct`.
 
 A run on a remote template takes a session on the target (`max_sessions`) and a session on a driver
-at the same time. The controller launches a target when queued runs need one, within the project's
-cap for the template (default 0: opt in with `wrangl project edit PROJ --limit mac=1`), probes it
+at the same time. The controller launches a target when queued runs need one, within the template's
+`max_runners`, probes it
 every loop, marks it `offline` after three failed probes, reaps it after `idle_timeout`, and fails the
 runs on it as `target lost` if it is gone or unreachable for two minutes. `wrangl target list` shows
 targets and their sessions; `wrangl target terminate NAME` stops one now.
@@ -580,7 +580,7 @@ access and a build-and-install smoke test).
 
 **EC2 Mac (`templates/remote-mac.yaml`).** A Mac instance runs on a Dedicated Host with a
 **24-hour minimum allocation**: one short run bills a full day and stopping early saves nothing. So
-a project's cap on the Mac template stays 0 (opt in with `wrangl project edit PROJ --limit mac=1`),
+keep `max_runners` on the Mac template low (1 is the safe default), and only queue work on it deliberately;
 the controller logs a "Cost warning" note every time it launches one (also shown in the controller
 agent's `fleet.launch` result), and the template's `idle_timeout` is 24 h so back-to-back runs share
 the host. wrangl launches the instance; allocating the host and choosing the macOS AMI is yours.

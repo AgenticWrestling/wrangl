@@ -57,7 +57,8 @@ Fields (`controller/fleet/template.go`; unknown keys are rejected):
 | `name` | Lowercase letters, digits, `-`, max 40. Cannot be renamed. |
 | `arch` | `arm64` (default) or `x86_64`. |
 | `min` | `vcpu`, `ram`, `disk` (e.g. `8GiB`, `40GiB`). Used to pick an instance type, and checked against what the machine reports at enrolment (10% tolerance on RAM and disk). |
-| `instance_types` | Optional list; empty means "the cheapest type that fits `min`". Wrangl does not look at KVM or GPU, so list types when it matters (see android.md). |
+| `provides` | Optional list of extra capability tags (`gpu=none`, `net=vpn`) runners of this template carry; placement matches project/task `--require` against them. Arch, allowed agents and mise tools are tags automatically. |
+| `instance_types` | Optional list; empty means "the cheapest type that fits `min`". Wrangl does not look at KVM or GPU, so list types when it matters (see android.md). An entry is a type name or `{ type: c7g.xlarge, price: 0.145 }`; the explicit hourly price overrides the live lookup. Launch order is still the list order; the entries are also the instance menu for need-based launching (not wired in yet): capacity comes from EC2, price from the template, then the pricing API, then a built-in estimate, and an entry with no known price will not be launched. |
 | `ami` | Default: the latest Amazon Linux 2023 for the arch (a public SSM parameter). |
 | `max_runners` | Account-wide ceiling of instances of this template (default 1). Caps every project's launches. |
 | `max_sessions` | Concurrent agent sessions per runner (default 4, at least 1). |
@@ -233,8 +234,7 @@ runs no wrangl: an EC2 Mac or an Android emulator host. A template with `mode: r
 `connection:` block (`driver_template`, `protocol` ssh or adb, `user`, `via` ssm or direct, `secret`)
 describes the **target**. The agent runs on a **driver** session of an ordinary runner and uses the
 `target_exec` and `target_put` tools. A run takes a target session and a driver session together.
-The controller launches targets when queued runs need one (within the project's cap on the remote
-template, default 0), probes them, marks them offline after three failed probes, reaps them after
+The controller launches targets when queued runs need one (within the remote template's `max_runners`), probes them, marks them offline after three failed probes, reaps them after
 `idle_timeout`, and fails the runs on a target that is gone or unreachable for two minutes as
 "target lost". `wrangl target list [--all]` and `wrangl target terminate NAME` manage them. There is no
 Runners-page card for targets yet. Details, costs and the Android recipe are in INSTALL.md 8.2 and
@@ -270,6 +270,8 @@ reaped while idle.
 |---|---|
 | `template create -f FILE` / `edit NAME [-f FILE]` / `show NAME` / `list` / `delete NAME` | templates |
 | `fleet list [--all]` / `fleet show NAME` | runners; `show` has the template log and last error |
+| `fleet set NAME --guard load1=6,mem=85,disk=85` | measured guard: close the runner to new work when load/memory/disk stay over these (empty value stops guarding that measure); off by default |
+| `fleet set NAME --capacity vcpu=6,ram=12GiB,disk=20GiB` | what a runner can hold for resource placement (empty value = derive from the machine); `show` prints reserved/capacity |
 | `fleet launch --template T [--count N]` | launch EC2 runners now (the scheduler also launches on demand) |
 | `fleet cordon\|uncordon\|drain\|terminate NAME` | section 7 |
 | `fleet enroll-token --template T [--ttl D]` | adopt an existing machine |

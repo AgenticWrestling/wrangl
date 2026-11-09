@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"log/slog"
 	"strings"
 	"time"
@@ -161,6 +162,9 @@ func (s *Service) Queue(ctx context.Context, sqid, guidance string) (dbgen.Run, 
 		Branch: repo.DefaultBranch, SessionUuid: uuid4(), PromptOverride: b.String(), ContinueBranch: 1,
 	})
 	if err != nil {
+		return run, err
+	}
+	if err := placement.Snapshot(ctx, s.DB.Q, run); err != nil {
 		return run, err
 	}
 	if guidance != "" {

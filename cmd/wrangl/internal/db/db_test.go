@@ -189,29 +189,6 @@ func TestPlanningTaskTypesAndTargetDate(t *testing.T) {
 	}
 }
 
-// The migration seeds project_template_limit with 1 for a project's default template and 0 for
-// every other. The seeding statement is replayed over existing rows (the migration itself ran
-// on an empty database).
-func TestProjectTemplateLimitSeed(t *testing.T) {
-	d, _ := open(t)
-	ctx := context.Background()
-	exec(t, d, `INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('go','[tools]','{}',2,4096,20), ('mac','[tools]','{}',2,4096,20)`)
-	exec(t, d, `INSERT INTO project (slug, name, default_template_id) VALUES ('a','A',1), ('b','B',2), ('c','C',NULL)`)
-	exec(t, d, `INSERT INTO project_template_limit (project_id, template_id, max_instances)
-SELECT p.id, t.id, CASE WHEN p.default_template_id = t.id THEN 1 ELSE 0 END FROM project p CROSS JOIN runner_template t`)
-	for pid, want := range map[int64][2]int64{1: {1, 0}, 2: {0, 1}, 3: {0, 0}} {
-		rows, err := d.RQ.ListProjectTemplateLimits(ctx, pid)
-		if err != nil || len(rows) != 2 {
-			t.Fatalf("project %d: %v %v", pid, rows, err)
-		}
-		for i, r := range rows { // ordered by template name: go, mac
-			if r.Stored.Int64 != want[i] || !r.Stored.Valid {
-				t.Errorf("project %d template %s = %v, want %d", pid, r.TemplateName, r.Stored, want[i])
-			}
-		}
-	}
-}
-
 // Migration 00026 wraps each template's agent_json as an agent: 'claude' for go-claude, one
 // agent for identical blocks, a template-name suffix when the same binary has different blocks,
 // and the project's default agent follows its default template. The data statements are
@@ -259,5 +236,33 @@ func TestAgentMigrationWrapsTemplates(t *testing.T) {
 	p, _ := d.RQ.GetProjectBySlug(ctx, "p")
 	if id, err := d.RQ.GetProjectDefaultAgent(ctx, p.ID); err != nil || !id.Valid {
 		t.Errorf("project default agent not set: %v %v", id, err)
+	}
+}
+
+// Migration 00046 drops project_template_limit; its down recreates and reseeds the table (1 for a
+// project's default template, 0 for every other) the way 00025 did.
+func TestProjectTemplateLimitDownRecreatesIt(t *testing.T) {
+	d, _ := open(t)
+	ctx := context.Background()
+	var n int
+	d.R.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'project_template_limit'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("the table should be gone after the up migration")
+	}
+	exec(t, d, `INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('go','[tools]','{}',2,4096,20), ('mac','[tools]','{}',2,4096,20)`)
+	exec(t, d, `INSERT INTO project (slug, name, default_template_id) VALUES ('a','A',1), ('b','B',2)`)
+	raw, err := os.ReadFile("migrations/00046_drop_project_template_limit.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	body = body[strings.Index(body, "-- +goose Down")+len("-- +goose Down"):]
+	if _, err := d.W.ExecContext(ctx, body); err != nil {
+		t.Fatal(err)
+	}
+	var sum, rows int
+	d.R.QueryRow(`SELECT COUNT(*), SUM(max_instances) FROM project_template_limit`).Scan(&rows, &sum)
+	if rows != 4 || sum != 2 {
+		t.Fatalf("reseed: %d rows, sum %d", rows, sum)
 	}
 }

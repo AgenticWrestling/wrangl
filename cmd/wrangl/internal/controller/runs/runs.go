@@ -359,6 +359,7 @@ func (s *Service) Cancel(ctx context.Context, runID int64) error {
 		return err
 	}
 	if n == 1 {
+		s.DB.Q.CancelRunQuestions(ctx, sql.NullInt64{Int64: runID, Valid: true})
 		return nil
 	}
 	run, err := s.DB.RQ.GetRun(ctx, runID)

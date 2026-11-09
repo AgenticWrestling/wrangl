@@ -19,7 +19,6 @@
     <div class="menu rlist" id="pm-runners" popover style="position-anchor: --pm-runners">{{range $.ProjectRunners}}<div class="rr"><a href="/runner/{{.Name}}"><b>{{.Name}}</b></a> {{template "tag" props "Class" "tag" "Label" .State}}{{if .Template}} <span class="dim small">{{.Template}}</span>{{end}}{{if .AlsoServing}} <span class="tag wait" title="This runner also hosts sessions of other projects">also serving {{range $i, $o := .AlsoServing}}{{if $i}}, {{end}}{{$o}}{{end}}</span>{{end}}
       {{range .Sessions}}<div class="rs small"><a href="/task/{{.Task}}">{{.Title}}</a> <span class="dim">run #{{.Run}} · {{.State}}</span></div>{{end}}</div>{{else}}<p class="dim">No runner is working for this project right now.</p>{{end}}</div>
   </span>
-  {{$capstr := "none"}}{{range $i, $c := $.Caps}}{{if $i}}{{$capstr = printf "%s · %v" $capstr $c}}{{else}}{{$capstr = printf "%v" $c}}{{end}}{{end}}{{template "iconchip" props "Icon" "ni-concurrency" "Href" (printf "/projects/%s/settings#limits" .Project) "Title" "Concurrency: how many runner instances this project may start, per template" "Aria" "Concurrency" "Text" (printf "%s" $capstr)}}
   <span class="grow"></span>
   <button class="btn primary" data-key="n" command="show-modal" commandfor="sheet-new" title="New task" aria-label="New task">＋</button>
 </div>{{end}}
@@ -93,6 +92,7 @@
     {{if ne .Kind "work"}}{{template "tag" props "Class" "tag" "Label" .Kind}}{{end}}
     {{if $n.Total}}<span class="prog-bar" title="{{$n.Done}} of {{$n.Total}} done"><i style="width:{{pctof $n.Done $n.Total}}%"></i></span><span class="dim small">{{$n.Done}}/{{$n.Total}}</span>{{end}}
     <span class="vact">{{if .Runner}}{{template "actbtn" props "Class" "small danger" "Label" "Stop" "Confirm" (printf "Stop run #%d on %s? The agent is cancelled." .RunID .Runner) "Post" (printf "/ui/act/run-cancel?id=%d" .RunID)}}{{else}}<button class="btn small" aria-label="Move up" title="Move up" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=up&amp;sqid={{$n.Sqid}}')">↑</button><button class="btn small" aria-label="Move down" title="Move down" data-on:click="@post('/ui/act/queue-move?id={{.RunID}}&amp;dir=down&amp;sqid={{$n.Sqid}}')">↓</button><button class="btn small" title="Take it out of the queue" data-on:click="@post('/ui/act/task-dequeue?sqid={{$n.Sqid}}')">Dequeue</button>{{end}}</span>
+    {{if .Waiting}}<span class="dim small waiting" title="Why this run has not started">{{.Waiting}}</span>{{end}}
     <a class="dim small" href="/run/{{.RunID}}">run #{{.RunID}}</a>
     <code class="sqid">{{$n.Sqid}}</code>
   </div>

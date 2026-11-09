@@ -40,7 +40,6 @@ func TestArchivedProjectIsReadOnlyUntilRestored(t *testing.T) {
 	prio := int64(3)
 	ops := map[string]func() error{
 		"update":    func() error { _, err := s.Update(ctx, "web", ProjectParams{Priority: &prio}); return err },
-		"limits":    func() error { return s.SetLimits(ctx, "web", map[string]int64{"go": 1}) },
 		"notes":     func() error { return s.SetNotesRepo(ctx, "web", "acme/app") },
 		"link":      func() error { _, err := s.LinkRepo(ctx, "web", "acme/app", ""); return err },
 		"unlink":    func() error { return s.UnlinkRepo(ctx, "web", "acme/app") },

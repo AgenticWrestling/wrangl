@@ -16,6 +16,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
@@ -40,10 +41,12 @@ type ProjectParams struct {
 	AutoMerge, AutoQueue   *bool
 	AutoResolve            *bool // auto-merge queues Smart Merge for conflicted PRs
 	Priority               *int64
-	NotesRepo              *string          // owner/name of a linked repo that holds research reports; "" clears
-	Limits                 map[string]int64 // instance caps by template name
-	Agent                  *string          // default agent definition by name; "" clears
-	CitationAudit          *bool            // audit research PRs' citations before merge
+	NotesRepo              *string           // owner/name of a linked repo that holds research reports; "" clears
+	Agent                  *string           // default agent definition by name; "" clears
+	CitationAudit          *bool             // audit research PRs' citations before merge
+	Need                   map[string]string // resource needs by field (vcpu, ram, disk); empty value clears
+	Require, Unrequire     []string          // capability requirements to add (arch=arm64) / remove (by key)
+	AllowTemplates         *[]string         // other templates this project's runs may use (the host); empty clears
 }
 
 func (s *Service) templateID(ctx context.Context, name string) (sql.NullInt64, error) {
@@ -102,7 +105,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil {
+	if p.CitationAudit != nil || p.Agent != nil || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 || len(p.Require) > 0 || len(p.Unrequire) > 0 {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -162,13 +165,59 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 	if err == nil && p.Agent != nil {
 		err = s.SetDefaultAgent(ctx, slug, *p.Agent)
 	}
-	if err == nil && len(p.Limits) > 0 {
-		err = s.SetLimits(ctx, slug, p.Limits)
-	}
 	if err == nil && p.NotesRepo != nil {
 		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
 	}
+	if err == nil && len(p.Need) > 0 {
+		_, err = (&placement.Service{DB: s.DB}).SetProject(ctx, cur.ID, p.Need)
+	}
+	if err == nil && (len(p.Require) > 0 || len(p.Unrequire) > 0) {
+		err = (&placement.Service{DB: s.DB}).EditRequirements(ctx, placement.OwnerProject, cur.ID, p.Require, p.Unrequire)
+	}
+	if err == nil && p.AllowTemplates != nil {
+		err = s.SetAllowedTemplates(ctx, slug, *p.AllowTemplates)
+	}
 	return out, err
+}
+
+// SetAllowedTemplates replaces the templates (besides each run's own) the project's runs may use.
+func (s *Service) SetAllowedTemplates(ctx context.Context, slug string, names []string) error {
+	p, err := s.activeProject(ctx, slug)
+	if err != nil {
+		return err
+	}
+	ids := []int64{}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		t, err := s.DB.RQ.GetTemplateByName(ctx, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: template %q", errs.NotFound, name)
+		} else if err != nil {
+			return err
+		}
+		ids = append(ids, t.ID)
+	}
+	if err := s.DB.Q.ClearAllowedTemplates(ctx, p.ID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.DB.Q.AddAllowedTemplate(ctx, dbgen.AddAllowedTemplateParams{ProjectID: p.ID, TemplateID: id}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AllowedTemplates names the templates the project may use besides a run's own.
+func (s *Service) AllowedTemplates(ctx context.Context, projectID int64) []string {
+	rows, _ := s.DB.RQ.ListAllowedTemplates(ctx, projectID)
+	out := []string{}
+	for _, r := range rows {
+		out = append(out, r.Name)
+	}
+	return out
 }
 
 // SetDefaultAgent sets (or with "" clears) the project's default agent definition.
@@ -198,51 +247,6 @@ func (s *Service) DefaultAgent(ctx context.Context, projectID int64) string {
 	}
 	a, _ := s.DB.RQ.GetAgent(ctx, id.Int64)
 	return a.Name
-}
-
-// Limits lists the project's instance cap on every template. A template with no stored cap
-// shows the default: 1 for the project's default template, 0 for the rest.
-func (s *Service) Limits(ctx context.Context, slug string) ([]proto.ProjectLimit, error) {
-	p, err := s.Project(ctx, slug)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.DB.RQ.ListProjectTemplateLimits(ctx, p.ID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]proto.ProjectLimit, 0, len(rows))
-	for _, r := range rows {
-		m := r.Stored.Int64
-		if !r.Stored.Valid {
-			m = r.IsDefault
-		}
-		out = append(out, proto.ProjectLimit{Template: r.TemplateName, Max: m, Ceiling: r.MaxRunners, Default: r.IsDefault == 1})
-	}
-	return out, nil
-}
-
-// SetLimits stores instance caps by template name.
-func (s *Service) SetLimits(ctx context.Context, slug string, limits map[string]int64) error {
-	p, err := s.activeProject(ctx, slug)
-	if err != nil {
-		return err
-	}
-	for name, n := range limits {
-		if n < 0 {
-			return fmt.Errorf("%w: limit for %s must be >= 0", errs.Invalid, name)
-		}
-		t, err := s.DB.RQ.GetTemplateByName(ctx, name)
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%w: template %q", errs.NotFound, name)
-		} else if err != nil {
-			return err
-		}
-		if err := s.DB.Q.UpsertProjectTemplateLimit(ctx, dbgen.UpsertProjectTemplateLimitParams{ProjectID: p.ID, TemplateID: t.ID, MaxInstances: n}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // SetNotesRepo gives one of the project's linked repos the "notes" role ("" clears it).

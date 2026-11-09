@@ -37,7 +37,7 @@ func (q *Queries) AnswerQuestion(ctx context.Context, arg AnswerQuestionParams) 
 }
 
 const cancelRunQuestions = `-- name: CancelRunQuestions :exec
-UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error')
+UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error', 'unplaceable')
 `
 
 // Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
@@ -279,6 +279,50 @@ func (q *Queries) ListQuestions(ctx context.Context, openOnly int64) ([]ListQues
 	return items, nil
 }
 
+const updateOpenQuestion = `-- name: UpdateOpenQuestion :exec
+UPDATE question SET prompt = ?1, detail_md = ?2, payload_json = ?3
+WHERE id = ?4 AND state = 'open'
+`
+
+type UpdateOpenQuestionParams struct {
+	Prompt      string `json:"prompt"`
+	DetailMd    string `json:"detail_md"`
+	PayloadJson string `json:"payload_json"`
+	ID          int64  `json:"id"`
+}
+
+// The reason an open item (unplaceable) is about changed: reword it in place.
+func (q *Queries) UpdateOpenQuestion(ctx context.Context, arg UpdateOpenQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, updateOpenQuestion, arg.Prompt, arg.DetailMd, arg.PayloadJson, arg.ID)
+	return err
+}
+
+const deleteQuestionOptions = `-- name: DeleteQuestionOptions :exec
+DELETE FROM question_option WHERE question_id = ?
+`
+
+func (q *Queries) DeleteQuestionOptions(ctx context.Context, questionID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteQuestionOptions, questionID)
+	return err
+}
+
+const resolveQuestion = `-- name: ResolveQuestion :execrows
+UPDATE question SET state = 'cancelled', answer_text = ?1 WHERE id = ?2 AND state = 'open'
+`
+
+type ResolveQuestionParams struct {
+	Text string `json:"text"`
+	ID   int64  `json:"id"`
+}
+
+func (q *Queries) ResolveQuestion(ctx context.Context, arg ResolveQuestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resolveQuestion, arg.Text, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setQuestionPR = `-- name: SetQuestionPR :exec
 INSERT OR REPLACE INTO question_pr (pr_id, question_id) VALUES (?, ?)
 `
@@ -315,4 +359,36 @@ func (q *Queries) CancelPRBlockingQuestions(ctx context.Context, prID sql.NullIn
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const listOpenUnplaceable = `-- name: ListOpenUnplaceable :many
+SELECT q.id, q.run_id, r.state AS run_state FROM question q LEFT JOIN run r ON r.id = q.run_id
+WHERE q.kind = 'unplaceable' AND q.state = 'open'
+`
+
+type ListOpenUnplaceableRow struct {
+	ID       int64          `json:"id"`
+	RunID    sql.NullInt64  `json:"run_id"`
+	RunState sql.NullString `json:"run_state"`
+}
+
+// Open unplaceable items with the state of their run (NULL: the run is gone).
+func (q *Queries) ListOpenUnplaceable(ctx context.Context) ([]ListOpenUnplaceableRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenUnplaceable)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenUnplaceableRow{}
+	for rows.Next() {
+		var i ListOpenUnplaceableRow
+		if err := rows.Scan(&i.ID, &i.RunID, &i.RunState); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
 }

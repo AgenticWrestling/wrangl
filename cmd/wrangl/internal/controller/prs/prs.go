@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"io"
 	"log/slog"
 	"net/http"
@@ -540,10 +541,14 @@ func (s *Service) special(ctx context.Context, pr dbgen.PullRequest, kind, promp
 		return dbgen.Run{}, err
 	}
 	n, _ := s.DB.RQ.CountRunsForTask(ctx, pr.TaskID)
-	return s.DB.Q.QueueSpecialRun(ctx, dbgen.QueueSpecialRunParams{
+	run, err := s.DB.Q.QueueSpecialRun(ctx, dbgen.QueueSpecialRunParams{
 		TaskID: pr.TaskID, Kind: kind, Attempt: n + 1, TemplateID: src.TemplateID, RepoID: dbnull.Int(pr.RepoID),
 		Branch: pr.HeadBranch, SessionUuid: uuid4(), PromptOverride: prompt, PrID: dbnull.Int(pr.ID), ContinueBranch: 1,
 	})
+	if err == nil {
+		err = placement.Snapshot(ctx, s.DB.Q, run)
+	}
+	return run, err
 }
 
 func (s *Service) queueReview(ctx context.Context, pr dbgen.PullRequest, g Gates) error {
@@ -851,6 +856,9 @@ func (s *Service) continueBlocked(ctx context.Context) error {
 			n, _ := s.DB.RQ.CountRunsForTask(ctx, r.TaskID)
 			run, err := s.DB.Q.QueueSpecialRun(ctx, dbgen.QueueSpecialRunParams{TaskID: r.TaskID, Kind: "work", Attempt: n + 1,
 				TemplateID: r.TemplateID, RepoID: r.RepoID, Branch: r.Branch, SessionUuid: uuid4(), PrID: dbnull.Int(pr.ID), ContinueBranch: 1})
+			if err == nil {
+				err = placement.Snapshot(ctx, s.DB.Q, run)
+			}
 			if err != nil {
 				return err
 			}

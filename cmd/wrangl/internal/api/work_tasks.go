@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"net/http"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
@@ -81,6 +82,8 @@ func taskDetail(ctx context.Context, d Deps, t dbgen.Task) proto.TaskDetail {
 	det := proto.TaskDetail{Sqid: t.Sqid.String, Project: p.Slug, Title: t.Title, Prompt: t.Prompt, State: t.State,
 		Type: string(t.TaskType), TargetDate: t.TargetDate.String, CreatedBy: t.CreatedBy, Summary: t.CompletionSummary,
 		Children: []proto.TaskRef{}, Precursors: []proto.TaskRef{}, Dependents: []proto.TaskRef{}, Runs: []proto.TaskRunView{}, Events: []proto.TaskEventView{}}
+	det.Need = needView(ctx, d, t.ProjectID, t.ID)
+	det.Requires = (&placement.Service{DB: db}).RequirementStrings(ctx, placement.OwnerTask, t.ID)
 	if t.ParentID.Valid {
 		if pt, err := db.RQ.GetTask(ctx, t.ParentID.Int64); err == nil {
 			det.Parent = pt.Sqid.String
@@ -181,7 +184,7 @@ func registerTasks(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("POST /api/v1/tasks", handle(http.StatusCreated, func(r *http.Request, req proto.TaskCreateRequest) (proto.TaskRef, error) {
 		t, err := d.Stack.Create(r.Context(), stack.CreateParams{Project: req.Project, Parent: req.Parent, Title: req.Title,
 			Prompt: req.Prompt, Pos: stack.Position{First: req.First, After: req.After, Before: req.Before},
-			Repo: req.Repo, Template: req.Template, Issue: req.Issue, Needs: req.Needs, Type: req.Type, TargetDate: req.TargetDate, Actor: stack.User})
+			Repo: req.Repo, Template: req.Template, Issue: req.Issue, Needs: req.Needs, Need: req.Need, Require: req.Require, Type: req.Type, TargetDate: req.TargetDate, Actor: stack.User})
 		if err != nil {
 			return proto.TaskRef{}, err
 		}
@@ -209,7 +212,19 @@ func registerTasks(mux *http.ServeMux, d Deps) {
 		if err == nil && req.TargetDate != nil {
 			t, err = d.Stack.SetTargetDate(r.Context(), r.PathValue("sqid"), *req.TargetDate, stack.User)
 		}
-		if err == nil && (req.Title != nil || req.Prompt != nil || (req.Type == nil && req.TargetDate == nil)) {
+		if err == nil && (len(req.Require) > 0 || len(req.Unrequire) > 0) {
+			err = d.Stack.EditRequire(r.Context(), r.PathValue("sqid"), req.Require, req.Unrequire)
+			if err == nil && t.ID == 0 {
+				t, err = d.Stack.Task(r.Context(), db.RQ, r.PathValue("sqid"))
+			}
+		}
+		if err == nil && len(req.Need) > 0 {
+			err = d.Stack.SetNeed(r.Context(), r.PathValue("sqid"), req.Need, stack.User)
+			if err == nil && t.ID == 0 {
+				t, err = d.Stack.Task(r.Context(), db.RQ, r.PathValue("sqid"))
+			}
+		}
+		if err == nil && (req.Title != nil || req.Prompt != nil || (req.Type == nil && req.TargetDate == nil && len(req.Need) == 0 && len(req.Require) == 0 && len(req.Unrequire) == 0)) {
 			t, err = d.Stack.Edit(r.Context(), r.PathValue("sqid"), req.Title, req.Prompt, stack.User)
 		}
 		if err != nil {

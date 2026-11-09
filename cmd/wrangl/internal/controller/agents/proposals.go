@@ -41,7 +41,7 @@ var Actions = map[string]string{
 	"queue.reorder":    `{"sqids": [..]} (the project's queued tasks in the wanted order, first runs first)`,
 	"task.complete":    `{"sqid","summary"?}`,
 	"task.reopen":      `{"sqid"}`,
-	"fleet.launch":     `{"template" (runner template name, e.g. a Mac or Android one),"count"? (1-5, default 1)}; only works within this task's project's cap for that template (refused otherwise, with the cap). A Mac template bills a 24-hour Dedicated Host minimum: say so in the description`,
+	"fleet.launch":     `{"template" (runner template name, e.g. a Mac or Android one),"count"? (1-5, default 1)}; only works within that template's max_runners (refused otherwise, naming it). A Mac template bills a 24-hour Dedicated Host minimum: say so in the description`,
 }
 
 const fence = "```wrangl-proposals"
@@ -242,6 +242,6 @@ func schemaHelp() string {
 	for _, k := range []string{"task.create", "task.edit", "task.move", "task.split", "task.type", "task.target_date", "task.needs_add", "task.needs_rm", "task.queue", "task.dequeue", "queue.reorder", "task.complete", "task.reopen", "fleet.launch"} {
 		fmt.Fprintf(&b, "- %s %s\n", k, Actions[k])
 	}
-	b.WriteString("Only propose what you did not already do yourself. Propose fleet.launch only when the owner needs a special-purpose runner (a Mac or Android template) for this project's work: it is refused unless the project's limit for that template allows it, so mention the limit if you know it. Anything not in this list (delete, cancel, merge, terminate) can only be described in prose.")
+	b.WriteString("Only propose what you did not already do yourself. Propose fleet.launch only when the owner needs a special-purpose runner (a Mac or Android template) for this project's work: it is refused if it would exceed the template's max_runners. Anything not in this list (delete, cancel, merge, terminate) can only be described in prose.")
 	return b.String()
 }

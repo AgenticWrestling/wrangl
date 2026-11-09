@@ -8,8 +8,7 @@
 #
 # COST: the emulator needs KVM, so the instance is a bare-metal type (below) or a type that supports
 # nested virtualisation. Either is expensive per hour and is billed while it runs, including idle
-# time. The project cap for this template is 0 unless it is the project's default template: opt in
-# with  wrangl project edit PROJ --limit android=1
+# time. Nothing caps it per project any more: keep max_runners low and only queue work on it deliberately.
 name: android
 arch: x86_64
 # KVM-capable. Metal always works; nested virtualisation is available on some newer Intel families

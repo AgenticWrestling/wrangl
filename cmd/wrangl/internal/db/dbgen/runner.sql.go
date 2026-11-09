@@ -668,7 +668,9 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
                           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0)
              FROM runner n
              WHERE n.template_id = t.id AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
-               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')) AS INTEGER) AS supply,
+               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
+               AND (n.state NOT IN ('idle', 'busy') OR n.template_version = t.version)
+               AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)) AS INTEGER) AS supply,
        CAST((SELECT COUNT(*) FROM runner n
              WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
 FROM runner_template t
@@ -797,81 +799,23 @@ func (q *Queries) SetRunnerLaunchedForProject(ctx context.Context, arg SetRunner
 	return err
 }
 
-const upsertProjectTemplateLimit = `-- name: UpsertProjectTemplateLimit :exec
-INSERT INTO project_template_limit (project_id, template_id, max_instances) VALUES (?1, ?2, ?3)
-ON CONFLICT (project_id, template_id) DO UPDATE SET max_instances = excluded.max_instances
-`
-
-type UpsertProjectTemplateLimitParams struct {
-	ProjectID    int64 `json:"project_id"`
-	TemplateID   int64 `json:"template_id"`
-	MaxInstances int64 `json:"max_instances"`
-}
-
-func (q *Queries) UpsertProjectTemplateLimit(ctx context.Context, arg UpsertProjectTemplateLimitParams) error {
-	_, err := q.db.ExecContext(ctx, upsertProjectTemplateLimit, arg.ProjectID, arg.TemplateID, arg.MaxInstances)
-	return err
-}
-
-const listProjectTemplateLimits = `-- name: ListProjectTemplateLimits :many
-SELECT t.id AS template_id, t.name AS template_name, t.max_runners,
-       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = t.id, 0) AS INTEGER) AS is_default
-FROM project p CROSS JOIN runner_template t
-LEFT JOIN project_template_limit l ON l.project_id = p.id AND l.template_id = t.id
-WHERE p.id = ?1
-ORDER BY t.name
-`
-
-type ListProjectTemplateLimitsRow struct {
-	TemplateID   int64         `json:"template_id"`
-	TemplateName string        `json:"template_name"`
-	MaxRunners   int64         `json:"max_runners"`
-	Stored       sql.NullInt64 `json:"stored"`
-	IsDefault    int64         `json:"is_default"`
-}
-
-func (q *Queries) ListProjectTemplateLimits(ctx context.Context, projectID int64) ([]ListProjectTemplateLimitsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectTemplateLimits, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListProjectTemplateLimitsRow{}
-	for rows.Next() {
-		var i ListProjectTemplateLimitsRow
-		if err := rows.Scan(&i.TemplateID, &i.TemplateName, &i.MaxRunners, &i.Stored, &i.IsDefault); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	return items, rows.Err()
-}
-
 const projectTemplateDemand = `-- name: ProjectTemplateDemand :many
 SELECT p.id AS project_id, CAST(COALESCE(r.template_id, k.template_id, p.default_template_id) AS INTEGER) AS template_id,
        CAST(COUNT(*) AS INTEGER) AS demand,
        CAST((SELECT COUNT(*) FROM runner n WHERE n.launched_for_project = p.id
              AND n.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
-             AND n.state <> 'terminated') AS INTEGER) AS live,
-       l.max_instances AS stored, CAST(COALESCE(p.default_template_id = COALESCE(r.template_id, k.template_id, p.default_template_id), 0) AS INTEGER) AS is_default
+             AND n.state <> 'terminated') AS INTEGER) AS live
 FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
-LEFT JOIN project_template_limit l ON l.project_id = p.id
-     AND l.template_id = COALESCE(r.template_id, k.template_id, p.default_template_id)
 WHERE r.state = 'queued' AND p.archived_at IS NULL AND COALESCE(r.template_id, k.template_id, p.default_template_id) IS NOT NULL
 GROUP BY p.id, COALESCE(r.template_id, k.template_id, p.default_template_id)
 ORDER BY p.priority DESC, p.id
 `
 
 type ProjectTemplateDemandRow struct {
-	ProjectID  int64         `json:"project_id"`
-	TemplateID int64         `json:"template_id"`
-	Demand     int64         `json:"demand"`
-	Live       int64         `json:"live"`
-	Stored     sql.NullInt64 `json:"stored"`
-	IsDefault  int64         `json:"is_default"`
+	ProjectID  int64 `json:"project_id"`
+	TemplateID int64 `json:"template_id"`
+	Demand     int64 `json:"demand"`
+	Live       int64 `json:"live"`
 }
 
 func (q *Queries) ProjectTemplateDemand(ctx context.Context) ([]ProjectTemplateDemandRow, error) {
@@ -883,7 +827,7 @@ func (q *Queries) ProjectTemplateDemand(ctx context.Context) ([]ProjectTemplateD
 	items := []ProjectTemplateDemandRow{}
 	for rows.Next() {
 		var i ProjectTemplateDemandRow
-		if err := rows.Scan(&i.ProjectID, &i.TemplateID, &i.Demand, &i.Live, &i.Stored, &i.IsDefault); err != nil {
+		if err := rows.Scan(&i.ProjectID, &i.TemplateID, &i.Demand, &i.Live); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -894,19 +838,115 @@ func (q *Queries) ProjectTemplateDemand(ctx context.Context) ([]ProjectTemplateD
 	return items, rows.Err()
 }
 
-const countProjectRunners = `-- name: CountProjectRunners :one
-SELECT CAST(COUNT(*) AS INTEGER) FROM runner
-WHERE launched_for_project = ?1 AND template_id = ?2 AND state <> 'terminated'
+const addAllowedTemplate = `-- name: AddAllowedTemplate :exec
+INSERT OR IGNORE INTO project_allowed_template (project_id, template_id) VALUES (?, ?)
 `
 
-type CountProjectRunnersParams struct {
-	ProjectID  sql.NullInt64 `json:"project_id"`
-	TemplateID int64         `json:"template_id"`
+type AddAllowedTemplateParams struct {
+	ProjectID  int64 `json:"project_id"`
+	TemplateID int64 `json:"template_id"`
 }
 
-// Live (not terminated) runners launched for a project on a template.
-func (q *Queries) CountProjectRunners(ctx context.Context, arg CountProjectRunnersParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countProjectRunners, arg.ProjectID, arg.TemplateID)
+func (q *Queries) AddAllowedTemplate(ctx context.Context, arg AddAllowedTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, addAllowedTemplate, arg.ProjectID, arg.TemplateID)
+	return err
+}
+
+const allowedSupply = `-- name: AllowedSupply :one
+SELECT CAST(COALESCE(SUM(MAX(a.max_sessions - (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
+                  AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0) AS INTEGER) AS supply
+FROM runner n JOIN runner_template a ON a.id = n.template_id
+WHERE a.id <> ?1
+  AND a.id IN (SELECT pa.template_id FROM project_allowed_template pa
+               WHERE pa.project_id IN (SELECT k.project_id FROM run r2 JOIN task k ON k.id = r2.task_id
+                                       WHERE r2.state = 'queued'
+                                         AND COALESCE(r2.template_id, k.template_id, (SELECT p.default_template_id FROM project p WHERE p.id = k.project_id)) = ?1))
+  AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
+  AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
+  AND (n.state NOT IN ('idle', 'busy') OR n.template_version = a.version)
+  AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
+`
+
+// Free session slots (claimable runners, plus runners still coming up) on templates that projects
+// with queued runs on this template may also use. The autoscaler counts them as supply.
+func (q *Queries) AllowedSupply(ctx context.Context, templateID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, allowedSupply, templateID)
+	var supply int64
+	err := row.Scan(&supply)
+	return supply, err
+}
+
+const clearAllowedTemplates = `-- name: ClearAllowedTemplates :exec
+DELETE FROM project_allowed_template WHERE project_id = ?
+`
+
+func (q *Queries) ClearAllowedTemplates(ctx context.Context, projectID int64) error {
+	_, err := q.db.ExecContext(ctx, clearAllowedTemplates, projectID)
+	return err
+}
+
+const listAllowedTemplates = `-- name: ListAllowedTemplates :many
+SELECT t.id, t.name FROM project_allowed_template a JOIN runner_template t ON t.id = a.template_id
+WHERE a.project_id = ? ORDER BY t.name
+`
+
+type ListAllowedTemplatesRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// Templates (besides its own) the project may use, by name.
+func (q *Queries) ListAllowedTemplates(ctx context.Context, projectID int64) ([]ListAllowedTemplatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllowedTemplates, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllowedTemplatesRow{}
+	for rows.Next() {
+		var i ListAllowedTemplatesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
+
+const listAllowedTemplatesForTask = `-- name: ListAllowedTemplatesForTask :many
+SELECT a.template_id FROM project_allowed_template a JOIN task k ON k.project_id = a.project_id
+WHERE k.id = ? ORDER BY a.template_id
+`
+
+func (q *Queries) ListAllowedTemplatesForTask(ctx context.Context, id int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listAllowedTemplatesForTask, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var template_id int64
+		if err := rows.Scan(&template_id); err != nil {
+			return nil, err
+		}
+		items = append(items, template_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
+
+const countLiveRunners = `-- name: CountLiveRunners :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM runner WHERE template_id = ? AND state <> 'terminated'
+`
+
+func (q *Queries) CountLiveRunners(ctx context.Context, templateID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLiveRunners, templateID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
