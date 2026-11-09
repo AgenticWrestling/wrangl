@@ -55,6 +55,8 @@ type Worker struct {
 	repoLocks sync.Map // mirror path -> *sync.Mutex
 	// Targets reaches remote targets for remote runs (nil = real ssh/adb over SSM; tests use FakeTarget).
 	Targets TargetBackend
+	// MintToken fetches a fresh repo token for a run (nil: ask the controller over NATS). Tests replace it.
+	MintToken func(ctx context.Context, runID int64) (string, error)
 }
 
 // runState is one run in progress on this runner.
@@ -509,7 +511,7 @@ func (w *Worker) finishRun(ctx, pubCtx context.Context, s *session, fail func(er
 	}
 	if ahead != "" && ahead != "0" {
 		s.state(pubCtx, proto.RunState{State: "pushing", Status: fmt.Sprintf("pushing %s commits to %s", ahead, a.Branch)})
-		if out, err := w.pushBranch(ctx, id, dir, a.GitToken, a.Branch); err != nil {
+		if out, err := w.pushRun(ctx, s, a.Branch); err != nil {
 			fail(fmt.Errorf("push %s: %w: %s", a.Branch, err, out))
 			return
 		}
@@ -935,7 +937,7 @@ func (w *Worker) reportCheckpoint(ctx context.Context, s *session, n *proto.Stac
 	}
 	// Push the run branch now so the commit exists on GitHub for the "what changed" link while
 	// the run is still going (and the work is backed up). The final push in finishRun repeats it.
-	if out, err := w.pushBranch(ctx, s.id, s.dir, s.a.GitToken, s.a.Branch); err != nil {
+	if out, err := w.pushRun(ctx, s, s.a.Branch); err != nil {
 		s.logf("runner", "checkpoint: push %s: %v: %s", s.a.Branch, err, strings.TrimSpace(out))
 		return // not on GitHub, so a "what changed" link to it would 404
 	}
@@ -1229,6 +1231,44 @@ func lookPathIn(name, path string) (string, bool) {
 	}
 	return "", false
 }
+
+// freshToken asks the controller for a new repo token. The one in the Assignment is an installation
+// token that expires after an hour, so long runs must not push with it. Falls back to the assignment's
+// token when the controller cannot be reached (still valid early in a run). Never given to the agent.
+func (w *Worker) freshToken(ctx context.Context, s *session) (string, error) {
+	if w.MintToken != nil {
+		return w.MintToken(ctx, s.a.RunID)
+	}
+	r, err := w.stack(ctx, "token", proto.StackRequest{RunID: s.a.RunID})
+	return r.Token, err
+}
+
+// pushRun pushes the run branch with a fresh token, retrying (re-minting each time) so that an
+// expired or just-rotated token does not fail the run. The worktree is kept on failure by the caller.
+func (w *Worker) pushRun(ctx context.Context, s *session, branch string) (string, error) {
+	var out string
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return out, err
+			case <-time.After(time.Duration(attempt) * pushRetryDelay):
+			}
+		}
+		tok, terr := w.freshToken(ctx, s)
+		if terr != nil {
+			s.logf("runner", "fresh git token: %v (using the assignment's)", terr)
+			tok = s.a.GitToken
+		}
+		if out, err = w.pushBranch(ctx, s.id, s.dir, tok, branch); err == nil {
+			return out, nil
+		}
+	}
+	return out, err
+}
+
+var pushRetryDelay = 2 * time.Second
 
 // pushBranch pushes HEAD to the run branch. An agent that opened its own PR with gh has
 // usually pushed the branch already, so a rejected push is not a failure: if the remote

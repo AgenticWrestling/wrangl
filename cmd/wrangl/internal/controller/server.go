@@ -272,6 +272,12 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
 		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, ApprovalHandlers: map[string]func(context.Context, json.RawMessage) error{}, Bus: s.Bus}
+	if ghAPI != nil {
+		s.Runs.RepoToken = func(ctx context.Context, repo dbgen.Repo) (string, error) {
+			tok, _, err := ghAPI.RepoToken(ctx, projects.GHRepo(repo))
+			return tok, err
+		}
+	}
 	reviewer, hasReviewer, err := s.reviewer()
 	if err != nil {
 		return err

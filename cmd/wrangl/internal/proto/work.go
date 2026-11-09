@@ -192,6 +192,7 @@ type StackReply struct {
 	OK    bool       `json:"ok"`
 	Error string     `json:"error,omitempty"`
 	Next  *StackNext `json:"next,omitempty"`
+	Token string     `json:"token,omitempty"` // "token" op: a freshly minted repo token (empty without GitHub)
 }
 
 // RunRef addresses a run on a runner (cmd.cancel, cmd.diff, cmd.tree, cmd.file).
