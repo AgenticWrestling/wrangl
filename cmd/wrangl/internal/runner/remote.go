@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/awsx/ssmtunnel"
 	"net"
 	"os"
 	"os/exec"
@@ -258,50 +259,26 @@ func (r *realTargets) OpenTunnel(ctx context.Context, t proto.TargetConn) (Tunne
 	if t.Via == "direct" {
 		st.host, st.port = t.Host, t.Port
 	} else {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
+		port, err := ssmtunnel.FreePort()
 		if err != nil {
 			return nil, err
 		}
-		st.host, st.port = "127.0.0.1", l.Addr().(*net.TCPAddr).Port
-		l.Close()
+		st.host, st.port = "127.0.0.1", port
 		sctx, cancel := context.WithCancel(context.Background())
 		st.cancel, st.done = cancel, make(chan struct{})
+		args := ssmtunnel.Args(t.InstanceID, "", "", t.Port, st.port)
 		go func() {
 			defer close(st.done)
-			backoff := time.Second
-			for sctx.Err() == nil {
-				cmd := exec.CommandContext(sctx, "aws", "ssm", "start-session", "--target", t.InstanceID,
-					"--document-name", "AWS-StartPortForwardingSession",
-					"--parameters", fmt.Sprintf("portNumber=%d,localPortNumber=%d", t.Port, st.port))
-				start := time.Now()
-				cmd.Run()
-				if time.Since(start) > time.Minute {
-					backoff = time.Second
-				}
-				select {
-				case <-sctx.Done():
-				case <-time.After(backoff):
-				}
-				backoff = min(backoff*2, time.Minute)
-			}
+			ssmtunnel.Supervise(sctx, args, st.port)
 		}()
 	}
 	// wait for the path to answer
-	deadline := time.Now().Add(45 * time.Second)
-	for {
-		c, err := net.DialTimeout("tcp", net.JoinHostPort(st.host, strconv.Itoa(st.port)), 2*time.Second)
-		if err == nil {
-			c.Close()
-			break
+	if err := ssmtunnel.WaitReady(ctx, st.host, st.port, 45*time.Second); err != nil {
+		if st.cancel != nil {
+			st.cancel()
+			<-st.done
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			if st.cancel != nil {
-				st.cancel()
-				<-st.done
-			}
-			return nil, fmt.Errorf("tunnel to %s did not come up: %v", t.Name, err)
-		}
-		time.Sleep(500 * time.Millisecond)
+		return nil, fmt.Errorf("tunnel to %s did not come up: %v", t.Name, err)
 	}
 	r.tunnels[t.Name] = st
 	return &tunnelHandle{r: r, name: t.Name, st: st}, nil
