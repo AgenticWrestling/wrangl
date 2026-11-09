@@ -18,6 +18,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/deliverables"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/diffs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/ghsetup"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/plans"
@@ -88,6 +89,8 @@ type Deps struct {
 	Term         *TermHub
 	// Agents runs controller agents ("Ask?" on a task).
 	Agents *agents.Service
+	// Diffs serves the review card's diff data (nil: the diffdata routes answer 404).
+	Diffs *diffs.Service
 }
 
 // Register mounts /api/v1 on mux.

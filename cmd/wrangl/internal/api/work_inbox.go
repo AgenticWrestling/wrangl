@@ -70,6 +70,16 @@ func registerQuestions(mux *http.ServeMux, d Deps) {
 		}
 		return out, nil
 	}))
+	mux.HandleFunc("GET /api/v1/prs/{id}/diffdata", getJSON(func(r *http.Request) (proto.DiffView, error) {
+		id, err := pathID(r, "id", "PR id")
+		if err != nil {
+			return proto.DiffView{}, err
+		}
+		if d.Diffs == nil {
+			return proto.DiffView{}, fmt.Errorf("%w: diff data", errs.NotFound)
+		}
+		return d.Diffs.ForPR(r.Context(), id, r.URL.Query().Get("commit"))
+	}))
 	mux.HandleFunc("GET /api/v1/prs/{id}", getJSON(func(r *http.Request) (proto.PRView, error) {
 		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 		rows, err := db.RQ.ListPRs(r.Context(), "all")

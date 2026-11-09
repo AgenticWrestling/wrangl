@@ -84,6 +84,16 @@ func registerRuns(mux *http.ServeMux, d Deps) {
 			return d.Runs.Inspect(r.Context(), id, kind, r.URL.Query().Get("path"), r.URL.Query().Get("stat") == "1")
 		}))
 	}
+	mux.HandleFunc("GET /api/v1/runs/{id}/diffdata", getJSON(func(r *http.Request) (proto.DiffView, error) {
+		id, err := pathID(r, "id", "run id")
+		if err != nil {
+			return proto.DiffView{}, err
+		}
+		if d.Diffs == nil {
+			return proto.DiffView{}, fmt.Errorf("%w: diff data", errs.NotFound)
+		}
+		return d.Diffs.ForRun(r.Context(), id, r.URL.Query().Get("commit"))
+	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}/pty", func(w http.ResponseWriter, r *http.Request) {
 		id, err := pathID(r, "id", "run id")
 		if err != nil {
