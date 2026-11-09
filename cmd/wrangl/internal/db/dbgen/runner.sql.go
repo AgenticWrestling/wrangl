@@ -668,7 +668,8 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
                           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0)
              FROM runner n
              WHERE n.template_id = t.id AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
-               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')) AS INTEGER) AS supply,
+               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
+               AND (n.state NOT IN ('idle', 'busy') OR n.template_version = t.version)) AS INTEGER) AS supply,
        CAST((SELECT COUNT(*) FROM runner n
              WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
 FROM runner_template t

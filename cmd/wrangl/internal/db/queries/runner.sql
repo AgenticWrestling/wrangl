@@ -129,7 +129,8 @@ WHERE drain_requested = 1 AND launched = 1 AND instance_id IS NOT NULL
 
 -- name: TemplateDemand :many
 -- Per template: queued runs (demand), free session slots on uncordoned runners that are or will
--- be available (supply; a runner still coming up counts all its slots), and live runners
+-- be available (supply; a runner still coming up counts all its slots; an idle or busy runner
+-- behind on the template version is not supply, ClaimIdleRunner refuses it), and live runners
 -- (counted against max_runners).
 SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
        CAST((SELECT COUNT(*) FROM run r JOIN task k ON k.id = r.task_id
@@ -142,7 +143,8 @@ SELECT t.id, t.name, t.version, t.failed_version, t.max_runners, t.max_sessions,
                           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')), 0)), 0)
              FROM runner n
              WHERE n.template_id = t.id AND n.cordoned = 0 AND n.drain_requested = 0 AND n.upgrade_sha = ''
-               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')) AS INTEGER) AS supply,
+               AND n.state IN ('launching', 'enrolling', 'provisioning', 'idle', 'busy')
+               AND (n.state NOT IN ('idle', 'busy') OR n.template_version = t.version)) AS INTEGER) AS supply,
        CAST((SELECT COUNT(*) FROM runner n
              WHERE n.template_id = t.id AND n.state <> 'terminated') AS INTEGER) AS live
 FROM runner_template t

@@ -242,11 +242,6 @@ Work down this list.
   (usually `host`). A run queued on any other template never uses it, however idle it is. It also counts
   toward `live` for its template's `max_runners`, which can leave less room to launch cloud runners of
   that template.
-- **Version-mismatched runners count as supply but cannot be claimed.** `TemplateDemand` counts free slots
-  on any runner of the template that is idle or busy and not cordoned, including one that is behind on
-  the template version or about to upgrade, but `ClaimIdleRunner` refuses it. During a template edit or
-  a binary roll-out the autoscaler therefore may not launch a runner while runs wait, until the old
-  runners have caught up. An idle runner catches up on its own.
 - **Runs waiting on precursors still count as demand.** Queued work runs with no ready leaf are
   included in `demand`, so they can cause a launch for slots that stay empty.
 - **`needs_input` runs hold their slot.** A run waiting on your answer still occupies a session, so one

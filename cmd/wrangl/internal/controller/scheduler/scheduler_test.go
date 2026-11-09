@@ -119,6 +119,17 @@ func TestCordonedRunnersAreNotSupply(t *testing.T) {
 	}
 }
 
+func TestVersionBehindRunnersAreNotSupply(t *testing.T) {
+	s, fake, _, d := setup(t, 2)
+	ctx := context.Background()
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, idle_since, template_version) VALUES ('old', 1, 'idle', '2026-01-01T00:00:00.000Z', 1)`)
+	d.W.Exec(`UPDATE runner_template SET version = 2`)
+	queue(t, d, 1)
+	if got, _ := s.Tick(ctx); got["go"] != 1 || len(fake.Runs) != 1 {
+		t.Fatalf("a runner behind on the template version was counted as supply: %v", got)
+	}
+}
+
 func TestFailedTemplateVersionBlocksLaunch(t *testing.T) {
 	s, fake, _, d := setup(t, 2)
 	ctx := context.Background()
