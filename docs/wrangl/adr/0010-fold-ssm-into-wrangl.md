@@ -383,3 +383,14 @@ Out of scope: launching dev instances (the user has their own), Windows, a web U
 8. **Smoke test on a real instance** (owner's account): connect, tunnel, ssh after 60 s, setup twice
    (second run skips), setup with `--with android`, idle-stop fires. Report results in the task.
 9. **Remove ssm** (the stage 5 list above), last, with the grep check and the three Go commands.
+
+## Implementation notes (as built)
+
+Deviations from the plan above, found while building it:
+
+- `dev setup --shell fish` was **not** built: `setup_script` runs before `mise install`, so it cannot point the login shell at a mise-installed binary, and the install path of the `github:` backend is not stable. `--with fish` installs the shell; changing the login shell stays manual.
+- `dev setup` got `--ssh HOST` (apply over plain ssh to any machine) next to `--via ssm|ssh`, and `--create-user` was not built (`--user` selects an existing user).
+- The overlay merge drops duplicate keys and a second `[tools]` header; a test parses the merged result with `mise` when it is installed (this caught a duplicate `java` key).
+- The `Applier`/`ApplyScript` parity is tested in `runner/applyscript_test.go`; `Applier` itself is unchanged.
+- Binary size: 69.5 MB before, 72.7 MB after (host build, `-s -w`), +3.1 MB; the picker stays go-fuzzyfinder.
+- Not run against real AWS; unit tests use fakes for EC2, EIC, SSM and CloudWatch. `TestMCPShimListsToolsAndRelays` in `runner` fails on the base commit as well and is unrelated.
