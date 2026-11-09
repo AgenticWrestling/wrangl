@@ -637,3 +637,5 @@ button.chip.ic { background: none; color: inherit; font: inherit; cursor: pointe
 pre.udiff { font-size: 0.76rem; line-height: 1.35; overflow-x: auto; max-width: 100%; margin: 6px 0 2px; white-space: pre; }
 pre.udiff span { min-width: max-content; }
 .chgcommits { overflow-wrap: anywhere; }
+.chgpick { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.chgpick select { flex: 1; min-width: 0; max-width: 100%; margin: 0; }

@@ -24,7 +24,8 @@
 
 {{define "changes-body"}}{{if .Err}}<p class="dim small">Couldn't load the changes: {{.Err}}</p>{{else}}
 <p class="small dim">{{len .Files}} file{{if ne (len .Files) 1}}s{{end}} · <span class="add">+{{.Adds}}</span> <span class="del">−{{.Dels}}</span>{{if .Link}} · <a href="{{.Link}}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>{{end}}</p>
-{{if .Commits}}<p class="small chgcommits">{{if .Current}}<a href="#" data-on:click__prevent="@get('{{.Base}}')">all changes</a>{{else}}<strong>all changes</strong>{{end}}{{range .Commits}} · {{if eq .SHA $.Current}}<strong>{{.Subject}}</strong>{{else}}<a href="#" title="{{.SHA}}" data-on:click__prevent="@get('{{$.Base}}&amp;commit={{.SHA}}')">{{.Subject}}</a>{{end}}{{end}}</p>{{end}}
+{{if .Commits}}<label class="small chgpick">Show <select aria-label="Commit" data-on:change="@get('{{.Base}}&amp;commit=' + evt.target.value)"><option value=""{{if not .Current}} selected{{end}}>All changes</option>{{range .Commits}}<option value="{{.SHA}}"{{if eq .SHA $.Current}} selected{{end}}>{{.Subject}} ({{slice .SHA 0 7}})</option>{{end}}</select></label>
+{{end}}
 {{range .Files}}<details data-preserve-attr="open" class="chgfile"><summary><code>{{if .OldPath}}{{.OldPath}} → {{end}}{{.Path}}</code> <span class="dim small">{{.Status}}</span> {{if .Binary}}<span class="dim small">binary</span>{{else}}<span class="add">+{{.Additions}}</span> <span class="del">−{{.Deletions}}</span>{{end}}</summary>
 {{if .Binary}}<p class="dim small">Binary file not shown.</p>{{else if .Truncated}}<p class="dim small">Too large to show here. <a href="{{.Link}}" target="_blank" rel="noopener noreferrer">View on GitHub ↗</a></p>{{else}}<pre class="udiff">{{range .Lines}}<span class="{{.Class}}">{{.Text}}</span>{{end}}</pre>{{end}}</details>{{end}}
 {{end}}{{end}}

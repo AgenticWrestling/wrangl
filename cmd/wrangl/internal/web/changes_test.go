@@ -68,7 +68,7 @@ func TestChangesSection(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.changes(rec, httptest.NewRequest("GET", "/ui/changes?run=1&k=q2", nil))
 	body := rec.Body.String()
-	for _, want := range []string{"selector #chg-q2", "mode inner", "a.txt", "+1", "−1", "d-add", "&lt;b&gt;TWO", "Binary file not shown", "work", "commit="} {
+	for _, want := range []string{"selector #chg-q2", "mode inner", "a.txt", "+1", "−1", "d-add", "&lt;b&gt;TWO", "Binary file not shown", "<select", `<option value="" selected>All changes</option>`, "work (" + head[:7] + ")"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in:\n%s", want, body)
 		}
@@ -81,5 +81,18 @@ func TestChangesSection(t *testing.T) {
 	h.changes(rec, httptest.NewRequest("GET", "/ui/changes?run=99&k=q2", nil))
 	if !strings.Contains(rec.Body.String(), "Couldn't load") {
 		t.Errorf("error not shown: %s", rec.Body.String())
+	}
+
+	// Picking a commit shows just that commit, with its option selected.
+	rec = httptest.NewRecorder()
+	h.changes(rec, httptest.NewRequest("GET", "/ui/changes?run=1&k=q2&commit="+head, nil))
+	one := rec.Body.String()
+	if !strings.Contains(one, `value="`+head+`" selected`) || strings.Contains(one, `value="" selected`) || !strings.Contains(one, "a.txt") {
+		t.Errorf("single-commit view wrong:\n%s", one)
+	}
+	rec = httptest.NewRecorder()
+	h.changes(rec, httptest.NewRequest("GET", "/ui/changes?run=1&k=q2&commit="+base, nil))
+	if !strings.Contains(rec.Body.String(), "Couldn't load") {
+		t.Errorf("foreign commit accepted:\n%s", rec.Body.String())
 	}
 }

@@ -32,6 +32,13 @@ const check = (ok, msg) => { if (!ok) errors.push(msg); };
     check(await pre.evaluate((e) => e.scrollWidth > e.clientWidth), `${name}: long line does not scroll inside the file block`);
     check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${name}: page scrolls sideways`);
     check((await card.locator('.chgfile', { hasText: 'bin.dat' }).innerText()).includes('binary'), `${name}: binary file not marked`);
+    // The commit picker: a <select>, "All changes" first; choosing the commit reloads just its diff.
+    const pick = card.locator('.chgpick select');
+    check(await pick.count() === 1 && (await pick.locator('option').first().innerText()) === 'All changes', `${name}: no commit picker`);
+    await pick.selectOption({ index: 1 });
+    await page.waitForFunction(() => document.querySelector('.chgpick select')?.selectedIndex === 1, null, { timeout: 8000 });
+    check((await card.locator('.chgfile').count()) === 2, `${name}: commit view lost its files`);
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${name}: picker overflows the page`);
     await page.close();
   }
   await browser.close();
