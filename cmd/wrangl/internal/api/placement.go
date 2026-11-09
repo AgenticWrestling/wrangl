@@ -1,0 +1,38 @@
+package api
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+)
+
+// needView is the effective need set for a project (taskID 0) or a task.
+func needView(ctx context.Context, d Deps, projectID, taskID int64) *proto.NeedView {
+	r, err := (&placement.Service{DB: d.Fleet.DB}).Resolve(ctx, projectID, taskID)
+	if err != nil {
+		return nil
+	}
+	v, m, k := r.View()
+	return &proto.NeedView{VCPU: v, RAM: m, Disk: k, Source: r.Source}
+}
+
+func registerPlacement(mux *http.ServeMux, d Deps) {
+	svc := &placement.Service{DB: d.Fleet.DB}
+	view := func(r *http.Request) (proto.PlacementView, error) {
+		g, err := svc.Global(r.Context())
+		if err != nil {
+			return proto.PlacementView{}, err
+		}
+		v, m, k := g.View()
+		return proto.PlacementView{Need: proto.NeedView{VCPU: v, RAM: m, Disk: k}}, nil
+	}
+	mux.HandleFunc("GET /api/v1/placement", getJSON(view))
+	mux.HandleFunc("PATCH /api/v1/placement", handle(http.StatusOK, func(r *http.Request, req proto.PlacementPatch) (proto.PlacementView, error) {
+		if _, err := svc.SetGlobal(r.Context(), req.Need); err != nil {
+			return proto.PlacementView{}, err
+		}
+		return view(r)
+	}))
+}

@@ -33,27 +33,28 @@ func (s *Service) Register(r *runs.Service) {
 
 // args are the arguments of every project tool; pointers distinguish "not given" from "".
 type args struct {
-	Slug           string           `json:"slug"`
-	Confirm        string           `json:"confirm"`
-	Name           *string          `json:"name"`
-	Description    *string          `json:"description"`
-	Template       *string          `json:"template"`
-	PlanTemplate   *string          `json:"plan_template"`
-	AutoMerge      *bool            `json:"auto_merge"`
-	AutoQueue      *bool            `json:"auto_queue"`
-	AutoResolve    *bool            `json:"auto_resolve"`
-	Priority       *int64           `json:"priority"`
-	NotesRepo      *string          `json:"notes_repo"`
-	Limits         map[string]int64 `json:"limits"`
-	Agent          *string          `json:"agent"`
-	CitationAudit  *bool            `json:"citation_audit"`
-	AllowTemplates *[]string        `json:"allow_templates"`
+	Slug           string            `json:"slug"`
+	Confirm        string            `json:"confirm"`
+	Name           *string           `json:"name"`
+	Description    *string           `json:"description"`
+	Template       *string           `json:"template"`
+	PlanTemplate   *string           `json:"plan_template"`
+	AutoMerge      *bool             `json:"auto_merge"`
+	AutoQueue      *bool             `json:"auto_queue"`
+	AutoResolve    *bool             `json:"auto_resolve"`
+	Priority       *int64            `json:"priority"`
+	NotesRepo      *string           `json:"notes_repo"`
+	Limits         map[string]int64  `json:"limits"`
+	Agent          *string           `json:"agent"`
+	CitationAudit  *bool             `json:"citation_audit"`
+	AllowTemplates *[]string         `json:"allow_templates"`
+	Need           map[string]string `json:"need"`
 }
 
 func (a args) params() projects.ProjectParams {
 	return projects.ProjectParams{Name: a.Name, Description: a.Description, Template: a.Template,
 		PlanTemplate: a.PlanTemplate, AutoMerge: a.AutoMerge, AutoQueue: a.AutoQueue, AutoResolve: a.AutoResolve,
-		Priority: a.Priority, NotesRepo: a.NotesRepo, Limits: a.Limits, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates}
+		Priority: a.Priority, NotesRepo: a.NotesRepo, Limits: a.Limits, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates, Need: a.Need}
 }
 
 func parse(raw json.RawMessage) (args, error) {

@@ -100,6 +100,8 @@ type ProjectView struct {
 	Agent  string         `json:"agent,omitempty"` // default agent definition
 	// AllowTemplates: other templates (usually host) this project's runs may also use.
 	AllowTemplates []string `json:"allow_templates,omitempty"`
+	// Need is the effective resource need set for the project's tasks (default, or the project's own).
+	Need *NeedView `json:"need,omitempty"`
 	// CitationAudit: research PRs get an audit run that re-fetches every cited URL before merge.
 	CitationAudit bool `json:"citation_audit"`
 	// Archived is set when the project is archived (hidden and inert); ArchivedAt is when.
@@ -138,17 +140,18 @@ type ProjectLimit struct {
 
 // ProjectRequest creates or patches a project (nil = unchanged).
 type ProjectRequest struct {
-	Slug           string    `json:"slug,omitempty"`
-	Name           *string   `json:"name,omitempty"`
-	Description    *string   `json:"description,omitempty"`
-	Template       *string   `json:"template,omitempty"`
-	PlanTemplate   *string   `json:"plan_template,omitempty"`
-	AllowTemplates *[]string `json:"allow_templates,omitempty"` // replaces the list; empty clears
-	AutoMerge      *bool     `json:"auto_merge,omitempty"`
-	AutoQueue      *bool     `json:"auto_queue,omitempty"`
-	AutoResolve    *bool     `json:"auto_resolve,omitempty"`
-	Priority       *int64    `json:"priority,omitempty"`
-	NotesRepo      *string   `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
+	Slug           string            `json:"slug,omitempty"`
+	Name           *string           `json:"name,omitempty"`
+	Description    *string           `json:"description,omitempty"`
+	Template       *string           `json:"template,omitempty"`
+	PlanTemplate   *string           `json:"plan_template,omitempty"`
+	AllowTemplates *[]string         `json:"allow_templates,omitempty"` // replaces the list; empty clears
+	Need           map[string]string `json:"need,omitempty"`            // resource needs by field; empty value clears
+	AutoMerge      *bool             `json:"auto_merge,omitempty"`
+	AutoQueue      *bool             `json:"auto_queue,omitempty"`
+	AutoResolve    *bool             `json:"auto_resolve,omitempty"`
+	Priority       *int64            `json:"priority,omitempty"`
+	NotesRepo      *string           `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
 	// Limits sets instance caps by template name; templates not listed keep theirs.
 	Limits        map[string]int64 `json:"limits,omitempty"`
 	Agent         *string          `json:"agent,omitempty"` // default agent name; "" clears
@@ -256,11 +259,31 @@ type TaskDetail struct {
 	TargetDate string          `json:"target_date,omitempty"` // YYYY-MM-DD
 	CreatedBy  string          `json:"created_by"`
 	Summary    string          `json:"summary,omitempty"`
+	Need       *NeedView       `json:"need,omitempty"`
 	Children   []TaskRef       `json:"children"`
 	Precursors []TaskRef       `json:"precursors"`
 	Dependents []TaskRef       `json:"dependents"`
 	Runs       []TaskRunView   `json:"runs"`
 	Events     []TaskEventView `json:"events"`
+}
+
+// NeedView is an effective resource need set: formatted values and which layer each came from
+// (default, project or task).
+type NeedView struct {
+	VCPU   string            `json:"vcpu"`
+	RAM    string            `json:"ram"`
+	Disk   string            `json:"disk"`
+	Source map[string]string `json:"source,omitempty"`
+}
+
+// PlacementView is GET /api/v1/placement: the global default need set.
+type PlacementView struct {
+	Need NeedView `json:"need"`
+}
+
+// PlacementPatch is PATCH /api/v1/placement: set default needs, e.g. {"ram": "2GiB"}.
+type PlacementPatch struct {
+	Need map[string]string `json:"need,omitempty"`
 }
 
 // TaskCreateRequest is POST /api/v1/tasks.
@@ -276,7 +299,9 @@ type TaskCreateRequest struct {
 	Template string   `json:"template,omitempty"`
 	Issue    string   `json:"issue,omitempty"`
 	Needs    []string `json:"needs,omitempty"`
-	Type     string   `json:"type,omitempty"` // code | ux | architecture | spec | docs | review | release | milestone | feature
+	// Need sets resource needs, e.g. {"ram": "8GiB"} (see ADR 0009).
+	Need map[string]string `json:"need,omitempty"`
+	Type string            `json:"type,omitempty"` // code | ux | architecture | spec | docs | review | release | milestone | feature
 	// TargetDate is YYYY-MM-DD.
 	TargetDate string `json:"target_date,omitempty"`
 }
@@ -286,6 +311,8 @@ type TaskPatchRequest struct {
 	Title  *string `json:"title,omitempty"`
 	Prompt *string `json:"prompt,omitempty"`
 	Type   *string `json:"type,omitempty"`
+	// Need changes resource needs; an empty value clears the field back to inherit.
+	Need map[string]string `json:"need,omitempty"`
 	// TargetDate: YYYY-MM-DD; "" clears it; nil leaves it.
 	TargetDate *string `json:"target_date,omitempty"`
 }

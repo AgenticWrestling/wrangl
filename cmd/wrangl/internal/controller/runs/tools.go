@@ -113,6 +113,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 	var a struct {
 		Sqid, Parent, Title, Prompt, Precursor, Summary, Reason, State, Text, Project string
 		Needs                                                                         []string
+		Need                                                                          map[string]string
 		Position                                                                      *posArg
 		Percent                                                                       *int
 		Limit                                                                         *int
@@ -298,7 +299,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 			return nil, fmt.Errorf("%w: give parent, or project for a top-level task", errs.Invalid)
 		}
 		t, err := s.Stack.Create(ctx, stack.CreateParams{Project: project, Parent: a.Parent, Title: a.Title, Prompt: a.Prompt,
-			Pos: a.Position.pos(), Needs: a.Needs, Type: a.Type, TargetDate: deref(a.TargetDate), Actor: sc.Actor})
+			Pos: a.Position.pos(), Needs: a.Needs, Need: a.Need, Type: a.Type, TargetDate: deref(a.TargetDate), Actor: sc.Actor})
 		if err != nil {
 			return nil, err
 		}
@@ -327,7 +328,17 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 				return nil, err
 			}
 		}
-		if title != nil || prompt != nil || (a.Type == "" && a.TargetDate == nil) {
+		if len(a.Need) > 0 {
+			if err := s.Stack.SetNeed(ctx, a.Sqid, a.Need, sc.Actor); err != nil {
+				return nil, err
+			}
+			if t.ID == 0 {
+				if t, err = s.Stack.Task(ctx, s.DB.RQ, a.Sqid); err != nil {
+					return nil, err
+				}
+			}
+		}
+		if title != nil || prompt != nil || (a.Type == "" && a.TargetDate == nil && len(a.Need) == 0) {
 			if t, err = s.Stack.Edit(ctx, a.Sqid, title, prompt, sc.Actor); err != nil {
 				return nil, err
 			}

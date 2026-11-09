@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"net/http"
 	"strconv"
 	"strings"
@@ -158,6 +159,9 @@ func (h *Handler) viewSettings(ctx context.Context, view string, r *http.Request
 	d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 	d["Templates"], _ = db.RQ.ListTemplates(ctx)
 	d["CAgents"], _ = db.RQ.ListControllerAgents(ctx)
+	if g, err := (&placement.Service{DB: db}).Global(ctx); err == nil {
+		d["PlacementVCPU"], d["PlacementRAM"], d["PlacementDisk"] = placementInput("vcpu", g.VCPU), placementInput("ram", g.RAMMiB), placementInput("disk", g.DiskGiB)
+	}
 	d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"
 	return nil
 }

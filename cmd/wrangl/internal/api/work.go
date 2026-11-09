@@ -22,4 +22,5 @@ func registerWork(mux *http.ServeMux, d Deps) {
 	registerTasks(mux, d)
 	registerQuestions(mux, d)
 	registerRuns(mux, d)
+	registerPlacement(mux, d)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/client"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
@@ -54,6 +55,15 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 			r.Limits[name] = n
 		}
 	}
+	if f.Changed("need") {
+		vals, _ := f.GetStringSlice("need")
+		patch, err := placement.ParsePatch(vals)
+		if err != nil {
+			c.PrintErrln(err)
+			os.Exit(2)
+		}
+		r.Need = patch
+	}
 	if f.Changed("priority") {
 		v, _ := f.GetInt64("priority")
 		r.Priority = &v
@@ -75,12 +85,14 @@ func projectFlags(c *cobra.Command) {
 	f.String("agent", "", "default agent definition (wrangl agent list); empty clears")
 	f.StringSlice("limit", nil, "max runner instances this project may cause on a template: TEMPLATE=N (repeatable)")
 	f.StringSlice("allow-template", nil, "other runner template this project may use, e.g. host (repeatable; replaces the list; empty clears)")
+	f.StringSlice("need", nil, "default resource need for this project's tasks: vcpu=N, ram=2GiB, disk=5GiB (repeatable; empty value clears, e.g. ram=)")
 	f.Int64("priority", 0, "scheduling priority across projects (higher first)")
 }
 
 func printProject(w io.Writer, p proto.ProjectView) {
 	fmt.Fprintf(w, "slug\t%s\nname\t%s\ntemplate\t%s\nplan template\t%s\nauto-merge\t%v\nauto-queue\t%v\npriority\t%d\nnotes repo\t%s\n",
 		p.Slug, p.Name, dash(p.Template), dash(p.PlanTemplate), p.AutoMerge, p.AutoQueue, p.Priority, dash(p.NotesRepo))
+	printNeed(w, p.Need)
 	if len(p.AllowTemplates) > 0 {
 		fmt.Fprintf(w, "also allowed\t%s\n", strings.Join(p.AllowTemplates, ", "))
 	}

@@ -257,6 +257,10 @@ type Run struct {
 	QueueRank      sql.NullFloat64 `json:"queue_rank"`
 	BlockedSince   sql.NullString  `json:"blocked_since"`
 	BlockedReason  string          `json:"blocked_reason"`
+	NeedVcpu       int64           `json:"need_vcpu"`
+	NeedRamMib     int64           `json:"need_ram_mib"`
+	NeedDiskGib    int64           `json:"need_disk_gib"`
+	NeedSource     string          `json:"need_source"`
 }
 
 type Runner struct {

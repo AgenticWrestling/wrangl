@@ -21,6 +21,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 )
 
 // Actor identifies who changed the work stack: "user" or "agent:<run id>".
@@ -251,7 +252,8 @@ type CreateParams struct {
 	Template string // template name; "" = inherit
 	Issue    string // owner/name#number; optional
 	Needs    []string
-	Type     string // dbtypes.TaskType name; "" = inherit the parent's, else code
+	Need     map[string]string // resource needs (ram=4GiB); owner or, from an agent, raise-only
+	Type     string            // dbtypes.TaskType name; "" = inherit the parent's, else code
 	// TargetDate is YYYY-MM-DD; "" = none.
 	TargetDate string
 	Actor      Actor
@@ -279,6 +281,9 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 	td, err := parseTargetDate(c.TargetDate)
 	if err != nil {
 		return dbgen.Task{}, err
+	}
+	if _, err := placement.Apply(placement.Need{}, c.Need); err != nil {
+		return dbgen.Task{}, err // refuse a bad need before anything is created
 	}
 	var out dbgen.Task
 	err = s.DB.Tx(ctx, func(q *dbgen.Queries) error {
@@ -359,6 +364,9 @@ func (s *Service) Create(ctx context.Context, c CreateParams) (dbgen.Task, error
 		}
 		return recompute(ctx, q, out.ParentID)
 	})
+	if err == nil && len(c.Need) > 0 {
+		err = s.SetNeed(ctx, out.Sqid.String, c.Need, c.Actor)
+	}
 	return out, err
 }
 
@@ -426,6 +434,23 @@ func (s *Service) Edit(ctx context.Context, sqid string, title, prompt *string, 
 		return s.event(ctx, q, sqid, actor, "update", diff)
 	})
 	return out, err
+}
+
+// SetNeed changes a task's resource needs (ADR 0009 section 4). The owner may raise, lower or clear a
+// field; an agent (any actor but User) may only raise.
+func (s *Service) SetNeed(ctx context.Context, sqid string, patch map[string]string, actor Actor) error {
+	t, err := s.liveTask(ctx, s.DB.RQ, sqid)
+	if err != nil {
+		return err
+	}
+	if _, err := (&placement.Service{DB: s.DB}).SetTask(ctx, t.ProjectID, t.ID, patch, actor != User); err != nil {
+		return err
+	}
+	if err := s.event(ctx, s.DB.Q, sqid, actor, "update", map[string]any{"need": patch}); err != nil {
+		return err
+	}
+	s.Changed(sqid)
+	return nil
 }
 
 // SetType changes a task's type.

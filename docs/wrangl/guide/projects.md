@@ -24,6 +24,7 @@ task, so it belongs to the project the task is in.
 | **auto-resolve** | `--auto-resolve` | When auto-merge meets a conflicted PR it queues Smart Merge (an agent merges the base branch in) instead of asking you. Default off. |
 | **citation audit** | `--citation-audit` | For research PRs, an extra read-only run re-fetches every cited URL; unverified citations block auto-merge. |
 | **notes repo** | `--notes-repo owner/name` | A linked repo that holds research reports under `research/`. It must already be linked to the project; empty clears it. |
+| **resource need** | `--need vcpu=N --need ram=4GiB --need disk=10GiB` (repeatable; `ram=` clears) | Default resource need for the project's tasks, overriding the global default (`wrangl placement`). Recorded only; placement does not use it yet. |
 | **allowed templates** | `--allow-template T` (repeatable; replaces the list; empty clears) | Other templates whose runners this project's runs may use besides their own, usually `host`. A free allowed runner is used first; the autoscaler launches only when none has room. See the scheduling guide. |
 | **limits** | `--limit TEMPLATE=N` (repeatable) | How many runner instances this project's demand may launch per template (section 4). |
 
@@ -215,7 +216,7 @@ All commands take `-o table|json|yaml`.
 
 | Command | Notes |
 |---|---|
-| `project create SLUG [flags]` | Flags as in section 1 (`--name --description --template --plan-template --agent --priority --auto-queue --auto-merge --auto-resolve --citation-audit --notes-repo --limit --allow-template`). |
+| `project create SLUG [flags]` | Flags as in section 1 (`--name --description --template --plan-template --agent --priority --auto-queue --auto-merge --auto-resolve --citation-audit --notes-repo --limit --allow-template --need`). |
 | `project edit SLUG [flags]` | Same flags; only those given change. Refused on an archived project. |
 | `project show SLUG` | The settings, including limits. |
 | `project list [--archived \| --all]` | Active projects by default; a STATUS column says which are archived. |

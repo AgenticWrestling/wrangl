@@ -11,7 +11,7 @@ import (
 )
 
 const activeRunForRunner = `-- name: ActiveRunForRunner :one
-SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason FROM run
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source FROM run
 WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
 ORDER BY id DESC LIMIT 1
 `
@@ -49,6 +49,10 @@ func (q *Queries) ActiveRunForRunner(ctx context.Context, runnerID sql.NullInt64
 		&i.QueueRank,
 		&i.BlockedSince,
 		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }
@@ -147,7 +151,7 @@ func (q *Queries) CountRunsForTask(ctx context.Context, taskID int64) (int64, er
 
 const createRun = `-- name: CreateRun :one
 INSERT INTO run (task_id, kind, attempt) VALUES (?, ?, ?)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source
 `
 
 type CreateRunParams struct {
@@ -189,6 +193,10 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.QueueRank,
 		&i.BlockedSince,
 		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }
@@ -247,7 +255,7 @@ func (q *Queries) FreeRunnerSlot(ctx context.Context, templateID int64) (int64, 
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason FROM run WHERE id = ?
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source FROM run WHERE id = ?
 `
 
 func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
@@ -283,6 +291,10 @@ func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
 		&i.QueueRank,
 		&i.BlockedSince,
 		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }
@@ -368,7 +380,7 @@ func (q *Queries) ListActiveRuns(ctx context.Context) ([]ListActiveRunsRow, erro
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, r.guidance, r.queue_rank, r.blocked_since, r.blocked_reason, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
+SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, r.guidance, r.queue_rank, r.blocked_since, r.blocked_reason, r.need_vcpu, r.need_ram_mib, r.need_disk_gib, r.need_source, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(p.slug AS TEXT) AS project_slug, CAST(COALESCE(rn.name, '') AS TEXT) AS runner_name,
        CAST(COALESCE(ct.sqid, '') AS TEXT) AS current_sqid
 FROM run r
@@ -446,6 +458,10 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 			&i.Run.QueueRank,
 			&i.Run.BlockedSince,
 			&i.Run.BlockedReason,
+			&i.Run.NeedVcpu,
+			&i.Run.NeedRamMib,
+			&i.Run.NeedDiskGib,
+			&i.Run.NeedSource,
 			&i.TaskSqid,
 			&i.TaskTitle,
 			&i.ProjectSlug,
@@ -482,7 +498,7 @@ const queueRun = `-- name: QueueRun :one
 INSERT INTO run (task_id, kind, attempt, template_id, repo_id, branch, session_uuid)
 VALUES (?1, ?2, ?3, ?4, ?5,
         ?6, ?7)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source
 `
 
 type QueueRunParams struct {
@@ -536,6 +552,10 @@ func (q *Queries) QueueRun(ctx context.Context, arg QueueRunParams) (Run, error)
 		&i.QueueRank,
 		&i.BlockedSince,
 		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }

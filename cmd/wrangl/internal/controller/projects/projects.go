@@ -16,6 +16,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
@@ -40,11 +41,12 @@ type ProjectParams struct {
 	AutoMerge, AutoQueue   *bool
 	AutoResolve            *bool // auto-merge queues Smart Merge for conflicted PRs
 	Priority               *int64
-	NotesRepo              *string          // owner/name of a linked repo that holds research reports; "" clears
-	Limits                 map[string]int64 // instance caps by template name
-	Agent                  *string          // default agent definition by name; "" clears
-	CitationAudit          *bool            // audit research PRs' citations before merge
-	AllowTemplates         *[]string        // other templates this project's runs may use (the host); empty clears
+	NotesRepo              *string           // owner/name of a linked repo that holds research reports; "" clears
+	Limits                 map[string]int64  // instance caps by template name
+	Agent                  *string           // default agent definition by name; "" clears
+	CitationAudit          *bool             // audit research PRs' citations before merge
+	Need                   map[string]string // resource needs by field (vcpu, ram, disk); empty value clears
+	AllowTemplates         *[]string         // other templates this project's runs may use (the host); empty clears
 }
 
 func (s *Service) templateID(ctx context.Context, name string) (sql.NullInt64, error) {
@@ -103,7 +105,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil {
+	if p.CitationAudit != nil || p.Agent != nil || len(p.Limits) > 0 || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -168,6 +170,9 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 	}
 	if err == nil && p.NotesRepo != nil {
 		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
+	}
+	if err == nil && len(p.Need) > 0 {
+		_, err = (&placement.Service{DB: s.DB}).SetProject(ctx, cur.ID, p.Need)
 	}
 	if err == nil && p.AllowTemplates != nil {
 		err = s.SetAllowedTemplates(ctx, slug, *p.AllowTemplates)

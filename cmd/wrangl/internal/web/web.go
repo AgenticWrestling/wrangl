@@ -1169,6 +1169,7 @@ var actions = map[string]actFn{
 	"task-ask":               needAgents(actTaskAsk),
 	"proposal-apply":         needAgents(actProposalApply),
 	"account-check":          actAccountCheck,
+	"placement-save":         actPlacementSave,
 	"agent-save":             needAgents(actAgentSave),
 	"agent-delete":           needAgents(actAgentDelete),
 	"task-split":             actTaskSplit,
