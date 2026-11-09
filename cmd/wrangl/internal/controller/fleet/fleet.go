@@ -87,6 +87,11 @@ type Service struct {
 
 func (s *Service) now() time.Time { return s.Now().UTC() }
 
+// Note appends an operational entry to the Logs page (for the scheduler).
+func (s *Service) Note(ctx context.Context, kind, level, subject, title, detail string) {
+	s.note(ctx, kind, level, subject, title, detail)
+}
+
 // note appends to the Logs page. Failures are logged, never returned: a missing log line
 // must not fail the operation it describes.
 func (s *Service) note(ctx context.Context, kind, level, subject, title, detail string) {

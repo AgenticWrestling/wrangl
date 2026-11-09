@@ -289,3 +289,66 @@ func (q *Queries) QueuedRunsForPlacement(ctx context.Context) ([]QueuedRunsForPl
 	}
 	return items, rows.Err()
 }
+
+const getBudget = `-- name: GetBudget :one
+SELECT budget_hourly_usd, budget_warn_pct, budget_warned FROM placement_config WHERE id = 1
+`
+
+type GetBudgetRow struct {
+	BudgetHourlyUsd sql.NullFloat64 `json:"budget_hourly_usd"`
+	BudgetWarnPct   int64           `json:"budget_warn_pct"`
+	BudgetWarned    int64           `json:"budget_warned"`
+}
+
+func (q *Queries) GetBudget(ctx context.Context) (GetBudgetRow, error) {
+	row := q.db.QueryRowContext(ctx, getBudget)
+	var i GetBudgetRow
+	err := row.Scan(&i.BudgetHourlyUsd, &i.BudgetWarnPct, &i.BudgetWarned)
+	return i, err
+}
+
+const setBudget = `-- name: SetBudget :exec
+UPDATE placement_config SET budget_hourly_usd = ?, budget_warned = 0 WHERE id = 1
+`
+
+func (q *Queries) SetBudget(ctx context.Context, budgetHourlyUsd sql.NullFloat64) error {
+	_, err := q.db.ExecContext(ctx, setBudget, budgetHourlyUsd)
+	return err
+}
+
+const setBudgetWarned = `-- name: SetBudgetWarned :exec
+UPDATE placement_config SET budget_warned = ? WHERE id = 1
+`
+
+func (q *Queries) SetBudgetWarned(ctx context.Context, budgetWarned int64) error {
+	_, err := q.db.ExecContext(ctx, setBudgetWarned, budgetWarned)
+	return err
+}
+
+const setRunnerPrice = `-- name: SetRunnerPrice :exec
+INSERT INTO runner_capacity (runner_id, hourly_usd) VALUES (?1, ?2)
+ON CONFLICT (runner_id) DO UPDATE SET hourly_usd = excluded.hourly_usd
+`
+
+type SetRunnerPriceParams struct {
+	RunnerID  int64           `json:"runner_id"`
+	HourlyUsd sql.NullFloat64 `json:"hourly_usd"`
+}
+
+func (q *Queries) SetRunnerPrice(ctx context.Context, arg SetRunnerPriceParams) error {
+	_, err := q.db.ExecContext(ctx, setRunnerPrice, arg.RunnerID, arg.HourlyUsd)
+	return err
+}
+
+const committedHourlyUSD = `-- name: CommittedHourlyUSD :one
+SELECT CAST(COALESCE(SUM(c.hourly_usd), 0) AS REAL) FROM runner n JOIN runner_capacity c ON c.runner_id = n.id
+WHERE n.state <> 'terminated'
+`
+
+// What the runners that still bill cost per hour.
+func (q *Queries) CommittedHourlyUSD(ctx context.Context) (float64, error) {
+	row := q.db.QueryRowContext(ctx, committedHourlyUSD)
+	var column_1 float64
+	err := row.Scan(&column_1)
+	return column_1, err
+}

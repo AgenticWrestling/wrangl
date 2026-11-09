@@ -82,7 +82,11 @@ func fleetCmd(g *Global) *cobra.Command {
 				return err
 			}
 			now := time.Now()
+			pv, _ := c.Placement(cmd.Context())
 			return emit(cmd, g, rs, func(w io.Writer) {
+				if pv.Budget != nil {
+					fmt.Fprintf(w, "hourly budget: $%.2f of $%.2f committed%s\n", pv.Committed, *pv.Budget, map[bool]string{true: " (approaching the limit)"}[pv.Approaching])
+				}
 				fmt.Fprintln(w, "NAME\tSTATE\tTEMPLATE\tINSTANCE\tTYPE\tIP\tCPU\tMEM\tDISK\tHEARTBEAT\tIDLE")
 				for _, r := range rs {
 					cpu, mem, disk := metricsCols(r.Metrics)

@@ -298,11 +298,19 @@ type NeedView struct {
 // PlacementView is GET /api/v1/placement: the global default need set.
 type PlacementView struct {
 	Need NeedView `json:"need"`
+	// Budget is the hourly cost ceiling in USD (nil = none); Committed is what runners that still bill
+	// cost per hour; Approaching is set at or above the warning share of the budget.
+	Budget      *float64 `json:"budget_hourly_usd,omitempty"`
+	WarnPct     int64    `json:"budget_warn_pct,omitempty"`
+	Committed   float64  `json:"committed_hourly_usd"`
+	Approaching bool     `json:"approaching,omitempty"`
 }
 
 // PlacementPatch is PATCH /api/v1/placement: set default needs, e.g. {"ram": "2GiB"}.
 type PlacementPatch struct {
 	Need map[string]string `json:"need,omitempty"`
+	// Budget sets the hourly budget in USD ("0.50"); "none" removes it; nil leaves it.
+	Budget *string `json:"budget,omitempty"`
 }
 
 // TaskCreateRequest is POST /api/v1/tasks.

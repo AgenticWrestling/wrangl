@@ -111,6 +111,9 @@ func (h *Handler) viewRunners(ctx context.Context, view string, r *http.Request,
 		return cards[i].R.Launched == 0 && cards[j].R.Launched != 0
 	})
 	d["Cards"] = cards
+	if b, err := (&placement.Service{DB: db}).Budget(ctx); err == nil && b.LimitUSD != nil {
+		d["Budget"] = map[string]any{"Limit": *b.LimitUSD, "Committed": b.Committed, "Pct": b.Pct(), "Approaching": b.Approaching()}
+	}
 	if h.D.Costs != nil {
 		snap := h.D.Costs.Cached()
 		known := map[string]bool{}

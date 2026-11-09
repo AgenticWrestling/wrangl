@@ -74,6 +74,11 @@ const (
 
 // Tick runs one scale-up pass and returns how many runners it launched per template.
 func (s *Scheduler) Tick(ctx context.Context) (map[string]int, error) {
+	defer s.checkBudget(ctx)
+	return s.tick(ctx)
+}
+
+func (s *Scheduler) tick(ctx context.Context) (map[string]int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.backoff == nil {

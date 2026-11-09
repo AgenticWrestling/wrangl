@@ -94,3 +94,33 @@ func TestTooBigRaisesAPermanentItemAndResolvesWhenNeedsShrink(t *testing.T) {
 		t.Fatalf("open items %d, launches %d", n, len(fake.Runs))
 	}
 }
+
+func TestPlacerEngineStampsPriceAndNotesApproachingBudget(t *testing.T) {
+	ctx := context.Background()
+	s, fake, _, d := setup(t, 6)
+	s.Engine = EnginePlacer
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1`)
+	tt, _ := d.RQ.GetTemplate(ctx, 1)
+	price := 0.40
+	s.menus = map[int64]cachedMenu{1: {version: tt.Version, at: s.Now(), entries: []placer.Entry{{Template: 1, Type: "m7g.large", Cap: placer.Need{VCPU: 2, RAMMiB: 7168, DiskGiB: 400}, Ceiling: 4, HourlyUSD: &price}}}}
+	d.W.Exec(`UPDATE placement_config SET budget_hourly_usd = 0.50`)
+	if got, _ := s.Tick(ctx); got["go"] != 1 || len(fake.Runs) != 1 {
+		t.Fatalf("launched %v", got)
+	}
+	var usd float64
+	d.R.QueryRow(`SELECT hourly_usd FROM runner_capacity`).Scan(&usd)
+	if usd < 0.40 || usd > 0.45 {
+		t.Fatalf("the launch price (instance plus volume) should be stamped: %f", usd)
+	}
+	var n int
+	d.R.QueryRow(`SELECT COUNT(*) FROM log_entry WHERE title LIKE 'Hourly spend%'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("one approaching note expected, got %d", n)
+	}
+	s.Tick(ctx)
+	d.R.QueryRow(`SELECT COUNT(*) FROM log_entry WHERE title LIKE 'Hourly spend%'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("the note is once per crossing, got %d", n)
+	}
+}

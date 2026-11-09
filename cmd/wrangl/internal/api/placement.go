@@ -29,12 +29,21 @@ func registerPlacement(mux *http.ServeMux, d Deps) {
 			return proto.PlacementView{}, err
 		}
 		v, m, k := g.View()
-		return proto.PlacementView{Need: proto.NeedView{VCPU: v, RAM: m, Disk: k}}, nil
+		out := proto.PlacementView{Need: proto.NeedView{VCPU: v, RAM: m, Disk: k}}
+		if b, err := svc.Budget(r.Context()); err == nil {
+			out.Budget, out.WarnPct, out.Committed, out.Approaching = b.LimitUSD, b.WarnPct, b.Committed, b.Approaching()
+		}
+		return out, nil
 	}
 	mux.HandleFunc("GET /api/v1/placement", getJSON(view))
 	mux.HandleFunc("PATCH /api/v1/placement", handle(http.StatusOK, func(r *http.Request, req proto.PlacementPatch) (proto.PlacementView, error) {
 		if _, err := svc.SetGlobal(r.Context(), req.Need); err != nil {
 			return proto.PlacementView{}, err
+		}
+		if req.Budget != nil {
+			if err := svc.SetBudget(r.Context(), *req.Budget); err != nil {
+				return proto.PlacementView{}, err
+			}
 		}
 		return view(r)
 	}))

@@ -80,3 +80,22 @@ SELECT r.id, k.project_id, CAST(COALESCE(r.template_id, k.template_id, p.default
 FROM run r JOIN task k ON k.id = r.task_id JOIN project p ON p.id = k.project_id
 WHERE r.state = 'queued' AND p.archived_at IS NULL
 ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, k.rank, r.queued_at;
+
+-- name: GetBudget :one
+SELECT budget_hourly_usd, budget_warn_pct, budget_warned FROM placement_config WHERE id = 1;
+
+-- name: SetBudget :exec
+UPDATE placement_config SET budget_hourly_usd = ?, budget_warned = 0 WHERE id = 1;
+
+-- name: SetBudgetWarned :exec
+UPDATE placement_config SET budget_warned = ? WHERE id = 1;
+
+-- name: SetRunnerPrice :exec
+INSERT INTO runner_capacity (runner_id, hourly_usd) VALUES (?, ?)
+ON CONFLICT (runner_id) DO UPDATE SET hourly_usd = excluded.hourly_usd;
+
+-- name: CommittedHourlyUSD :one
+-- What the runners that still bill cost per hour: every runner not terminated (launching, draining and
+-- offline ones too).
+SELECT CAST(COALESCE(SUM(c.hourly_usd), 0) AS REAL) FROM runner n JOIN runner_capacity c ON c.runner_id = n.id
+WHERE n.state <> 'terminated';

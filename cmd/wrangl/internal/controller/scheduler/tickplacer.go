@@ -192,6 +192,9 @@ func (s *Scheduler) tickPlacer(ctx context.Context) (map[string]int, error) {
 			failed[t.ID] = true
 			continue
 		}
+		if p, ok := l.Entry.Price(l.DiskGiB - l.Entry.ReserveDiskGiB); ok {
+			d.Q.SetRunnerPrice(ctx, dbgen.SetRunnerPriceParams{RunnerID: r.ID, HourlyUsd: sql.NullFloat64{Float64: p, Valid: true}})
+		}
 		d.Q.SetRunnerLaunchedForProject(ctx, dbgen.SetRunnerLaunchedForProjectParams{ProjectID: sql.NullInt64{Int64: l.Project, Valid: true}, ID: r.ID})
 		delete(s.backoff, t.ID)
 		launched[t.Name]++

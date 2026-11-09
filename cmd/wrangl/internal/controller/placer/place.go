@@ -96,6 +96,12 @@ func entryRunner(e Entry) Runner {
 
 func (e Entry) volume(hostedDisk int64) int64 { return max(e.MinDiskGiB, hostedDisk+e.ReserveDiskGiB) }
 
+// Price is the hourly price of a runner of this entry with a volume sized for hostedDisk GiB of needs; false when
+// the instance price is unknown.
+func (e Entry) Price(hostedDisk int64) (float64, bool) {
+	return e.price(hostedDisk), e.HourlyUSD != nil
+}
+
 func (e Entry) price(hostedDisk int64) float64 {
 	p := 0.0
 	if e.HourlyUSD != nil {

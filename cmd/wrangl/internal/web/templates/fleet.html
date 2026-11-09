@@ -1,4 +1,5 @@
 {{define "main-runners"}}
+{{with .Budget}}<section class="card{{if .Approaching}} warn{{end}}" aria-label="Hourly budget"><div class="row"><b>Hourly budget</b> <span>${{printf "%.2f" .Committed}} of ${{printf "%.2f" .Limit}}</span><span class="grow"></span><span class="dim small">{{printf "%.0f" .Pct}}% committed by runners that still bill{{if .Approaching}} · approaching the limit{{end}}</span></div></section>{{end}}
 {{if .Spend}}<section class="card spend" aria-label="AWS spend">
   {{if .SpendAsOf.IsZero}}<p class="dim small">Reading the AWS account…</p>{{else}}
   <div class="spendgrid">

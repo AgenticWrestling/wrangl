@@ -10,6 +10,17 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
+func printBudget(w io.Writer, v proto.PlacementView) {
+	if v.Budget == nil {
+		return
+	}
+	note := ""
+	if v.Approaching {
+		note = "  ⚠ approaching the budget"
+	}
+	fmt.Fprintf(w, "budget\t$%.2f/h, committed $%.2f/h%s\n", *v.Budget, v.Committed, note)
+}
+
 func printNeed(w io.Writer, n *proto.NeedView) {
 	if n == nil {
 		return
@@ -36,7 +47,7 @@ func placementCmd(g *Global) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emit(cmd, g, v, func(w io.Writer) { printNeed(w, &v.Need) })
+			return emit(cmd, g, v, func(w io.Writer) { printNeed(w, &v.Need); printBudget(w, v) })
 		},
 	}
 	set := &cobra.Command{
@@ -51,14 +62,20 @@ func placementCmd(g *Global) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			v, err := c.SetPlacement(cmd.Context(), proto.PlacementPatch{Need: patch})
+			req := proto.PlacementPatch{Need: patch}
+			if cmd.Flags().Changed("budget") {
+				b, _ := cmd.Flags().GetString("budget")
+				req.Budget = &b
+			}
+			v, err := c.SetPlacement(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
-			return emit(cmd, g, v, func(w io.Writer) { printNeed(w, &v.Need) })
+			return emit(cmd, g, v, func(w io.Writer) { printNeed(w, &v.Need); printBudget(w, v) })
 		},
 	}
 	set.Flags().StringSlice("need", nil, "resource need FIELD=VALUE (vcpu=1, ram=2GiB, disk=5GiB; repeatable)")
+	set.Flags().String("budget", "", "hourly cost budget in USD, e.g. 0.50 (committed spend of runners that still bill); none removes it")
 	cmd.AddCommand(show, set)
 	return cmd
 }
