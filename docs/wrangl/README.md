@@ -27,6 +27,7 @@ runners and hands the questions and pull requests back to you. The top-level
 |---|---|
 | [Projects](guide/projects.md) | project settings, the project page and chat, runner limits and the effective cap, archiving, GitHub repos and issues |
 | [Tasks](guide/tasks.md) | the task tree, types, states, needs, runs, checkpoints, the Inbox, PRs, Smart Merge, deliverables |
+| [Dev instances](guide/dev-instances.md) | `wrangl dev`: connect, ssh, tunnel, start/stop and install a mise toolchain on your own EC2 instances |
 | [Runners](guide/runners.md) | templates, enrolment, sessions and worktrees, self-upgrade, cordon/drain/terminate, remote targets, the host runner |
 | [Task scheduling](guide/scheduling.md) | how a queued run becomes a running session, the autoscaler, and the known limits |
 
@@ -66,4 +67,4 @@ runners and hands the questions and pull requests back to you. The top-level
 | [0009 Resource-based placement, cost budget, unplaceable item](adr/0009-resource-based-placement.md) | proposed, **not built** |
 | [0008 Runners belong to the system](adr/0008-runners-belong-to-the-system.md) | accepted, **not built** (was a second "0005") |
 | [0010 Question batches](adr/0010-question-batches.md) | proposed, **not built** |
-| [0010 Fold ssm into wrangl, mise for software](adr/0010-fold-ssm-into-wrangl.md) | proposed, **not built** (number clashes with the line above; renumber on merge) |
+| [0010 Fold ssm into wrangl, mise for software](adr/0010-fold-ssm-into-wrangl.md) | proposed; **built** (ssm itself is removed by the next task) (number clashes with the line above; renumber on merge) |

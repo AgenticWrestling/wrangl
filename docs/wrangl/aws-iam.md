@@ -106,7 +106,7 @@ controller caches and refreshes in the background (`controller/costs/costs.go`).
 
 ## Runner instance role (`wrangl-runner`)
 
-Attach `AmazonSSMManagedInstanceCore` so `ssm connect` works for debugging. Runners talk only to the
+Attach `AmazonSSMManagedInstanceCore` so `wrangl dev connect` and `wrangl fleet connect` work for debugging. Runners talk only to the
 controller. Add model-provider access here if a template uses Bedrock.
 
 A runner that is the **driver** for a remote target (a Mac or Android emulator host, see
