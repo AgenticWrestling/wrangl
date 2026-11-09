@@ -170,3 +170,62 @@ func TestBudgetGateReasonAndReclaim(t *testing.T) {
 func dbgenPrice(id int64, usd float64) dbgen.SetRunnerPriceParams {
 	return dbgen.SetRunnerPriceParams{RunnerID: id, HourlyUsd: sql.NullFloat64{Float64: usd, Valid: true}}
 }
+
+func TestBudgetItemAndRaiseBudget(t *testing.T) {
+	ctx := context.Background()
+	s, fake, clk, d := setup(t, 6)
+	s.Engine = EnginePlacer
+	pushes := 0
+	s.OnUnplaceable = func(int64, string) { pushes++ }
+	// A busy runner (so nothing can be reclaimed) that costs 0.47/h.
+	busy, _ := s.Fleet.Launch(ctx, "go")
+	d.W.Exec(`UPDATE runner SET state = 'busy', template_version = 1, vcpu = 2, ram_mib = 4096, disk_gib = 30 WHERE id = ?`, busy.ID)
+	d.Q.SetRunnerPrice(ctx, dbgenPrice(busy.ID, 0.47))
+	queue(t, d, 2)
+	d.W.Exec(`UPDATE run SET template_id = 1, need_vcpu = 4, need_ram_mib = 6000, need_disk_gib = 5`)
+	d.W.Exec(`UPDATE run SET state = 'running', runner_id = ? WHERE id = 1`, busy.ID)
+	tt, _ := d.RQ.GetTemplate(ctx, 1)
+	price := 0.145
+	s.menus = map[int64]cachedMenu{1: {version: tt.Version, at: s.Now(), entries: []placer.Entry{{Template: 1, Type: "m7g.large", Cap: placer.Need{VCPU: 4, RAMMiB: 7168, DiskGiB: 400}, Ceiling: 4, HourlyUSD: &price}}}}
+	d.W.Exec(`UPDATE placement_config SET budget_hourly_usd = 0.50`)
+	launches := len(fake.Runs)
+	s.Tick(ctx)
+	open := func() (n int, opts string) {
+		d.R.QueryRow(`SELECT COUNT(*) FROM question WHERE kind = 'unplaceable' AND state = 'open'`).Scan(&n)
+		d.R.QueryRow(`SELECT COALESCE(group_concat(value), '') FROM (SELECT value FROM question_option ORDER BY position)`).Scan(&opts)
+		return
+	}
+	if n, _ := open(); n != 0 {
+		t.Fatal("no item before the wait has lasted 15 minutes")
+	}
+	clk.Advance(16 * 60 * 1e9)
+	s.menus[1] = cachedMenu{version: tt.Version, at: s.Now(), entries: s.menus[1].entries} // keep the test's menu fresh
+	s.Tick(ctx)
+	n, opts := open()
+	if n != 1 || opts != "edit_needs,raise_budget,wait,cancel_run" || pushes != 1 {
+		t.Fatalf("items %d options %q pushes %d", n, opts, pushes)
+	}
+	var label string
+	d.R.QueryRow(`SELECT label FROM question_option WHERE value = 'raise_budget'`).Scan(&label)
+	if label != "Raise budget to $0.62/h" {
+		t.Fatalf("label %q", label)
+	}
+	s.Tick(ctx)
+	if _, _ = open(); pushes != 1 || len(fake.Runs) != launches {
+		t.Fatalf("pushes %d, launches %d", pushes, len(fake.Runs)-launches)
+	}
+	// The owner raises the budget; the next tick launches and the item resolves.
+	q, _ := d.RQ.GetQuestion(ctx, 1)
+	if err := s.Answer(ctx, q, "raise_budget", ""); err != nil {
+		t.Fatal(err)
+	}
+	var limit float64
+	d.R.QueryRow(`SELECT budget_hourly_usd FROM placement_config`).Scan(&limit)
+	if limit != 0.62 {
+		t.Fatalf("budget %f", limit)
+	}
+	s.Tick(ctx)
+	if len(fake.Runs) != launches+1 {
+		t.Fatalf("launches %d", len(fake.Runs)-launches)
+	}
+}

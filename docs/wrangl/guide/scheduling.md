@@ -307,7 +307,15 @@ Work down this list.
   per-project limits (`--limit`) are not consulted for launching (the rows are kept); a template's
   `max_runners` still applies as a backstop. With no budget everything behaves as before. Mac targets
   are not in the sum yet, and runners launched by the legacy engine have no price, so they are not
-  counted. The Inbox item for a run stuck on the budget is not built yet.
+  counted.
+
+  A run held back by the budget for 15 minutes raises the "can't be placed" item ("Hourly budget
+  reached: $0.47 of $0.50 in use"), with *Raise budget to $X/h* (the smallest budget, rounded up to the
+  cent, that places the run: you click it, nothing raises the budget on its own), *Edit this task's
+  needs*, *Keep waiting* and *Cancel the task's run*. If the cause is an unknown price instead, the item
+  says to give the template an explicit `price:` and has no raise option. You get one push notification
+  per item; it resolves itself when the run is no longer held back, for example after other runs finish
+  and idle runners are reclaimed.
 - **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is

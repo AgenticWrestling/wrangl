@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,8 @@ const (
 	ReasonNoCapability  = "no_capability"  // the pinned template is missing: permanent
 	ReasonLaunchBlocked = "launch_blocked" // failed template version, enrol brake, caps full: temporary
 	ReasonCapacity      = "capacity"       // every runner full and no launch allowed: temporary
+	ReasonBudget        = "budget"         // launching would exceed the hourly budget: temporary
+	ReasonPrice         = "price_unknown"  // a budget is set and nothing that could host it has a known price
 	ReasonTooBig        = "too_big"        // the need exceeds every machine any template can launch and every runner: permanent
 )
 
@@ -32,6 +36,7 @@ type Unplaceable struct {
 	Detail    string   // markdown
 	Templates []string // other templates that could host it ("use template X" options, at most 3)
 	Permanent bool     // no "keep waiting" option
+	RaiseTo   float64  // offer "raise the budget to $X/h" (the smallest budget that places the run); 0 = no
 	EditNeeds bool     // offer "edit this task's needs" (a link to the task; the item stays open)
 	Extra     map[string]any
 }
@@ -40,6 +45,9 @@ func (u Unplaceable) options() []proto.QuestionOption {
 	var o []proto.QuestionOption
 	if u.EditNeeds {
 		o = append(o, proto.QuestionOption{Label: "Edit this task's needs", Value: "edit_needs", Description: "Open the task to change what it needs; the item resolves itself once the run can be placed."})
+	}
+	if u.RaiseTo > 0 {
+		o = append(o, proto.QuestionOption{Label: fmt.Sprintf("Raise budget to $%.2f/h", u.RaiseTo), Value: "raise_budget", Description: "Sets the hourly budget to this; the next tick launches. Nothing raises it on its own."})
 	}
 	if !u.Permanent {
 		o = append(o, proto.QuestionOption{Label: "Keep waiting", Value: "wait", Description: "The run stays queued with its reason; this is raised again if the reason changes or after 24 hours."})
@@ -153,6 +161,19 @@ func (s *Scheduler) resolveUnplaceable(ctx context.Context, assigned []int64) {
 func (s *Scheduler) Answer(ctx context.Context, q dbgen.Question, value, _ string) error {
 	switch {
 	case value == "wait", value == "edit_needs":
+		return nil
+	case value == "raise_budget":
+		var pl struct {
+			RaiseTo float64 `json:"raise_to"`
+		}
+		json.Unmarshal([]byte(q.PayloadJson), &pl)
+		if pl.RaiseTo <= 0 {
+			return fmt.Errorf("%w: this item has no budget to raise to", errs.Invalid)
+		}
+		if err := (&placement.Service{DB: s.Fleet.DB}).SetBudget(ctx, strconv.FormatFloat(pl.RaiseTo, 'f', 2, 64)); err != nil {
+			return err
+		}
+		s.Fleet.Note(ctx, "runner", "info", "budget", "Hourly budget raised", fmt.Sprintf("raised to $%.2f/h from the \"can't be placed\" item", pl.RaiseTo))
 		return nil
 	case value == "cancel_run":
 		if s.CancelRun == nil || !q.RunID.Valid {

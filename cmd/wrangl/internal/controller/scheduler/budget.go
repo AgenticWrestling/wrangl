@@ -44,6 +44,12 @@ func (s *Scheduler) budgetBlocks(ctx context.Context, plan placer.Plan, runs []p
 			d.Q.ClearBudgetBlock(ctx, r.ID)
 		}
 	}
+	for _, b := range plan.Unplaceable {
+		if b.Code == placer.CodeBudget || b.Code == placer.CodePrice {
+			s.raiseBudgetItem(ctx, b)
+		}
+	}
+	s.resolveBudgetItems(ctx, blocked)
 	if !reclaim {
 		return
 	}
