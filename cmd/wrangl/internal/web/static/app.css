@@ -148,6 +148,11 @@ li.task .sqid { color: var(--sqid); font-size: 0.78rem; }
 .spark { width: 120px; height: 24px; }
 .spark polyline { fill: none; stroke: var(--prog); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .card.runner .row span { margin-right: 4px; }
+/* the whole card opens the runner; the name is the link, stretched over the card, and the buttons sit above it (links cannot nest) */
+.card.runner { position: relative; }
+.card.runner .rlink { color: inherit; text-decoration: none; }
+.card.runner .rlink::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.card.runner .row .btn, .card.runner .row .pill[title] { position: relative; z-index: 1; }
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 0.88rem; margin: 8px 0; }
 dl.kv dt { color: var(--dim); }
 dl.kv dd { margin: 0; overflow-wrap: anywhere; }

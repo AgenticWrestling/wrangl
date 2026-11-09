@@ -20,20 +20,20 @@
   </div>{{end}}
 </section>{{end}}
 {{if not .Cards}}{{template "empty" props "Msg" "No runners. Launch one from a template above, or" "Code" "wrangl fleet launch" "Tail" "."}}{{end}}
-{{range .Cards}}<a class="card runner st-{{.R.State}}{{if eq .R.Launched 0}} pinned{{end}}" href="/runner/{{.R.Name}}">
-  <div class="row"><b>{{.R.Name}}</b>{{if eq .R.Launched 0}} {{template "tag" props "Class" "pill host" "Label" "host" "Title" "not launched by the fleet; never reaped"}}{{end}} {{template "tag" props "Class" "pill" "Label" .R.State}}{{if .R.Cordoned}}{{template "tag" props "Class" "pill warn" "Label" "cordoned"}}{{end}}{{if .R.DrainRequested}}{{template "tag" props "Class" "pill warn" "Label" "draining"}}{{end}}{{if .R.UpgradeSha}}{{template "tag" props "State" "upgrading"}}{{end}}<span class="grow"></span>{{if termok .R.State}}<a class="btn small" href="/runner/{{.R.Name}}/term">Terminal</a>{{end}}<span class="pill" title="agent sessions in use / allowed on this runner (template max_sessions)">{{.Used}}/{{.T.MaxSessions}} sessions</span> <span class="dim">{{.T.Name}}</span></div>
-  <div class="row small dim">{{.R.InstanceType}} · {{.R.Vcpu}} vCPU · {{.R.RamMib}} MiB · {{.R.Az}}</div>
-  <div class="row small">
+{{range .Cards}}<div class="card runner st-{{.R.State}}{{if eq .R.Launched 0}} pinned{{end}}">
+  <div class="row"><a class="rlink" href="/runner/{{.R.Name}}"><b>{{.R.Name}}</b></a>{{if eq .R.Launched 0}} {{template "tag" props "Class" "pill host" "Label" "host" "Title" "not launched by the fleet; never reaped"}}{{end}} {{template "tag" props "Class" "pill" "Label" .R.State}}{{if .R.Cordoned}}{{template "tag" props "Class" "pill warn" "Label" "cordoned"}}{{end}}{{if .R.DrainRequested}}{{template "tag" props "Class" "pill warn" "Label" "draining"}}{{end}}{{if .R.UpgradeSha}}{{template "tag" props "State" "upgrading"}}{{end}}<span class="grow"></span>{{if termok .R.State}}<a class="btn small" href="/runner/{{.R.Name}}/term">Terminal</a>{{end}}<span class="pill" title="agent sessions in use / allowed on this runner (template max_sessions)">{{.Used}}/{{.T.MaxSessions}} sessions</span> <span class="dim">{{.T.Name}}</span></div>
+  {{if .Spec}}<div class="row small dim">{{.Spec}}</div>{{end}}
+  {{if .R.LastHeartbeatAt.Valid}}<div class="row small">
     <span>CPU {{pct .M.CPUPercent}}</span><span>Mem {{pct .M.MemPercent}}</span><span>Disk {{pct .M.DiskPercent}}</span>
     <span class="grow"></span>{{spark .Spark}}
-  </div>
+  </div>{{else}}<div class="row small dim">waiting for the first heartbeat</div>{{end}}
   {{with .Cost}}<div class="row small" title="Estimated from the on-demand rate and uptime; storage and transfer are in Top costs below">
     <span>{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim"> ~</span>{{end}}</span><span>today ~{{usd .TodayUSD}}</span><span>month ~{{usd .MonthUSD}}</span>
     {{range .Attached}}<span class="dim">{{.Service}} {{usd .USD}}</span>{{end}}
   </div>{{end}}
   {{with .Run}}<div class="row small">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</div>
   {{else}}{{if .R.IdleSince.Valid}}<div class="row small dim">idle since {{ago .R.IdleSince.String}}</div>{{end}}{{end}}
-</a>{{end}}
+</div>{{end}}
 {{if .Spend}}{{if not .SpendAsOf.IsZero}}<section class="card others" id="others">
   <div class="row"><h3>Other instances in this account</h3><span class="grow"></span><span class="dim small">{{len .Others}} · {{usdh .OtherHourly}}/h running · every region</span></div>
   <p class="hint">Not wrangl runners. Tracked here for cost; a running one can be adopted as a runner.</p>

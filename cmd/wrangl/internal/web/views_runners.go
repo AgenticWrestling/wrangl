@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
@@ -29,6 +30,7 @@ type runnerCard struct {
 	IdleFor string
 	Used    int64 // agent sessions in use (active runs); the limit is T.MaxSessions
 	Cost    *hostCost
+	Spec    string // instance type, size and zone, whichever are known
 }
 
 // hostCost is the cost block on the controller host's card. It is derived from the cached
@@ -79,9 +81,12 @@ func (h *Handler) runnerCard(ctx context.Context, r dbgen.Runner) runnerCard {
 		c.Run = &run
 	}
 	c.Used, _ = db.RQ.CountActiveRunsForRunner(ctx, owner)
-	if r.Launched == 0 && r.InstanceID.Valid && h.D.Costs != nil {
-		c.Cost = hostCostFor(h.D.Costs.Cached(), r.InstanceID.String, time.Now())
+	var snap costs.Snapshot
+	if r.InstanceID.Valid && h.D.Costs != nil {
+		snap = h.D.Costs.Cached()
+		c.Cost = hostCostFor(snap, r.InstanceID.String, time.Now())
 	}
+	c.Spec = runnerSpec(r, snap)
 	return c
 }
 
@@ -140,4 +145,37 @@ func (h *Handler) viewRunner(ctx context.Context, view string, r *http.Request, 
 	}
 	d["Recent"], _ = db.RQ.ListRuns(ctx, dbgen.ListRunsParams{Runner: r2.Name, Lim: 10})
 	return nil
+}
+
+// runnerSpec is the one-line hardware description of a runner: instance type, vCPU, RAM and
+// zone. An adopted machine (the controller host) reports no type or zone itself, so the
+// cached AWS instance list fills them in. Unknown or zero parts are left out.
+func runnerSpec(r dbgen.Runner, snap costs.Snapshot) string {
+	typ, az := r.InstanceType, r.Az
+	if r.InstanceID.Valid && (typ == "" || az == "") {
+		for _, in := range snap.Instances {
+			if in.ID == r.InstanceID.String {
+				if typ == "" {
+					typ = in.Type
+				}
+				if az == "" {
+					az = in.AZ
+				}
+			}
+		}
+	}
+	var parts []string
+	if typ != "" {
+		parts = append(parts, typ)
+	}
+	if r.Vcpu > 0 {
+		parts = append(parts, fmt.Sprintf("%d vCPU", r.Vcpu))
+	}
+	if r.RamMib > 0 {
+		parts = append(parts, fmt.Sprintf("%.0f GiB", float64(r.RamMib)/1024))
+	}
+	if az != "" {
+		parts = append(parts, az)
+	}
+	return strings.Join(parts, " · ")
 }
