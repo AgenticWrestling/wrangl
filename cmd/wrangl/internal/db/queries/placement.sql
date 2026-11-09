@@ -30,10 +30,11 @@ ON CONFLICT (runner_id) DO UPDATE SET cap_vcpu = excluded.cap_vcpu, cap_ram_mib 
 SELECT cap_vcpu, cap_ram_mib, cap_disk_gib, max_sessions FROM runner_capacity WHERE runner_id = ?;
 
 -- name: SumActiveNeeds :one
--- What the runner's active runs have reserved.
-SELECT CAST(COALESCE(SUM(need_vcpu), 0) AS INTEGER) AS vcpu, CAST(COALESCE(SUM(need_ram_mib), 0) AS INTEGER) AS ram_mib,
+-- What the runner's active runs have reserved. A needs_input run whose question has been open since before
+-- needs_input_cutoff reserves no vCPU ('' = the policy is off).
+SELECT CAST(COALESCE(SUM(CASE WHEN run.state = 'needs_input' AND EXISTS (SELECT 1 FROM question q WHERE q.run_id = run.id AND q.state = 'open' AND q.created_at <= sqlc.arg(needs_input_cutoff)) THEN 0 ELSE run.need_vcpu END), 0) AS INTEGER) AS vcpu, CAST(COALESCE(SUM(need_ram_mib), 0) AS INTEGER) AS ram_mib,
        CAST(COALESCE(SUM(need_disk_gib), 0) AS INTEGER) AS disk_gib
-FROM run WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling');
+FROM run WHERE runner_id = sqlc.arg(runner_id) AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling');
 
 -- name: ClaimableRunners :many
 -- Runners of the template a run could be placed on, before the resource and session checks (those are
@@ -61,7 +62,7 @@ WHERE runner.id = sqlc.arg(id) AND runner.state IN ('idle', 'busy') AND runner.c
   AND (sqlc.arg(need_vcpu) = 0 OR sqlc.arg(need_vcpu) <=
        COALESCE((SELECT c.cap_vcpu FROM runner_capacity c WHERE c.runner_id = runner.id),
                 CASE WHEN runner.launched = 1 THEN runner.vcpu ELSE MIN(6, runner.vcpu * 3 / 4) END)
-       - (SELECT COALESCE(SUM(r.need_vcpu), 0) FROM run r WHERE r.runner_id = runner.id
+       - (SELECT COALESCE(SUM(CASE WHEN r.state = 'needs_input' AND EXISTS (SELECT 1 FROM question q WHERE q.run_id = r.id AND q.state = 'open' AND q.created_at <= sqlc.arg(needs_input_cutoff)) THEN 0 ELSE r.need_vcpu END), 0) FROM run r WHERE r.runner_id = runner.id
           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')))
   AND (sqlc.arg(need_ram_mib) = 0 OR sqlc.arg(need_ram_mib) <=
        COALESCE((SELECT c.cap_ram_mib FROM runner_capacity c WHERE c.runner_id = runner.id),
@@ -117,3 +118,9 @@ ON CONFLICT (runner_id) DO UPDATE SET guard_load1 = excluded.guard_load1, guard_
 
 -- name: SetRunnerGuardState :exec
 UPDATE runner_capacity SET closed_by_guard = ?, guard_breaches = ?, guard_oks = ?, guard_reason = ? WHERE runner_id = ?;
+
+-- name: GetNeedsInputGrace :one
+SELECT needs_input_grace_s FROM placement_config WHERE id = 1;
+
+-- name: SetNeedsInputGrace :exec
+UPDATE placement_config SET needs_input_grace_s = ? WHERE id = 1;

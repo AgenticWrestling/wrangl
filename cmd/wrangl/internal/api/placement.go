@@ -30,6 +30,7 @@ func registerPlacement(mux *http.ServeMux, d Deps) {
 		}
 		v, m, k := g.View()
 		out := proto.PlacementView{Need: proto.NeedView{VCPU: v, RAM: m, Disk: k}}
+		out.NeedsInputGraceS = int64(svc.NeedsInputGrace(r.Context()).Seconds())
 		if b, err := svc.Budget(r.Context()); err == nil {
 			out.Budget, out.WarnPct, out.Committed, out.Approaching = b.LimitUSD, b.WarnPct, b.Committed, b.Approaching()
 		}
@@ -39,6 +40,11 @@ func registerPlacement(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("PATCH /api/v1/placement", handle(http.StatusOK, func(r *http.Request, req proto.PlacementPatch) (proto.PlacementView, error) {
 		if _, err := svc.SetGlobal(r.Context(), req.Need); err != nil {
 			return proto.PlacementView{}, err
+		}
+		if req.NeedsInputGrace != nil {
+			if err := svc.SetNeedsInputGrace(r.Context(), *req.NeedsInputGrace); err != nil {
+				return proto.PlacementView{}, err
+			}
 		}
 		if req.Budget != nil {
 			if err := svc.SetBudget(r.Context(), *req.Budget); err != nil {

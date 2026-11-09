@@ -68,7 +68,7 @@ func (s *Service) RunnerCapacity(ctx context.Context, r dbgen.Runner) (Capacity,
 	if _, st, err := s.RunnerGuard(ctx, r.ID); err == nil {
 		c.GuardClosed, c.GuardReason = st.Closed, st.Reason
 	}
-	u, err := s.DB.RQ.SumActiveNeeds(ctx, r.ID)
+	u, err := s.DB.RQ.SumActiveNeeds(ctx, dbgen.SumActiveNeedsParams{RunnerID: r.ID, NeedsInputCutoff: s.NeedsInputCutoff(ctx)})
 	if err != nil {
 		return c, err
 	}

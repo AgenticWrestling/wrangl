@@ -26,7 +26,8 @@ func (s *Scheduler) claimRunner(ctx context.Context, runID, templateID int64) (d
 	if err != nil {
 		return dbgen.ClaimRunnerRow{}, err
 	}
-	pl := &placement.Service{DB: d}
+	pl := &placement.Service{DB: d, Now: s.Now}
+	cutoff := pl.NeedsInputCutoff(ctx)
 	var cands []placer.Runner
 	for _, x := range rows {
 		r, err := d.RQ.GetRunner(ctx, x.ID)
@@ -44,7 +45,7 @@ func (s *Scheduler) claimRunner(ctx context.Context, runID, templateID int64) (d
 			Active: active, Ceiling: &ceiling})
 	}
 	for _, c := range placer.Candidates(need, cands) {
-		got, err := d.Q.ClaimRunner(ctx, dbgen.ClaimRunnerParams{ID: c.ID, NeedVcpu: need.VCPU, NeedRamMib: need.RAMMiB, NeedDiskGib: need.DiskGiB})
+		got, err := d.Q.ClaimRunner(ctx, dbgen.ClaimRunnerParams{ID: c.ID, NeedVcpu: need.VCPU, NeedRamMib: need.RAMMiB, NeedDiskGib: need.DiskGiB, NeedsInputCutoff: cutoff})
 		if err == nil {
 			return got, nil
 		}

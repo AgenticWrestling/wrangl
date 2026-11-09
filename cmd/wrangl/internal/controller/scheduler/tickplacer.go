@@ -254,7 +254,7 @@ func (s *Scheduler) placerRunners(ctx context.Context, tmpl map[int64]dbgen.Temp
 	if err != nil {
 		return nil, err
 	}
-	pl := &placement.Service{DB: d}
+	pl := &placement.Service{DB: d, Now: s.Now}
 	var out []placer.RunnerIn
 	for _, row := range rows {
 		r := row.Runner

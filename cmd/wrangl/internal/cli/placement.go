@@ -11,6 +11,9 @@ import (
 )
 
 func printBudget(w io.Writer, v proto.PlacementView) {
+	if v.NeedsInputGraceS > 0 {
+		fmt.Fprintf(w, "needs-input grace\t%ds (a waiting run releases its vCPU)\n", v.NeedsInputGraceS)
+	}
 	if v.Budget == nil {
 		return
 	}
@@ -67,6 +70,10 @@ func placementCmd(g *Global) *cobra.Command {
 				b, _ := cmd.Flags().GetString("budget")
 				req.Budget = &b
 			}
+			if cmd.Flags().Changed("needs-input-grace") {
+				g, _ := cmd.Flags().GetString("needs-input-grace")
+				req.NeedsInputGrace = &g
+			}
 			v, err := c.SetPlacement(cmd.Context(), req)
 			if err != nil {
 				return err
@@ -76,6 +83,7 @@ func placementCmd(g *Global) *cobra.Command {
 	}
 	set.Flags().StringSlice("need", nil, "resource need FIELD=VALUE (vcpu=1, ram=2GiB, disk=5GiB; repeatable)")
 	set.Flags().String("budget", "", "hourly cost budget in USD, e.g. 0.50 (committed spend of runners that still bill); none removes it")
+	set.Flags().String("needs-input-grace", "", "a run waiting on you for longer than this (e.g. 10m) stops reserving vCPU on its runner; off turns it off (default off)")
 	cmd.AddCommand(show, set)
 	return cmd
 }

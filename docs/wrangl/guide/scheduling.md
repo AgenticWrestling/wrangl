@@ -336,6 +336,10 @@ Work down this list.
   included in `demand`, so they can cause a launch for slots that stay empty.
 - **`needs_input` runs hold their slot.** A run waiting on your answer still occupies a session, so one
   runner can be filled by runs that are waiting for you.
+  An optional policy relaxes this for vCPU only: `wrangl placement set --needs-input-grace 10m`. A run
+  whose question has been open longer than that stops reserving vCPU on its runner (it burns no CPU while
+  it waits for you), so new runs can use it; RAM, disk and the session slot stay reserved. `off` (the
+  default) turns it off. If the agent resumes onto a busy box it simply shares the CPU.
 - **Project caps count launches, not usage.** The cap compares with `launched_for_project`, set when a
   runner is launched. A runner launched for project A and now used by B counts against A
   (see [ADR 0008](../adr/0008-runners-belong-to-the-system.md), also not built).

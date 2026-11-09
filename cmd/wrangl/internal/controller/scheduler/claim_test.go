@@ -151,3 +151,37 @@ func TestGuardClosedRunnerIsNotClaimedAndNotSupply(t *testing.T) {
 		t.Fatalf("reopened: %v", err)
 	}
 }
+
+// A run waiting on the owner stops reserving vCPU (only) after the grace, when the policy is on.
+func TestNeedsInputReleasesVCPUAfterGrace(t *testing.T) {
+	ctx := context.Background()
+	s, _, clk, d := setup(t, 2)
+	loadFixtures(t, d, []fixture{{state: "busy", version: 1, launched: 1, active: 1, need: []int64{3, 2048, 5}}})
+	d.W.Exec(`UPDATE run SET state = 'needs_input' WHERE runner_id = 1`)
+	d.W.Exec(`INSERT INTO question (task_id, run_id, kind, prompt, created_at) VALUES (1, 1, 'agent', 'q?', ?)`, clk.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1, need_vcpu = 3, need_ram_mib = 1024, need_disk_gib = 5 WHERE state = 'queued'`)
+	newRun := func() int64 { var id int64; d.R.QueryRow(`SELECT id FROM run WHERE state = 'queued'`).Scan(&id); return id }
+
+	if _, err := s.claimRunner(ctx, newRun(), 1); err == nil {
+		t.Fatal("policy off: the waiting run still holds 3 of 4 vCPUs")
+	}
+	if err := (&placement.Service{DB: d}).SetNeedsInputGrace(ctx, "10m"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.claimRunner(ctx, newRun(), 1); err == nil {
+		t.Fatal("inside the grace the vCPU is still reserved")
+	}
+	clk.Advance(11 * 60 * 1e9)
+	if _, err := s.claimRunner(ctx, newRun(), 1); err != nil {
+		t.Fatalf("after the grace the waiting run releases its vCPU: %v", err)
+	}
+	// RAM and disk stay reserved: a run needing more RAM than is left still does not fit.
+	d.W.Exec(`UPDATE run SET need_ram_mib = 6000 WHERE state = 'queued'`)
+	if _, err := s.claimRunner(ctx, newRun(), 1); err == nil {
+		t.Fatal("RAM stays reserved by the waiting run")
+	}
+	if err := (&placement.Service{DB: d}).SetNeedsInputGrace(ctx, "30s"); err == nil {
+		t.Fatal("grace below a minute accepted")
+	}
+}

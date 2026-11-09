@@ -147,9 +147,9 @@ func (q *Queries) GetRunnerCapacity(ctx context.Context, runnerID int64) (GetRun
 }
 
 const sumActiveNeeds = `-- name: SumActiveNeeds :one
-SELECT CAST(COALESCE(SUM(need_vcpu), 0) AS INTEGER) AS vcpu, CAST(COALESCE(SUM(need_ram_mib), 0) AS INTEGER) AS ram_mib,
+SELECT CAST(COALESCE(SUM(CASE WHEN run.state = 'needs_input' AND EXISTS (SELECT 1 FROM question q WHERE q.run_id = run.id AND q.state = 'open' AND q.created_at <= ?2) THEN 0 ELSE run.need_vcpu END), 0) AS INTEGER) AS vcpu, CAST(COALESCE(SUM(need_ram_mib), 0) AS INTEGER) AS ram_mib,
        CAST(COALESCE(SUM(need_disk_gib), 0) AS INTEGER) AS disk_gib
-FROM run WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+FROM run WHERE runner_id = ?1 AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
 `
 
 type SumActiveNeedsRow struct {
@@ -158,9 +158,15 @@ type SumActiveNeedsRow struct {
 	DiskGib int64 `json:"disk_gib"`
 }
 
-// What the runner's active runs have reserved.
-func (q *Queries) SumActiveNeeds(ctx context.Context, runnerID int64) (SumActiveNeedsRow, error) {
-	row := q.db.QueryRowContext(ctx, sumActiveNeeds, runnerID)
+type SumActiveNeedsParams struct {
+	RunnerID         int64  `json:"runner_id"`
+	NeedsInputCutoff string `json:"needs_input_cutoff"`
+}
+
+// What the runner's active runs have reserved. A needs_input run whose question has been open since before
+// needs_input_cutoff reserves no vCPU (” = the policy is off).
+func (q *Queries) SumActiveNeeds(ctx context.Context, arg SumActiveNeedsParams) (SumActiveNeedsRow, error) {
+	row := q.db.QueryRowContext(ctx, sumActiveNeeds, arg.RunnerID, arg.NeedsInputCutoff)
 	var i SumActiveNeedsRow
 	err := row.Scan(&i.Vcpu, &i.RamMib, &i.DiskGib)
 	return i, err
@@ -219,7 +225,7 @@ WHERE runner.id = ?1 AND runner.state IN ('idle', 'busy') AND runner.cordoned = 
   AND (?2 = 0 OR ?2 <=
        COALESCE((SELECT c.cap_vcpu FROM runner_capacity c WHERE c.runner_id = runner.id),
                 CASE WHEN runner.launched = 1 THEN runner.vcpu ELSE MIN(6, runner.vcpu * 3 / 4) END)
-       - (SELECT COALESCE(SUM(r.need_vcpu), 0) FROM run r WHERE r.runner_id = runner.id
+       - (SELECT COALESCE(SUM(CASE WHEN r.state = 'needs_input' AND EXISTS (SELECT 1 FROM question q WHERE q.run_id = r.id AND q.state = 'open' AND q.created_at <= ?5) THEN 0 ELSE r.need_vcpu END), 0) FROM run r WHERE r.runner_id = runner.id
           AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')))
   AND (?3 = 0 OR ?3 <=
        COALESCE((SELECT c.cap_ram_mib FROM runner_capacity c WHERE c.runner_id = runner.id),
@@ -239,6 +245,8 @@ type ClaimRunnerParams struct {
 	NeedVcpu    int64 `json:"need_vcpu"`
 	NeedRamMib  int64 `json:"need_ram_mib"`
 	NeedDiskGib int64 `json:"need_disk_gib"`
+	// NeedsInputCutoff: a needs_input run waiting since before this releases its vCPU ('' = policy off).
+	NeedsInputCutoff string `json:"needs_input_cutoff"`
 }
 
 type ClaimRunnerRow struct {
@@ -248,7 +256,7 @@ type ClaimRunnerRow struct {
 
 // Atomically claim one runner for a run needing need_*; sql.ErrNoRows when it no longer fits.
 func (q *Queries) ClaimRunner(ctx context.Context, arg ClaimRunnerParams) (ClaimRunnerRow, error) {
-	row := q.db.QueryRowContext(ctx, claimRunner, arg.ID, arg.NeedVcpu, arg.NeedRamMib, arg.NeedDiskGib)
+	row := q.db.QueryRowContext(ctx, claimRunner, arg.ID, arg.NeedVcpu, arg.NeedRamMib, arg.NeedDiskGib, arg.NeedsInputCutoff)
 	var i ClaimRunnerRow
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
@@ -419,5 +427,25 @@ type SetRunnerGuardStateParams struct {
 
 func (q *Queries) SetRunnerGuardState(ctx context.Context, arg SetRunnerGuardStateParams) error {
 	_, err := q.db.ExecContext(ctx, setRunnerGuardState, arg.ClosedByGuard, arg.GuardBreaches, arg.GuardOks, arg.GuardReason, arg.RunnerID)
+	return err
+}
+
+const getNeedsInputGrace = `-- name: GetNeedsInputGrace :one
+SELECT needs_input_grace_s FROM placement_config WHERE id = 1
+`
+
+func (q *Queries) GetNeedsInputGrace(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNeedsInputGrace)
+	var needs_input_grace_s int64
+	err := row.Scan(&needs_input_grace_s)
+	return needs_input_grace_s, err
+}
+
+const setNeedsInputGrace = `-- name: SetNeedsInputGrace :exec
+UPDATE placement_config SET needs_input_grace_s = ? WHERE id = 1
+`
+
+func (q *Queries) SetNeedsInputGrace(ctx context.Context, needsInputGraceS int64) error {
+	_, err := q.db.ExecContext(ctx, setNeedsInputGrace, needsInputGraceS)
 	return err
 }

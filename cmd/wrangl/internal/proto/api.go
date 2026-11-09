@@ -310,6 +310,8 @@ type PlacementView struct {
 	WarnPct     int64    `json:"budget_warn_pct,omitempty"`
 	Committed   float64  `json:"committed_hourly_usd"`
 	Approaching bool     `json:"approaching,omitempty"`
+	// NeedsInputGraceS: a run waiting on the owner longer than this stops reserving vCPU (0 = off).
+	NeedsInputGraceS int64 `json:"needs_input_grace_s,omitempty"`
 }
 
 // PlacementPatch is PATCH /api/v1/placement: set default needs, e.g. {"ram": "2GiB"}.
@@ -317,6 +319,8 @@ type PlacementPatch struct {
 	Need map[string]string `json:"need,omitempty"`
 	// Budget sets the hourly budget in USD ("0.50"); "none" removes it; nil leaves it.
 	Budget *string `json:"budget,omitempty"`
+	// NeedsInputGrace ("10m", or "off") sets how long a needs_input run keeps its vCPU reserved.
+	NeedsInputGrace *string `json:"needs_input_grace,omitempty"`
 }
 
 // TaskCreateRequest is POST /api/v1/tasks.

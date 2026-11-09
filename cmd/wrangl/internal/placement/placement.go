@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
@@ -184,7 +185,11 @@ func Apply(n Need, patch map[string]string) (Need, error) {
 }
 
 // Service reads and writes the layers.
-type Service struct{ DB *db.DB }
+type Service struct {
+	DB *db.DB
+	// Now is the clock for time-based policies (nil: the system clock).
+	Now func() time.Time
+}
 
 // Global returns the global default set.
 func (s *Service) Global(ctx context.Context) (Resolved, error) {
