@@ -269,7 +269,7 @@ func (s *Scheduler) assignOn(ctx context.Context, r dbgen.QueuedRunsForAssignmen
 	if err != nil {
 		return err
 	}
-	runner, err := d.Q.ClaimIdleRunner(ctx, slotTemplate)
+	runner, err := s.claimRunner(ctx, r.ID, slotTemplate)
 	if err != nil {
 		if final && errors.Is(err, sql.ErrNoRows) {
 			s.blockNoSlot(ctx, r.ID, slotTemplate)

@@ -266,8 +266,15 @@ Work down this list.
   disk); the adopted host defaults to 6 vCPU / 12 GiB / 20 GiB (never above 75% of its vCPU and RAM or 70%
   of its disk). Set it explicitly with `wrangl fleet set host --capacity vcpu=6,ram=12GiB,disk=20GiB`
   (an empty value derives that field again). `fleet show` and the runner card show reserved/capacity per
-  resource; the session ceiling is copied from the template when a runner enrols. Still informational:
-  the fit check that uses it comes next.
+  resource; the session ceiling is copied from the template when a runner enrols.
+
+  Assignment now uses it. A run fits a runner when the runner is claimable (as before), the template's
+  `max_sessions` has room, and every resource the run needs (non-zero) is free (capacity minus what active
+  runs reserved). Among the runners that fit: the cheapest (the free host first), then the fullest (least
+  left over), then busy before idle, then the longest idle. The claim is one conditional statement that
+  re-checks all of it. With the default `0/0/0` needs nothing but the session ceiling limits a runner and
+  the order is the old busy-then-longest-idle, so behaviour is unchanged until you set real needs. The
+  autoscaler still plans by session slots, not resources.
 - **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is
