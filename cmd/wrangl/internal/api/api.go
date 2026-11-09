@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"io"
 	"net"
 	"net/http"
@@ -141,7 +142,9 @@ func Register(mux *http.ServeMux, d Deps) {
 		}
 		out := []proto.RunnerView{}
 		for _, row := range rows {
-			out = append(out, runnerView(row.Runner, row.TemplateName, 0))
+			v := runnerView(row.Runner, row.TemplateName, 0)
+			v.Capacity = capacityView(r.Context(), f.DB, row.Runner)
+			out = append(out, v)
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -159,8 +162,23 @@ func Register(mux *http.ServeMux, d Deps) {
 		v := runnerView(row, t.Name, t.IdleTimeoutS)
 		v.WantVersion = t.Version
 		v.TemplateLog = row.TemplateLog
+		v.Capacity = capacityView(r.Context(), f.DB, row)
 		writeJSON(w, http.StatusOK, v)
 	})
+	mux.HandleFunc("PATCH /api/v1/runners/{name}", handle(http.StatusOK, func(r *http.Request, req proto.RunnerPatch) (proto.RunnerView, error) {
+		row, err := f.DB.RQ.GetRunnerByName(r.Context(), r.PathValue("name"))
+		if err != nil {
+			return proto.RunnerView{}, notFound(err, "runner "+r.PathValue("name"))
+		}
+		if len(req.Capacity) > 0 {
+			if err := (&placement.Service{DB: f.DB}).SetRunnerCapacity(r.Context(), row.ID, req.Capacity); err != nil {
+				return proto.RunnerView{}, err
+			}
+		}
+		v := runnerView(row, "", 0)
+		v.Capacity = capacityView(r.Context(), f.DB, row)
+		return v, nil
+	}))
 	for _, action := range []string{"cordon", "uncordon", "drain"} {
 		mux.HandleFunc("POST /api/v1/runners/{name}/"+action, func(w http.ResponseWriter, r *http.Request) {
 			name := r.PathValue("name")

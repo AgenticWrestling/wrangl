@@ -35,6 +35,25 @@ type RunnerView struct {
 	TemplateLog     string          `json:"template_log,omitempty"`
 	BinarySHA       string          `json:"binary_sha,omitempty"`  // running wrangl binary
 	UpgradeSHA      string          `json:"upgrade_sha,omitempty"` // pending self-upgrade target
+	Capacity        *CapacityView   `json:"capacity,omitempty"`
+}
+
+// CapacityView is what a runner can hold and what its active runs reserved (ADR 0009 section 6).
+type CapacityView struct {
+	VCPU        int64  `json:"vcpu"`
+	RAMMiB      int64  `json:"ram_mib"`
+	DiskGiB     int64  `json:"disk_gib"`
+	UsedVCPU    int64  `json:"used_vcpu"`
+	UsedRAMMiB  int64  `json:"used_ram_mib"`
+	UsedDiskGiB int64  `json:"used_disk_gib"`
+	MaxSessions *int64 `json:"max_sessions,omitempty"`
+	Explicit    bool   `json:"explicit,omitempty"` // set by the owner rather than derived from the machine
+}
+
+// RunnerPatch is PATCH /api/v1/runners/{name}: Capacity sets fields (vcpu, ram, disk); an empty value
+// goes back to deriving that field from the machine.
+type RunnerPatch struct {
+	Capacity map[string]string `json:"capacity,omitempty"`
 }
 
 // TemplateView is a runner template as the API returns it.

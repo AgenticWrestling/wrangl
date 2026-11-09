@@ -261,6 +261,13 @@ Work down this list.
   project or task affects runs queued afterwards, never queued or running ones; a retry is a new run
   and gets a new snapshot. Nothing reads the snapshot yet, so placement is unchanged: runner capacity
   and the fit check come in later tasks.
+
+  Runners also have a capacity now: a launched runner holds its facts minus a reserve (1 GiB RAM, 8 GiB
+  disk); the adopted host defaults to 6 vCPU / 12 GiB / 20 GiB (never above 75% of its vCPU and RAM or 70%
+  of its disk). Set it explicitly with `wrangl fleet set host --capacity vcpu=6,ram=12GiB,disk=20GiB`
+  (an empty value derives that field again). `fleet show` and the runner card show reserved/capacity per
+  resource; the session ceiling is copied from the template when a runner enrols. Still informational:
+  the fit check that uses it comes next.
 - **The Inbox item "can't be placed".** A queued run only you can get placed shows an `unplaceable`
   item with the options *Keep waiting* (temporary reasons; raised again after 24 hours or if the reason
   changes), *Use template X* (moves the task and its queued run) and *Cancel the task's run*. There is

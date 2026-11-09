@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"net/http"
 	"sort"
 	"strings"
@@ -31,6 +32,7 @@ type runnerCard struct {
 	Used    int64 // agent sessions in use (active runs); the limit is T.MaxSessions
 	Cost    *hostCost
 	Spec    string // instance type, size and zone, whichever are known
+	Cap     string // used/capacity per resource
 }
 
 // hostCost is the cost block on the controller host's card. It is derived from the cached
@@ -87,6 +89,10 @@ func (h *Handler) runnerCard(ctx context.Context, r dbgen.Runner) runnerCard {
 		c.Cost = hostCostFor(snap, r.InstanceID.String, time.Now())
 	}
 	c.Spec = runnerSpec(r, snap)
+	if cp, err := (&placement.Service{DB: db}).RunnerCapacity(ctx, r); err == nil {
+		c.Cap = fmt.Sprintf("vCPU %d/%d · RAM %s/%s · disk %s/%s", cp.UsedVCPU, cp.VCPU, placement.Format("ram", cp.UsedRAMMiB), placement.Format("ram", cp.RAMMiB),
+			placement.Format("disk", cp.UsedDiskGiB), placement.Format("disk", cp.DiskGiB))
+	}
 	return c
 }
 

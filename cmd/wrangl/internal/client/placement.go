@@ -3,9 +3,16 @@ package client
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
+
+// SetRunner changes a runner's settings (its capacity).
+func (c *Client) SetRunner(ctx context.Context, name string, req proto.RunnerPatch) (proto.RunnerView, error) {
+	var out proto.RunnerView
+	return out, c.json(ctx, http.MethodPatch, "/api/v1/runners/"+url.PathEscape(name), req, &out)
+}
 
 // Placement returns the global default resource needs.
 func (c *Client) Placement(ctx context.Context) (proto.PlacementView, error) {

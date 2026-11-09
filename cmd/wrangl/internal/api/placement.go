@@ -4,6 +4,9 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
+
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
@@ -35,4 +38,13 @@ func registerPlacement(mux *http.ServeMux, d Deps) {
 		}
 		return view(r)
 	}))
+}
+
+func capacityView(ctx context.Context, db *db.DB, r dbgen.Runner) *proto.CapacityView {
+	c, err := (&placement.Service{DB: db}).RunnerCapacity(ctx, r)
+	if err != nil {
+		return nil
+	}
+	return &proto.CapacityView{VCPU: c.VCPU, RAMMiB: c.RAMMiB, DiskGiB: c.DiskGiB, UsedVCPU: c.UsedVCPU, UsedRAMMiB: c.UsedRAMMiB,
+		UsedDiskGiB: c.UsedDiskGiB, MaxSessions: c.MaxSessions, Explicit: c.Explicit}
 }

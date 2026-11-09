@@ -20,6 +20,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
@@ -49,6 +50,22 @@ var TeardownEC2 = func(ctx context.Context, region, profile string) (provision.E
 		return nil, errors.New("no AWS region: pass --region or set AWS_REGION")
 	}
 	return ec2.NewFromConfig(ac), nil
+}
+
+// capacityText shows used/capacity per resource, e.g. "vCPU 1/6 · RAM 2 GiB/12 GiB · disk 5 GiB/20 GiB".
+func capacityText(c *proto.CapacityView) string {
+	if c == nil {
+		return "-"
+	}
+	s := fmt.Sprintf("vCPU %d/%d · RAM %s/%s · disk %s/%s", c.UsedVCPU, c.VCPU, placement.Format("ram", c.UsedRAMMiB), placement.Format("ram", c.RAMMiB),
+		placement.Format("disk", c.UsedDiskGiB), placement.Format("disk", c.DiskGiB))
+	if c.MaxSessions != nil {
+		s += fmt.Sprintf(" · max %d sessions", *c.MaxSessions)
+	}
+	if c.Explicit {
+		s += " (set)"
+	}
+	return s
 }
 
 func fleetCmd(g *Global) *cobra.Command {
@@ -105,6 +122,7 @@ func fleetCmd(g *Global) *cobra.Command {
 					{"instance", dash(r.InstanceID) + "  " + r.InstanceType + "  " + r.AZ}, {"private ip", dash(r.PrivateIP)},
 					{"machine", fmt.Sprintf("%s, %d vCPU, %d MiB, %d GiB", dash(r.Arch), r.VCPU, r.RAMMiB, r.DiskGiB)},
 					{"cpu / mem / disk", cpu + " / " + mem + " / " + disk},
+					{"capacity", capacityText(r.Capacity)},
 					{"last heartbeat", dbtime.AgoShort(r.LastHeartbeatAt, now) + " ago"},
 				}
 				if r.State == "idle" && r.Launched {
@@ -129,6 +147,28 @@ func fleetCmd(g *Global) *cobra.Command {
 			})
 		},
 	}
+
+	set := &cobra.Command{
+		Use: "set <runner>", Short: "Set what a runner can hold: --capacity vcpu=6,ram=12GiB,disk=20GiB", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			caps, _ := cmd.Flags().GetStringSlice("capacity")
+			patch, err := placement.ParsePatch(caps)
+			if err != nil {
+				return err
+			}
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			r, err := c.SetRunner(cmd.Context(), args[0], proto.RunnerPatch{Capacity: patch})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, r, func(w io.Writer) { fmt.Fprintf(w, "%s\tcapacity %s\n", r.Name, capacityText(r.Capacity)) })
+		},
+	}
+	set.Flags().StringSlice("capacity", nil, "capacity FIELD=VALUE: vcpu=N, ram=12GiB, disk=20GiB (comma separated or repeated; empty value derives it from the machine again)")
+	set.MarkFlagRequired("capacity")
 
 	var tmpl string
 	var count int
@@ -256,7 +296,7 @@ touched, and ownership is re-checked on each instance before it is terminated.`,
 	teardown.MarkFlagsMutuallyExclusive("controller-id", "all-controllers")
 
 	return group("fleet", "Manage runners",
-		list, show, launch,
+		list, show, set, launch,
 		runnerAction(g, "cordon", "Stop assigning new work (the idle reaper still applies)"),
 		runnerAction(g, "uncordon", "Resume assigning work"),
 		runnerAction(g, "drain", "Stop new work; terminate once idle (controller-launched runners)"),

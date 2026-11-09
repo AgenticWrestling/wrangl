@@ -432,6 +432,10 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 		}); err != nil {
 			return err
 		}
+		// The template's session ceiling travels with the runner (ADR 0009 section 6.3).
+		if err := q.InitRunnerCapacity(ctx, dbgen.InitRunnerCapacityParams{RunnerID: r.ID, MaxSessions: sql.NullInt64{Int64: t.MaxSessions, Valid: t.MaxSessions > 0}}); err != nil {
+			return err
+		}
 		jwt, err := s.Keys.IssueRunner(r.ID, req.NKeyPublic)
 		if err != nil {
 			return err

@@ -95,3 +95,73 @@ func (q *Queries) SetTaskNeed(ctx context.Context, arg SetTaskNeedParams) error 
 	_, err := q.db.ExecContext(ctx, setTaskNeed, arg.TaskID, arg.NeedVcpu, arg.NeedRamMib, arg.NeedDiskGib)
 	return err
 }
+
+const initRunnerCapacity = `-- name: InitRunnerCapacity :exec
+INSERT INTO runner_capacity (runner_id, max_sessions) VALUES (?, ?) ON CONFLICT (runner_id) DO NOTHING
+`
+
+type InitRunnerCapacityParams struct {
+	RunnerID    int64         `json:"runner_id"`
+	MaxSessions sql.NullInt64 `json:"max_sessions"`
+}
+
+// At enrolment: remember the template's session ceiling; an existing row (explicit capacity) stays.
+func (q *Queries) InitRunnerCapacity(ctx context.Context, arg InitRunnerCapacityParams) error {
+	_, err := q.db.ExecContext(ctx, initRunnerCapacity, arg.RunnerID, arg.MaxSessions)
+	return err
+}
+
+const setRunnerCapacity = `-- name: SetRunnerCapacity :exec
+INSERT INTO runner_capacity (runner_id, cap_vcpu, cap_ram_mib, cap_disk_gib) VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (runner_id) DO UPDATE SET cap_vcpu = excluded.cap_vcpu, cap_ram_mib = excluded.cap_ram_mib, cap_disk_gib = excluded.cap_disk_gib
+`
+
+type SetRunnerCapacityParams struct {
+	RunnerID   int64         `json:"runner_id"`
+	CapVcpu    sql.NullInt64 `json:"cap_vcpu"`
+	CapRamMib  sql.NullInt64 `json:"cap_ram_mib"`
+	CapDiskGib sql.NullInt64 `json:"cap_disk_gib"`
+}
+
+func (q *Queries) SetRunnerCapacity(ctx context.Context, arg SetRunnerCapacityParams) error {
+	_, err := q.db.ExecContext(ctx, setRunnerCapacity, arg.RunnerID, arg.CapVcpu, arg.CapRamMib, arg.CapDiskGib)
+	return err
+}
+
+const getRunnerCapacity = `-- name: GetRunnerCapacity :one
+SELECT cap_vcpu, cap_ram_mib, cap_disk_gib, max_sessions FROM runner_capacity WHERE runner_id = ?
+`
+
+type GetRunnerCapacityRow struct {
+	CapVcpu     sql.NullInt64 `json:"cap_vcpu"`
+	CapRamMib   sql.NullInt64 `json:"cap_ram_mib"`
+	CapDiskGib  sql.NullInt64 `json:"cap_disk_gib"`
+	MaxSessions sql.NullInt64 `json:"max_sessions"`
+}
+
+func (q *Queries) GetRunnerCapacity(ctx context.Context, runnerID int64) (GetRunnerCapacityRow, error) {
+	row := q.db.QueryRowContext(ctx, getRunnerCapacity, runnerID)
+	var i GetRunnerCapacityRow
+	err := row.Scan(&i.CapVcpu, &i.CapRamMib, &i.CapDiskGib, &i.MaxSessions)
+	return i, err
+}
+
+const sumActiveNeeds = `-- name: SumActiveNeeds :one
+SELECT CAST(COALESCE(SUM(need_vcpu), 0) AS INTEGER) AS vcpu, CAST(COALESCE(SUM(need_ram_mib), 0) AS INTEGER) AS ram_mib,
+       CAST(COALESCE(SUM(need_disk_gib), 0) AS INTEGER) AS disk_gib
+FROM run WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
+`
+
+type SumActiveNeedsRow struct {
+	Vcpu    int64 `json:"vcpu"`
+	RamMib  int64 `json:"ram_mib"`
+	DiskGib int64 `json:"disk_gib"`
+}
+
+// What the runner's active runs have reserved.
+func (q *Queries) SumActiveNeeds(ctx context.Context, runnerID int64) (SumActiveNeedsRow, error) {
+	row := q.db.QueryRowContext(ctx, sumActiveNeeds, runnerID)
+	var i SumActiveNeedsRow
+	err := row.Scan(&i.Vcpu, &i.RamMib, &i.DiskGib)
+	return i, err
+}

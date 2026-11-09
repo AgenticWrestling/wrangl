@@ -147,6 +147,9 @@ func TestLaunchEnrolHeartbeatReap(t *testing.T) {
 	if r.State != "enrolling" || !r.NkeyPublic.Valid {
 		t.Fatalf("after enrol: %s", r.State)
 	}
+	if c, err := e.s.DB.RQ.GetRunnerCapacity(ctx, r.ID); err != nil || !c.MaxSessions.Valid || c.CapVcpu.Valid {
+		t.Fatalf("enrolment should record the template's session ceiling and leave capacity derived: %+v %v", c, err)
+	}
 	// First heartbeat -> idle.
 	if err := e.s.Heartbeat(ctx, natsd.RunnerHeartbeatSubject(resp.RunnerID), []byte(`{"cpu_percent":3}`)); err != nil {
 		t.Fatal(err)

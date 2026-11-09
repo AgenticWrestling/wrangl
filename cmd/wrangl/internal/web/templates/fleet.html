@@ -23,6 +23,7 @@
 {{range .Cards}}<div class="card runner st-{{.R.State}}{{if eq .R.Launched 0}} pinned{{end}}">
   <div class="row"><a class="rlink" href="/runner/{{.R.Name}}"><b>{{.R.Name}}</b></a>{{if eq .R.Launched 0}} {{template "tag" props "Class" "pill host" "Label" "host" "Title" "not launched by the fleet; never reaped"}}{{end}} {{template "tag" props "Class" "pill" "Label" .R.State}}{{if .R.Cordoned}}{{template "tag" props "Class" "pill warn" "Label" "cordoned"}}{{end}}{{if .R.DrainRequested}}{{template "tag" props "Class" "pill warn" "Label" "draining"}}{{end}}{{if .R.UpgradeSha}}{{template "tag" props "State" "upgrading"}}{{end}}<span class="grow"></span>{{if termok .R.State}}<a class="btn small" href="/runner/{{.R.Name}}/term">Terminal</a>{{end}}<span class="pill" title="agent sessions in use / allowed on this runner (template max_sessions)">{{.Used}}/{{.T.MaxSessions}} sessions</span> <span class="dim">{{.T.Name}}</span></div>
   {{if .Spec}}<div class="row small dim">{{.Spec}}</div>{{end}}
+  {{if .Cap}}<div class="row small dim" title="resources reserved by active runs / what this runner can hold (wrangl fleet set --capacity)">reserved {{.Cap}}</div>{{end}}
   {{if .R.LastHeartbeatAt.Valid}}<div class="row small">
     <span>CPU {{pct .M.CPUPercent}}</span><span>Mem {{pct .M.MemPercent}}</span><span>Disk {{pct .M.DiskPercent}}</span>
     <span class="grow"></span>{{spark .Spark}}
@@ -81,6 +82,7 @@
   <dl class="kv">
     <dt>Instance</dt><dd>{{$r.InstanceID.String}} {{$r.InstanceType}} ({{$r.Arch}}) {{$r.Az}}</dd>
     <dt>Size</dt><dd>{{$r.Vcpu}} vCPU · {{$r.RamMib}} MiB · {{$r.DiskGib}} GiB</dd>
+    {{if .Cap}}<dt>Reserved</dt><dd>{{.Cap}}</dd>{{end}}
     <dt>IP</dt><dd>{{$r.PrivateIp}}</dd>
     {{if $r.BinarySha}}<dt>wrangl</dt><dd><code>{{printf "%.12s" $r.BinarySha}}</code>{{if $r.UpgradeSha}} → <code>{{printf "%.12s" $r.UpgradeSha}}</code> {{template "tag" props "State" "upgrading"}}{{end}}</dd>{{end}}
     <dt>Heartbeat</dt><dd>{{if $r.LastHeartbeatAt.Valid}}{{ago $r.LastHeartbeatAt.String}}{{else}}never{{end}}</dd>
