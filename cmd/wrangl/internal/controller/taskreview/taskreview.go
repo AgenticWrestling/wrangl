@@ -95,8 +95,11 @@ func (s *Service) openReviews(ctx context.Context) error {
 SELECT t.id, t.sqid, t.title, t.completion_summary, r.id, r.status_text
 FROM task t JOIN run r ON r.id = t.completed_run_id
 WHERE t.state = 'in_review'
+  -- A run still alive but parked on a question (needs_input) counts too: the task was completed
+  -- and the owner would otherwise see no card until that question is answered. pushed is only
+  -- set when a run finishes, so such a run has not pushed.
+  AND (r.finished_at IS NOT NULL OR r.state = 'needs_input')
   AND (SELECT archived_at FROM project WHERE id = t.project_id) IS NULL
-  AND r.finished_at IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM task c WHERE c.parent_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM question q WHERE q.kind = 'task_review' AND q.state = 'open' AND q.task_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM question q WHERE q.kind = 'deliverable_review' AND q.state = 'open'
