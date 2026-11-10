@@ -628,3 +628,14 @@ li.task > .row > .iconfirm .iq { flex: 1 1 12rem; }
 button.chip.ic { background: none; color: inherit; font: inherit; cursor: pointer; }
 .bar > .btn.primary { padding-left: 16px; padding-right: 16px; font-size: 1.1rem; line-height: 1; }
 .icard .isubs { margin: .75rem 0 0 1.25rem; padding-left: .75rem; border-left: 2px solid var(--line); display: grid; gap: .5rem; }
+
+/* review card: Changes section */
+.chgbody { margin-top: 6px; }
+.chgfile { border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; padding: 4px 8px; }
+.chgfile > summary { cursor: pointer; font-size: 0.85rem; }
+.chgfile summary code { overflow-wrap: anywhere; }
+pre.udiff { font-size: 0.76rem; line-height: 1.35; overflow-x: auto; max-width: 100%; margin: 6px 0 2px; white-space: pre; }
+pre.udiff span { min-width: max-content; }
+.chgcommits { overflow-wrap: anywhere; }
+.chgpick { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.chgpick select { flex: 1; min-width: 0; max-width: 100%; margin: 0; }

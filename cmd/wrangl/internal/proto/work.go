@@ -346,3 +346,38 @@ type TargetConn struct {
 	Key        string `json:"key,omitempty"`         // private key (ssh)
 	Reset      string `json:"reset,omitempty"`
 }
+
+// DiffFile is one changed file in a DiffView. Patch is empty for binary files and for files whose patch
+// was omitted (Truncated); Link then points at the change on GitHub.
+type DiffFile struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"old_path,omitempty"` // renames
+	Status    string `json:"status"`             // added | modified | deleted | renamed
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary,omitempty"`
+	Patch     string `json:"patch,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Link      string `json:"link,omitempty"`
+}
+
+// DiffCommit is one checkpoint commit of a run or PR.
+type DiffCommit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
+	Author  string `json:"author,omitempty"`
+	Date    string `json:"date,omitempty"`
+}
+
+// DiffView is GET /api/v1/{runs|prs}/{id}/diffdata: the file list with per-file unified diffs plus the
+// checkpoint commits. Commit is set when the view is restricted to one commit (?commit=SHA).
+type DiffView struct {
+	Base      string       `json:"base,omitempty"`
+	Head      string       `json:"head,omitempty"`
+	Commit    string       `json:"commit,omitempty"`
+	Source    string       `json:"source"` // mirror | github
+	Files     []DiffFile   `json:"files"`
+	Commits   []DiffCommit `json:"commits"`
+	Truncated bool         `json:"truncated,omitempty"` // some patches were omitted
+	Link      string       `json:"link,omitempty"`      // the whole change on GitHub
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/diffs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
@@ -581,7 +582,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
+	diffSvc := &diffs.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "mirrors"), Token: s.Runs.RepoToken}
+	if s.PRs != nil && s.PRs.Author != nil {
+		diffSvc.GH = func(r gh.Repo) gh.PRAPI { return s.PRs.Author }
+	}
+	deps := api.Deps{Diffs: diffSvc, Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
 		Setup: s.setupService(), Secrets: &api.SecretStore{
 			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },

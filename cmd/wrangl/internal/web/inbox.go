@@ -57,6 +57,7 @@ type inboxItem struct {
 	ChatHint        string
 	Actions         []inboxAction
 	Changes         changeLink
+	Diff            string      // lazy-load URL of the Changes section; empty = no section
 	SubmitURL       string      // what Ctrl+Enter in the comment box posts
 	Subs            []inboxItem // questions blocking this PR, answerable inline
 }
@@ -92,6 +93,8 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		if q.Kind == "task_review" && q.RunID != 0 && taskReviewReason(q.Payload) == "review" {
 			if doc := h.runDoc(ctx, q.RunID); doc != nil {
 				it.Details = append(it.Details, inboxDetail{Summary: doc.Name, HTML: doc.HTML, Open: true})
+			} else if h.D.Diffs != nil && h.runHasBranch(ctx, q.RunID) {
+				it.Diff = changesURL(q.RunID, 0)
 			}
 		}
 		id := q.ID
@@ -127,6 +130,9 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			Kind: "pr_review", Tag: "◐ in review", TagClass: "k-review", Task: r.TaskSqid, TaskTitle: r.TaskTitle, RunID: p.RunID,
 			Age: dbtime.Ago(p.CreatedAt, time.Now()), Title: fmt.Sprintf("Review pull request %s#%d", r.Repo, p.GhNumber),
 			Chat: true, ChatHint: "What should change? (for Request changes)", Changes: changes[r.TaskSqid],
+		}
+		if h.D.Diffs != nil {
+			it.Diff = changesURL(0, p.ID)
 		}
 		it.Links = append(it.Links,
 			inboxLink{Text: fmt.Sprintf("%s#%d", r.Repo, p.GhNumber), URL: p.Url, External: true},
@@ -267,4 +273,10 @@ func stripTaskPrefix(s string) string {
 		return t
 	}
 	return s
+}
+
+// runHasBranch: the run produced commits on a branch (ux/research deliverable runs do not).
+func (h *Handler) runHasBranch(ctx context.Context, runID int64) bool {
+	run, err := h.D.Fleet.DB.RQ.GetRun(ctx, runID)
+	return err == nil && run.Branch != "" && run.RepoID.Valid && run.BaseSha != "" && run.HeadSha != ""
 }
