@@ -450,6 +450,17 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		if a.AllowFreeText {
 			ft = 1
 		}
+		if kind == "system" {
+			// One blocker, one card: fold the agent's own still-open questions for this
+			// run into the system question (quoted in its body) and cancel them.
+			folded, err := s.foldAgentQuestions(ctx, sc.RunID)
+			if err != nil {
+				return nil, err
+			}
+			if folded != "" {
+				a.DetailMD = strings.TrimSpace(a.DetailMD + "\n\n" + folded)
+			}
+		}
 		q, err := s.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: taskID, RunID: sql.NullInt64{Int64: sc.RunID, Valid: true},
 			Kind: kind, Prompt: a.Prompt, DetailMd: a.DetailMD, AllowFreeText: ft}, a.Options)
 		if err != nil {
@@ -494,4 +505,47 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// foldAgentQuestions cancels the run's still-open agent questions and returns them quoted
+// as markdown, for the system question that supersedes them ("" if there were none).
+func (s *Service) foldAgentQuestions(ctx context.Context, runID int64) (string, error) {
+	rows, err := s.DB.R.QueryContext(ctx, `SELECT id, prompt, detail_md FROM question WHERE run_id = ? AND kind = 'agent' AND state = 'open' ORDER BY id`, runID)
+	if err != nil {
+		return "", err
+	}
+	type oq struct {
+		id             int64
+		prompt, detail string
+	}
+	var open []oq
+	for rows.Next() {
+		var o oq
+		if err := rows.Scan(&o.id, &o.prompt, &o.detail); err != nil {
+			rows.Close()
+			return "", err
+		}
+		open = append(open, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(open) == 0 {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("**The agent's own open questions (cancelled; answer them in your reply):**\n")
+	for _, o := range open {
+		n, err := s.DB.W.ExecContext(ctx, `UPDATE question SET state = 'cancelled' WHERE id = ? AND state = 'open'`, o.id)
+		if err != nil {
+			return "", err
+		}
+		if c, _ := n.RowsAffected(); c == 0 {
+			continue // answered meanwhile
+		}
+		b.WriteString("\n> " + strings.ReplaceAll(strings.TrimSpace(o.prompt), "\n", "\n> ") + "\n")
+		if d := strings.TrimSpace(o.detail); d != "" {
+			b.WriteString(">\n> " + strings.ReplaceAll(d, "\n", "\n> ") + "\n")
+		}
+		s.Bus.Question(o.id)
+	}
+	return b.String(), nil
 }
