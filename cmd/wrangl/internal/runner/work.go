@@ -715,6 +715,14 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 	if len(argvTmpl) == 0 {
 		return 0, errors.New("template has no agent command")
 	}
+	if late := w.answers.takeLate(s.a.RunID); len(late) > 0 {
+		for _, a := range late {
+			w.Log.Info("feeding a late owner answer into the next turn", "run", s.a.RunID, "question", a.QuestionID)
+		}
+		nn := *n
+		nn.Prompt = lateAnswersPrompt(late) + n.Prompt
+		n = &nn
+	}
 	vars := s.vars(n.Prompt)
 	vars["TaskSqid"] = n.Sqid
 	argv := make([]string, len(argvTmpl))
@@ -1095,6 +1103,17 @@ func nudgePrompt(n *proto.StackNext) string {
 func ownerReplyPrompt(n *proto.StackNext, text string) string {
 	return fmt.Sprintf("The owner replied about task %s (%q):\n\n%s\n\nContinue the task with this in mind. "+
 		"Call task_complete when it is finished, or ask_question if you need a further decision.", n.Sqid, n.Title, strings.TrimSpace(text))
+}
+
+// lateAnswersPrompt carries owner answers to questions the agent's ask_question call had
+// already given up on, so they reach the agent's next turn rather than being lost.
+func lateAnswersPrompt(late []proto.Answer) string {
+	var b strings.Builder
+	b.WriteString("The owner answered earlier questions after your ask_question call had timed out:\n\n")
+	for _, a := range late {
+		fmt.Fprintf(&b, "- question %d: %s\n", a.QuestionID, strings.TrimSpace(strings.TrimSpace(a.Value+"\n"+a.Text)))
+	}
+	return b.String() + "\nTake these into account.\n\n"
 }
 
 // stoppedDetail is the Markdown body of the "what now?" question: the agent's own last message,
