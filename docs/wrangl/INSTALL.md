@@ -65,7 +65,7 @@ branch to GitHub. Do the steps in order. Each step ends with a check.
 | A Claude Pro, Max, Team or Enterprise plan, with Claude Code installed on your laptop | step 7 |
 | A Cloudflare account with Zero Trust (the free plan is enough), and a domain on Cloudflare | step 10 (optional for now) |
 | Go 1.26+, [Task](https://taskfile.dev) and git on your laptop | step 2 |
-| This repo's `ssm` tool (`task install`) | connecting to the controller without opening port 22 |
+| The `aws` CLI's Session Manager plugin and `wrangl dev` (part of the `wrangl` binary) | connecting to the controller without opening port 22 |
 
 Pick a region and use it throughout:
 
@@ -80,6 +80,19 @@ git clone https://github.com/AgenticWrestling/wrangl && cd wrangl
 task build-wrangl
 ls build/
 # wrangl  wrangl-linux-aarch64  wrangl-linux-x86_64
+```
+
+**Without Go or Task:** every [release](https://github.com/AgenticWrestling/wrangl/releases) carries the
+same binaries. Install the CLI with the `curl | sh` command in the [README](../../README.md#getting-started),
+and for the controller host fetch the two runner binaries into `build/`:
+
+```sh
+mkdir -p build && cd build
+for a in aarch64 x86_64; do
+  curl -fsSLo wrangl-linux-$a https://github.com/AgenticWrestling/wrangl/releases/latest/download/wrangl-linux-$a
+  chmod +x wrangl-linux-$a
+done
+cd .. && ln -sf wrangl-linux-x86_64 build/wrangl   # or the binary that matches this machine
 ```
 
 `build/wrangl` is for your laptop, as the CLI. The two `wrangl-linux-*` binaries go on the
@@ -139,7 +152,7 @@ cat > ec2-trust.json <<'EOF'
 EOF
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
-# Runner role: Session Manager only (so you can `ssm connect` to a runner to debug).
+# Runner role: Session Manager only (so you can `wrangl fleet connect` to a runner to debug).
 aws iam create-role --role-name wrangl-runner --assume-role-policy-document file://ec2-trust.json
 aws iam attach-role-policy --role-name wrangl-runner \
   --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
@@ -185,16 +198,16 @@ aws ec2 run-instances \
 ```
 
 Note the private IP (for example `10.0.1.5`): runners will be told to dial it. Connect with
-this repo's tool:
+`wrangl dev` (it is part of the `wrangl` binary you built in section 2; no controller is needed):
 
 ```sh
-ssm connect "$AWS_REGION/wrangl-controller"
+wrangl dev connect "$AWS_REGION/wrangl-controller"
 ```
 
 ### 5.2 Copy the binaries over
 
-Use `ssm setup "$AWS_REGION/wrangl-controller"` once to get an SSH config entry that goes
-through EC2 Instance Connect, then:
+Use `wrangl dev ssh --prepare-network "$AWS_REGION/wrangl-controller"` once (then exit) to get an
+SSH config entry that goes through EC2 Instance Connect, then:
 
 ```sh
 scp build/wrangl-linux-aarch64 build/wrangl-linux-x86_64 wrangl-controller:/tmp/
@@ -556,8 +569,8 @@ driver (`aws ssm start-session`, so the driver needs the AWS CLI + the Session M
 `ssm:StartSession`), or directly with `via: direct`.
 
 A run on a remote template takes a session on the target (`max_sessions`) and a session on a driver
-at the same time. The controller launches a target when queued runs need one, within the project's
-cap for the template (default 0: opt in with `wrangl project edit PROJ --limit mac=1`), probes it
+at the same time. The controller launches a target when queued runs need one, within the template's
+`max_runners`, probes it
 every loop, marks it `offline` after three failed probes, reaps it after `idle_timeout`, and fails the
 runs on it as `target lost` if it is gone or unreachable for two minutes. `wrangl target list` shows
 targets and their sessions; `wrangl target terminate NAME` stops one now.
@@ -567,7 +580,7 @@ access and a build-and-install smoke test).
 
 **EC2 Mac (`templates/remote-mac.yaml`).** A Mac instance runs on a Dedicated Host with a
 **24-hour minimum allocation**: one short run bills a full day and stopping early saves nothing. So
-a project's cap on the Mac template stays 0 (opt in with `wrangl project edit PROJ --limit mac=1`),
+keep `max_runners` on the Mac template low (1 is the safe default), and only queue work on it deliberately;
 the controller logs a "Cost warning" note every time it launches one (also shown in the controller
 agent's `fleet.launch` result), and the template's `idle_timeout` is 24 h so back-to-back runs share
 the host. wrangl launches the instance; allocating the host and choosing the macOS AMI is yours.
@@ -883,7 +896,7 @@ Watch these the first time and report anything odd:
 |---|---|---|
 | `fleet launch` | `journalctl -u wrangl-controller`, EC2 console | instance running, tagged `wrangl:managed=true`, `wrangl:controller=wr-…`, `wrangl:runner`, `wrangl:template`; volume and ENI tagged too |
 | IAM policy | controller log on launch/terminate | no `UnauthorizedOperation`; if you see one, the message names the missing action |
-| Enrolment | `fleet list` (enrolling → provisioning) | if stuck in `launching`: `ssm connect` to the runner, read `/var/log/cloud-init-output.log` |
+| Enrolment | `fleet list` (enrolling → provisioning) | if stuck in `launching`: `wrangl fleet connect NAME` (or `wrangl dev connect`) to the runner, read `/var/log/cloud-init-output.log` |
 | `mise install` | `fleet show <runner>` template log | tools installed under `/home/agent/.local/share/mise` |
 | `repo link` | CLI output | base branch detected; otherwise the account's App isn't installed on that repo |
 | Claude Code | `wrangl run attach <id>` | the agent works in the repo; `exited N` failures show its output in `wrangl logs <id>` |
@@ -988,6 +1001,6 @@ instance, the instance profiles and roles, the SG and the NAT gateway if you mad
 | Inbox item "Tool call failed: <tool>" | a tool the controller runs for the agent (GitHub issue tools, PR calls) hit a service error, such as the App missing `issues: write` (6.2a). The run carries on; fix the cause, then press Dismiss. Mistakes by the agent itself (bad arguments, unknown task) are not raised |
 | CLI from laptop: HTTP 403 from Cloudflare | the service-token policy is missing, or the `cf_service_token` id/secret are wrong |
 
-Useful on any runner (`ssm connect <region>/wrangl-<runner>`):
+Useful on any runner (`wrangl dev connect <region>/wrangl-<runner>`):
 - `sudo wrangl --config /etc/wrangl/runner.yaml runner status`
 - `journalctl -u wrangl-runner`

@@ -12,14 +12,15 @@ import (
 	"strings"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/spf13/cobra"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/awsx"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
@@ -34,21 +35,30 @@ func metricsCols(m json.RawMessage) (cpu, mem, disk string) {
 
 // TeardownEC2 is overridable in tests so teardown can run against a fake.
 var TeardownEC2 = func(ctx context.Context, region, profile string) (provision.EC2API, error) {
-	opts := []func(*awsconfig.LoadOptions) error{}
-	if region != "" {
-		opts = append(opts, awsconfig.WithRegion(region))
-	}
-	if profile != "" {
-		opts = append(opts, awsconfig.WithSharedConfigProfile(profile))
-	}
-	ac, err := awsconfig.LoadDefaultConfig(ctx, opts...)
+	ac, err := awsx.LoadConfig(ctx, profile, region)
 	if err != nil {
 		return nil, err
 	}
-	if ac.Region == "" {
-		return nil, errors.New("no AWS region: pass --region or set AWS_REGION")
-	}
 	return ec2.NewFromConfig(ac), nil
+}
+
+// capacityText shows used/capacity per resource, e.g. "vCPU 1/6 · RAM 2 GiB/12 GiB · disk 5 GiB/20 GiB".
+func capacityText(c *proto.CapacityView) string {
+	if c == nil {
+		return "-"
+	}
+	s := fmt.Sprintf("vCPU %d/%d · RAM %s/%s · disk %s/%s", c.UsedVCPU, c.VCPU, placement.Format("ram", c.UsedRAMMiB), placement.Format("ram", c.RAMMiB),
+		placement.Format("disk", c.UsedDiskGiB), placement.Format("disk", c.DiskGiB))
+	if c.MaxSessions != nil {
+		s += fmt.Sprintf(" · max %d sessions", *c.MaxSessions)
+	}
+	if c.Explicit {
+		s += " (set)"
+	}
+	if c.GuardClosed {
+		s += " · CLOSED by guard: " + c.GuardReason
+	}
+	return s
 }
 
 func fleetCmd(g *Global) *cobra.Command {
@@ -65,7 +75,11 @@ func fleetCmd(g *Global) *cobra.Command {
 				return err
 			}
 			now := time.Now()
+			pv, _ := c.Placement(cmd.Context())
 			return emit(cmd, g, rs, func(w io.Writer) {
+				if pv.Budget != nil {
+					fmt.Fprintf(w, "hourly budget: $%.2f of $%.2f committed%s\n", pv.Committed, *pv.Budget, map[bool]string{true: " (approaching the limit)"}[pv.Approaching])
+				}
 				fmt.Fprintln(w, "NAME\tSTATE\tTEMPLATE\tINSTANCE\tTYPE\tIP\tCPU\tMEM\tDISK\tHEARTBEAT\tIDLE")
 				for _, r := range rs {
 					cpu, mem, disk := metricsCols(r.Metrics)
@@ -105,6 +119,8 @@ func fleetCmd(g *Global) *cobra.Command {
 					{"instance", dash(r.InstanceID) + "  " + r.InstanceType + "  " + r.AZ}, {"private ip", dash(r.PrivateIP)},
 					{"machine", fmt.Sprintf("%s, %d vCPU, %d MiB, %d GiB", dash(r.Arch), r.VCPU, r.RAMMiB, r.DiskGiB)},
 					{"cpu / mem / disk", cpu + " / " + mem + " / " + disk},
+					{"capacity", capacityText(r.Capacity)},
+					{"tags", dash(strings.Join(r.Tags, ", "))},
 					{"last heartbeat", dbtime.AgoShort(r.LastHeartbeatAt, now) + " ago"},
 				}
 				if r.State == "idle" && r.Launched {
@@ -129,6 +145,43 @@ func fleetCmd(g *Global) *cobra.Command {
 			})
 		},
 	}
+
+	set := &cobra.Command{
+		Use: "set <runner>", Short: "Set what a runner can hold: --capacity vcpu=6,ram=12GiB,disk=20GiB", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			caps, _ := cmd.Flags().GetStringSlice("capacity")
+			guards, _ := cmd.Flags().GetStringSlice("guard")
+			if len(caps) == 0 && len(guards) == 0 {
+				return errors.New("give --capacity and/or --guard")
+			}
+			var patch map[string]string
+			var err error
+			if len(caps) > 0 {
+				if patch, err = placement.ParsePatch(caps); err != nil {
+					return err
+				}
+			}
+			guard := map[string]string{}
+			for _, g := range guards {
+				k, v, ok := strings.Cut(g, "=")
+				if !ok || k == "" {
+					return fmt.Errorf("--guard wants load1=N, mem=PCT or disk=PCT (empty value stops guarding it), got %q", g)
+				}
+				guard[strings.TrimSpace(k)] = v
+			}
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			r, err := c.SetRunner(cmd.Context(), args[0], proto.RunnerPatch{Capacity: patch, Guard: guard})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, r, func(w io.Writer) { fmt.Fprintf(w, "%s\tcapacity %s\n", r.Name, capacityText(r.Capacity)) })
+		},
+	}
+	set.Flags().StringSlice("capacity", nil, "capacity FIELD=VALUE: vcpu=N, ram=12GiB, disk=20GiB (comma separated or repeated; empty value derives it from the machine again)")
+	set.Flags().StringSlice("guard", nil, "measured guard thresholds that close the runner to NEW work: load1=6,mem=85,disk=85 (percent; empty value stops guarding it)")
 
 	var tmpl string
 	var count int
@@ -256,11 +309,12 @@ touched, and ownership is re-checked on each instance before it is terminated.`,
 	teardown.MarkFlagsMutuallyExclusive("controller-id", "all-controllers")
 
 	return group("fleet", "Manage runners",
-		list, show, launch,
+		list, show, set, launch,
 		runnerAction(g, "cordon", "Stop assigning new work (the idle reaper still applies)"),
 		runnerAction(g, "uncordon", "Resume assigning work"),
 		runnerAction(g, "drain", "Stop new work; terminate once idle (controller-launched runners)"),
 		terminate, token, teardown,
+		fleetConnect(g), fleetTunnel(g),
 	)
 }
 

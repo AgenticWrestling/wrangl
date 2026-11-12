@@ -43,11 +43,12 @@ ORDER BY r.id DESC
 LIMIT sqlc.arg(lim);
 
 -- name: QueuedRunsForAssignment :many
+-- Smart Merge (resolve) runs are short and unblock a PR: they are offered a slot ahead of everything else.
 SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.attempt, r.kind, r.continue_branch,
        CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
 FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
 WHERE r.state = 'queued' AND p.archived_at IS NULL
-ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at;
+ORDER BY (r.kind = 'resolve') DESC, p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at;
 
 -- name: ClaimIdleRunner :one
 -- A runner on the template with a free session slot, at the template's current version and not
@@ -60,6 +61,7 @@ WHERE id = (
     WHERE n.template_id = sqlc.arg(template_id) AND n.state IN ('idle', 'busy') AND n.cordoned = 0
       AND n.drain_requested = 0
       AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
       AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
            AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
     ORDER BY (n.state = 'busy') DESC, n.idle_since
@@ -73,12 +75,15 @@ SELECT CAST(EXISTS (
     WHERE n.template_id = sqlc.arg(template_id) AND n.state IN ('idle', 'busy') AND n.cordoned = 0
       AND n.drain_requested = 0
       AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
       AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
            AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
 ) AS INTEGER) AS free;
 
 -- name: AssignRun :execrows
-UPDATE run SET state = 'assigned', runner_id = sqlc.arg(runner_id), session_name = sqlc.arg(session_name)
+UPDATE run SET state = 'assigned', runner_id = sqlc.arg(runner_id), session_name = sqlc.arg(session_name),
+    status_text = CASE WHEN blocked_reason <> '' AND status_text = blocked_reason THEN '' ELSE status_text END,
+    blocked_since = NULL, blocked_reason = ''
 WHERE id = sqlc.arg(id) AND state = 'queued';
 
 -- name: UnassignRun :exec
@@ -201,3 +206,32 @@ WHERE r.state = 'running'
 
 -- name: SetRunQueueRank :execrows
 UPDATE run SET queue_rank = sqlc.arg(queue_rank) WHERE id = sqlc.arg(id) AND state = 'queued';
+
+-- name: SetRunBlocked :execrows
+-- Say why a queued run waits. Written only when the text changes (so a steady wait costs no
+-- writes); blocked_since keeps the first time the run was seen blocked.
+UPDATE run SET status_text = sqlc.arg(reason), blocked_reason = sqlc.arg(reason),
+    blocked_since = COALESCE(blocked_since, sqlc.arg(now))
+WHERE id = sqlc.arg(id) AND state = 'queued' AND (blocked_reason <> sqlc.arg(reason) OR status_text <> sqlc.arg(reason));
+
+-- name: TemplateRunnerCounts :one
+-- What the template's runners are doing, for the waiting reason: still coming up, usable but
+-- full, and live but not claimable (cordoned, draining, behind on version or upgrading).
+SELECT
+  CAST(COALESCE(SUM(n.state IN ('launching', 'enrolling', 'provisioning')), 0) AS INTEGER) AS launching,
+  CAST(COALESCE(SUM(n.state IN ('idle', 'busy') AND n.cordoned = 0 AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = ''), 0) AS INTEGER) AS usable,
+  CAST(COALESCE(SUM(n.state IN ('idle', 'busy') AND NOT (n.cordoned = 0 AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = '')), 0) AS INTEGER) AS unavailable
+FROM runner n JOIN runner_template t ON t.id = n.template_id
+WHERE n.template_id = sqlc.arg(template_id);
+
+-- name: SetTaskTemplate :exec
+UPDATE task SET template_id = sqlc.narg(template_id) WHERE id = sqlc.arg(id);
+
+-- name: SetQueuedRunTemplate :exec
+UPDATE run SET template_id = sqlc.arg(template_id) WHERE id = sqlc.arg(id) AND state = 'queued';
+
+-- name: SetRunNeed :exec
+UPDATE run SET need_vcpu = sqlc.arg(need_vcpu), need_ram_mib = sqlc.arg(need_ram_mib), need_disk_gib = sqlc.arg(need_disk_gib),
+    need_source = sqlc.arg(need_source) WHERE id = sqlc.arg(id);

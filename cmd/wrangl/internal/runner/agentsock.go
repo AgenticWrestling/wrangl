@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
@@ -28,6 +27,36 @@ type waiters struct {
 	mu  sync.Mutex
 	m   map[int64]chan proto.Answer
 	run map[int64]int64 // question id -> the run that asked it
+	// orphan: questions whose ask_question call gave up (tool timeout) before the owner
+	// answered; id -> run. Their answers are held in late until the run's next turn.
+	orphan map[int64]int64
+	late   map[int64][]proto.Answer // run -> answers that arrived after the agent gave up
+}
+
+// abandon removes the waiter for a question whose ask call gave up, and remembers it so a
+// late answer is kept for the run's next turn instead of being dropped.
+func (w *waiters) abandon(id int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	run, ok := w.run[id]
+	if !ok {
+		return
+	}
+	delete(w.m, id)
+	delete(w.run, id)
+	if w.orphan == nil {
+		w.orphan = map[int64]int64{}
+	}
+	w.orphan[id] = run
+}
+
+// takeLate returns (and clears) the late answers held for a run.
+func (w *waiters) takeLate(run int64) []proto.Answer {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	a := w.late[run]
+	delete(w.late, run)
+	return a
 }
 
 func (w *waiters) add(id, run int64) chan proto.Answer {
@@ -44,6 +73,16 @@ func (w *waiters) add(id, run int64) chan proto.Answer {
 func (w *waiters) deliver(a proto.Answer) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if run, orphaned := w.orphan[a.QuestionID]; orphaned {
+		delete(w.orphan, a.QuestionID)
+		if !a.Cancelled {
+			if w.late == nil {
+				w.late = map[int64][]proto.Answer{}
+			}
+			w.late[run] = append(w.late[run], a)
+		}
+		return true
+	}
 	ch, ok := w.m[a.QuestionID]
 	if ok {
 		ch <- a
@@ -65,6 +104,12 @@ func (w *waiters) cancelRun(run int64) {
 		delete(w.m, id)
 		delete(w.run, id)
 	}
+	for id, r := range w.orphan {
+		if r == run {
+			delete(w.orphan, id)
+		}
+	}
+	delete(w.late, run)
 }
 
 // Tool relays a work-stack tool call for the run in progress. ask_question (and the
@@ -115,6 +160,7 @@ func (w *Worker) ToolFor(ctx context.Context, runID int64, name string, args jso
 		}
 		return json.Marshal(map[string]any{"question_id": a.QuestionID, "answer": a.Value, "text": a.Text})
 	case <-ctx.Done():
+		w.answers.abandon(q.QuestionID)
 		return nil, ctx.Err()
 	}
 }
@@ -243,16 +289,8 @@ func (w *Worker) ServeAgentSocket(ctx context.Context, path string) error {
 			mux.ServeHTTP(rw, r)
 		}),
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			if uc, ok := c.(*net.UnixConn); ok {
-				if raw, err := uc.SyscallConn(); err == nil {
-					var cred *syscall.Ucred
-					raw.Control(func(fd uintptr) {
-						cred, _ = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
-					})
-					if cred != nil {
-						return context.WithValue(ctx, peerKey{}, cred.Uid)
-					}
-				}
+			if uid, ok := peerUID(c); ok {
+				return context.WithValue(ctx, peerKey{}, uid)
 			}
 			return ctx
 		},

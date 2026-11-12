@@ -1,0 +1,89 @@
+package cli
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/spf13/cobra"
+
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+)
+
+func printBudget(w io.Writer, v proto.PlacementView) {
+	if v.NeedsInputGraceS > 0 {
+		fmt.Fprintf(w, "needs-input grace\t%ds (a waiting run releases its vCPU)\n", v.NeedsInputGraceS)
+	}
+	if v.Budget == nil {
+		return
+	}
+	note := ""
+	if v.Approaching {
+		note = "  ⚠ approaching the budget"
+	}
+	fmt.Fprintf(w, "budget\t$%.2f/h, committed $%.2f/h%s\n", *v.Budget, v.Committed, note)
+}
+
+func printNeed(w io.Writer, n *proto.NeedView) {
+	if n == nil {
+		return
+	}
+	src := func(f string) string {
+		if s := n.Source[f]; s != "" {
+			return " (" + s + ")"
+		}
+		return ""
+	}
+	fmt.Fprintf(w, "need\t%s%s · %s%s · %s%s\n", n.VCPU, src("vcpu"), n.RAM, src("ram"), n.Disk, src("disk"))
+}
+
+func placementCmd(g *Global) *cobra.Command {
+	cmd := &cobra.Command{Use: "placement", Short: "Resource placement settings (default resource needs)"}
+	show := &cobra.Command{
+		Use: "show", Short: "Show the default resource needs every task inherits", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			v, err := c.Placement(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, v, func(w io.Writer) { printNeed(w, &v.Need); printBudget(w, v) })
+		},
+	}
+	set := &cobra.Command{
+		Use: "set", Short: "Set the default resource needs: --need vcpu=1 --need ram=2GiB --need disk=5GiB", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			needs, _ := cmd.Flags().GetStringSlice("need")
+			patch, err := placement.ParsePatch(needs)
+			if err != nil {
+				return err
+			}
+			c, err := apiClient(g)
+			if err != nil {
+				return err
+			}
+			req := proto.PlacementPatch{Need: patch}
+			if cmd.Flags().Changed("budget") {
+				b, _ := cmd.Flags().GetString("budget")
+				req.Budget = &b
+			}
+			if cmd.Flags().Changed("needs-input-grace") {
+				g, _ := cmd.Flags().GetString("needs-input-grace")
+				req.NeedsInputGrace = &g
+			}
+			v, err := c.SetPlacement(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, g, v, func(w io.Writer) { printNeed(w, &v.Need); printBudget(w, v) })
+		},
+	}
+	set.Flags().StringSlice("need", nil, "resource need FIELD=VALUE (vcpu=1, ram=2GiB, disk=5GiB; repeatable)")
+	set.Flags().String("budget", "", "hourly cost budget in USD, e.g. 0.50 (committed spend of runners that still bill); none removes it")
+	set.Flags().String("needs-input-grace", "", "a run waiting on you for longer than this (e.g. 10m) stops reserving vCPU on its runner; off turns it off (default off)")
+	cmd.AddCommand(show, set)
+	return cmd
+}

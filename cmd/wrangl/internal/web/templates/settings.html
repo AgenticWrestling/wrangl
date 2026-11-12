@@ -17,6 +17,14 @@
   <div class="actions"><button class="btn primary" id="push-btn" onclick="enablePush()">Enable push on this device</button></div>
   <p id="push-state" class="dim small"></p>
 </section>
+<section class="card" data-signals:plvcpu="{{json .PlacementVCPU}}" data-signals:plram="{{json .PlacementRAM}}" data-signals:pldisk="{{json .PlacementDisk}}">
+  <h3>Placement</h3>
+  <p class="hint">The default resource need of every task: what a run reserves on a runner. Projects and tasks can override it (<code>wrangl project edit --need</code>, <code>wrangl task edit --need</code>). Blank = not set: today's behaviour, no resource accounting.</p>
+  <label>vCPUs<input data-bind="plvcpu" placeholder="1" autocomplete="off"></label>
+  <label>RAM<input data-bind="plram" placeholder="2GiB" autocomplete="off"></label>
+  <label>Disk<input data-bind="pldisk" placeholder="5GiB" autocomplete="off"></label>
+  <div class="actions"><button class="btn primary" data-on:click="@post('/ui/act/placement-save')">Save</button></div>
+</section>
 <section class="card">
   <div class="row"><h3>Projects</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-project">＋ New</button></div>
   {{range .Projects}}<a class="row link" href="/projects/{{.Slug}}/settings"><b>{{.Slug}}</b> <span class="dim">{{.Name}}</span><span class="grow"></span>{{if .AutoMerge}}{{template "tag" props "Class" "pill" "Label" "auto-merge"}}{{end}}{{if .AutoQueue}}{{template "tag" props "Class" "pill" "Label" "auto-queue"}}{{end}}</a>{{else}}{{template "empty" props "Msg" "No projects."}}{{end}}

@@ -67,6 +67,13 @@ type Controller struct {
 	GitHub     GitHub     `yaml:"github"`
 	Cloudflare Cloudflare `yaml:"cloudflare"`
 	Web        Web        `yaml:"web"`
+	Placement  Placement  `yaml:"placement"`
+}
+
+// Placement is the placement section. Engine is deprecated: the resource-based planner is the only one;
+// the key is still read so existing files load.
+type Placement struct {
+	Engine string `yaml:"engine"`
 }
 
 // Default controller paths and addresses.

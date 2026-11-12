@@ -3,3 +3,5 @@ build/
 .cloudflare/
 .claude/settings.local.json
 .mcp.json
+
+/dist/

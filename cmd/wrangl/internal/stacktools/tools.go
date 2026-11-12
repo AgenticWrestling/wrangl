@@ -43,9 +43,9 @@ var All = []mcp.Tool{
 	{Name: "task_next", Description: "Peek at the next ready task in your assignment (does not change anything).",
 		InputSchema: mcp.Schema(nil)},
 	{Name: "task_create", Description: "Create a subtask under a task in your assignment. Use this when you discover more work.",
-		InputSchema: raw(`{"type":"object","required":["parent","title"],"properties":{"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + position + `}}`)},
+		InputSchema: raw(`{"type":"object","required":["parent","title"],"properties":{"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + needProp + position + `}}`)},
 	{Name: "task_update", Description: "Change a task's title, prompt and/or type (code, bug, ux, architecture, docs, research, review, release, milestone, feature).",
-		InputSchema: raw(`{"type":"object","required":["sqid"],"properties":{"sqid":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},` + strings.TrimSuffix(taskType, ",") + `}}`)},
+		InputSchema: raw(`{"type":"object","required":["sqid"],"properties":{"sqid":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},` + needProp + strings.TrimSuffix(taskType, ",") + `}}`)},
 	{Name: "task_move", Description: "Move a task to a new parent within your assignment and/or rerank it among its siblings.",
 		InputSchema: raw(`{"type":"object","required":["sqid"],"properties":{"sqid":{"type":"string"},"parent":{"type":"string","description":"new parent sqid (omit to keep)"},` + position + `}}`)},
 	{Name: "task_needs_add", Description: "Make a task depend on a precursor (any task in the project). Cycles are refused.",
@@ -78,10 +78,27 @@ var All = []mcp.Tool{
 		InputSchema: raw(`{"type":"object","required":["children"],"properties":{"chain":{"type":"boolean","description":"each top-level subtask needs the previous"},"rationale_md":{"type":"string"},"children":{"type":"array","items":{"type":"object","required":["title"],"properties":{"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"children":{"type":"array"}}}}}}`)},
 }
 
+// needProp is the resource-need argument of task_create and task_update. Agents may only raise.
+const needProp = `"need":{"type":"object","additionalProperties":{"type":"string"},"description":"resource need by field: vcpu (\"2\"), ram (\"8GiB\"), disk (\"10GiB\"). Agents may only raise a task's need; the owner may also lower it or clear a field with an empty value"},`
+
+var projectProps = `"name":{"type":"string","description":"display name"},"description":{"type":"string"},"template":{"type":"string","description":"default runner template name (empty clears)"},"plan_template":{"type":"string","description":"runner template for plan runs (empty = same as template)"},"auto_merge":{"type":"boolean","description":"auto-merge PRs that pass every gate and review as low risk"},"auto_queue":{"type":"boolean","description":"queue new top-level tasks automatically"},"auto_resolve":{"type":"boolean","description":"auto-merge queues Smart Merge for a conflicted PR"},"priority":{"type":"integer","description":"scheduling priority across projects (higher first)"},"notes_repo":{"type":"string","description":"linked repo owner/name holding research reports (empty clears)"},"limits":{"type":"object","additionalProperties":{"type":"integer"},"description":"max runner instances this project may cause, by template name"},"agent":{"type":"string","description":"default agent definition name (empty clears)"},"citation_audit":{"type":"boolean","description":"audit research PRs' citations before auto-merge"},"need":{"type":"object","additionalProperties":{"type":"string"},"description":"default resource need for the project's tasks by field: vcpu, ram (e.g. 2GiB), disk; empty value clears"},"allow_templates":{"type":"array","items":{"type":"string"},"description":"other runner templates this project's runs may also use, e.g. host (replaces the list; empty clears)"}`
+
 // UserTools are only for the owner's own agents (the controller's /mcp endpoint).
 var UserTools = []mcp.Tool{
-	{Name: "project_list", Description: "List projects (slug, name, default template, auto-merge).",
-		InputSchema: mcp.Schema(nil)},
+	{Name: "project_list", Description: "List projects (slug, name, default template, auto-merge). archived: active (default), archived or all.",
+		InputSchema: raw(`{"type":"object","properties":{"archived":{"type":"string","enum":["active","archived","all"]}}}`)},
+	{Name: "project_get", Description: "Show one project in full: settings, template and plan template, agent, per-template limits, notes repo, linked repos, archived flag.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string"}, "slug")},
+	{Name: "project_create", Description: "Create a project. slug is lowercase letters, digits and dashes (max 40). Link repos separately.",
+		InputSchema: raw(`{"type":"object","required":["slug"],"properties":{"slug":{"type":"string"},` + projectProps + `}}`)},
+	{Name: "project_edit", Description: "Edit a project: only the fields you pass change (an empty string clears a template, agent or notes repo).",
+		InputSchema: raw(`{"type":"object","required":["slug"],"properties":{"slug":{"type":"string"},` + projectProps + `}}`)},
+	{Name: "project_archive", Description: "Archive a project: hide it and its tasks and cancel its queued runs. Refused while a run is active. Restorable with project_restore.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string"}, "slug")},
+	{Name: "project_restore", Description: "Restore an archived project.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string"}, "slug")},
+	{Name: "project_delete", Description: "Permanently delete a project and all its tasks (irreversible; refused while a run is active). Pass confirm equal to the slug. Prefer project_archive.",
+		InputSchema: mcp.Schema(map[string]string{"slug": "string", "confirm": "string"}, "slug", "confirm")},
 	{Name: "task_queue", Description: "Queue a task (and its open subtasks) to run on a runner. Returns the run id.",
 		InputSchema: mcp.Schema(map[string]string{"sqid": "string"}, "sqid")},
 	{Name: "run_list", Description: "List recent runs, optionally filtered by state (queued, active, needs_input, succeeded, failed, ...) and project.",
@@ -90,7 +107,7 @@ var UserTools = []mcp.Tool{
 
 // userTaskCreate replaces task_create for the owner: a top-level task needs a project.
 var userTaskCreate = mcp.Tool{Name: "task_create", Description: "Create a task: top-level in a project (give project), or a subtask (give parent).",
-	InputSchema: raw(`{"type":"object","required":["title"],"properties":{"project":{"type":"string","description":"project slug, for a top-level task"},"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + position + `}}`)}
+	InputSchema: raw(`{"type":"object","required":["title"],"properties":{"project":{"type":"string","description":"project slug, for a top-level task"},"parent":{"type":"string"},"title":{"type":"string"},"prompt":{"type":"string"},"type":{"type":"string","enum":["code","bug","ux","architecture","docs","research","review","release","milestone","feature"],"description":"task type (default: the parent's, else code)"},"needs":{"type":"array","items":{"type":"string"},"description":"precursor sqids"},` + needProp + position + `}}`)}
 
 var readTools = []string{"task_get", "task_tree", "task_list", "task_next", "ask_question", "report_status", "issue_search", "issue_get", "issue_comments"}
 

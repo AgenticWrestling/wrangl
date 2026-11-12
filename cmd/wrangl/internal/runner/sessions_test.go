@@ -90,3 +90,39 @@ func TestSharedSecretFileLivesUntilLastSession(t *testing.T) {
 		t.Fatal("the last session out must remove it")
 	}
 }
+
+// An ask_question call that gave up must not leak its waiter, and the owner's late answer
+// must be kept for the run's next turn rather than dropped (task iWzhwa).
+func TestLateAnswerAfterAgentGaveUp(t *testing.T) {
+	var a waiters
+	a.add(10, 1)
+	a.abandon(10) // ToolFor's ctx.Done() path
+	if len(a.m) != 0 || len(a.run) != 0 {
+		t.Fatalf("waiter leaked: %v %v", a.m, a.run)
+	}
+	if !a.deliver(proto.Answer{QuestionID: 10, Value: "B", Text: "use B"}) {
+		t.Fatal("a late answer must be accepted, not dropped")
+	}
+	if len(a.orphan) != 0 {
+		t.Fatalf("orphan leaked: %v", a.orphan)
+	}
+	if got := a.takeLate(2); len(got) != 0 {
+		t.Fatalf("other run got it: %v", got)
+	}
+	got := a.takeLate(1)
+	if len(got) != 1 || got[0].Text != "use B" {
+		t.Fatalf("late answer not held for run 1: %v", got)
+	}
+	if p := lateAnswersPrompt(got); !strings.Contains(p, "use B") {
+		t.Fatalf("prompt: %q", p)
+	}
+	if len(a.takeLate(1)) != 0 {
+		t.Fatal("late answers must be delivered once")
+	}
+	a.add(11, 1)
+	a.abandon(11)
+	a.cancelRun(1)
+	if len(a.orphan) != 0 {
+		t.Fatal("run end must clear orphans")
+	}
+}

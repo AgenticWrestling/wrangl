@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	prsvc "github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
@@ -56,12 +57,19 @@ type inboxItem struct {
 	ChatHint        string
 	Actions         []inboxAction
 	Changes         changeLink
-	SubmitURL       string // what Ctrl+Enter in the comment box posts
+	Diff            string      // lazy-load URL of the Changes section; empty = no section
+	SubmitURL       string      // what Ctrl+Enter in the comment box posts
+	Subs            []inboxItem // questions blocking this PR, answerable inline
 }
 
 // inboxItems builds the Inbox: questions of every kind, then open pull requests.
 func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs []dbgen.ListPRsRow, changes map[string]changeLink) []inboxItem {
 	var out []inboxItem
+	prOpen := map[int64]bool{}
+	for _, r := range prs {
+		prOpen[r.PullRequest.ID] = r.PullRequest.State == "open"
+	}
+	subs := map[int64][]inboxItem{} // PR id -> the questions blocking it
 	for _, q := range qs {
 		it := inboxItem{
 			DOM: fmt.Sprintf("q%d", q.ID), Key: fmt.Sprintf("q%d", q.ID), Bind: fmt.Sprintf("ans%d", q.ID),
@@ -74,6 +82,8 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Details = append(it.Details, inboxDetail{Summary: "Proposed split", Pre: outlineFromPayload(q.Payload), Open: true})
 		case "task_review":
 			it.Tag = "◐ task review"
+		case "unplaceable":
+			it.Tag, it.TagClass = "⛔ can't be placed", "k-failed"
 		case "tool_error":
 			it.Tag, it.TagClass = "⚠ tool failed", "k-failed"
 		}
@@ -83,16 +93,22 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		if q.Kind == "task_review" && q.RunID != 0 && taskReviewReason(q.Payload) == "review" {
 			if doc := h.runDoc(ctx, q.RunID); doc != nil {
 				it.Details = append(it.Details, inboxDetail{Summary: doc.Name, HTML: doc.HTML, Open: true})
+			} else if h.D.Diffs != nil && h.runHasBranch(ctx, q.RunID) {
+				it.Diff = changesURL(q.RunID, 0)
 			}
 		}
 		id := q.ID
 		for _, o := range q.Options {
+			if o.Value == "edit_needs" { // not an answer: it opens the task, the item stays until the run can be placed
+				it.Links = append(it.Links, inboxLink{Text: o.Label, URL: "/task/" + q.Task})
+				continue
+			}
 			cls := ""
 			if o.Value == "accept" || o.Value == "approve" || o.Value == "yes" {
 				cls = "primary"
 			}
 			it.Actions = append(it.Actions, inboxAction{
-				Label: o.Label, Tip: o.Description, Class: cls, NeedsText: o.Value == "reopen",
+				Label: o.Label, Tip: o.Description, Class: cls + map[bool]string{true: "danger"}[o.Value == "cancel_run"], NeedsText: o.Value == "reopen",
 				URL: fmt.Sprintf("/ui/act/answer?id=%d&value=%s", id, url.QueryEscape(o.Value)),
 			})
 		}
@@ -100,6 +116,11 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Actions = append(it.Actions, inboxAction{Label: "Send", Class: "primary", URL: fmt.Sprintf("/ui/act/answer?id=%d", id)})
 		}
 		it.SubmitURL = submitURL(it, q.AllowFreeText)
+		if q.PRID != 0 && prOpen[q.PRID] {
+			it.Tag, it.TagClass = "⛔ blocks merge", "k-failed"
+			subs[q.PRID] = append(subs[q.PRID], it)
+			continue
+		}
 		out = append(out, it)
 	}
 	for _, r := range prs {
@@ -110,6 +131,9 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			Age: dbtime.Ago(p.CreatedAt, time.Now()), Title: fmt.Sprintf("Review pull request %s#%d", r.Repo, p.GhNumber),
 			Chat: true, ChatHint: "What should change? (for Request changes)", Changes: changes[r.TaskSqid],
 		}
+		if h.D.Diffs != nil {
+			it.Diff = changesURL(0, p.ID)
+		}
 		it.Links = append(it.Links,
 			inboxLink{Text: fmt.Sprintf("%s#%d", r.Repo, p.GhNumber), URL: p.Url, External: true},
 			inboxLink{Text: "diff", URL: fmt.Sprintf("/run/%d/diff", p.RunID)})
@@ -117,9 +141,20 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		if p.Risk.Valid {
 			it.Pills = append(it.Pills, inboxPill{Text: "risk: " + p.Risk.String, Class: "risk-" + p.Risk.String})
 		}
-		conflicted := p.Mergeable == "conflicted"
-		if conflicted {
+		mv := h.D.PRs.MergeView(ctx, p)
+		if mv.DiffRun != 0 && mv.State == prsvc.ViewClean {
+			it.Links = append(it.Links, inboxLink{Text: "conflict resolution diff", URL: fmt.Sprintf("/run/%d/diff", mv.DiffRun)})
+		}
+		switch mv.State {
+		case prsvc.ViewChecking:
+			it.Pills = append(it.Pills, inboxPill{Text: "checking mergeability…"})
+		case prsvc.ViewConflicted:
 			it.Pills = append(it.Pills, inboxPill{Text: "conflicts", Class: "risk-high"})
+		case prsvc.ViewResolving:
+			it.Pills = append(it.Pills, inboxPill{Text: "Smart Merge running", Class: "risk-high"})
+			it.Links = append(it.Links, inboxLink{Text: fmt.Sprintf("Smart Merge run %d", mv.RunID), URL: fmt.Sprintf("/run/%d", mv.RunID)})
+		case prsvc.ViewNeedsHuman:
+			it.Pills = append(it.Pills, inboxPill{Text: "conflicts: needs a human", Class: "risk-high"})
 		}
 		if p.Checks != "" {
 			it.Pills = append(it.Pills, inboxPill{Text: "checks: " + p.Checks})
@@ -128,15 +163,21 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Details = append(it.Details, inboxDetail{Summary: "Review", HTML: markdown(p.ReviewSummaryMd)})
 		}
 		it.Actions = nil
-		if conflicted {
-			it.Actions = append(it.Actions, inboxAction{Label: "Smart Merge", Class: "primary", Confirm: "Queue an agent run that merges the base branch into the PR branch and resolves the conflicts?", Busy: "Queuing…", URL: fmt.Sprintf("/ui/act/pr-resolve?id=%d", p.ID)})
+		switch mv.State {
+		case prsvc.ViewConflicted:
+			it.Actions = append(it.Actions, inboxAction{Label: "Smart Merge (conflicts)", Class: "primary", Confirm: "Queue an agent run that merges the base branch into the PR branch and resolves the conflicts?", Busy: "Queuing…", URL: fmt.Sprintf("/ui/act/pr-resolve?id=%d", p.ID)})
+		case prsvc.ViewResolving, prsvc.ViewNeedsHuman:
+			// No merge button: wait for the run, or hand the conflicts to a human.
+		default:
+			// clean, or still checking: the button must not flip while GitHub computes.
+			it.Actions = append(it.Actions, inboxAction{Label: "Approve & merge", Class: "primary", Confirm: "Approve and merge?", Busy: "Merging…", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=approve", p.ID)})
 		}
 		it.Actions = append(it.Actions, []inboxAction{
-			{Label: "Approve & merge", Class: map[bool]string{false: "primary"}[!conflicted], Confirm: "Approve and merge?", Busy: "Merging…", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=approve", p.ID)},
 			{Label: "Request changes", NeedsText: true, URL: fmt.Sprintf("/ui/act/pr?id=%d&op=request-changes", p.ID)},
 			{Label: "Close", Class: "danger", Confirm: "Close without merging?", URL: fmt.Sprintf("/ui/act/pr?id=%d&op=close", p.ID)},
 		}...)
 		it.SubmitURL = submitURL(it, false)
+		it.Subs = subs[p.ID]
 		out = append(out, it)
 	}
 	return out
@@ -232,4 +273,10 @@ func stripTaskPrefix(s string) string {
 		return t
 	}
 	return s
+}
+
+// runHasBranch: the run produced commits on a branch (ux/research deliverable runs do not).
+func (h *Handler) runHasBranch(ctx context.Context, runID int64) bool {
+	run, err := h.D.Fleet.DB.RQ.GetRun(ctx, runID)
+	return err == nil && run.Branch != "" && run.RepoID.Valid && run.BaseSha != "" && run.HeadSha != ""
 }

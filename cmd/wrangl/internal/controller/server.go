@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/agents"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/costs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/diffs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
@@ -31,6 +33,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentplugin"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/config"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/apitools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/cfaccess"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/deliverables"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/fleet"
@@ -40,6 +43,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/natsd"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/plans"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projecttools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/provision"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
@@ -271,6 +275,12 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Projects = &projects.Service{DB: s.db, GH: ghAPI, Stack: s.Stack, Now: now}
 	s.Runs = &runs.Service{DB: s.db, Stack: s.Stack, NC: s.nats.Conn, Now: now, Log: s.log,
 		AnswerHandlers: map[string]runs.AnswerHandler{}, ToolHandlers: map[string]runs.ToolHandler{}, ApprovalHandlers: map[string]func(context.Context, json.RawMessage) error{}, Bus: s.Bus}
+	if ghAPI != nil {
+		s.Runs.RepoToken = func(ctx context.Context, repo dbgen.Repo) (string, error) {
+			tok, _, err := ghAPI.RepoToken(ctx, projects.GHRepo(repo))
+			return tok, err
+		}
+	}
 	reviewer, hasReviewer, err := s.reviewer()
 	if err != nil {
 		return err
@@ -283,7 +293,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 			s.log.Warn("github webhook secret unreadable; webhooks disabled", "err", err)
 		}
 	}
-	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus}
+	s.PRs = &prs.Service{DB: s.db, Author: ghAPI, Reviewer: reviewer, HasReviewer: hasReviewer, WebhookSecrets: s.Setup.WebhookSecrets, Stack: s.Stack, Runs: s.Runs, WebhookSecret: whSecret, Now: now, Log: s.log, Bus: s.Bus, RepollDelay: 3 * time.Second}
 	vapid, err := webpush.EnsureKeys(SecretsDir(s.cfg.DataDir))
 	if err != nil {
 		return fmt.Errorf("VAPID keys: %w", err)
@@ -326,6 +336,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	s.Runs.ToolHandlers["issue_search"] = issueTools.Search
 	s.Runs.ToolHandlers["issue_get"] = issueTools.Get
 	s.Runs.ToolHandlers["issue_comments"] = issueTools.Comments
+	(&projecttools.Service{DB: s.db, Projects: s.Projects}).Register(s.Runs)
 	s.Runs.ToolHandlers["submit_review"] = s.PRs.SubmitReview
 	s.Runs.ToolHandlers["submit_citation_audit"] = s.PRs.SubmitCitationAudit
 	s.Deliverables = &deliverables.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "deliverables"), Bus: s.Bus, Log: s.log}
@@ -423,6 +434,17 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
+	if e := s.cfg.Placement.Engine; e != "" && e != "placer" {
+		s.log.Warn("placement.engine is deprecated and ignored: the resource-based planner is the only launch planner now", "engine", e)
+	}
+	if s.Fleet.Prov != nil && s.Costs != nil {
+		sched.Menu = &menu.Lookup{EC2: s.Fleet.Prov.EC2, Prices: s.Costs, Region: s.cfg.AWS.Region}
+	}
+	sched.CancelRun = s.Runs.Cancel
+	sched.OnUnplaceable = func(runID int64, prompt string) {
+		s.Push.Notify(webpush.Notification{Title: "A run can't be placed", Body: prompt, URL: "/inbox", Tag: fmt.Sprintf("unplaceable%d", runID)})
+	}
+	s.Runs.AnswerHandlers["unplaceable"] = sched.Answer
 	if s.Agents != nil {
 		s.Agents.Launch = sched.LaunchFor
 	}
@@ -567,7 +589,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	term := &api.TermHub{}
 	s.Fleet.Attached = term.Attached
-	deps := api.Deps{Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
+	diffSvc := &diffs.Service{DB: s.db, Dir: filepath.Join(s.cfg.DataDir, "mirrors"), Token: s.Runs.RepoToken}
+	if s.PRs != nil && s.PRs.Author != nil {
+		diffSvc.GH = func(r gh.Repo) gh.PRAPI { return s.PRs.Author }
+	}
+	deps := api.Deps{Diffs: diffSvc, Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
 		Setup: s.setupService(), Secrets: &api.SecretStore{
 			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },
@@ -582,8 +608,12 @@ func (s *Server) routes() http.Handler {
 	ui.Register(mux)
 	// M10: the owner's own agents get the work-stack tools over MCP (Streamable HTTP).
 	// Same exposure as /api/v1: the unix socket, and TCP behind Cloudflare Access.
-	remote := &mcp.Server{Name: "wrangl", Version: runner.Version, Tools: stacktools.For("user"),
+	bridge := &apitools.Service{Handler: mux}
+	remote := &mcp.Server{Name: "wrangl", Version: runner.Version, Tools: append(stacktools.For("user"), apitools.Tools()...),
 		Call: func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+			if apitools.Has(name) {
+				return bridge.Call(ctx, name, args)
+			}
 			return s.Runs.ExecTool(ctx, runs.UserScope(), name, args)
 		}}
 	mux.Handle("/mcp", remote.HTTPHandler())

@@ -11,7 +11,7 @@ import (
 )
 
 const activeRunForRunner = `-- name: ActiveRunForRunner :one
-SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank FROM run
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source FROM run
 WHERE runner_id = ? AND state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')
 ORDER BY id DESC LIMIT 1
 `
@@ -47,12 +47,20 @@ func (q *Queries) ActiveRunForRunner(ctx context.Context, runnerID sql.NullInt64
 		&i.ContinueBranch,
 		&i.Guidance,
 		&i.QueueRank,
+		&i.BlockedSince,
+		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }
 
 const assignRun = `-- name: AssignRun :execrows
-UPDATE run SET state = 'assigned', runner_id = ?1, session_name = ?2
+UPDATE run SET state = 'assigned', runner_id = ?1, session_name = ?2,
+    status_text = CASE WHEN blocked_reason <> '' AND status_text = blocked_reason THEN '' ELSE status_text END,
+    blocked_since = NULL, blocked_reason = ''
 WHERE id = ?3 AND state = 'queued'
 `
 
@@ -95,6 +103,7 @@ WHERE id = (
     WHERE n.template_id = ?1 AND n.state IN ('idle', 'busy') AND n.cordoned = 0
       AND n.drain_requested = 0
       AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
       AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
            AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
     ORDER BY (n.state = 'busy') DESC, n.idle_since
@@ -143,7 +152,7 @@ func (q *Queries) CountRunsForTask(ctx context.Context, taskID int64) (int64, er
 
 const createRun = `-- name: CreateRun :one
 INSERT INTO run (task_id, kind, attempt) VALUES (?, ?, ?)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source
 `
 
 type CreateRunParams struct {
@@ -183,6 +192,12 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.ContinueBranch,
 		&i.Guidance,
 		&i.QueueRank,
+		&i.BlockedSince,
+		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }
@@ -227,6 +242,7 @@ SELECT CAST(EXISTS (
     WHERE n.template_id = ?1 AND n.state IN ('idle', 'busy') AND n.cordoned = 0
       AND n.drain_requested = 0
       AND n.template_version = t.version AND n.upgrade_sha = ''
+      AND NOT EXISTS (SELECT 1 FROM runner_capacity g WHERE g.runner_id = n.id AND g.closed_by_guard = 1)
       AND (SELECT COUNT(*) FROM run r WHERE r.runner_id = n.id
            AND r.state IN ('assigned', 'preparing', 'running', 'needs_input', 'pushing', 'cancelling')) < t.max_sessions
 ) AS INTEGER) AS free
@@ -241,7 +257,7 @@ func (q *Queries) FreeRunnerSlot(ctx context.Context, templateID int64) (int64, 
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank FROM run WHERE id = ?
+SELECT id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source FROM run WHERE id = ?
 `
 
 func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
@@ -275,6 +291,12 @@ func (q *Queries) GetRun(ctx context.Context, id int64) (Run, error) {
 		&i.ContinueBranch,
 		&i.Guidance,
 		&i.QueueRank,
+		&i.BlockedSince,
+		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }
@@ -360,7 +382,7 @@ func (q *Queries) ListActiveRuns(ctx context.Context) ([]ListActiveRunsRow, erro
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, r.guidance, r.queue_rank, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
+SELECT r.id, r.task_id, r.current_task_id, r.runner_id, r.kind, r.attempt, r.state, r.branch, r.session_name, r.base_sha, r.head_sha, r.status_text, r.exit_code, r.error, r.queued_at, r.started_at, r.finished_at, r.template_id, r.repo_id, r.session_uuid, r.pushed, r.prompt_override, r.override_used, r.pr_id, r.continue_branch, r.guidance, r.queue_rank, r.blocked_since, r.blocked_reason, r.need_vcpu, r.need_ram_mib, r.need_disk_gib, r.need_source, CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid, CAST(t.title AS TEXT) AS task_title,
        CAST(p.slug AS TEXT) AS project_slug, CAST(COALESCE(rn.name, '') AS TEXT) AS runner_name,
        CAST(COALESCE(ct.sqid, '') AS TEXT) AS current_sqid
 FROM run r
@@ -436,6 +458,12 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 			&i.Run.ContinueBranch,
 			&i.Run.Guidance,
 			&i.Run.QueueRank,
+			&i.Run.BlockedSince,
+			&i.Run.BlockedReason,
+			&i.Run.NeedVcpu,
+			&i.Run.NeedRamMib,
+			&i.Run.NeedDiskGib,
+			&i.Run.NeedSource,
 			&i.TaskSqid,
 			&i.TaskTitle,
 			&i.ProjectSlug,
@@ -472,7 +500,7 @@ const queueRun = `-- name: QueueRun :one
 INSERT INTO run (task_id, kind, attempt, template_id, repo_id, branch, session_uuid)
 VALUES (?1, ?2, ?3, ?4, ?5,
         ?6, ?7)
-RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank
+RETURNING id, task_id, current_task_id, runner_id, kind, attempt, state, branch, session_name, base_sha, head_sha, status_text, exit_code, error, queued_at, started_at, finished_at, template_id, repo_id, session_uuid, pushed, prompt_override, override_used, pr_id, continue_branch, guidance, queue_rank, blocked_since, blocked_reason, need_vcpu, need_ram_mib, need_disk_gib, need_source
 `
 
 type QueueRunParams struct {
@@ -524,6 +552,12 @@ func (q *Queries) QueueRun(ctx context.Context, arg QueueRunParams) (Run, error)
 		&i.ContinueBranch,
 		&i.Guidance,
 		&i.QueueRank,
+		&i.BlockedSince,
+		&i.BlockedReason,
+		&i.NeedVcpu,
+		&i.NeedRamMib,
+		&i.NeedDiskGib,
+		&i.NeedSource,
 	)
 	return i, err
 }
@@ -533,7 +567,7 @@ SELECT r.id, r.task_id, r.template_id, r.repo_id, r.branch, r.session_uuid, r.at
        CAST(COALESCE(t.sqid, '') AS TEXT) AS task_sqid
 FROM run r JOIN task t ON t.id = r.task_id JOIN project p ON p.id = t.project_id
 WHERE r.state = 'queued' AND p.archived_at IS NULL
-ORDER BY p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at
+ORDER BY (r.kind = 'resolve') DESC, p.priority DESC, (r.queue_rank IS NULL), r.queue_rank, t.rank, r.queued_at
 `
 
 type QueuedRunsForAssignmentRow struct {
@@ -997,4 +1031,98 @@ func (q *Queries) CancelQueuedRunsOfProject(ctx context.Context, arg CancelQueue
 		return nil, err
 	}
 	return items, nil
+}
+
+const setRunBlocked = `-- name: SetRunBlocked :execrows
+UPDATE run SET status_text = ?1, blocked_reason = ?1,
+    blocked_since = COALESCE(blocked_since, ?2)
+WHERE id = ?3 AND state = 'queued' AND (blocked_reason <> ?1 OR status_text <> ?1)
+`
+
+type SetRunBlockedParams struct {
+	Reason string         `json:"reason"`
+	Now    sql.NullString `json:"now"`
+	ID     int64          `json:"id"`
+}
+
+// Say why a queued run waits. Written only when the text changes (so a steady wait costs no
+// writes); blocked_since keeps the first time the run was seen blocked.
+func (q *Queries) SetRunBlocked(ctx context.Context, arg SetRunBlockedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setRunBlocked, arg.Reason, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const templateRunnerCounts = `-- name: TemplateRunnerCounts :one
+SELECT
+  CAST(COALESCE(SUM(n.state IN ('launching', 'enrolling', 'provisioning')), 0) AS INTEGER) AS launching,
+  CAST(COALESCE(SUM(n.state IN ('idle', 'busy') AND n.cordoned = 0 AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = ''), 0) AS INTEGER) AS usable,
+  CAST(COALESCE(SUM(n.state IN ('idle', 'busy') AND NOT (n.cordoned = 0 AND n.drain_requested = 0
+      AND n.template_version = t.version AND n.upgrade_sha = '')), 0) AS INTEGER) AS unavailable
+FROM runner n JOIN runner_template t ON t.id = n.template_id
+WHERE n.template_id = ?1
+`
+
+type TemplateRunnerCountsRow struct {
+	Launching   int64 `json:"launching"`
+	Usable      int64 `json:"usable"`
+	Unavailable int64 `json:"unavailable"`
+}
+
+// What the template's runners are doing, for the waiting reason: still coming up, usable but
+// full, and live but not claimable (cordoned, draining, behind on version or upgrading).
+func (q *Queries) TemplateRunnerCounts(ctx context.Context, templateID int64) (TemplateRunnerCountsRow, error) {
+	row := q.db.QueryRowContext(ctx, templateRunnerCounts, templateID)
+	var i TemplateRunnerCountsRow
+	err := row.Scan(&i.Launching, &i.Usable, &i.Unavailable)
+	return i, err
+}
+
+const setTaskTemplate = `-- name: SetTaskTemplate :exec
+UPDATE task SET template_id = ?1 WHERE id = ?2
+`
+
+type SetTaskTemplateParams struct {
+	TemplateID sql.NullInt64 `json:"template_id"`
+	ID         int64         `json:"id"`
+}
+
+func (q *Queries) SetTaskTemplate(ctx context.Context, arg SetTaskTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskTemplate, arg.TemplateID, arg.ID)
+	return err
+}
+
+const setQueuedRunTemplate = `-- name: SetQueuedRunTemplate :exec
+UPDATE run SET template_id = ?1 WHERE id = ?2 AND state = 'queued'
+`
+
+type SetQueuedRunTemplateParams struct {
+	TemplateID sql.NullInt64 `json:"template_id"`
+	ID         int64         `json:"id"`
+}
+
+func (q *Queries) SetQueuedRunTemplate(ctx context.Context, arg SetQueuedRunTemplateParams) error {
+	_, err := q.db.ExecContext(ctx, setQueuedRunTemplate, arg.TemplateID, arg.ID)
+	return err
+}
+
+const setRunNeed = `-- name: SetRunNeed :exec
+UPDATE run SET need_vcpu = ?1, need_ram_mib = ?2, need_disk_gib = ?3,
+    need_source = ?4 WHERE id = ?5
+`
+
+type SetRunNeedParams struct {
+	NeedVcpu    int64  `json:"need_vcpu"`
+	NeedRamMib  int64  `json:"need_ram_mib"`
+	NeedDiskGib int64  `json:"need_disk_gib"`
+	NeedSource  string `json:"need_source"`
+	ID          int64  `json:"id"`
+}
+
+func (q *Queries) SetRunNeed(ctx context.Context, arg SetRunNeedParams) error {
+	_, err := q.db.ExecContext(ctx, setRunNeed, arg.NeedVcpu, arg.NeedRamMib, arg.NeedDiskGib, arg.NeedSource, arg.ID)
+	return err
 }

@@ -67,6 +67,9 @@ func runCmd(g *Global) *cobra.Command {
 					r.ID, r.Kind, r.State, r.Task, r.TaskTitle, r.Project, dash(r.Runner), dash(r.Session), r.Branch, r.Pushed)
 				fmt.Fprintf(w, "current\t%s\nstatus\t%s\nbase / head\t%s / %s\nqueued\t%s\nstarted\t%s\nfinished\t%s\n",
 					dash(r.Current), dash(r.Status), dash(r.BaseSHA), dash(r.HeadSHA), r.QueuedAt, dash(r.StartedAt), dash(r.FinishedAt))
+				if r.BlockedSince != "" {
+					fmt.Fprintf(w, "waiting since\t%s\n", r.BlockedSince)
+				}
 				if r.Error != "" {
 					fmt.Fprintf(w, "error\t%s\n", r.Error)
 				}

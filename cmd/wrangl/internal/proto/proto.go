@@ -15,6 +15,9 @@ type Facts struct {
 	VCPU    int    `json:"vcpu"`
 	RAMMiB  int    `json:"ram_mib"`
 	DiskGiB int    `json:"disk_gib"`
+	// Tags are what the runner probed about itself: tool:NAME[=version] for installed tools and
+	// agent:NAME=authed for agent CLIs it is signed in to.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // EnrollRequest is POSTed by `wrangl runner bootstrap`.

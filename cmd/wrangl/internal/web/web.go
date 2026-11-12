@@ -6,6 +6,7 @@
 package web
 
 import (
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 
@@ -214,6 +215,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		http.Redirect(w, r, "/settings", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /ui/detail", h.detail)
+	mux.HandleFunc("GET /ui/changes", h.changes)
 	mux.HandleFunc("GET /ui/transcript", h.transcriptMore)
 	mux.HandleFunc("GET /ui/transcript-live", h.transcriptLive)
 	mux.HandleFunc("POST /ui/expand", h.expand)
@@ -726,6 +728,7 @@ type runEntry struct {
 	Flat         bool            // In progress: Node is the leaf being worked, listed on its own
 	ParentSqid   string          // Flat: the leaf's parent, for the jump button
 	ParentTitle  string
+	Waiting      string // Queue: why the run is not assigned yet
 }
 
 // taskSections is what the Tasks page lists: running, queued and the rest.
@@ -1009,6 +1012,9 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 		}
 		taken[n] = true
 		e := &runEntry{Node: n, RunID: r.Run.ID, Rank: r.Run.QueueRank, Kind: r.Run.Kind, State: r.Run.State, Runner: r.RunnerName, Current: r.CurrentSqid}
+		if r.Run.State == "queued" {
+			e.Waiting = r.Run.BlockedReason
+		}
 		if c := bySqid[r.CurrentSqid]; c != nil {
 			e.CurrentTitle = c.Title
 		}
@@ -1165,6 +1171,7 @@ var actions = map[string]actFn{
 	"task-ask":               needAgents(actTaskAsk),
 	"proposal-apply":         needAgents(actProposalApply),
 	"account-check":          actAccountCheck,
+	"placement-save":         actPlacementSave,
 	"agent-save":             needAgents(actAgentSave),
 	"agent-delete":           needAgents(actAgentDelete),
 	"task-split":             actTaskSplit,
@@ -1192,7 +1199,6 @@ var actions = map[string]actFn{
 	"fleet-launch":           actFleetLaunch,
 	"project-new":            actProjectNew,
 	"project-save":           actProjectSave,
-	"project-limit":          actProjectLimit,
 	"repo-notes":             actRepoNotes,
 	"repo-link":              actRepoLink,
 	"template-save":          actTemplateSave,
@@ -1588,14 +1594,16 @@ func templateYAMLFromForm(t dbgen.RunnerTemplate, str func(string) string) ([]by
 			return nil, fmt.Errorf("sessions per runner %q should be a number of at least 1", v)
 		}
 	}
-	var types []string
+	// The form edits type names; explicit prices already on the template are kept.
+	prices := map[string]*float64{}
+	for _, e := range menu.Parse(t.InstanceTypes) {
+		prices[e.Type] = e.Price
+	}
+	types := []menu.Entry{}
 	for _, x := range strings.Split(str("tptypes"), ",") {
 		if x = strings.TrimSpace(x); x != "" {
-			types = append(types, x)
+			types = append(types, menu.Entry{Type: x, Price: prices[x]})
 		}
-	}
-	if types == nil {
-		types = []string{}
 	}
 	doc := map[string]any{
 		"name": t.Name, "description": str("tpdesc"), "arch": str("tparch"),

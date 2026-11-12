@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/capability"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,16 +37,18 @@ type TemplateFile struct {
 		RAM  string `yaml:"ram"`
 		Disk string `yaml:"disk"`
 	} `yaml:"min"`
-	InstanceTypes []string `yaml:"instance_types"`
-	AMI           string   `yaml:"ami"`
-	MaxRunners    *int     `yaml:"max_runners"`
-	MaxSessions   *int     `yaml:"max_sessions"` // concurrent agent sessions per runner (default 4)
-	IdleTimeout   string   `yaml:"idle_timeout"`
-	MiseTOML      string   `yaml:"mise_toml"`
-	SetupScript   string   `yaml:"setup_script"`
-	Agent         any      `yaml:"agent"`
+	InstanceTypes []menu.Entry `yaml:"instance_types"` // names, or { type, price } objects
+	AMI           string       `yaml:"ami"`
+	MaxRunners    *int         `yaml:"max_runners"`
+	MaxSessions   *int         `yaml:"max_sessions"` // concurrent agent sessions per runner (default 4)
+	IdleTimeout   string       `yaml:"idle_timeout"`
+	MiseTOML      string       `yaml:"mise_toml"`
+	SetupScript   string       `yaml:"setup_script"`
+	Agent         any          `yaml:"agent"`
 	// Agents lists the named agent definitions allowed on this template (wrangl agent list).
 	Agents []string `yaml:"agents"`
+	// Provides are extra capability tags runners of this template carry: ["gpu=none", "net=vpn"].
+	Provides []string `yaml:"provides"`
 	// Mode is local (default: the template describes runners that run the agent) or remote (it
 	// describes a target machine that runs no wrangl; the agent runs on a driver and drives it).
 	Mode       string            `yaml:"mode"`
@@ -75,6 +79,13 @@ func TemplateMode(b []byte) (string, *proto.Connection, error) {
 	return "", nil, fmt.Errorf("mode %q: want local or remote", f.Mode)
 }
 
+// TemplateProvides returns the extra capability tags a template file declares ("provides:").
+func TemplateProvides(b []byte) []string {
+	var f TemplateFile
+	yaml.Unmarshal(b, &f)
+	return f.Provides
+}
+
 // TemplateAgents returns the allow-list a template file names ("agents:"), nil when absent.
 func TemplateAgents(b []byte) []string {
 	var f TemplateFile
@@ -93,6 +104,9 @@ func ParseTemplate(b []byte) (dbgen.CreateTemplateParams, error) {
 		return dbgen.CreateTemplateParams{}, fmt.Errorf("template: %w", err)
 	}
 	var p dbgen.CreateTemplateParams
+	if _, err := capability.ParseTags(f.Provides); err != nil {
+		return p, fmt.Errorf("provides: %w", err)
+	}
 	if !templateName.MatchString(f.Name) {
 		return p, fmt.Errorf("template name %q: lowercase letters, digits and '-', max 40", f.Name)
 	}
@@ -137,7 +151,7 @@ func ParseTemplate(b []byte) (dbgen.CreateTemplateParams, error) {
 		f.AMI = defaultAMI[f.Arch]
 	}
 	if f.InstanceTypes == nil {
-		f.InstanceTypes = []string{}
+		f.InstanceTypes = []menu.Entry{}
 	}
 	it, _ := json.Marshal(f.InstanceTypes)
 	agent, err := json.Marshal(normalize(f.Agent))

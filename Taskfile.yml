@@ -1,8 +1,6 @@
 version: '3'
 
 vars:
-  BINARY: build/ssm
-  INSTALL_PATH: "{{.HOME}}/bin/ssm"
   WRANGL_VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   # -s -w drops the symbol table and DWARF (runners download this binary at boot and on
@@ -12,25 +10,7 @@ vars:
 tasks:
   default:
     cmds:
-      - task: build
-
-  build:
-    desc: Build the ssm binary to ./build/ssm
-    cmds:
-      - mkdir -p build
-      - CGO_ENABLED=0 go build -o {{.BINARY}} ./cmd/ssm
-    sources:
-      - cmd/ssm/**/*.go
-      - go.mod
-    generates:
-      - "{{.BINARY}}"
-
-  install:
-    desc: Build and install ssm to ~/bin/ssm
-    deps: [build]
-    cmds:
-      - cp {{.BINARY}} {{.INSTALL_PATH}}
-      - echo "Installed to {{.INSTALL_PATH}}"
+      - task: build-wrangl
 
   build-wrangl:
     desc: Build wrangl for this host plus linux runner binaries (named by `uname -m`)
@@ -59,6 +39,19 @@ tasks:
     desc: Run all tests
     cmds:
       - go test ./...
+
+  prerelease:
+    desc: "Prerelease checks: clean main in sync with origin, fmt/vet/tidy/sqlc/tests, release targets build, installer parses. Optional VERSION=v1.2.3 also checks the notes file and tag."
+    cmds:
+      - scripts/prerelease.sh {{.VERSION}}
+
+  release:
+    desc: "Release VERSION=v1.2.3: prerelease checks, build macOS arm64 + Linux x86_64/arm64, tag, publish a GitHub release using docs/releases/<VERSION>.md as notes"
+    preconditions:
+      - sh: test -n "{{.VERSION}}"
+        msg: "usage: task release VERSION=v1.2.3 (write docs/releases/v1.2.3.md first)"
+    cmds:
+      - scripts/release.sh {{.VERSION}}
 
   clean:
     desc: Delete build artifacts

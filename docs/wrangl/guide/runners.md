@@ -57,7 +57,8 @@ Fields (`controller/fleet/template.go`; unknown keys are rejected):
 | `name` | Lowercase letters, digits, `-`, max 40. Cannot be renamed. |
 | `arch` | `arm64` (default) or `x86_64`. |
 | `min` | `vcpu`, `ram`, `disk` (e.g. `8GiB`, `40GiB`). Used to pick an instance type, and checked against what the machine reports at enrolment (10% tolerance on RAM and disk). |
-| `instance_types` | Optional list; empty means "the cheapest type that fits `min`". Wrangl does not look at KVM or GPU, so list types when it matters (see android.md). |
+| `provides` | Optional list of extra capability tags (`gpu=none`, `net=vpn`) runners of this template carry; placement matches project/task `--require` against them. Arch, allowed agents and mise tools are tags automatically. |
+| `instance_types` | Optional list; empty means "the cheapest type that fits `min`". Wrangl does not look at KVM or GPU, so list types when it matters (see android.md). An entry is a type name or `{ type: c7g.xlarge, price: 0.145 }`; the explicit hourly price overrides the live lookup. Launch order is still the list order; the entries are also the instance menu for need-based launching (not wired in yet): capacity comes from EC2, price from the template, then the pricing API, then a built-in estimate, and an entry with no known price will not be launched. |
 | `ami` | Default: the latest Amazon Linux 2023 for the arch (a public SSM parameter). |
 | `max_runners` | Account-wide ceiling of instances of this template (default 1). Caps every project's launches. |
 | `max_sessions` | Concurrent agent sessions per runner (default 4, at least 1). |
@@ -159,6 +160,11 @@ Each run gets its own git **worktree** (`runner/worktree.go`):
 
 - One **bare mirror per repo** is kept at `<agent home>/work/.repos/<hash>.git`, keyed by clone URL.
   Sessions of the same repo share one object store and one fetch, under a per-mirror lock.
+- The controller host's runner (`--host`) uses the same mechanism: no separate checkout is kept. Its
+  mirror for `AgenticWrestling/wrangl` is created by its first run and is fetched (`fetch --prune`,
+  with that run's per-assignment git token, never stored in git config) before every later run. The
+  mirror is bare and never worked in, and run worktrees are separate from it, so it stays clean. To
+  traverse the project, use a run's worktree. Nothing is built or tested on the controller host.
 - Each run works in `<agent home>/work/<run id>`, a worktree of that mirror on the run branch
   `wrangl/<sqid>-<attempt>`, so concurrent runs never touch each other's files, index or branch.
   Each worktree has its own commit identity.
@@ -216,6 +222,7 @@ runner that sends no hash has self-upgrade off.
 | **Drain** | `fleet drain NAME` | Cordons, and terminates the instance once it has nothing left (idle, offline, enrolling or provisioning). Running work finishes first. Launched runners only; uncordoning cancels the drain. |
 | **Terminate** | `fleet terminate NAME` | Terminates the instance **now**. Runs on it are not stopped gracefully: once the runner is gone they fail as "runner lost" (after the 10-minute grace for lost runners) and a work run is retried once. Refused for adopted runners. |
 | `fleet teardown` | `fleet teardown [--region --profile --controller-id --all-controllers -y]` | Talks to AWS directly, not the controller: terminates every instance tagged `wrangl:managed=true` (for this controller unless `--all-controllers`). Works when the controller is gone. |
+| `fleet connect` / `fleet tunnel` | `fleet connect NAME`, `fleet tunnel NAME RPORT[:LPORT]` | Open an SSM shell or a port forward to the runner's EC2 instance for debugging, with your own AWS credentials (the AWS CLI and Session Manager plugin). Your own instances: [dev-instances.md](dev-instances.md). |
 
 A failed template apply cordons the runner automatically. A `cordoned` runner that is idle is still
 reaped after its idle timeout.
@@ -227,8 +234,7 @@ runs no wrangl: an EC2 Mac or an Android emulator host. A template with `mode: r
 `connection:` block (`driver_template`, `protocol` ssh or adb, `user`, `via` ssm or direct, `secret`)
 describes the **target**. The agent runs on a **driver** session of an ordinary runner and uses the
 `target_exec` and `target_put` tools. A run takes a target session and a driver session together.
-The controller launches targets when queued runs need one (within the project's cap on the remote
-template, default 0), probes them, marks them offline after three failed probes, reaps them after
+The controller launches targets when queued runs need one (within the remote template's `max_runners`), probes them, marks them offline after three failed probes, reaps them after
 `idle_timeout`, and fails the runs on a target that is gone or unreachable for two minutes as
 "target lost". `wrangl target list [--all]` and `wrangl target terminate NAME` manage them. There is no
 Runners-page card for targets yet. Details, costs and the Android recipe are in INSTALL.md 8.2 and
@@ -264,6 +270,8 @@ reaped while idle.
 |---|---|
 | `template create -f FILE` / `edit NAME [-f FILE]` / `show NAME` / `list` / `delete NAME` | templates |
 | `fleet list [--all]` / `fleet show NAME` | runners; `show` has the template log and last error |
+| `fleet set NAME --guard load1=6,mem=85,disk=85` | measured guard: close the runner to new work when load/memory/disk stay over these (empty value stops guarding that measure); off by default |
+| `fleet set NAME --capacity vcpu=6,ram=12GiB,disk=20GiB` | what a runner can hold for resource placement (empty value = derive from the machine); `show` prints reserved/capacity |
 | `fleet launch --template T [--count N]` | launch EC2 runners now (the scheduler also launches on demand) |
 | `fleet cordon\|uncordon\|drain\|terminate NAME` | section 7 |
 | `fleet enroll-token --template T [--ttl D]` | adopt an existing machine |
@@ -279,7 +287,7 @@ reaped while idle.
 |---|---|
 | `fleet launch`: "listen.enroll must be the controller's private VPC IP" | `listen.nats` and `listen.enroll` are still loopback; see INSTALL.md 5.4. |
 | `fleet launch`: "no aarch64 runner binary" | Put `wrangl-linux-aarch64` (and `-x86_64`) in `<data dir>/bin/`. |
-| Runner stuck `launching` or `enrolling` | The instance cannot reach the controller on 4222-4223 (security group), has no NAT, or the request IP did not match; read `/var/log/cloud-init-output.log` over `ssm connect`. The reaper terminates it after 15 minutes. |
+| Runner stuck `launching` or `enrolling` | The instance cannot reach the controller on 4222-4223 (security group), has no NAT, or the request IP did not match; read `/var/log/cloud-init-output.log` over `wrangl fleet connect NAME`. The reaper terminates it after 15 minutes. |
 | Enrolment rejected: "below template minimums" | The machine is smaller than `min`; fix the template or the instance type. |
 | Runner is `idle` but my run waits | The runner is cordoned or draining, is on an older template version or binary (it is catching up), is at `max_sessions`, or belongs to a different template. `wrangl fleet show NAME`. |
 | Runner `provisioning` for long | A template apply (mise downloads) is running; the log is on the runner page. 30 minutes is the limit. |

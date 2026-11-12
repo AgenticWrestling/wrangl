@@ -30,13 +30,22 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 	var errs []error
 	for _, r := range queued {
 		if !r.TemplateID.Valid || !r.RepoID.Valid {
+			if !r.TemplateID.Valid {
+				s.checkUnplaceable(ctx, r)
+			}
 			continue
 		}
 		// Work runs need a leaf ready right now; review/revise/plan runs carry their prompt.
 		if r.Kind != "work" {
 			if err := s.assignOne(ctx, r); err != nil {
+				if errors.Is(err, sql.ErrNoRows) && r.Kind == "resolve" {
+					// Resolve runs go first; say why one is still queued.
+					q.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: no free runner slot", ID: r.ID})
+				}
 				if !tolerated(err) {
 					errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
+				} else if errors.Is(err, sql.ErrNoRows) {
+					s.checkUnplaceable(ctx, r)
 				}
 				continue
 			}
@@ -49,6 +58,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 				// Everything was finished or cancelled since it was queued.
 				q.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: dbnull.Str(dbtime.Format(s.Now())), ID: r.ID})
 			}
+			s.block(ctx, r.ID, "waiting: precursor tasks are not finished yet")
 			continue // waiting on outside precursors
 		} else if err != nil {
 			errs = append(errs, err)
@@ -57,11 +67,14 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		if err := s.assignOne(ctx, r); err != nil {
 			if !tolerated(err) { // no idle runner is normal
 				errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
+			} else if errors.Is(err, sql.ErrNoRows) {
+				s.checkUnplaceable(ctx, r)
 			}
 			continue
 		}
 		assigned = append(assigned, r.ID)
 	}
+	s.resolveUnplaceable(ctx, assigned)
 	return assigned, errors.Join(errs...)
 }
 
@@ -97,7 +110,7 @@ func (s *Scheduler) resolveAgent(ctx context.Context, r dbgen.QueuedRunsForAssig
 	if err != nil {
 		// Not a failure the run can fix by retrying: it waits, visibly, until the owner changes the
 		// agent or the template's allow-list.
-		d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: " + err.Error(), ID: r.ID})
+		s.block(ctx, r.ID, "waiting: "+err.Error())
 		return proto.AgentSpec{}, "", errHeldBack
 	}
 	if chosen != nil {
@@ -162,7 +175,7 @@ func (s *Scheduler) claimTarget(ctx context.Context, r dbgen.QueuedRunsForAssign
 		}
 		v, serr := s.secret(conn.Secret, "template "+tmpl.Name)
 		if serr != nil {
-			d.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: "waiting: " + serr.Error(), ID: r.ID})
+			s.block(ctx, r.ID, "waiting: "+serr.Error())
 			err = errHeldBack
 			return
 		}
@@ -191,7 +204,34 @@ func (s *Scheduler) mintToken(ctx context.Context, runID int64, repo dbgen.Repo)
 	return token, nil
 }
 
+// assignOne places a run on a runner. A project that allows other templates (the host, usually)
+// tries those first, so a free host is used before cloud runners, then the run's own template.
+// With none allowed this is exactly the single attempt on the run's template.
 func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignmentRow) error {
+	allowed, err := s.Fleet.DB.RQ.ListAllowedTemplatesForTask(ctx, r.TaskID)
+	if err != nil {
+		return err
+	}
+	for _, id := range allowed {
+		if id == r.TemplateID.Int64 {
+			continue
+		}
+		alt := r
+		alt.TemplateID = sql.NullInt64{Int64: id, Valid: true}
+		err := s.assignOn(ctx, alt, false)
+		if err == nil {
+			return nil
+		}
+		if !tolerated(err) {
+			return err
+		}
+	}
+	return s.assignOn(ctx, r, true)
+}
+
+// assignOn tries one template's runners. final says no other template is left to try, so a miss is
+// explained on the run.
+func (s *Scheduler) assignOn(ctx context.Context, r dbgen.QueuedRunsForAssignmentRow, final bool) error {
 	d := s.Fleet.DB
 	tmpl, err := d.RQ.GetTemplate(ctx, r.TemplateID.Int64)
 	if err != nil {
@@ -212,10 +252,19 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	// A remote run needs two slots at once: a free target and a free session on a driver runner.
 	// Neither is claimed until both exist.
 	slotTemplate, maxSessions, target, targetRow, err := s.claimTarget(ctx, r, tmpl)
+	if errors.Is(err, sql.ErrNoRows) {
+		if final {
+			s.block(ctx, r.ID, WaitReasonTarget(tmpl.Name))
+		}
+		return err
+	}
 	if err != nil {
 		return err
 	}
 	if free, err := d.RQ.FreeRunnerSlot(ctx, slotTemplate); err == nil && free == 0 {
+		if final {
+			s.blockNoSlot(ctx, r.ID, slotTemplate)
+		}
 		return sql.ErrNoRows // no runner has a free session: nothing to mint a token for yet
 	}
 	// Mint the repo token before claiming a runner: a failure here must not touch the runner (a claim
@@ -224,8 +273,11 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 	if err != nil {
 		return err
 	}
-	runner, err := d.Q.ClaimIdleRunner(ctx, slotTemplate)
+	runner, err := s.claimRunner(ctx, r.ID, slotTemplate, slotTemplate != r.TemplateID.Int64)
 	if err != nil {
+		if final && errors.Is(err, sql.ErrNoRows) {
+			s.blockNoSlot(ctx, r.ID, slotTemplate)
+		}
 		return err // sql.ErrNoRows: no idle runner
 	}
 	release := func() {
@@ -243,6 +295,7 @@ func (s *Scheduler) assignOne(ctx context.Context, r dbgen.QueuedRunsForAssignme
 		}
 		return err
 	}
+	d.Q.CancelRunQuestions(ctx, sql.NullInt64{Int64: r.ID, Valid: true})
 	s.Fleet.Bus.Run(r.ID) // queued -> assigned: live pages move it from Queue to In progress
 	if target != nil {
 		if err := d.Q.BindRunTarget(ctx, r.ID, targetRow.ID); err != nil {
@@ -284,7 +337,7 @@ func (s *Scheduler) waitingForApp(ctx context.Context, runID int64, owner, name 
 	if len(status) > 300 {
 		status = status[:300]
 	}
-	s.Fleet.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: runID})
+	s.block(ctx, runID, status)
 	s.mu.Lock()
 	if s.askedApp == nil {
 		s.askedApp = map[string]time.Time{}
@@ -298,4 +351,58 @@ func (s *Scheduler) waitingForApp(ctx context.Context, runID int64, owner, name 
 	if due && s.OnNeedApp != nil {
 		s.OnNeedApp(owner, name, cause)
 	}
+}
+
+// block shows on a queued run why it waits (status text, blocked_reason, blocked_since). It writes
+// only when the text changes, so a run that waits for hours costs no writes per tick.
+func (s *Scheduler) block(ctx context.Context, runID int64, reason string) {
+	if len(reason) > 300 {
+		reason = reason[:300]
+	}
+	d := s.Fleet.DB
+	n, err := d.Q.SetRunBlocked(ctx, dbgen.SetRunBlockedParams{Reason: reason, Now: dbnull.Str(dbtime.Format(s.Now())), ID: runID})
+	if err == nil && n > 0 {
+		s.Fleet.Bus.Run(runID) // live pages show the new reason
+	}
+}
+
+// blockNoSlot explains a run that found no claimable runner slot on a template.
+func (s *Scheduler) blockNoSlot(ctx context.Context, runID, templateID int64) {
+	d := s.Fleet.DB
+	if run, err := d.RQ.GetRun(ctx, runID); err == nil && strings.HasPrefix(run.BlockedReason, "waiting: hourly budget") {
+		return // the launch planner said why: the budget
+	}
+	t, err := d.RQ.GetTemplate(ctx, templateID)
+	if err != nil {
+		return
+	}
+	c, err := d.RQ.TemplateRunnerCounts(ctx, templateID)
+	if err != nil {
+		return
+	}
+	s.block(ctx, runID, WaitReason(t.Name, c.Usable, c.Launching, c.Unavailable))
+}
+
+// WaitReason is the text on a queued run that found no free runner slot: how many runners of the
+// template are full, still starting, or live but not claimable.
+func WaitReason(template string, full, starting, unavailable int64) string {
+	var parts []string
+	if full > 0 {
+		parts = append(parts, fmt.Sprintf("%d full", full))
+	}
+	if starting > 0 {
+		parts = append(parts, fmt.Sprintf("%d starting", starting))
+	}
+	if unavailable > 0 {
+		parts = append(parts, fmt.Sprintf("%d cordoned, draining or updating", unavailable))
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("waiting: no runner of template %s yet", template)
+	}
+	return fmt.Sprintf("waiting: no free slot on template %s (%s)", template, strings.Join(parts, ", "))
+}
+
+// WaitReasonTarget is the text for a remote-template run with no free target.
+func WaitReasonTarget(template string) string {
+	return fmt.Sprintf("waiting: no free target for template %s", template)
 }

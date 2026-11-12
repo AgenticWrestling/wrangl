@@ -13,7 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/agentdef"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"io"
 	"log/slog"
 	"net"
@@ -86,6 +88,11 @@ type Service struct {
 
 func (s *Service) now() time.Time { return s.Now().UTC() }
 
+// Note appends an operational entry to the Logs page (for the scheduler).
+func (s *Service) Note(ctx context.Context, kind, level, subject, title, detail string) {
+	s.note(ctx, kind, level, subject, title, detail)
+}
+
 // note appends to the Logs page. Failures are logged, never returned: a missing log line
 // must not fail the operation it describes.
 func (s *Service) note(ctx context.Context, kind, level, subject, title, detail string) {
@@ -127,6 +134,10 @@ func (s *Service) syncAgents(ctx context.Context, t dbgen.RunnerTemplate, yamlBo
 	if err := s.syncMode(ctx, t, yamlBody); err != nil {
 		return err
 	}
+	defer func() {
+		s.setProvides(ctx, t.ID, TemplateProvides(yamlBody))
+		s.SyncCapabilities(ctx)
+	}()
 	if names := TemplateAgents(yamlBody); len(names) > 0 {
 		if err := agentdef.SetTemplateAgents(ctx, s.DB.Q, t.ID, names); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -250,6 +261,12 @@ func unameArch(ec2Arch string) string {
 
 // Launch starts one runner on a new EC2 instance.
 func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, error) {
+	return s.LaunchSized(ctx, template, "", 0)
+}
+
+// LaunchSized starts one runner of the template as a chosen instance type (empty: the template's own
+// choice) with a volume of at least diskGiB (0: the template's minimum).
+func (s *Service) LaunchSized(ctx context.Context, template, instanceType string, diskGiB int64) (dbgen.Runner, error) {
 	var zero dbgen.Runner
 	if s.Prov == nil {
 		return zero, ErrNoAWS
@@ -268,8 +285,14 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 	if sums[unameArch(t.Arch)] == "" {
 		return zero, fmt.Errorf("%w: no %s runner binary: copy build/wrangl-linux-%s to %s", ErrInvalid, t.Arch, unameArch(t.Arch), s.BinDir)
 	}
-	var types []string
-	json.Unmarshal([]byte(t.InstanceTypes), &types)
+	types := menu.Names(t.InstanceTypes)
+	if instanceType != "" {
+		types = []string{instanceType}
+	}
+	disk := int(t.MinDiskGib)
+	if diskGiB > t.MinDiskGib {
+		disk = int(diskGiB)
+	}
 
 	name := s.newName(ctx)
 	plain, hash := newToken()
@@ -285,7 +308,7 @@ func (s *Service) Launch(ctx context.Context, template string) (dbgen.Runner, er
 	}
 	inst, err := s.Prov.Launch(ctx, provision.Spec{
 		Runner: name, Template: t.Name, Arch: t.Arch,
-		MinVCPU: int(t.MinVcpu), MinRAMMiB: int(t.MinRamMib), DiskGiB: int(t.MinDiskGib),
+		MinVCPU: int(t.MinVcpu), MinRAMMiB: int(t.MinRamMib), DiskGiB: disk,
 		InstanceTypes: types, AMI: t.Ami, SubnetID: s.SubnetID, SecurityGroupID: s.SecurityGroupID,
 		InstanceProfile: s.InstanceProfile, UserData: ud,
 	})
@@ -432,6 +455,10 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 		}); err != nil {
 			return err
 		}
+		// The template's session ceiling travels with the runner (ADR 0009 section 6.3).
+		if err := q.InitRunnerCapacity(ctx, dbgen.InitRunnerCapacityParams{RunnerID: r.ID, MaxSessions: sql.NullInt64{Int64: t.MaxSessions, Valid: t.MaxSessions > 0}}); err != nil {
+			return err
+		}
 		jwt, err := s.Keys.IssueRunner(r.ID, req.NKeyPublic)
 		if err != nil {
 			return err
@@ -442,6 +469,8 @@ func (s *Service) Enroll(ctx context.Context, req proto.EnrollRequest, remoteIP 
 	if err != nil {
 		return nil, err
 	}
+	s.SyncCapabilities(ctx) // the new runner carries its template's tags
+	s.recordProbe(ctx, resp.RunnerID, req.Facts)
 	s.Log.Info("runner enrolled", "runner", resp.Name, "id", resp.RunnerID, "from", remoteIP)
 	s.note(ctx, "runner", "info", resp.Name, "Runner enrolled", "from "+remoteIP)
 	return &resp, nil
@@ -481,6 +510,18 @@ func (s *Service) Heartbeat(ctx context.Context, subject string, data []byte) er
 	s.hist.add(id, hb, s.now())
 	if r, err := s.DB.RQ.GetRunner(ctx, id); err == nil {
 		s.Bus.Runner(r.Name)
+	}
+	if st, changed, err := (&placement.Service{DB: s.DB}).ApplyHeartbeat(ctx, id, hb); err != nil {
+		s.Log.Warn("guard", "runner", id, "err", err)
+	} else if changed {
+		if r, err := s.DB.RQ.GetRunner(ctx, id); err == nil {
+			if st.Closed {
+				s.note(ctx, "runner", "warn", r.Name, "Runner closed by the guard", st.Reason+"; no new sessions until it recovers")
+			} else {
+				s.note(ctx, "runner", "info", r.Name, "Runner reopened by the guard", "back under its thresholds")
+			}
+			s.Bus.Runner(r.Name)
+		}
 	}
 	if err := s.reconcileBinary(ctx, id, hb); err != nil {
 		s.Log.Warn("runner upgrade", "runner", id, "err", err)

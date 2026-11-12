@@ -35,10 +35,38 @@ type RunnerView struct {
 	TemplateLog     string          `json:"template_log,omitempty"`
 	BinarySHA       string          `json:"binary_sha,omitempty"`  // running wrangl binary
 	UpgradeSHA      string          `json:"upgrade_sha,omitempty"` // pending self-upgrade target
+	Capacity        *CapacityView   `json:"capacity,omitempty"`
+	Tags            []string        `json:"tags,omitempty"` // capability tags (arch, tools, agents)
+}
+
+// CapacityView is what a runner can hold and what its active runs reserved (ADR 0009 section 6).
+type CapacityView struct {
+	VCPU        int64  `json:"vcpu"`
+	RAMMiB      int64  `json:"ram_mib"`
+	DiskGiB     int64  `json:"disk_gib"`
+	UsedVCPU    int64  `json:"used_vcpu"`
+	UsedRAMMiB  int64  `json:"used_ram_mib"`
+	UsedDiskGiB int64  `json:"used_disk_gib"`
+	MaxSessions *int64 `json:"max_sessions,omitempty"`
+	Explicit    bool   `json:"explicit,omitempty"` // set by the owner rather than derived from the machine
+	// GuardClosed: the measured guard has closed the runner to new work; GuardReason says why.
+	GuardClosed bool   `json:"guard_closed,omitempty"`
+	GuardReason string `json:"guard_reason,omitempty"`
+}
+
+// RunnerPatch is PATCH /api/v1/runners/{name}: Capacity sets fields (vcpu, ram, disk); an empty value
+// goes back to deriving that field from the machine.
+type RunnerPatch struct {
+	Capacity map[string]string `json:"capacity,omitempty"`
+	// Guard sets the measured-guard thresholds: load1, mem (percent), disk (percent); an empty value stops
+	// guarding that measure.
+	Guard map[string]string `json:"guard,omitempty"`
 }
 
 // TemplateView is a runner template as the API returns it.
 type TemplateView struct {
+	Tags          []string        `json:"tags,omitempty"`     // capability tags the template provides
+	Provides      []string        `json:"provides,omitempty"` // the extra tags its file declares (provides:)
 	Name          string          `json:"name"`
 	Description   string          `json:"description,omitempty"`
 	Arch          string          `json:"arch"`
@@ -95,9 +123,13 @@ type ProjectView struct {
 	AutoResolve bool   `json:"auto_resolve"`
 	Priority    int64  `json:"priority"`
 	NotesRepo   string `json:"notes_repo,omitempty"`
-	// Limits are the runner instances this project's demand may cause, per template.
-	Limits []ProjectLimit `json:"limits,omitempty"`
-	Agent  string         `json:"agent,omitempty"` // default agent definition
+	Agent       string `json:"agent,omitempty"` // default agent definition
+	// AllowTemplates: other templates (usually host) this project's runs may also use.
+	AllowTemplates []string `json:"allow_templates,omitempty"`
+	// Need is the effective resource need set for the project's tasks (default, or the project's own).
+	Need *NeedView `json:"need,omitempty"`
+	// Requires are the project's capability requirements.
+	Requires []string `json:"requires,omitempty"`
 	// CitationAudit: research PRs get an audit run that re-fetches every cited URL before merge.
 	CitationAudit bool `json:"citation_audit"`
 	// Archived is set when the project is archived (hidden and inert); ArchivedAt is when.
@@ -125,31 +157,25 @@ type ProjectArchiveResult struct {
 	CancelledRuns []int64     `json:"cancelled_runs"` // queued runs cancelled with 'project archived'
 }
 
-// ProjectLimit is a project's instance cap on one template. Ceiling is the template's own
-// max_runners; the effective cap is the smaller of the two.
-type ProjectLimit struct {
-	Template string `json:"template"`
-	Max      int64  `json:"max"`
-	Ceiling  int64  `json:"ceiling"`
-	Default  bool   `json:"default,omitempty"` // the project's default template
-}
-
 // ProjectRequest creates or patches a project (nil = unchanged).
 type ProjectRequest struct {
-	Slug         string  `json:"slug,omitempty"`
-	Name         *string `json:"name,omitempty"`
-	Description  *string `json:"description,omitempty"`
-	Template     *string `json:"template,omitempty"`
-	PlanTemplate *string `json:"plan_template,omitempty"`
-	AutoMerge    *bool   `json:"auto_merge,omitempty"`
-	AutoQueue    *bool   `json:"auto_queue,omitempty"`
-	AutoResolve  *bool   `json:"auto_resolve,omitempty"`
-	Priority     *int64  `json:"priority,omitempty"`
-	NotesRepo    *string `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
-	// Limits sets instance caps by template name; templates not listed keep theirs.
-	Limits        map[string]int64 `json:"limits,omitempty"`
-	Agent         *string          `json:"agent,omitempty"` // default agent name; "" clears
-	CitationAudit *bool            `json:"citation_audit,omitempty"`
+	Slug           string            `json:"slug,omitempty"`
+	Name           *string           `json:"name,omitempty"`
+	Description    *string           `json:"description,omitempty"`
+	Template       *string           `json:"template,omitempty"`
+	PlanTemplate   *string           `json:"plan_template,omitempty"`
+	AllowTemplates *[]string         `json:"allow_templates,omitempty"` // replaces the list; empty clears
+	Need           map[string]string `json:"need,omitempty"`            // resource needs by field; empty value clears
+	// Require adds capability requirements (arch=arm64, tool:go>=1.22, agent:claude); Unrequire removes by key.
+	Require       []string `json:"require,omitempty"`
+	Unrequire     []string `json:"unrequire,omitempty"`
+	AutoMerge     *bool    `json:"auto_merge,omitempty"`
+	AutoQueue     *bool    `json:"auto_queue,omitempty"`
+	AutoResolve   *bool    `json:"auto_resolve,omitempty"`
+	Priority      *int64   `json:"priority,omitempty"`
+	NotesRepo     *string  `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
+	Agent         *string  `json:"agent,omitempty"`      // default agent name; "" clears
+	CitationAudit *bool    `json:"citation_audit,omitempty"`
 }
 
 // AgentView is a named agent definition (docs/wrangl/adr/0001).
@@ -253,11 +279,44 @@ type TaskDetail struct {
 	TargetDate string          `json:"target_date,omitempty"` // YYYY-MM-DD
 	CreatedBy  string          `json:"created_by"`
 	Summary    string          `json:"summary,omitempty"`
+	Need       *NeedView       `json:"need,omitempty"`
+	Requires   []string        `json:"requires,omitempty"` // the task's own capability requirements
 	Children   []TaskRef       `json:"children"`
 	Precursors []TaskRef       `json:"precursors"`
 	Dependents []TaskRef       `json:"dependents"`
 	Runs       []TaskRunView   `json:"runs"`
 	Events     []TaskEventView `json:"events"`
+}
+
+// NeedView is an effective resource need set: formatted values and which layer each came from
+// (default, project or task).
+type NeedView struct {
+	VCPU   string            `json:"vcpu"`
+	RAM    string            `json:"ram"`
+	Disk   string            `json:"disk"`
+	Source map[string]string `json:"source,omitempty"`
+}
+
+// PlacementView is GET /api/v1/placement: the global default need set.
+type PlacementView struct {
+	Need NeedView `json:"need"`
+	// Budget is the hourly cost ceiling in USD (nil = none); Committed is what runners that still bill
+	// cost per hour; Approaching is set at or above the warning share of the budget.
+	Budget      *float64 `json:"budget_hourly_usd,omitempty"`
+	WarnPct     int64    `json:"budget_warn_pct,omitempty"`
+	Committed   float64  `json:"committed_hourly_usd"`
+	Approaching bool     `json:"approaching,omitempty"`
+	// NeedsInputGraceS: a run waiting on the owner longer than this stops reserving vCPU (0 = off).
+	NeedsInputGraceS int64 `json:"needs_input_grace_s,omitempty"`
+}
+
+// PlacementPatch is PATCH /api/v1/placement: set default needs, e.g. {"ram": "2GiB"}.
+type PlacementPatch struct {
+	Need map[string]string `json:"need,omitempty"`
+	// Budget sets the hourly budget in USD ("0.50"); "none" removes it; nil leaves it.
+	Budget *string `json:"budget,omitempty"`
+	// NeedsInputGrace ("10m", or "off") sets how long a needs_input run keeps its vCPU reserved.
+	NeedsInputGrace *string `json:"needs_input_grace,omitempty"`
 }
 
 // TaskCreateRequest is POST /api/v1/tasks.
@@ -273,7 +332,11 @@ type TaskCreateRequest struct {
 	Template string   `json:"template,omitempty"`
 	Issue    string   `json:"issue,omitempty"`
 	Needs    []string `json:"needs,omitempty"`
-	Type     string   `json:"type,omitempty"` // code | ux | architecture | spec | docs | review | release | milestone | feature
+	// Need sets resource needs, e.g. {"ram": "8GiB"} (see ADR 0009).
+	Need map[string]string `json:"need,omitempty"`
+	// Require adds capability requirements for the task's runs (arch=arm64, tool:go>=1.22).
+	Require []string `json:"require,omitempty"`
+	Type    string   `json:"type,omitempty"` // code | ux | architecture | spec | docs | review | release | milestone | feature
 	// TargetDate is YYYY-MM-DD.
 	TargetDate string `json:"target_date,omitempty"`
 }
@@ -283,6 +346,11 @@ type TaskPatchRequest struct {
 	Title  *string `json:"title,omitempty"`
 	Prompt *string `json:"prompt,omitempty"`
 	Type   *string `json:"type,omitempty"`
+	// Need changes resource needs; an empty value clears the field back to inherit.
+	Need map[string]string `json:"need,omitempty"`
+	// Require adds capability requirements, Unrequire removes them by key.
+	Require   []string `json:"require,omitempty"`
+	Unrequire []string `json:"unrequire,omitempty"`
 	// TargetDate: YYYY-MM-DD; "" clears it; nil leaves it.
 	TargetDate *string `json:"target_date,omitempty"`
 }
@@ -319,24 +387,25 @@ type MessageRequest struct {
 
 // RunView is a run as the API returns it.
 type RunView struct {
-	ID         int64  `json:"id"`
-	Task       string `json:"task"`
-	TaskTitle  string `json:"task_title"`
-	Project    string `json:"project"`
-	Kind       string `json:"kind"`
-	State      string `json:"state"`
-	Runner     string `json:"runner,omitempty"`
-	Current    string `json:"current,omitempty"` // sqid of the leaf in progress
-	Branch     string `json:"branch"`
-	Session    string `json:"session,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Pushed     bool   `json:"pushed"`
-	BaseSHA    string `json:"base_sha,omitempty"`
-	HeadSHA    string `json:"head_sha,omitempty"`
-	Error      string `json:"error,omitempty"`
-	QueuedAt   string `json:"queued_at"`
-	StartedAt  string `json:"started_at,omitempty"`
-	FinishedAt string `json:"finished_at,omitempty"`
+	ID           int64  `json:"id"`
+	Task         string `json:"task"`
+	TaskTitle    string `json:"task_title"`
+	Project      string `json:"project"`
+	Kind         string `json:"kind"`
+	State        string `json:"state"`
+	Runner       string `json:"runner,omitempty"`
+	BlockedSince string `json:"blocked_since,omitempty"` // queued runs: since when the status says why it waits
+	Current      string `json:"current,omitempty"`       // sqid of the leaf in progress
+	Branch       string `json:"branch"`
+	Session      string `json:"session,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Pushed       bool   `json:"pushed"`
+	BaseSHA      string `json:"base_sha,omitempty"`
+	HeadSHA      string `json:"head_sha,omitempty"`
+	Error        string `json:"error,omitempty"`
+	QueuedAt     string `json:"queued_at"`
+	StartedAt    string `json:"started_at,omitempty"`
+	FinishedAt   string `json:"finished_at,omitempty"`
 }
 
 // LogView is a stored log line.

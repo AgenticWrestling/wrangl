@@ -3,6 +3,7 @@ package web
 // Actions: actions on GitHub accounts and controller agents.
 
 import (
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"net/url"
 	"strconv"
 	"strings"
@@ -46,5 +47,35 @@ func actAccountRemove(h *Handler, a *actReq) (res actResult, err error) {
 	err = h.D.Setup.RemoveAccount(a.ctx, a.q.Get("login"))
 	res.msg = "account removed"
 	res.nav = "/setup"
+	return
+}
+
+// placementInput is a stored need as the Settings form shows it ("" while it is the unset 0).
+func placementInput(field string, v int64) string {
+	if v == 0 {
+		return ""
+	}
+	switch field {
+	case "vcpu":
+		return strconv.FormatInt(v, 10)
+	case "ram":
+		if v%1024 == 0 {
+			return strconv.FormatInt(v/1024, 10) + "GiB"
+		}
+		return strconv.FormatInt(v, 10) + "MiB"
+	}
+	return strconv.FormatInt(v, 10) + "GiB"
+}
+
+func actPlacementSave(h *Handler, a *actReq) (res actResult, err error) {
+	patch := map[string]string{}
+	for field, key := range map[string]string{"vcpu": "plvcpu", "ram": "plram", "disk": "pldisk"} {
+		if v := a.str(key); v != "" {
+			patch[field] = v
+		}
+	}
+	if _, err = (&placement.Service{DB: h.D.Fleet.DB}).SetGlobal(a.ctx, patch); err == nil {
+		res.msg = "default needs saved"
+	}
 	return
 }

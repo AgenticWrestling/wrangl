@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/gh"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,7 +63,6 @@ func setup(t *testing.T, maxRunners int) (*Scheduler, *failingEC2, *clock, *db.D
 		t.Fatal(err)
 	}
 	d.W.Exec(`INSERT INTO project (slug, name, default_template_id) VALUES ('p', 'P', 1)`)
-	d.W.Exec(`INSERT INTO project_template_limit (project_id, template_id, max_instances) VALUES (1, 1, 100)`) // caps have their own tests
 	return &Scheduler{Fleet: f, Now: clk.Now, Log: log}, fake, clk, d
 }
 
@@ -116,6 +114,17 @@ func TestCordonedRunnersAreNotSupply(t *testing.T) {
 	d.W.Exec(`UPDATE runner SET cordoned = 1`)
 	if got, _ := s.Tick(ctx); got["go"] != 1 || len(fake.Runs) != 2 {
 		t.Fatalf("cordoned runner counted as supply: %v", got)
+	}
+}
+
+func TestVersionBehindRunnersAreNotSupply(t *testing.T) {
+	s, fake, _, d := setup(t, 2)
+	ctx := context.Background()
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, idle_since, template_version) VALUES ('old', 1, 'idle', '2026-01-01T00:00:00.000Z', 1)`)
+	d.W.Exec(`UPDATE runner_template SET version = 2`)
+	queue(t, d, 1)
+	if got, _ := s.Tick(ctx); got["go"] != 1 || len(fake.Runs) != 1 {
+		t.Fatalf("a runner behind on the template version was counted as supply: %v", got)
 	}
 }
 
@@ -245,98 +254,49 @@ func TestRepeatedEnrolFailuresPauseLaunching(t *testing.T) {
 	}
 }
 
-func TestEffectiveCap(t *testing.T) {
-	null, v := sql.NullInt64{}, func(n int64) sql.NullInt64 { return sql.NullInt64{Int64: n, Valid: true} }
-	for _, c := range []struct {
-		stored sql.NullInt64
-		def    bool
-		max    int64
-		want   int64
-	}{
-		{null, true, 5, 1},  // no row: default template gets 1
-		{null, false, 5, 0}, // no row: other templates are opt-in
-		{v(3), false, 5, 3},
-		{v(9), false, 5, 5}, // the template ceiling wins
-		{v(0), true, 5, 0},
-		{v(2), true, 0, 0},
-	} {
-		if got := EffectiveCap(c.stored, c.def, c.max); got != c.want {
-			t.Errorf("EffectiveCap(%v,%v,%d) = %d, want %d", c.stored, c.def, c.max, got, c.want)
-		}
-	}
-}
-
-func TestPlanLaunches(t *testing.T) {
-	got := PlanLaunches(10, 4, 10, []ProjectDemand{
-		{Project: 1, Demand: 6, Live: 0, Cap: 1}, // wants 2 hosts, capped at 1
-		{Project: 2, Demand: 4, Live: 0, Cap: 5}, // 1 host; project 1's overflow does not spill here
-		{Project: 3, Demand: 4, Live: 2, Cap: 2}, // at its cap
-	})
-	want := []Launch{{1, 1}, {2, 1}}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got := PlanLaunches(8, 4, 1, []ProjectDemand{{1, 4, 0, 5}, {2, 4, 0, 5}}); len(got) != 1 {
-		t.Fatalf("total must respect max hosts: %v", got)
-	}
-}
-
-// With the default caps a project launches one instance of its default template and none of any
-// other; raising its cap lets the next tick launch more, attributed to the project.
-func TestProjectCapLimitsLaunches(t *testing.T) {
-	s, fake, _, d := setup(t, 5)
+// Launches are attributed to the project whose queued runs asked for them.
+func TestLaunchesAreAttributedToTheProject(t *testing.T) {
+	s, _, _, d := setup(t, 5)
 	d.W.Exec(`UPDATE runner_template SET max_sessions = 1`)
-	d.W.Exec(`DELETE FROM project_template_limit`) // back to the default rule: 1 for the default template
 	ctx := context.Background()
 	queue(t, d, 3)
-	if got, _ := s.Tick(ctx); got["go"] != 1 {
-		t.Fatalf("want 1 launch under the default cap, got %v", got)
+	if got, _ := s.Tick(ctx); got["go"] != 3 {
+		t.Fatalf("want 3 launches (no per-project cap any more), got %v", got)
 	}
-	var forProject int64
-	d.W.QueryRow(`SELECT launched_for_project FROM runner`).Scan(&forProject)
-	if forProject != 1 {
-		t.Fatalf("launched_for_project = %d", forProject)
+	var forProject, n int64
+	d.W.QueryRow(`SELECT launched_for_project, COUNT(*) FROM runner`).Scan(&forProject, &n)
+	if forProject != 1 || n != 3 {
+		t.Fatalf("launched_for_project = %d over %d runners", forProject, n)
 	}
 	if got, _ := s.Tick(ctx); len(got) != 0 {
-		t.Fatalf("launched past the cap: %v", got)
+		t.Fatalf("the launching runners already supply the sessions: %v", got)
 	}
-	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 1, 3)`)
-	if got, _ := s.Tick(ctx); got["go"] != 2 {
-		t.Fatalf("want 2 more after raising the cap, got %v", got)
-	}
-	d.W.Exec(`UPDATE project_template_limit SET max_instances = 0`)
-	_ = fake
 }
 
-// LaunchFor (the controller agent's fleet.launch) respects the project's cap and names it when refusing.
-func TestLaunchForRespectsCap(t *testing.T) {
-	s, _, _, d := setup(t, 5)
+// LaunchFor (the controller agent's fleet.launch) respects the template's max_runners and names it when refusing.
+func TestLaunchForRespectsMaxRunners(t *testing.T) {
+	s, _, _, d := setup(t, 2)
 	ctx := context.Background()
-	d.W.Exec(`DELETE FROM project_template_limit`) // default rule: 1 for the default template
-	if _, err := s.LaunchFor(ctx, "p", "go", 2); err == nil || !strings.Contains(err.Error(), "at most 1 instance(s) of template go") {
-		t.Fatalf("over cap: %v", err)
+	if _, err := s.LaunchFor(ctx, "p", "go", 3); err == nil || !strings.Contains(err.Error(), "at most 2 instance(s)") {
+		t.Fatalf("over max_runners: %v", err)
 	}
-	names, err := s.LaunchFor(ctx, "p", "go", 1)
-	if err != nil || len(names) != 1 {
-		t.Fatalf("within cap: %v %v", names, err)
+	names, err := s.LaunchFor(ctx, "p", "go", 2)
+	if err != nil || len(names) != 2 {
+		t.Fatalf("within max_runners: %v %v", names, err)
 	}
 	var forProject int64
-	d.W.QueryRow(`SELECT launched_for_project FROM runner`).Scan(&forProject)
+	d.W.QueryRow(`SELECT launched_for_project FROM runner LIMIT 1`).Scan(&forProject)
 	if forProject != 1 {
 		t.Fatalf("launched_for_project = %d", forProject)
 	}
-	if _, err := s.LaunchFor(ctx, "p", "go", 1); err == nil || !strings.Contains(err.Error(), "has 1") {
-		t.Fatalf("second: %v", err)
-	}
-	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 1, 0)`)
-	if _, err := s.LaunchFor(ctx, "p", "go", 1); err == nil || !strings.Contains(err.Error(), "project limit 0") {
-		t.Fatalf("zero cap: %v", err)
+	if _, err := s.LaunchFor(ctx, "p", "go", 1); err == nil || !strings.Contains(err.Error(), "has 2") {
+		t.Fatalf("third: %v", err)
 	}
 }
 
 // Remote templates launch a target machine (no enrolling runner); the queued run also counts as
-// demand on its driver template; the project's cap for the remote template governs the target.
-func TestRemoteTemplateLaunchesTargetWithinCap(t *testing.T) {
+// demand on its driver template; the template's max_runners governs the targets.
+func TestRemoteTemplateLaunchesTarget(t *testing.T) {
 	s, _, _, d := setup(t, 3)
 	ctx := context.Background()
 	d.W.Exec(`UPDATE runner_template SET max_sessions = 1`)
@@ -344,22 +304,12 @@ func TestRemoteTemplateLaunchesTargetWithinCap(t *testing.T) {
 	if _, err := s.Fleet.CreateTemplate(ctx, []byte(mac)); err != nil {
 		t.Fatal(err)
 	}
-	// the project's tasks run on mac (template 2); caps start at the default rule: 0 for mac
+	// the project's tasks run on mac (template 2)
 	d.W.Exec(`INSERT INTO task (project_id, rank, title, template_id) VALUES (1, 'V001', 'ios', 2)`)
 	d.W.Exec(`INSERT INTO run (task_id, template_id) VALUES (1, 2)`)
-	d.W.Exec(`DELETE FROM project_template_limit`)
-	if got, _ := s.Tick(ctx); len(got) != 0 {
-		t.Fatalf("a project capped at 0 targets gets neither a target nor an idle driver: %v", got)
-	}
-	var targets int
-	d.R.QueryRow(`SELECT COUNT(*) FROM remote_target`).Scan(&targets)
-	if targets != 0 {
-		t.Fatalf("launched %d targets over a cap of 0", targets)
-	}
-	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 2, 1)`)
 	got, err := s.Tick(ctx)
 	if err != nil || got["mac"] != 1 || got["go"] != 1 {
-		t.Fatalf("want one target and one driver runner within the cap: %v %v", got, err)
+		t.Fatalf("want one target and one driver runner: %v %v", got, err)
 	}
 	var state string
 	var forProject int64
@@ -379,8 +329,8 @@ func TestRemoteTemplateLaunchesTargetWithinCap(t *testing.T) {
 }
 
 // fleet.launch on a remote Mac template starts a target (not an enrolling runner), respects the
-// project's cap (0 by default) and carries the 24-hour-minimum cost warning back to the caller.
-func TestLaunchForMacTargetWarnsAndRespectsCap(t *testing.T) {
+// template's max_runners and carries the 24-hour-minimum cost warning back to the caller.
+func TestLaunchForMacTargetWarnsAndRespectsMaxRunners(t *testing.T) {
 	s, fake, _, d := setup(t, 3)
 	fake.Types = append(fake.Types, ec2types.InstanceTypeInfo{InstanceType: "mac2.metal", VCpuInfo: &ec2types.VCpuInfo{DefaultVCpus: aws.Int32(8)},
 		MemoryInfo: &ec2types.MemoryInfo{SizeInMiB: aws.Int64(16384)}, ProcessorInfo: &ec2types.ProcessorInfo{SupportedArchitectures: []ec2types.ArchitectureType{ec2types.ArchitectureTypeArm64}}})
@@ -389,11 +339,6 @@ func TestLaunchForMacTargetWarnsAndRespectsCap(t *testing.T) {
 	if _, err := s.Fleet.CreateTemplate(ctx, []byte(mac)); err != nil {
 		t.Fatal(err)
 	}
-	d.W.Exec(`DELETE FROM project_template_limit`)
-	if _, err := s.LaunchFor(ctx, "p", "mac", 1); err == nil || !strings.Contains(err.Error(), "at most 0 instance(s) of template mac") {
-		t.Fatalf("opt-in: want a refusal naming the cap of 0, got %v", err)
-	}
-	d.W.Exec(`INSERT INTO project_template_limit VALUES (1, 2, 1)`)
 	names, err := s.LaunchFor(ctx, "p", "mac", 1)
 	if err != nil || len(names) != 1 || !strings.Contains(names[0], "24-hour minimum") {
 		t.Fatalf("want a launch carrying the cost warning: %v %v", names, err)
@@ -410,7 +355,7 @@ func TestLaunchForMacTargetWarnsAndRespectsCap(t *testing.T) {
 		t.Fatalf("a cost warning must be recorded on launch, got %d", warned)
 	}
 	if _, err := s.LaunchFor(ctx, "p", "mac", 1); err == nil || !strings.Contains(err.Error(), "has 1") {
-		t.Fatalf("second Mac over the cap: %v", err)
+		t.Fatalf("second Mac over max_runners: %v", err)
 	}
 }
 
@@ -431,5 +376,32 @@ func TestArchivedProjectIsInert(t *testing.T) {
 	d.W.Exec(`UPDATE project SET archived_at = NULL WHERE id = 1`)
 	if got, _ := s.Tick(ctx); got["go"] == 0 {
 		t.Fatalf("restored project not served: %v", got)
+	}
+}
+
+func TestResolveRunsAreOfferedSlotsFirst(t *testing.T) {
+	s, _, _, d := setup(t, 1)
+	ctx := context.Background()
+	queue(t, d, 2) // runs 1 and 2: work, queued first
+	d.W.Exec(`INSERT INTO run (task_id, kind) VALUES (2, 'resolve')`)
+	qs, err := d.RQ.QueuedRunsForAssignment(ctx)
+	if err != nil || len(qs) != 3 {
+		t.Fatalf("%v %d", err, len(qs))
+	}
+	if qs[0].Kind != "resolve" || qs[1].ID != 1 || qs[2].ID != 2 {
+		t.Fatalf("order %s %d %d: resolve first, the rest unchanged", qs[0].Kind, qs[1].ID, qs[2].ID)
+	}
+
+	// With no free slot the resolve run says why it waits; work runs are left alone.
+	d.W.Exec(`UPDATE runner_template SET agent_json = '{"start":["true"]}'`)
+	d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, clone_url) VALUES (1, 'o', 'n', 'main', 'file:///x')`)
+	d.W.Exec(`UPDATE run SET template_id = 1, repo_id = 1`)
+	if _, err := s.Assign(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	d.R.QueryRow(`SELECT status_text FROM run WHERE kind = 'resolve'`).Scan(&status)
+	if !strings.Contains(status, "no free runner slot") {
+		t.Fatalf("resolve status %q", status)
 	}
 }

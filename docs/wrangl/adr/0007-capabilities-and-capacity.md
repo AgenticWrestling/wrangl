@@ -1,6 +1,6 @@
 # ADR 0007: Capabilities vs capacity, and capability-based placement
 
-- Status: **Accepted, not built.** Placement is still by template and per-project launch caps; no capability tags or capacity model exist yet.
+- Status: **Accepted, not built; slots, pools and count caps superseded by [ADR 0009](0009-resource-based-placement.md) (Proposed).** The capability-tag half (sections 2 to 4 tags/requirements, stage 2) and the measured host guard survive; session slots, pools and cost classes, per-template and per-project count caps, and the ordered fallback (stage 1) are replaced by resource needs and an hourly budget. Read 0009 first.
 - Task: fywVRL
 - Builds on: [ADR 0002](0002-remote-runners.md), [ADR 0008 (runners belong to the system)](0008-runners-belong-to-the-system.md); migrations 00020 (`max_sessions`), 00025 (`project_template_limit`, `runner.launched_for_project`), 00027 (remote targets)
 - Touches (future work): `controller/scheduler/{assign,scheduler}.go`, `db/queries/{run,runner}.sql`, `controller/fleet/{template,templates_apply}.go`, `web/views_runners.go`, project settings screen, `cli/{template,fleet}.go`, `proto` (heartbeat is reused), migrations 00037+

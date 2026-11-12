@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbtime"
 	"net"
 	"strconv"
@@ -69,8 +70,7 @@ func (s *Service) Connection(ctx context.Context, templateID int64) (mode string
 // template has nothing unusual. EC2 Mac instances run on Dedicated Hosts that bill for a 24-hour
 // minimum, so a short run costs a full day and releasing early saves nothing.
 func CostWarning(t dbgen.RunnerTemplate) string {
-	var types []string
-	json.Unmarshal([]byte(t.InstanceTypes), &types)
+	types := menu.Names(t.InstanceTypes)
 	for _, it := range types {
 		if strings.HasPrefix(it, "mac") {
 			return fmt.Sprintf("%s is an EC2 Mac (%s): a Dedicated Host with a 24-hour minimum allocation. You pay for at least 24 hours of the host even if the run takes minutes, and stopping it earlier saves nothing (see EC2 Dedicated Host pricing for the mac family)", t.Name, it)
@@ -97,8 +97,7 @@ func (s *Service) LaunchTarget(ctx context.Context, template string, project int
 	if mode != "remote" {
 		return zero, fmt.Errorf("%w: template %q is not remote", ErrInvalid, template)
 	}
-	var types []string
-	json.Unmarshal([]byte(t.InstanceTypes), &types)
+	types := menu.Names(t.InstanceTypes)
 	name := s.newName(ctx)
 	inst, err := s.Prov.Launch(ctx, provision.Spec{
 		Runner: name, Template: t.Name, Arch: t.Arch,

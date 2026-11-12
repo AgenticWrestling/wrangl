@@ -19,7 +19,7 @@
 {{define "main-run"}}{{$run := .Run}}
 <section class="card">
   {{template "runhead" .}}
-  {{if $run.StatusText}}<p>{{$run.StatusText}}</p>{{end}}
+  {{if $run.StatusText}}<p>{{$run.StatusText}}{{if $run.BlockedSince.Valid}} <span class="dim small">since {{ago $run.BlockedSince.String}}</span>{{end}}</p>{{end}}
   {{if $run.Error}}<p class="err">{{$run.Error}}</p>{{end}}
   <dl class="kv">
     <dt>Branch</dt><dd><code>{{$run.Branch}}</code>{{if $run.Pushed}} (pushed){{end}}</dd>

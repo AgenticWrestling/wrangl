@@ -95,7 +95,7 @@ func TestRemoteMCP(t *testing.T) {
 		t.Fatalf("initialize: %s %s", res, e)
 	}
 	res, _ := call("tools/list", map[string]any{})
-	for _, want := range []string{`"project_list"`, `"task_queue"`, `"run_list"`, `"task_create"`, `project slug, for a top-level task`} {
+	for _, want := range []string{`"project_list"`, `"task_queue"`, `"run_list"`, `"project_get"`, `"project_create"`, `"project_edit"`, `"project_archive"`, `"project_restore"`, `"project_delete"`, `"task_create"`, `project slug, for a top-level task`} {
 		if !strings.Contains(string(res), want) {
 			t.Errorf("tools/list missing %s", want)
 		}
@@ -108,6 +108,64 @@ func TestRemoteMCP(t *testing.T) {
 
 	if out, isErr := tool("project_list", map[string]any{}); isErr || !strings.Contains(out, `"slug":"web"`) || !strings.Contains(out, `"template":"tiny"`) {
 		t.Fatalf("project_list: %s", out)
+	}
+	// project CRUD
+	if out, isErr := tool("project_create", map[string]any{"slug": "scratch", "name": "Scratch", "template": "tiny", "priority": 3}); isErr || !strings.Contains(out, `"slug":"scratch"`) || !strings.Contains(out, `"template":"tiny"`) {
+		t.Fatalf("project_create: %s", out)
+	}
+	if out, isErr := tool("project_edit", map[string]any{"slug": "scratch", "description": "temp", "auto_queue": true}); isErr || !strings.Contains(out, `"description":"temp"`) || !strings.Contains(out, `"auto_queue":true`) || !strings.Contains(out, `"name":"Scratch"`) {
+		t.Fatalf("project_edit: %s", out)
+	}
+	if out, isErr := tool("project_get", map[string]any{"slug": "scratch"}); isErr || !strings.Contains(out, `"priority":3`) {
+		t.Fatalf("project_get: %s", out)
+	}
+	if out, isErr := tool("project_archive", map[string]any{"slug": "scratch"}); isErr || !strings.Contains(out, `"archived":true`) {
+		t.Fatalf("project_archive: %s", out)
+	}
+	if out, _ := tool("project_list", map[string]any{"archived": "archived"}); !strings.Contains(out, `"slug":"scratch"`) {
+		t.Fatalf("archived list: %s", out)
+	}
+	if out, isErr := tool("project_restore", map[string]any{"slug": "scratch"}); isErr || !strings.Contains(out, `"archived":false`) {
+		t.Fatalf("project_restore: %s", out)
+	}
+	if out, isErr := tool("project_delete", map[string]any{"slug": "scratch", "confirm": "nope"}); !isErr {
+		t.Fatalf("project_delete without confirm succeeded: %s", out)
+	}
+	if out, isErr := tool("project_delete", map[string]any{"slug": "scratch", "confirm": "scratch"}); isErr || !strings.Contains(out, `"deleted":"scratch"`) {
+		t.Fatalf("project_delete: %s", out)
+	}
+	// REST-bridged tools
+	for _, want := range []string{`"question_list"`, `"question_answer"`, `"run_get"`, `"repo_link"`, `"pr_list"`, `"runner_list"`, `"template_get"`, `"task_dequeue"`, `"issue_sync"`} {
+		if !strings.Contains(string(res), want) {
+			t.Errorf("tools/list missing %s", want)
+		}
+	}
+	if out, isErr := tool("template_get", map[string]any{"name": "tiny"}); isErr || !strings.Contains(out, `"name":"tiny"`) {
+		t.Fatalf("template_get: %s", out)
+	}
+	if out, isErr := tool("template_list", map[string]any{}); isErr || !strings.Contains(out, `"tiny"`) {
+		t.Fatalf("template_list: %s", out)
+	}
+	if out, isErr := tool("question_list", map[string]any{}); isErr || !strings.HasPrefix(out, "[") {
+		t.Fatalf("question_list: %s", out)
+	}
+	if out, isErr := tool("pr_list", map[string]any{"state": "all"}); isErr || !strings.HasPrefix(out, "[") {
+		t.Fatalf("pr_list: %s", out)
+	}
+	if out, isErr := tool("runner_list", map[string]any{"all": true}); isErr {
+		t.Fatalf("runner_list: %s", out)
+	}
+	if out, isErr := tool("run_get", map[string]any{"id": 99999}); !isErr || !strings.Contains(out, "404") {
+		t.Fatalf("run_get of a missing run: %s %v", out, isErr)
+	}
+	if out, isErr := tool("template_delete", map[string]any{"name": "tiny", "confirm": "nope"}); !isErr || !strings.Contains(out, "irreversible") {
+		t.Fatalf("template_delete without confirm: %s %v", out, isErr)
+	}
+	if out, isErr := tool("project_tree", map[string]any{"slug": "web"}); isErr || !strings.HasPrefix(out, "[") {
+		t.Fatalf("project_tree: %s", out)
+	}
+	if out, isErr := tool("repo_list", map[string]any{"project": "web"}); isErr {
+		t.Fatalf("repo_list: %s", out)
 	}
 	out, isErr := tool("task_create", map[string]any{"project": "web", "title": "from my laptop agent"})
 	var root struct{ Sqid string }

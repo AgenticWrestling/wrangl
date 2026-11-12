@@ -192,6 +192,7 @@ type StackReply struct {
 	OK    bool       `json:"ok"`
 	Error string     `json:"error,omitempty"`
 	Next  *StackNext `json:"next,omitempty"`
+	Token string     `json:"token,omitempty"` // "token" op: a freshly minted repo token (empty without GitHub)
 }
 
 // RunRef addresses a run on a runner (cmd.cancel, cmd.diff, cmd.tree, cmd.file).
@@ -249,6 +250,7 @@ type QuestionView struct {
 	TaskTitle     string           `json:"task_title"`
 	Project       string           `json:"project"`
 	RunID         int64            `json:"run_id,omitempty"`
+	PRID          int64            `json:"pr_id,omitempty"` // the pull request this question blocks
 	Prompt        string           `json:"prompt"`
 	DetailMD      string           `json:"detail_md,omitempty"`
 	AllowFreeText bool             `json:"allow_free_text"`
@@ -343,4 +345,39 @@ type TargetConn struct {
 	Host       string `json:"host,omitempty"`        // via direct
 	Key        string `json:"key,omitempty"`         // private key (ssh)
 	Reset      string `json:"reset,omitempty"`
+}
+
+// DiffFile is one changed file in a DiffView. Patch is empty for binary files and for files whose patch
+// was omitted (Truncated); Link then points at the change on GitHub.
+type DiffFile struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"old_path,omitempty"` // renames
+	Status    string `json:"status"`             // added | modified | deleted | renamed
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary,omitempty"`
+	Patch     string `json:"patch,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Link      string `json:"link,omitempty"`
+}
+
+// DiffCommit is one checkpoint commit of a run or PR.
+type DiffCommit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
+	Author  string `json:"author,omitempty"`
+	Date    string `json:"date,omitempty"`
+}
+
+// DiffView is GET /api/v1/{runs|prs}/{id}/diffdata: the file list with per-file unified diffs plus the
+// checkpoint commits. Commit is set when the view is restricted to one commit (?commit=SHA).
+type DiffView struct {
+	Base      string       `json:"base,omitempty"`
+	Head      string       `json:"head,omitempty"`
+	Commit    string       `json:"commit,omitempty"`
+	Source    string       `json:"source"` // mirror | github
+	Files     []DiffFile   `json:"files"`
+	Commits   []DiffCommit `json:"commits"`
+	Truncated bool         `json:"truncated,omitempty"` // some patches were omitted
+	Link      string       `json:"link,omitempty"`      // the whole change on GitHub
 }

@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/menu"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,7 +43,6 @@ func (h *Handler) viewProject(ctx context.Context, view string, r *http.Request,
 	d["P"], d["Repos"], d["Title"] = p, repos, p.Name
 	d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
 	d["Templates"], _ = db.RQ.ListTemplates(ctx)
-	d["Limits"], _ = h.D.Projects.Limits(ctx, p.Slug)
 	d["GitHub"] = h.D.Projects.GH != nil
 	d["Pick"] = h.repoChoices(ctx, p.Slug, repos)
 	d["AutoResolve"] = false
@@ -105,8 +106,7 @@ func (h *Handler) viewTemplate(ctx context.Context, view string, r *http.Request
 		return err
 	}
 	d["T"], d["Title"] = t, "Template "+t.Name
-	var types []string
-	json.Unmarshal([]byte(t.InstanceTypes), &types)
+	types := menu.Names(t.InstanceTypes)
 	ticked := map[string]bool{}
 	for _, x := range types {
 		ticked[x] = true
@@ -158,6 +158,9 @@ func (h *Handler) viewSettings(ctx context.Context, view string, r *http.Request
 	d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 	d["Templates"], _ = db.RQ.ListTemplates(ctx)
 	d["CAgents"], _ = db.RQ.ListControllerAgents(ctx)
+	if g, err := (&placement.Service{DB: db}).Global(ctx); err == nil {
+		d["PlacementVCPU"], d["PlacementRAM"], d["PlacementDisk"] = placementInput("vcpu", g.VCPU), placementInput("ram", g.RAMMiB), placementInput("disk", g.DiskGiB)
+	}
 	d["VAPID"], d["Title"] = h.D.Push.Keys.Public, "Settings"
 	return nil
 }

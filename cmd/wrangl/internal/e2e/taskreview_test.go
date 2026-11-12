@@ -25,6 +25,7 @@ import (
 const reviewAgent = `#!/bin/sh
 case "$1" in *EXPLODE*) echo "boom"; exit 3;; esac
 curl -s --unix-socket "$WRANGL_SOCK" -d "{\"sqid\":\"$WRANGL_TASK\",\"summary\":\"report for $WRANGL_TASK\"}" http://x/tool/task_complete >/dev/null
+case "$1" in *LINGER*) curl -s --unix-socket "$WRANGL_SOCK" -d '{"prompt":"still there?"}' http://x/tool/ask_question >/dev/null;; esac
 echo "no changes needed"
 `
 
@@ -148,6 +149,18 @@ func TestTaskReviewInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	review(b, false)
+
+	// 2b. A task completed by a run that is still alive gets its card without waiting for the run to end.
+	l := e.mk(proto.TaskCreateRequest{Title: "lingering", Prompt: "LINGER report"})
+	run, _, _ = api.QueueTask(ctx, l)
+	q = review(l, true)
+	if v := e.run(run); v.State != "needs_input" || q.RunID != run {
+		t.Fatalf("run %s, card run %d; the card should appear while the run is parked on a question", v.State, q.RunID)
+	}
+	if err := api.Answer(ctx, q.ID, "accept", ""); err != nil {
+		t.Fatal(err)
+	}
+	api.CancelRun(ctx, run)
 
 	// 3. A failed run needs the owner too.
 	c := e.mk(proto.TaskCreateRequest{Title: "doomed", Prompt: "EXPLODE"})

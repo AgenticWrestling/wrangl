@@ -113,10 +113,11 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 	var a struct {
 		Sqid, Parent, Title, Prompt, Precursor, Summary, Reason, State, Text, Project string
 		Needs                                                                         []string
+		Need                                                                          map[string]string
 		Position                                                                      *posArg
 		Percent                                                                       *int
 		Limit                                                                         *int
-		Type                                                                          string
+		Type, Archived                                                                string
 		TargetDate                                                                    *string `json:"target_date"`
 		// ask_question
 		DetailMD      string                 `json:"detail_md"`
@@ -137,13 +138,21 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 	}
 	switch tool {
 	case "project_list":
-		ps, err := s.DB.RQ.ListProjects(ctx, db.ProjectsActive)
+		filter := db.ProjectsActive
+		switch a.Archived {
+		case "", "active":
+		case "archived", "all":
+			filter = a.Archived
+		default:
+			return nil, fmt.Errorf("%w: archived must be active, archived or all", errs.Invalid)
+		}
+		ps, err := s.DB.RQ.ListProjects(ctx, filter)
 		if err != nil {
 			return nil, err
 		}
 		out := []map[string]any{}
 		for _, p := range ps {
-			m := map[string]any{"slug": p.Slug, "name": p.Name, "auto_merge": p.AutoMerge == 1, "auto_queue": p.AutoQueue == 1}
+			m := map[string]any{"slug": p.Slug, "name": p.Name, "auto_merge": p.AutoMerge == 1, "auto_queue": p.AutoQueue == 1, "archived": p.ArchivedAt.Valid}
 			if p.DefaultTemplateID.Valid {
 				if t, err := s.DB.RQ.GetTemplate(ctx, p.DefaultTemplateID.Int64); err == nil {
 					m["template"] = t.Name
@@ -290,7 +299,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 			return nil, fmt.Errorf("%w: give parent, or project for a top-level task", errs.Invalid)
 		}
 		t, err := s.Stack.Create(ctx, stack.CreateParams{Project: project, Parent: a.Parent, Title: a.Title, Prompt: a.Prompt,
-			Pos: a.Position.pos(), Needs: a.Needs, Type: a.Type, TargetDate: deref(a.TargetDate), Actor: sc.Actor})
+			Pos: a.Position.pos(), Needs: a.Needs, Need: a.Need, Type: a.Type, TargetDate: deref(a.TargetDate), Actor: sc.Actor})
 		if err != nil {
 			return nil, err
 		}
@@ -319,7 +328,17 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 				return nil, err
 			}
 		}
-		if title != nil || prompt != nil || (a.Type == "" && a.TargetDate == nil) {
+		if len(a.Need) > 0 {
+			if err := s.Stack.SetNeed(ctx, a.Sqid, a.Need, sc.Actor); err != nil {
+				return nil, err
+			}
+			if t.ID == 0 {
+				if t, err = s.Stack.Task(ctx, s.DB.RQ, a.Sqid); err != nil {
+					return nil, err
+				}
+			}
+		}
+		if title != nil || prompt != nil || (a.Type == "" && a.TargetDate == nil && len(a.Need) == 0) {
 			if t, err = s.Stack.Edit(ctx, a.Sqid, title, prompt, sc.Actor); err != nil {
 				return nil, err
 			}
@@ -431,10 +450,27 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		if a.AllowFreeText {
 			ft = 1
 		}
+		if kind == "system" {
+			// One blocker, one card: fold the agent's own still-open questions for this
+			// run into the system question (quoted in its body) and cancel them.
+			folded, err := s.foldAgentQuestions(ctx, sc.RunID)
+			if err != nil {
+				return nil, err
+			}
+			if folded != "" {
+				a.DetailMD = strings.TrimSpace(a.DetailMD + "\n\n" + folded)
+			}
+		}
 		q, err := s.NewQuestion(ctx, dbgen.CreateQuestionParams{TaskID: taskID, RunID: sql.NullInt64{Int64: sc.RunID, Valid: true},
 			Kind: kind, Prompt: a.Prompt, DetailMd: a.DetailMD, AllowFreeText: ft}, a.Options)
 		if err != nil {
 			return nil, err
+		}
+		if run.Kind == "resolve" && run.PrID.Valid {
+			// A Smart Merge question blocks the PR: the Inbox nests it under the review card.
+			if err := s.DB.Q.SetQuestionPR(ctx, dbgen.SetQuestionPRParams{PrID: run.PrID, ID: q.ID}); err != nil {
+				return nil, err
+			}
 		}
 		return map[string]any{"question_id": q.ID}, nil
 
@@ -450,7 +486,8 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		return map[string]any{"ok": true}, s.DB.Q.SetRunStatus(ctx, dbgen.SetRunStatusParams{StatusText: status, ID: sc.RunID})
 
 	case "submit_review", "propose_split", "submit_deliverable", "submit_citation_audit", "issue_search", "issue_get", "issue_comments",
-		"issue_comment", "issue_create", "issue_edit", "issue_close", "issue_link_task":
+		"issue_comment", "issue_create", "issue_edit", "issue_close", "issue_link_task",
+		"project_get", "project_create", "project_edit", "project_archive", "project_restore", "project_delete":
 		h := s.ToolHandlers[tool]
 		if h == nil {
 			return nil, fmt.Errorf("%s is not available on this controller", tool)
@@ -468,4 +505,47 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// foldAgentQuestions cancels the run's still-open agent questions and returns them quoted
+// as markdown, for the system question that supersedes them ("" if there were none).
+func (s *Service) foldAgentQuestions(ctx context.Context, runID int64) (string, error) {
+	rows, err := s.DB.R.QueryContext(ctx, `SELECT id, prompt, detail_md FROM question WHERE run_id = ? AND kind = 'agent' AND state = 'open' ORDER BY id`, runID)
+	if err != nil {
+		return "", err
+	}
+	type oq struct {
+		id             int64
+		prompt, detail string
+	}
+	var open []oq
+	for rows.Next() {
+		var o oq
+		if err := rows.Scan(&o.id, &o.prompt, &o.detail); err != nil {
+			rows.Close()
+			return "", err
+		}
+		open = append(open, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(open) == 0 {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("**The agent's own open questions (cancelled; answer them in your reply):**\n")
+	for _, o := range open {
+		n, err := s.DB.W.ExecContext(ctx, `UPDATE question SET state = 'cancelled' WHERE id = ? AND state = 'open'`, o.id)
+		if err != nil {
+			return "", err
+		}
+		if c, _ := n.RowsAffected(); c == 0 {
+			continue // answered meanwhile
+		}
+		b.WriteString("\n> " + strings.ReplaceAll(strings.TrimSpace(o.prompt), "\n", "\n> ") + "\n")
+		if d := strings.TrimSpace(o.detail); d != "" {
+			b.WriteString(">\n> " + strings.ReplaceAll(d, "\n", "\n> ") + "\n")
+		}
+		s.Bus.Question(o.id)
+	}
+	return b.String(), nil
 }

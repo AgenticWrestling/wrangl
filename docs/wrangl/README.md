@@ -27,11 +27,16 @@ runners and hands the questions and pull requests back to you. The top-level
 |---|---|
 | [Projects](guide/projects.md) | project settings, the project page and chat, runner limits and the effective cap, archiving, GitHub repos and issues |
 | [Tasks](guide/tasks.md) | the task tree, types, states, needs, runs, checkpoints, the Inbox, PRs, Smart Merge, deliverables |
+| [Dev instances](guide/dev-instances.md) | `wrangl dev`: connect, ssh, tunnel, start/stop and install a mise toolchain on your own EC2 instances |
 | [Runners](guide/runners.md) | templates, enrolment, sessions and worktrees, self-upgrade, cordon/drain/terminate, remote targets, the host runner |
 | [Task scheduling](guide/scheduling.md) | how a queued run becomes a running session, the autoscaler, and the known limits |
 
 ## Reference
 
+- **Design and development.** [DESIGN.md](DESIGN.md) (architecture and what each feature does),
+  [DEVELOPMENT.md](DEVELOPMENT.md) (build from source, web UI conventions, releasing) and the
+  [release notes](../releases/).
+- **MCP.** [mcp.md](mcp.md): the owner's MCP endpoint, how to connect it, and every tool.
 - **CLI.** `wrangl --help` and `wrangl COMMAND --help` are authoritative. The agent skill that maps the
   commands for Claude is [skill/SKILL.md](skill/SKILL.md).
 - **Agents.** [agents.md](agents.md): how each agent's hooks, sessions, MCP and auth plug in, and the
@@ -58,5 +63,8 @@ runners and hands the questions and pull requests back to you. The top-level
 | [0004 Agent GitHub issue tools](adr/0004-agent-github-issue-tools.md) | accepted, built |
 | [0005 Projects as the primary lens](adr/0005-projects-as-primary-lens.md) | accepted, built |
 | [0006 Action state machine](adr/0006-action-state-machine.md) | accepted, **not built** |
-| [0007 Capabilities vs capacity](adr/0007-capabilities-and-capacity.md) | accepted, **not built** |
+| [0007 Capabilities vs capacity](adr/0007-capabilities-and-capacity.md) | accepted, **not built**; slots/pools/caps superseded by 0009 |
+| [0009 Resource-based placement, cost budget, unplaceable item](adr/0009-resource-based-placement.md) | accepted 2026-11-09, **being built** (stage by stage) |
 | [0008 Runners belong to the system](adr/0008-runners-belong-to-the-system.md) | accepted, **not built** (was a second "0005") |
+| [0010 Question batches](adr/0010-question-batches.md) | proposed, **not built** |
+| [0010 Fold ssm into wrangl, mise for software](adr/0010-fold-ssm-into-wrangl.md) | proposed; **built**, the standalone ssm tool is removed (number clashes with the line above; renumber on merge) |

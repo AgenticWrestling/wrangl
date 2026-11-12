@@ -74,14 +74,6 @@ func (h *Handler) viewTasks(ctx context.Context, view string, r *http.Request, d
 	if p, err := h.D.Projects.Project(ctx, slug); err == nil {
 		d["P"], d["About"] = p, firstLine(p.Description)
 		d["Repos"], _ = db.RQ.ListRepos(ctx, p.ID)
-		var caps []string // the concurrency chip: instances this project may run, per template (project cap, bounded by the template's ceiling)
-		lims, _ := h.D.Projects.Limits(ctx, slug)
-		for _, l := range lims {
-			if n := min(l.Max, l.Ceiling); n > 0 {
-				caps = append(caps, fmt.Sprintf("%s ×%d", l.Template, n))
-			}
-		}
-		d["Caps"] = caps
 	}
 	return nil
 }
