@@ -59,3 +59,30 @@ func TestRunnerCapacityExplicitAndUsed(t *testing.T) {
 func dbInit(id, max int64) dbgen.InitRunnerCapacityParams {
 	return dbgen.InitRunnerCapacityParams{RunnerID: id, MaxSessions: sql.NullInt64{Int64: max, Valid: true}}
 }
+
+func TestHostCapacityLeavesRoomForPrimarySessions(t *testing.T) {
+	s, d := setup(t)
+	ctx := context.Background()
+	hb := `{"claude":[{"pid":1,"kind":"primary"},{"pid":2,"kind":"primary"},{"pid":3,"kind":"run"},{"pid":4,"kind":"other"}]}`
+	d.W.Exec(`INSERT INTO runner_template (name, mise_toml, agent_json, min_vcpu, min_ram_mib, min_disk_gib) VALUES ('host','','{}',1,1,1)`)
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, launched, vcpu, ram_mib, disk_gib, last_metrics_json) VALUES ('h', 1, 'idle', 0, 8, 31744, 100, ?)`, hb)
+	d.W.Exec(`INSERT INTO runner (name, template_id, state, launched, vcpu, ram_mib, disk_gib, last_metrics_json) VALUES ('l', 1, 'idle', 1, 8, 31744, 100, ?)`, hb)
+	h, _ := d.RQ.GetRunnerByName(ctx, "h")
+	c, _ := s.RunnerCapacity(ctx, h)
+	if want := int64(12*1024 - 2*HostPrimaryReserveMiB); c.RAMMiB != want {
+		t.Errorf("host ram %d, want %d (two primaries reserved)", c.RAMMiB, want)
+	}
+	l, _ := d.RQ.GetRunnerByName(ctx, "l")
+	if c, _ := s.RunnerCapacity(ctx, l); c.RAMMiB != 31744-ReserveRAMMiB {
+		t.Errorf("a launched runner's reserve changed: %d", c.RAMMiB)
+	}
+	// An owner's explicit RAM is taken as given.
+	d.Q.InitRunnerCapacity(ctx, dbInit(h.ID, 4))
+	s.SetRunnerCapacity(ctx, h.ID, map[string]string{"ram": "12GiB"})
+	if c, _ := s.RunnerCapacity(ctx, h); c.RAMMiB != 12288 {
+		t.Errorf("explicit ram altered: %d", c.RAMMiB)
+	}
+	if primarySessions("not json") != 0 || primarySessions("{}") != 0 {
+		t.Error("no primaries expected")
+	}
+}

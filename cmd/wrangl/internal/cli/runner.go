@@ -33,6 +33,9 @@ func runnerCmd(g *Global) *cobra.Command {
 	bf.StringVar(&bo.SHA256, "sha256", "", "expected sha256 of this binary")
 	bf.BoolVar(&bo.Host, "host", false, "enrol THIS machine (the controller host) as a permanent runner under the current user; installs a systemd --user unit")
 	bf.StringVar(&bo.HostAgentUser, "agent-user", "", "with --host: run agents as this dedicated user (e.g. wrangl-agent), created if missing; needs root, installs a system unit and never touches your home")
+	bf.IntVar(&bo.SliceCPUWeight, "slice-cpu-weight", 0, "with --agent-user: CPUWeight of the agent slice (default 50; 100 is an equal share)")
+	bf.StringVar(&bo.SliceMemoryHigh, "slice-memory-high", "", "with --agent-user: MemoryHigh of the agent slice (default 60%)")
+	bf.StringVar(&bo.SliceMemoryMax, "slice-memory-max", "", "with --agent-user: MemoryMax of the agent slice (default 75%)")
 	bootstrap.MarkFlagRequired("token")
 	for _, h := range []struct {
 		name, usage string

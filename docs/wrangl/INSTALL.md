@@ -902,6 +902,10 @@ This is idempotent for the user (an existing `wrangl-agent` is reused) and:
   `/etc/wrangl-host-runner`, state in `/var/lib/wrangl-host-runner`, socket `/run/wrangl-host/runner.sock`.
   The daemon drops to `wrangl-agent` for every agent, shell and worktree (the runner's normal drop
   mode); your own account and home are not touched;
+- puts the runner, and so every agent, shell and primary session it starts, in a systemd slice
+  `wrangl-agent.slice` (`CPUWeight=50`, `MemoryHigh=60%`, `MemoryMax=75%`) so a fan-out of agents
+  cannot starve the controller. Change it with `--slice-cpu-weight`, `--slice-memory-high` and
+  `--slice-memory-max` at bootstrap, or edit `/etc/systemd/system/wrangl-agent.slice`;
 - puts mirrors and run worktrees under `/home/wrangl-agent/work`. Pushes still use the daemon's
   GitHub credentials, which the agent user cannot read.
 

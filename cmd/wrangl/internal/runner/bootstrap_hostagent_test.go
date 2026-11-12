@@ -86,3 +86,37 @@ func TestEnsureAgentUserIdempotentForExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestHostSliceUnit(t *testing.T) {
+	got, err := HostSliceUnit(0, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"[Slice]", "CPUWeight=50", "MemoryHigh=60%", "MemoryMax=75%"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in %s", w, got)
+		}
+	}
+	got, _ = HostSliceUnit(20, "8G", "infinity")
+	if !strings.Contains(got, "CPUWeight=20") || !strings.Contains(got, "MemoryHigh=8G") || !strings.Contains(got, "MemoryMax=infinity") {
+		t.Errorf("custom: %s", got)
+	}
+	for _, bad := range [][3]any{{20000, "", ""}, {-1, "", ""}, {0, "lots", ""}, {0, "", "5%\nExecStart=x"}} {
+		if _, err := HostSliceUnit(bad[0].(int), bad[1].(string), bad[2].(string)); err == nil {
+			t.Errorf("%v accepted", bad)
+		}
+	}
+	if !strings.Contains(hostUnitTmpl, "Slice="+HostSliceName) {
+		t.Error("the host unit does not join the slice")
+	}
+}
+
+func TestBootstrapRejectsBadSlice(t *testing.T) {
+	_, err := Bootstrap(context.Background(), BootstrapOptions{
+		Controller: "http://x", Token: "t", Root: t.TempDir(), NoSystemd: true, NoUser: true,
+		Host: true, HostAgentUser: "wrangl-agent", SliceMemoryMax: "bogus",
+	})
+	if err == nil {
+		t.Fatal("bad slice limit accepted")
+	}
+}

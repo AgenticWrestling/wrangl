@@ -44,7 +44,12 @@ type BootstrapOptions struct {
 	// every agent, worktree and shell, and the owner's home is never touched. Empty = today's
 	// behaviour. The user is created if missing (idempotent).
 	HostAgentUser string
-	Log           io.Writer
+	// Slice limits for everything the host runner runs (ADR 0011 section 6B): a systemd slice so a
+	// fan-out of agents cannot starve the controller. Empty = the Default* values below.
+	SliceCPUWeight  int    // systemd CPUWeight, 1..10000 (default 100 is "equal share")
+	SliceMemoryHigh string // MemoryHigh: throttle above this, e.g. "60%" or "8G"
+	SliceMemoryMax  string // MemoryMax: hard ceiling
+	Log             io.Writer
 }
 
 // The daemon runs as root (it holds the NATS credentials, installs mise, runs the
@@ -72,6 +77,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Slice=wrangl-agent.slice
 ExecStart=%s --config %s runner run
 Restart=always
 RestartSec=5
@@ -79,6 +85,39 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 `
+
+// Defaults for the host's agent slice: half the CPU weight of the controller's own services under
+// contention, throttled at 60% of RAM and capped at 75%.
+const (
+	DefaultSliceCPUWeight  = 50
+	DefaultSliceMemoryHigh = "60%"
+	DefaultSliceMemoryMax  = "75%"
+	HostSliceName          = "wrangl-agent.slice"
+)
+
+var sliceValue = regexp.MustCompile(`^(\d{1,3}%|\d+[KMGT]?|infinity)$`)
+
+// HostSliceUnit renders the slice unit file for the host's agent user, validating its limits.
+func HostSliceUnit(cpuWeight int, memHigh, memMax string) (string, error) {
+	if cpuWeight == 0 {
+		cpuWeight = DefaultSliceCPUWeight
+	}
+	if memHigh == "" {
+		memHigh = DefaultSliceMemoryHigh
+	}
+	if memMax == "" {
+		memMax = DefaultSliceMemoryMax
+	}
+	if cpuWeight < 1 || cpuWeight > 10000 {
+		return "", fmt.Errorf("slice CPU weight %d out of range 1..10000", cpuWeight)
+	}
+	for _, v := range []string{memHigh, memMax} {
+		if !sliceValue.MatchString(v) {
+			return "", fmt.Errorf("invalid slice memory limit %q (use e.g. 60%% or 8G)", v)
+		}
+	}
+	return fmt.Sprintf("[Unit]\nDescription=wrangl agent user: the host runner and everything it starts\n\n[Slice]\nCPUWeight=%d\nMemoryHigh=%s\nMemoryMax=%s\n", cpuWeight, memHigh, memMax), nil
+}
 
 var validUsername = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,30}$`)
 
@@ -110,6 +149,9 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	if hostAgent {
 		if !validUsername.MatchString(o.HostAgentUser) {
 			return nil, fmt.Errorf("invalid agent user name %q", o.HostAgentUser)
+		}
+		if _, err := HostSliceUnit(o.SliceCPUWeight, o.SliceMemoryHigh, o.SliceMemoryMax); err != nil {
+			return nil, err
 		}
 		if os.Geteuid() != 0 && o.Root == "" {
 			return nil, fmt.Errorf("--agent-user needs root: run `sudo wrangl runner bootstrap --host --agent-user %s ...`", o.HostAgentUser)
@@ -231,6 +273,13 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	logf("enrolled as %s (runner %d)", resp.Name, resp.RunnerID)
 
 	if hostAgent && !o.NoSystemd {
+		sl, err := HostSliceUnit(o.SliceCPUWeight, o.SliceMemoryHigh, o.SliceMemoryMax)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(o.Root, "etc/systemd/system", HostSliceName), []byte(sl), 0o644); err != nil {
+			return nil, err
+		}
 		unit := filepath.Join(o.Root, "etc/systemd/system/wrangl-host-runner.service")
 		body := fmt.Sprintf(hostUnitTmpl, o.Binary, filepath.Join(etc, "runner.yaml"))
 		if err := os.WriteFile(unit, []byte(body), 0o644); err != nil {
