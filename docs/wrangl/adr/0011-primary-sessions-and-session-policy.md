@@ -41,12 +41,25 @@ project (not archived, repo linked), started in a git worktree of the project's 
 branch (`~/work/primary/<slug>`). It is never the dev checkout. The name is the project slug, so it
 reads the same in claude.ai/code, the mobile app and the Workers view.
 
-**How it runs.** Inside a named terminal multiplexer session `wrangl-<slug>` on the controller host.
-The multiplexer is zellij (already installed and used by the owner), with tmux as the fallback. Reasons:
-the PTY outlives the controller process and SSH connections; any number of clients attach at once; and
-we do not write a PTY broker. A supervisor in the controller keeps it alive (restart with `claude -c`
-so the conversation resumes, with backoff), starts it when a project becomes active or gains a repo,
-and stops it when the project is archived.
+**How it runs.** wrangl owns the PTY; there is no terminal multiplexer (zellij and tmux are not used).
+The controller already owns PTYs for the web terminal (`runner/term.go`, creack/pty, brokered over
+NATS), and one more kind of PTY should use the same code. The one constraint is lifetime: the
+controller restarts on every deploy, and a PTY owned by it would die with it. So primary sessions live
+in a small separate service, the **session host**: `wrangl session-host`, the same binary under its
+own systemd user unit (`wrangl-sessions`), which the deploy script does not restart. It starts each
+`claude --remote-control <slug> --name <slug>` in the project's worktree, keeps the PTY and a bounded
+scrollback ring, and serves a unix socket (`~/.local/share/wrangl/sessions.sock`, mode 0660, group
+`wrangl-sessions`). The controller is a client of that socket, as is the CLI. Reattach sends SIGWINCH so
+Claude's TUI repaints, and replays the ring first. The controller's reconciler (starts a session when a
+project becomes active or gains a repo, stops it on archive, restarts with `claude -c` and backoff) talks to
+the session host; it does not hold PTYs itself. Upgrading the session host is explicit
+(`wrangl session-host restart`, which warns that sessions will resume with `-c`).
+
+Why not zellij: one code path for web, SSH and runs instead of two; no nested multiplexer inside the
+web terminal (its key bindings, mouse and status bar clash with Claude's); no extra dependency to
+install on every host; and the registry knows exactly which processes are primary sessions. What zellij
+gave for free, and we now write: multi-client attach, resize handling and scrollback replay (about
+300 lines; run terminals already replay from the start).
 
 **Ownership.** Runs as a dedicated agent user (`wrangl-agent`, own home, own `claude` login; created in
 stage 2 below), not as the owner. That is the isolation from the owner's home and the controller's
@@ -54,12 +67,12 @@ data. It starts with the allowlist in section 6, not with bypassed prompts.
 
 **Access.**
 - **Web.** A "Session" button on each project row and project page opens the host's terminal view
-  (`/runner/<host>/term`) on a tab named after the project. That tab is a wrangl PTY running
-  `zellij attach wrangl-<slug>`, so it shares the live session with every other client. Watch-only
+  (`/runner/<host>/term`) on a tab named after the project, attached to the session host's PTY, shared
+  live with every other client. Watch-only
   until "Take control", as with other tabs.
 - **SSH.** `wrangl session ls` lists primary sessions with state and Remote Control name;
-  `wrangl session attach <slug>` runs `zellij attach wrangl-<slug>` (through `sudo -u wrangl-agent`
-  or a group-shared socket directory, see open question 1). Plain `ssh host -t wrangl session attach <slug>`
+  `wrangl session attach <slug>` connects to the session host's socket in raw mode (resize forwarded, detach
+  with a key chord that is not a Claude binding). Plain `ssh host -t wrangl session attach <slug>`
   works. `wrangl session restart <slug>` and `stop` exist too.
 
 **Cost.** An idle session held 290-770 MB RSS in the sample above. Three active projects add about
@@ -74,10 +87,10 @@ accounts for it.
 **Inventory.** Each runner daemon, the host's included, scans for Claude processes on every heartbeat
 and reports one record per session:
 
-`pid, kind, project, task/run, cwd, started, rss, cpu, remote-control name, multiplexer session`
+`pid, kind, project, task/run, cwd, started, rss, cpu, remote-control name`
 
 Kinds, decided in this order: **run** (the process, or an ancestor, has `WRANGL_RUN_ID`), **primary**
-(a `wrangl-<slug>` multiplexer ancestor), **shell** (started from a wrangl Shell tab),
+(a child of the session host), **shell** (started from a wrangl Shell tab),
 **other** (everything else: a hand-started or Remote Control session).
 
 `other` sessions are shown, flagged "unmanaged", with age and memory. They are never killed
@@ -101,8 +114,8 @@ Three layers, from soft to hard.
    - denies `Agent` with a writing type (`general-purpose`, `claude`, `fork`) or
      `run_in_background`, and the `Workflow` tool, with a message that names `wrangl delegate`;
    - allows read-only types (`Explore`, `Plan`, `claude-code-guide`);
-   - denies `Bash` that starts another Claude (`claude -p`, `claude --remote-control`, `zellij`/`tmux`
-     running `claude`), outside the supervisor.
+   - denies `Bash` that starts another Claude (`claude -p`, `claude --remote-control`, or `tmux`/`zellij`
+     running `claude`), outside the session host, outside the supervisor.
 3. **Host backstop.** The primary sessions and everything under the agent user run in a systemd slice
    with a CPU and memory share. A fan-out that slips through cannot starve runs.
 
@@ -155,16 +168,16 @@ and filesystem permissions are the real boundary).
    Sessions list on cards.
 2. **Agent user on the host.** `wrangl-agent` user, its home and `claude` login, the runner's existing
    drop mode enabled for the host, the slice limits, the ADR 0009 reserve updated.
-3. **Primary sessions.** Supervisor and reconciler, naming, resume, config, `wrangl session
-   ls|attach|restart|stop`, health line on the project page.
+3. **Primary sessions.** The session host service (PTYs, ring, socket), the controller reconciler, naming,
+   resume, config, `wrangl session ls|attach|restart|stop`, health line on the project page.
 4. **One-click access.** The Session button and the attach-tab, the terminal view naming.
 5. **Policy.** `agent-guard`, `delegate`, `task wait`, `policy install|show`, the permission files from
    section 6, docs and the wrangl skill rule.
 
 ## 8. Open questions (recommendation first)
 
-1. **SSH as which user?** Recommend a group-shared zellij socket directory (`wrangl-sessions` group,
-   `ZELLIJ_SOCKET_DIR`), so the owner attaches without `sudo`. The alternative is `sudo -u wrangl-agent`.
+1. **SSH as which user?** Recommend a group-owned session-host socket (`wrangl-sessions` group, mode 0660), so the owner
+   attaches without `sudo`. The alternative is `sudo -u wrangl-agent`.
 2. **Primary session permission mode.** Recommend the section 6 allowlist with prompts on, not bypass.
    You will see more prompts than today; the `ask` list is deliberately short.
 3. **Which projects get one.** Recommend every non-archived project with a linked repo; projects without
