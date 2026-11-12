@@ -171,8 +171,21 @@ the owner approves.
 | ask | `Bash(wrangl task delete\|cancel:*)`, `wrangl project delete`, `wrangl pr approve\|close`, `wrangl fleet terminate`, `wrangl template delete`, `wrangl secret *` |
 | ask | `Bash(git push:*)` (never to the default branch), `Bash(gh pr merge:*)`, `Bash(systemctl --user restart wrangl-controller)`, any `cf` command other than `list`/`get`, any `aws` write, `ssh` |
 | deny | `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)`, `Workflow` (use `wrangl delegate`) |
-| deny | `Bash(git push --force:*)`, `Bash(git push*main*)`, `Bash(git reset --hard origin/*)`, `Bash(rm -rf:*)` outside the worktree, `Bash(sudo:*)`, `Bash(chmod -R:*)` |
-| deny | `Read`/`Edit`/`Write` on `~/.ssh/**`, `~/.aws/**`, `~/.config/wrangl/**`, `~/.local/share/wrangl/**`, `~/.claude/settings*.json`, `/etc/claude-code/**`, any `*.pem`, `*secret*`, `.env*` |
+| deny | `Bash(git push --force:*)`, `Bash(git reset --hard origin/*)`, `Bash(rm -rf:*)` outside the worktree, `Bash(sudo:*)`, `Bash(chmod -R:*)` |
+| deny | `Read`/`Edit`/`Write` on `~/.ssh/**`, `~/.aws/**`, `~/.config/wrangl/**`, `~/.local/share/wrangl/**`, `~/.claude/settings*.json`, `/etc/claude-code/**`, any `*.pem`, `*.secret`, `secrets/**`, `.env*` |
+
+**Managed (every session) versus primary-only.** Managed settings apply to every Claude session on the
+host: run agents and the owner's own sessions as well as the primary. So the managed file holds only
+rules no session should ever need to break: the destructive Bash denies (`git push --force`/`-f`,
+`git reset --hard origin/*`, `rm -rf`, `sudo`, `chmod -R`), the credential-path denies (`~/.ssh`,
+`~/.aws`, `~/.config/wrangl`, `~/.local/share/wrangl`, Claude and managed settings, `*.pem`, `*.secret`,
+`secrets/**`, `.env*`), and the `agent-guard` hook. Path denies must name real credential locations:
+a broad `*secret*` glob blocked run agents from editing wrangl's own `secrets.go` and `wrangl secret`
+sources. Pushes to the default branch are NOT a managed glob (`git push*main*` also hit branches such
+as `domain-x`); `agent-guard` resolves the branch and rejects them. Everything else in table A (the
+allow/ask lists, the `Agent`/`Workflow` denies) is primary-only, in the primary worktree's
+`.claude/settings.json`, and never reaches run agents, which get section B's own narrower set. A test
+renders the managed file and checks that the repo's own paths are not denied.
 
 **B. Run agents on the host (queued, unattended, as `wrangl-agent`)**
 

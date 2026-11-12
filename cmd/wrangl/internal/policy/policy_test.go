@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -102,8 +103,8 @@ func TestManagedDefaultsDenyAndHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := parse(t, b)
-	want := []string{"Bash(git push --force:*)", "Bash(git push*main*)", "Bash(git reset --hard origin/*)", "Bash(rm -rf:*)", "Bash(sudo:*)", "Bash(chmod -R:*)"}
-	for _, p := range []string{"~/.ssh/**", "~/.aws/**", "~/.config/wrangl/**", "~/.local/share/wrangl/**", "~/.claude/settings*.json", "/etc/claude-code/**", "**/*.pem", "**/*secret*", "**/.env*"} {
+	want := []string{"Bash(git push --force:*)", "Bash(git reset --hard origin/*)", "Bash(rm -rf:*)", "Bash(sudo:*)", "Bash(chmod -R:*)"}
+	for _, p := range []string{"~/.ssh/**", "~/.aws/**", "~/.config/wrangl/**", "~/.local/share/wrangl/**", "~/.claude/settings*.json", "/etc/claude-code/**", "**/*.pem", "**/*.secret", "**/secrets/**", "**/.env*"} {
 		for _, tool := range []string{"Read", "Edit", "Write"} {
 			want = append(want, tool+"("+p+")")
 		}
@@ -303,5 +304,62 @@ func TestShow(t *testing.T) {
 	sh, _ = Show(o)
 	if !sh[0].Present || !sh[0].Matches || !sh[1].Present || sh[1].Matches || string(sh[1].Content) != `{"permissions":{}}` {
 		t.Errorf("%+v", sh)
+	}
+}
+
+// globRe turns a Claude Code path pattern (** crosses dirs, * does not) into a regexp.
+func globRe(p string) *regexp.Regexp {
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		switch {
+		case strings.HasPrefix(p[i:], "**/"):
+			b.WriteString("(.*/)?")
+			i += 2
+		case strings.HasPrefix(p[i:], "**"):
+			b.WriteString(".*")
+			i++
+		case p[i] == '*':
+			b.WriteString("[^/]*")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(p[i])))
+		}
+	}
+	return regexp.MustCompile("^" + b.String() + "$")
+}
+
+// Managed settings hit every session on the host, run agents working on wrangl included, so they
+// must not deny wrangl's own source files or ordinary branch names.
+func TestManagedDoesNotDenyTheReposOwnPaths(t *testing.T) {
+	b, err := Render(Managed, Vars{Wrangl: "/opt/wr/wrangl"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parse(t, b)
+	ok := []string{"cmd/wrangl/internal/api/secrets.go", "cmd/wrangl/internal/controller/secrets.go", "cmd/wrangl/secret.go", "cmd/wrangl/secret_test.go", "docs/secrets.md"}
+	for _, path := range ok {
+		for _, tool := range []string{"Read", "Edit", "Write"} {
+			for _, d := range s.Permissions.Deny {
+				if pat, found := strings.CutPrefix(d, tool+"("); found && globRe(strings.TrimSuffix(pat, ")")).MatchString("/work/repo/"+path) {
+					t.Errorf("%s %s is denied by %s", tool, path, d)
+				}
+			}
+		}
+	}
+	// Real credential locations stay denied.
+	for _, path := range []string{"/work/repo/deploy/prod.secret", "/work/repo/config/secrets/db.txt"} {
+		denied := false
+		for _, d := range s.Permissions.Deny {
+			if pat, found := strings.CutPrefix(d, "Read("); found && globRe(strings.TrimSuffix(pat, ")")).MatchString(path) {
+				denied = true
+			}
+		}
+		if !denied {
+			t.Errorf("Read %s should be denied", path)
+		}
+	}
+	for _, d := range s.Permissions.Deny {
+		if strings.HasPrefix(d, "Bash(git push") && strings.Contains(d, "main") {
+			t.Errorf("%q matches any branch containing main; the agent-guard hook owns the default branch", d)
+		}
 	}
 }
