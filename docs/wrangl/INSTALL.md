@@ -585,7 +585,7 @@ the controller logs a "Cost warning" note every time it launches one (also shown
 agent's `fleet.launch` result), and the template's `idle_timeout` is 24 h so back-to-back runs share
 the host. wrangl launches the instance; allocating the host and choosing the macOS AMI is yours.
 
-Not built yet: the plain `ssh target` escape hatch and signing forwarder, the Runners-page card and
+Not built yet: the plain `ssh target` escape hatch and signing forwarder, the Workers-page card and
 ssh terminal for targets, and EC2 Instance Connect keys.
 
 ### 8.1 Other agents, interactive sessions and Remote Control (experimental)
@@ -817,7 +817,7 @@ runner, in-progress, queued, backlog and inbox counts per project; New project; 
 A **project page** (`/projects/<slug>`) has a "Needs you" strip, In progress, Queue and Backlog sections
 (Queue, Dequeue, up/down, Stop, Queue all; drag a task by its handle to reorder or re-parent it), and a
 Comment button for the project chat with a controller agent. A **task page** (`/task/<sqid>`) edits, splits (by hand or with an agent), adds subtasks or precursors, queues, asks a
-controller agent, and shows runs, deliverables and history. **Runners** (cards with CPU/mem/disk and
+controller agent, and shows runs, deliverables and history. **Workers** (cards with CPU/mem/disk and
 a CPU sparkline, AWS spend, other instances in the account; a detail page with cordon, drain and
 terminate; a web terminal). **Logs** (runs merged with runner, template and upgrade events; log filter,
 read-only live terminal, diff, file browser with markdown preview). **Inbox** (agent questions, plan
@@ -877,7 +877,7 @@ Runner templates for these live in `docs/wrangl/templates/`: `design.yaml` (Play
 
 ### 10.4 The runner terminal and the controller host
 
-Runners view -> Terminal opens `/runner/NAME/term`: one tab per agent session, plus "+ Shell" (fish if installed, else bash; the first shell installs bat, lsd, dust, duf, fd, ripgrep and tldr through mise). Run tabs are watch-only until you tap "Take control"; shell tabs open in control.
+Workers view -> Terminal opens `/runner/NAME/term`: one tab per agent session, plus "+ Shell" (fish if installed, else bash; the first shell installs bat, lsd, dust, duf, fd, ripgrep and tldr through mise). Run tabs are watch-only until you tap "Take control"; shell tabs open in control.
 
 To get a terminal on the controller machine itself, enrol it as a permanent runner (create a template with `arch` set to the host's, e.g. `docs/wrangl/templates/host.yaml`):
 
@@ -886,7 +886,7 @@ wrangl fleet enroll-token --template host
 wrangl runner bootstrap --host --controller http://<private-ip>:4223 --token wre_...
 ```
 
-It runs as a systemd `--user` unit under your own account, is pinned first in the Runners view, is never launched, reaped or powered off by the fleet, and leaves your own mise config alone.
+It runs as a systemd `--user` unit under your own account, is pinned first in the Workers view, is never launched, reaped or powered off by the fleet, and leaves your own mise config alone.
 
 ## 11. First-run checklist (the unverified parts)
 

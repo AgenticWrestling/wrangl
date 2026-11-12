@@ -64,7 +64,7 @@ func capacityText(c *proto.CapacityView) string {
 func fleetCmd(g *Global) *cobra.Command {
 	var all bool
 	list := &cobra.Command{
-		Use: "list", Short: "List runners", Args: cobra.NoArgs,
+		Use: "list", Short: "List workers", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := apiClient(g)
 			if err != nil {
@@ -93,7 +93,7 @@ func fleetCmd(g *Global) *cobra.Command {
 			})
 		},
 	}
-	list.Flags().BoolVar(&all, "all", false, "include terminated runners")
+	list.Flags().BoolVar(&all, "all", false, "include terminated workers")
 
 	show := &cobra.Command{
 		Use: "show <runner>", Short: "Show a runner", Args: cobra.ExactArgs(1),
@@ -308,7 +308,7 @@ touched, and ownership is re-checked on each instance before it is terminated.`,
 	tf.BoolVarP(&yes, "yes", "y", false, "do not ask for confirmation")
 	teardown.MarkFlagsMutuallyExclusive("controller-id", "all-controllers")
 
-	return group("fleet", "Manage runners",
+	return group("fleet", "Manage workers (runners and the host)",
 		list, show, set, launch,
 		runnerAction(g, "cordon", "Stop assigning new work (the idle reaper still applies)"),
 		runnerAction(g, "uncordon", "Resume assigning work"),

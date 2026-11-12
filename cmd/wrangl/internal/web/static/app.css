@@ -639,3 +639,7 @@ pre.udiff span { min-width: max-content; }
 .chgcommits { overflow-wrap: anywhere; }
 .chgpick { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .chgpick select { flex: 1; min-width: 0; max-width: 100%; margin: 0; }
+
+/* Claude sessions on a worker card (ADR 0011 section 4) */
+.sessions { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 4px; }
+.srow .scwd { flex: 1 1 8rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

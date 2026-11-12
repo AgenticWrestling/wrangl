@@ -1,6 +1,6 @@
 package web
 
-// Template data for the Runners list and a runner page.
+// Template data for the Workers list and a runner page.
 
 import (
 	"context"
@@ -35,6 +35,61 @@ type runnerCard struct {
 	Cap     string // used/capacity per resource
 	Tags    string // capability tags
 	Guard   string // why the measured guard has closed the runner to new work ("" = open)
+	// Claude sessions from the latest heartbeat's /proc scan (ADR 0011 section 4).
+	Sessions  []sessionRow
+	Managed   int // run, primary and shell sessions
+	Unmanaged int // "other": hand-started or Remote Control
+}
+
+// sessionRow is one Claude process on a worker, ready to show.
+type sessionRow struct {
+	proto.ClaudeProc
+	Age  string // time since the process started ("" = unknown)
+	Mem  string
+	Term string // terminal link ("" = no PTY attachable)
+}
+
+func humanBytes(n uint64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.0f MiB", float64(n)/(1<<20))
+	}
+	return fmt.Sprintf("%d KiB", n>>10)
+}
+
+func humanAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "<1m"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dd", int(d.Hours())/24)
+}
+
+// sessionRows turns a heartbeat's Claude list into rows. Only a run's PTY is attachable today, so
+// only run sessions on a worker that can host a terminal get a link.
+func sessionRows(name, state string, ps []proto.ClaudeProc, now time.Time) (rows []sessionRow, managed, unmanaged int) {
+	for _, p := range ps {
+		r := sessionRow{ClaudeProc: p, Mem: humanBytes(p.RSS)}
+		if !p.Started.IsZero() {
+			r.Age = humanAge(now.Sub(p.Started))
+		}
+		if p.Kind == proto.ClaudeRun && p.RunID != 0 && termUsable(state) {
+			r.Term = fmt.Sprintf("/runner/%s/term#run-%d", name, p.RunID)
+		}
+		if p.Kind == proto.ClaudeOther {
+			unmanaged++
+		} else {
+			managed++
+		}
+		rows = append(rows, r)
+	}
+	return
 }
 
 // hostCost is the cost block on the controller host's card. It is derived from the cached
@@ -77,6 +132,7 @@ func (h *Handler) runnerCard(ctx context.Context, r dbgen.Runner) runnerCard {
 	c := runnerCard{R: r}
 	c.T, _ = db.RQ.GetTemplate(ctx, r.TemplateID)
 	json.Unmarshal([]byte(r.LastMetricsJson), &c.M)
+	c.Sessions, c.Managed, c.Unmanaged = sessionRows(r.Name, r.State, c.M.Claude, time.Now())
 	for _, s := range h.D.Fleet.History(r.ID) {
 		c.Spark = append(c.Spark, s.CPU)
 	}
@@ -144,7 +200,7 @@ func (h *Handler) viewRunners(ctx context.Context, view string, r *http.Request,
 		d["AdoptTemplates"], _ = db.RQ.ListTemplates(ctx)
 	}
 	demand, _ := db.RQ.TemplateDemand(ctx)
-	d["Demand"], d["Title"] = demand, "Runners"
+	d["Demand"], d["Title"] = demand, "Workers"
 	return nil
 }
 
@@ -156,6 +212,7 @@ func (h *Handler) viewRunner(ctx context.Context, view string, r *http.Request, 
 	}
 	c := h.runnerCard(ctx, r2)
 	d["R"], d["Title"], d["T"], d["M"], d["Spark"] = r2, r2.Name, c.T, c.M, c.Spark
+	d["Sessions"], d["Managed"], d["Unmanaged"] = c.Sessions, c.Managed, c.Unmanaged
 	if c.Run != nil {
 		d["Run"] = *c.Run
 		d["Progress"], _ = db.RQ.SubtreeOrdered(ctx, c.Run.TaskID)

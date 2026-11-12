@@ -46,7 +46,7 @@
       d.innerHTML = '<h2>Keyboard shortcuts</h2><div class="g">' +
         '<h3>Move</h3>' + rows([['j k', 'Next / previous'], ['↓ ↑', 'Next / previous'], ['h', 'Collapse / to parent'], ['l', 'Expand / to child'], ['J K', 'Reorder down / up'], ['/', 'Filter']]) +
         '<h3>Selected task</h3>' + rows([['Enter o', 'Toggle details'], ['Esc', 'Collapse, then clear'], ['q', 'Queue'], ['e', 'Edit'], ['c', 'Complete'], ['s', 'Split'], ['a', 'Add subtask'], ['d', 'Needs…'], ['x', 'Cancel / reopen'], ['D', 'Delete (confirms)']]) +
-        '<h3>Go</h3>' + rows([['g t', 'Tasks'], ['g b', 'Backlog'], ['g q', 'Queue'], ['g p', 'In progress'], ['g r', 'Runners'], ['g l', 'Logs'], ['g i', 'Inbox'], ['g m', 'Settings'], ['[ ]', 'Previous / next project'], ['1-9', 'Project n']]) +
+        '<h3>Go</h3>' + rows([['g t', 'Tasks'], ['g b', 'Backlog'], ['g q', 'Queue'], ['g p', 'In progress'], ['g r', 'Workers'], ['g l', 'Logs'], ['g i', 'Inbox'], ['g m', 'Settings'], ['[ ]', 'Previous / next project'], ['1-9', 'Project n']]) +
         '<h3>Global</h3>' + rows([['n', 'New task'], ['?', 'This help']]) + '</div>' +
         '<div class="actions"><button class="btn" command="close" commandfor="khelp">Close</button></div>';
       document.body.appendChild(d);
@@ -81,7 +81,7 @@
     if (cur < 0) cur = 0;
     goProject((cur + d + l.length) % l.length);
   }
-  const GO = { t: '/projects', b: '/projects#backlog', q: '/projects#queue', p: '/projects#in-progress', r: '/runners', l: '/logs', i: '/inbox', m: '/settings' };
+  const GO = { t: '/projects', b: '/projects#backlog', q: '/projects#queue', p: '/projects#in-progress', r: '/workers', l: '/logs', i: '/inbox', m: '/settings' };
 
   // --- reorder ---
   async function reorder(x, dir) {

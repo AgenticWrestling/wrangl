@@ -28,7 +28,7 @@ runners and hands the questions and pull requests back to you. The top-level
 | [Projects](guide/projects.md) | project settings, the project page and chat, runner limits and the effective cap, archiving, GitHub repos and issues |
 | [Tasks](guide/tasks.md) | the task tree, types, states, needs, runs, checkpoints, the Inbox, PRs, Smart Merge, deliverables |
 | [Dev instances](guide/dev-instances.md) | `wrangl dev`: connect, ssh, tunnel, start/stop and install a mise toolchain on your own EC2 instances |
-| [Runners](guide/runners.md) | templates, enrolment, sessions and worktrees, self-upgrade, cordon/drain/terminate, remote targets, the host runner |
+| [Workers (runners)](guide/runners.md) | templates, enrolment, sessions and worktrees, self-upgrade, cordon/drain/terminate, remote targets, the host runner |
 | [Task scheduling](guide/scheduling.md) | how a queued run becomes a running session, the autoscaler, and the known limits |
 
 ## Reference

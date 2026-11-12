@@ -309,7 +309,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		s.Push.Notify(webpush.Notification{Title: title, Body: q.Prompt, URL: fmt.Sprintf("/inbox#q%d", q.ID), Tag: fmt.Sprintf("q%d", q.ID)})
 	}
 	s.Fleet.OnOffline = func(name string) {
-		s.Push.Notify(webpush.Notification{Title: "Runner offline", Body: name + " stopped sending heartbeats", URL: "/runners", Tag: "runner-" + name})
+		s.Push.Notify(webpush.Notification{Title: "Runner offline", Body: name + " stopped sending heartbeats", URL: "/workers", Tag: "runner-" + name})
 	}
 	s.Runs.OnRunFinished = func(ctx context.Context, runID int64) {
 		if r, err := s.db.RQ.GetRun(ctx, runID); err == nil && (r.State == "failed" || r.State == "blocked") {
@@ -430,7 +430,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	launchStuck := func(template string, failed int64) {
 		s.Push.Notify(webpush.Notification{Title: "Runners are not enrolling", Body: fmt.Sprintf("%d %s runners in a row never enrolled; launching is paused for an hour. Check the template's image, user-data and network.", failed, template),
-			URL: "/runners", Tag: "enrol-" + template})
+			URL: "/workers", Tag: "enrol-" + template})
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}

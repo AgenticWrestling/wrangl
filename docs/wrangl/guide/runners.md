@@ -1,4 +1,4 @@
-# Runners
+# Runners (shown as Workers in the UI)
 
 A runner is a machine that runs coding agents for wrangl. This guide explains the two roles of the
 binary, runner templates, how runners join and stay current, how sessions and git worktrees work,
@@ -36,7 +36,7 @@ The **host runner** is the controller machine enrolled as a permanent adopted ru
 (`wrangl runner bootstrap --host`, INSTALL.md section 10.4; template example `templates/host.yaml`).
 
 It **is**: a normal runner for scheduling (it takes sessions of its template), pinned first and
-tagged "host" in the Runners view, and the way to get a web terminal on the controller machine. It
+tagged "host" in the Workers view, and the way to get a web terminal on the controller machine. It
 runs as a `systemd --user` unit under *your* account, with state in `~/.local/state/wrangl-host-runner`
 and config in `~/.config/wrangl-host-runner`, and the agent runs as you.
 
@@ -143,7 +143,7 @@ sequenceDiagram
   terminates on shutdown). Not for the host runner.
 - Adopting: `wrangl fleet enroll-token --template T [--ttl 30m]` prints a token; on the machine run
   `wrangl runner bootstrap --controller http://<ip>:4223 --token wre_...` (as root; add `--host` for
-  the controller host). The Runners page can do the same for other instances in the account
+  the controller host). The Workers page can do the same for other instances in the account
   ("Other instances ... adopt").
 
 **Runner states:** `launching`, `enrolling`, `provisioning` (applying a template), `idle`, `busy`
@@ -237,18 +237,22 @@ describes the **target**. The agent runs on a **driver** session of an ordinary 
 The controller launches targets when queued runs need one (within the remote template's `max_runners`), probes them, marks them offline after three failed probes, reaps them after
 `idle_timeout`, and fails the runs on a target that is gone or unreachable for two minutes as
 "target lost". `wrangl target list [--all]` and `wrangl target terminate NAME` manage them. There is no
-Runners-page card for targets yet. Details, costs and the Android recipe are in INSTALL.md 8.2 and
+Workers-page card for targets yet. Details, costs and the Android recipe are in INSTALL.md 8.2 and
 [android.md](../android.md).
 
 ## 9. Screens
 
-**Runners** (`/runners`):
+**Workers** (`/workers`; the old `/runners` redirects; the controller host is a worker too):
 - A spend card: running-now hourly cost across all regions, month to date, and a projection. It needs
   the optional Cost Explorer permissions in aws-iam.md; otherwise it says why it is empty.
 - A **Templates** card: each template with its version (a warning if the last apply failed), queued
   demand, live/`max_runners`, and a **Launch** button.
 - One card per runner: name (tagged "host" for adopted ones), state, cordoned flag, instance type,
   size, CPU/memory/disk with a sparkline, and the run it is on or how long it has been idle.
+- A **Sessions** list on each card: every Claude process the runner's `/proc` scan found, with kind
+  (run, primary, shell, or "unmanaged" for hand-started and Remote Control sessions), pid, run or
+  task, Remote Control name, multiplexer session, directory, age and memory, and a managed/unmanaged
+  count. Run sessions link to their terminal. Unmanaged sessions are only shown, never stopped.
 - **Other instances in this account** (every region), with their hourly cost; a running one can be
   adopted. A "most expensive other resources" list when Cost Explorer has resource-level data.
 

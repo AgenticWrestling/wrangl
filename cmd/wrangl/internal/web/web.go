@@ -176,13 +176,16 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/projects", http.StatusFound) })
 	for path, view := range map[string]string{
-		"/projects": "projects", "/projects/{slug}": "tasks", "/projects/{slug}/settings": "project", "/task/{sqid}": "task", "/runners": "runners", "/runner/{name}": "runner",
+		"/projects": "projects", "/projects/{slug}": "tasks", "/projects/{slug}/settings": "project", "/task/{sqid}": "task", "/workers": "runners", "/runner/{name}": "runner",
 		"/logs": "logs", "/run/{id}": "run", "/run/{id}/diff": "diff", "/run/{id}/files": "files",
 		"/inbox": "inbox", "/settings": "settings", "/settings/templates/{name}": "template", "/setup": "setup",
 	} {
 		view := view
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) { h.page(w, r, view) })
 	}
+	mux.HandleFunc("GET /runners", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/workers", http.StatusMovedPermanently)
+	})
 	// Old URLs keep working: /tasks (and its old name /backlog) is the project page, /project/{slug}
 	// (goals & repos) is that project's settings page.
 	toProject := func(frag string) http.HandlerFunc {
