@@ -888,6 +888,36 @@ wrangl runner bootstrap --host --controller http://<private-ip>:4223 --token wre
 
 It runs as a systemd `--user` unit under your own account, is pinned first in the Workers view, is never launched, reaped or powered off by the fleet, and leaves your own mise config alone.
 
+**As a dedicated agent user (ADR 0011).** To keep agents out of your home and the controller's data,
+enrol the host with `--agent-user`:
+
+```
+sudo wrangl runner bootstrap --host --agent-user wrangl-agent --controller http://<private-ip>:4223 --token wre_...
+```
+
+This is idempotent for the user (an existing `wrangl-agent` is reused) and:
+
+- creates `wrangl-agent` with its own home and a bash login shell, no sudo (`useradd --create-home`);
+- installs a **system** unit `wrangl-host-runner.service` that runs the daemon as root, config in
+  `/etc/wrangl-host-runner`, state in `/var/lib/wrangl-host-runner`, socket `/run/wrangl-host/runner.sock`.
+  The daemon drops to `wrangl-agent` for every agent, shell and worktree (the runner's normal drop
+  mode); your own account and home are not touched;
+- puts mirrors and run worktrees under `/home/wrangl-agent/work`. Pushes still use the daemon's
+  GitHub credentials, which the agent user cannot read.
+
+Without `--agent-user` nothing changes: the `systemd --user` unit above. Move over by terminating the
+old host runner and enrolling again with a new token.
+
+**One-time `claude` login.** The agent user has its own Claude login, separate from yours. Do this once:
+
+```
+sudo -iu wrangl-agent
+claude        # then /login and finish the browser flow; exit when it shows the prompt
+```
+
+Check with `sudo -iu wrangl-agent claude -p "say ok"`. The login lives in `/home/wrangl-agent/.claude*`
+and is never copied from your home. Remote Control sessions need this login too.
+
 ## 11. First-run checklist (the unverified parts)
 
 Watch these the first time and report anything odd:

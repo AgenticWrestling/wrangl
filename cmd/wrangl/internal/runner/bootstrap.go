@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -38,7 +39,12 @@ type BootstrapOptions struct {
 	// under the current user's home, a systemd --user unit, the agent is the current user.
 	Host   bool
 	Binary string // path written into the unit; default /usr/local/bin/wrangl
-	Log    io.Writer
+	// HostAgentUser (with Host) runs the host's agents as this dedicated user instead of the
+	// current one (ADR 0011): the daemon runs as root from a system unit, drops to the user for
+	// every agent, worktree and shell, and the owner's home is never touched. Empty = today's
+	// behaviour. The user is created if missing (idempotent).
+	HostAgentUser string
+	Log           io.Writer
 }
 
 // The daemon runs as root (it holds the NATS credentials, installs mise, runs the
@@ -57,6 +63,24 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 `
+
+// hostUnitTmpl runs the host runner as root so it can drop to the agent user (ADR 0011). The
+// owner's account is not involved.
+const hostUnitTmpl = `[Unit]
+Description=wrangl runner (controller host, agents as a dedicated user)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%s --config %s runner run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`
+
+var validUsername = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,30}$`)
 
 // Bootstrap enrols this machine and installs the daemon. It returns the config written.
 func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
@@ -79,7 +103,23 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	etc := filepath.Join(o.Root, "etc", "wrangl")
 	state := filepath.Join(o.Root, "var", "lib", "wrangl")
 	var uhome string
-	if o.Host {
+	hostAgent := o.Host && o.HostAgentUser != ""
+	if o.HostAgentUser != "" && !o.Host {
+		return nil, fmt.Errorf("--agent-user only applies with --host")
+	}
+	if hostAgent {
+		if !validUsername.MatchString(o.HostAgentUser) {
+			return nil, fmt.Errorf("invalid agent user name %q", o.HostAgentUser)
+		}
+		if os.Geteuid() != 0 && o.Root == "" {
+			return nil, fmt.Errorf("--agent-user needs root: run `sudo wrangl runner bootstrap --host --agent-user %s ...`", o.HostAgentUser)
+		}
+		etc = filepath.Join(o.Root, "etc", "wrangl-host-runner")
+		state = filepath.Join(o.Root, "var", "lib", "wrangl-host-runner")
+		if exe, err := os.Executable(); err == nil && o.Binary == "/usr/local/bin/wrangl" {
+			o.Binary = exe
+		}
+	} else if o.Host {
 		u, err := user.Current()
 		if err != nil {
 			return nil, err
@@ -98,7 +138,11 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 		}
 	}
 	if !o.NoUser {
-		if err := ensureAgentUser(); err != nil {
+		name := DefaultAgentUser
+		if hostAgent {
+			name = o.HostAgentUser
+		}
+		if err := ensureAgentUser(name); err != nil {
 			return nil, err
 		}
 	}
@@ -133,7 +177,18 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	if o.NoUser {
 		cfg.AgentUser = ""
 	}
-	if o.Host {
+	if hostAgent {
+		cfg.Host = true
+		cfg.PoweroffCommand = nil
+		cfg.AgentUser = o.HostAgentUser
+		cfg.CAFile, cfg.CredsFile = filepath.Join(etc, "ca.pem"), filepath.Join(etc, "runner.creds")
+		cfg.StateDir = state
+		cfg.SocketPath = filepath.Join(o.Root, "run", "wrangl-host", "runner.sock")
+		cfg.MiseBin = DefaultMiseBin
+		if p, err := exec.LookPath("mise"); err == nil {
+			cfg.MiseBin = p
+		}
+	} else if o.Host {
 		cfg.Host = true
 		cfg.PoweroffCommand = nil
 		cfg.CAFile, cfg.CredsFile = filepath.Join(etc, "ca.pem"), filepath.Join(etc, "runner.creds")
@@ -145,11 +200,18 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 		}
 	}
 	if o.Root != "" { // tests: keep paths inside the prefix
+		if hostAgent {
+			cfg.AgentHome = filepath.Join(o.Root, "home", o.HostAgentUser)
+		}
 		cfg.CAFile, cfg.CredsFile = filepath.Join(etc, "ca.pem"), filepath.Join(etc, "runner.creds")
 		cfg.StateDir = state
-		cfg.AgentHome = filepath.Join(o.Root, "home", "agent")
+		if !hostAgent {
+			cfg.AgentHome = filepath.Join(o.Root, "home", "agent")
+		}
 		cfg.MiseBin = filepath.Join(o.Root, "usr", "local", "bin", "mise")
-		cfg.SocketPath = filepath.Join(o.Root, "run", "wrangl", "runner.sock")
+		if !hostAgent {
+			cfg.SocketPath = filepath.Join(o.Root, "run", "wrangl", "runner.sock")
+		}
 	}
 	cfgYAML, _ := yaml.Marshal(cfg)
 	files := []struct {
@@ -168,7 +230,21 @@ func Bootstrap(ctx context.Context, o BootstrapOptions) (*Config, error) {
 	}
 	logf("enrolled as %s (runner %d)", resp.Name, resp.RunnerID)
 
-	if o.Host && !o.NoSystemd {
+	if hostAgent && !o.NoSystemd {
+		unit := filepath.Join(o.Root, "etc/systemd/system/wrangl-host-runner.service")
+		body := fmt.Sprintf(hostUnitTmpl, o.Binary, filepath.Join(etc, "runner.yaml"))
+		if err := os.WriteFile(unit, []byte(body), 0o644); err != nil {
+			return nil, err
+		}
+		for _, args := range [][]string{{"daemon-reload"}, {"enable", "--now", "wrangl-host-runner.service"}} {
+			if out, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, out)
+			}
+		}
+		logf("started wrangl-host-runner.service (system unit; agents run as %s)", o.HostAgentUser)
+		return cfg, nil
+	}
+	if o.Host && !hostAgent && !o.NoSystemd {
 		dir := filepath.Join(uhome, ".config", "systemd", "user")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
@@ -261,12 +337,12 @@ func verifySelf(want string) error {
 
 // ensureAgentUser creates the unprivileged user the agent and its toolchain run as.
 // It gets a home directory and a login shell but no sudo.
-func ensureAgentUser() error {
-	if _, err := user.Lookup(DefaultAgentUser); err == nil {
+func ensureAgentUser(name string) error {
+	if _, err := user.Lookup(name); err == nil {
 		return nil
 	}
-	if out, err := exec.Command("useradd", "--create-home", "--shell", "/bin/bash", DefaultAgentUser).CombinedOutput(); err != nil {
-		return fmt.Errorf("useradd %s: %v: %s", DefaultAgentUser, err, out)
+	if out, err := exec.Command("useradd", "--create-home", "--shell", "/bin/bash", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("useradd %s: %v: %s", name, err, out)
 	}
 	return nil
 }

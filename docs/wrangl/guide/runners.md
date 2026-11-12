@@ -38,7 +38,10 @@ The **host runner** is the controller machine enrolled as a permanent adopted ru
 It **is**: a normal runner for scheduling (it takes sessions of its template), pinned first and
 tagged "host" in the Workers view, and the way to get a web terminal on the controller machine. It
 runs as a `systemd --user` unit under *your* account, with state in `~/.local/state/wrangl-host-runner`
-and config in `~/.config/wrangl-host-runner`, and the agent runs as you.
+and config in `~/.config/wrangl-host-runner`, and the agent runs as you. With
+`sudo wrangl runner bootstrap --host --agent-user wrangl-agent ...` it instead runs as a root system unit
+that drops to a dedicated `wrangl-agent` user (own home, own `claude` login, worktrees under its home;
+your home is untouched). Setup and the one-time login are in INSTALL.md 10.4.
 
 It **is not**: launched, reaped, or powered off by wrangl (it has no poweroff command and ignores
 the orphan timer). It does self-upgrade its binary like any runner, when idle. It does **not apply its template**:
@@ -280,7 +283,7 @@ reaped while idle.
 | `fleet cordon\|uncordon\|drain\|terminate NAME` | section 7 |
 | `fleet enroll-token --template T [--ttl D]` | adopt an existing machine |
 | `fleet teardown` | section 7 |
-| `runner bootstrap --token T [--host] [--sha256 H]` | on the machine: enrol and install the daemon (cloud-init does this for launched runners) |
+| `runner bootstrap --token T [--host [--agent-user U]] [--sha256 H]` | on the machine: enrol and install the daemon (cloud-init does this for launched runners) |
 | `runner run` / `runner status` | the daemon (systemd runs it); local status and a round trip to the controller |
 | `target list\|terminate` | remote targets |
 | `agent ...` | section 2 |
