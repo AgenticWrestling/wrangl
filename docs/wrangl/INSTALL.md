@@ -935,6 +935,21 @@ restarts a session that exits with `claude -c` after a backoff (5 s doubling to 
 line on the project page. A session the host runs that belongs to no project is left alone. The
 controller user must be in the `wrangl-sessions` group to reach the socket.
 
+**Using a primary session from a shell.** As a member of `wrangl-sessions` (on the host, or over ssh):
+
+```
+wrangl session ls                       # slug, Remote Control name, state, pid, uptime, clients
+ssh host -t wrangl session attach proj  # raw-mode terminal, resize follows your window
+wrangl session restart proj             # asks first; the conversation resumes with `claude -c`
+wrangl session stop proj                # asks first (-y skips); the controller starts it again if it keeps one for the project
+```
+
+`attach` shows the session's current screen, then live output, shared with every other client (the web
+terminal included). Detach with **Ctrl-]** then **d**; Ctrl-] twice types one Ctrl-]. Claude binds neither,
+and detaching never stops the session. `--watch` attaches read-only. The socket defaults to
+`~/.local/share/wrangl/sessions.sock`; `--socket` or `WRANGL_SESSIONS_SOCKET` overrides it. Without a
+terminal (`ssh` without `-t`) `attach` refuses.
+
 **One-time `claude` login.** The agent user has its own Claude login, separate from yours. Do this once:
 
 ```

@@ -42,7 +42,7 @@ func NewRoot() *cobra.Command {
 	pf.StringVarP(&g.Output, "output", "o", "table", "output format: table|json|yaml")
 
 	root.AddCommand(
-		controllerCmd(g), runnerCmd(g), sessionHostCmd(), tuiCmd(g),
+		controllerCmd(g), runnerCmd(g), sessionHostCmd(), sessionCmd(g), tuiCmd(g),
 		projectCmd(g), placementCmd(g), repoCmd(g), issueCmd(g), taskCmd(g), runCmd(g), logsCmd(g),
 		prCmd(g), questionCmd(g), templateCmd(g), agentDefCmd(g), secretCmd(g), targetCmd(g), fleetCmd(g), devCmd(g), pushCmd(g), configCmd(g), mcpCmd(g), versionCmd(),
 		newSetupCmd(),
