@@ -935,6 +935,14 @@ restarts a session that exits with `claude -c` after a backoff (5 s doubling to 
 line on the project page. A session the host runs that belongs to no project is left alone. The
 controller user must be in the `wrangl-sessions` group to reach the socket.
 
+**Using a primary session from the web.** With `sessions:` configured, a project with a primary session shows a
+pill (`session running`, `session restarting`, or none) on its Projects row and its project page, and a
+**Session** button that opens `/runner/<host>/term#primary-<slug>`: the host's terminal view with a tab named
+after the project, attached to the session host's PTY through the controller. It is shared live with the CLI and
+any other tab, and watch-only until you press Take control (only then do keystrokes and your window size reach
+the session). The tab is also reachable while the host runner's own daemon is down. A primary session is stopped
+with `wrangl session stop`, not from the tab.
+
 **Using a primary session from a shell.** As a member of `wrangl-sessions` (on the host, or over ssh):
 
 ```

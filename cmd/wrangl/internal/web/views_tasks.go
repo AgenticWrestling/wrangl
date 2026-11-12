@@ -7,8 +7,10 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/api"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
@@ -47,6 +49,7 @@ func (h *Handler) viewTasks(ctx context.Context, view string, r *http.Request, d
 	d["ProjectRunners"], _ = h.D.Projects.Runners(ctx, slug)
 	if h.D.Sessions != nil {
 		d["PrimaryHealth"] = h.D.Sessions.Health(ctx, slug)
+		d["Sess"] = h.sessionFor(ctx, slug)
 	}
 	// Needs you: this project's open questions, task/plan reviews and PRs, as Inbox cards.
 	var qs []proto.QuestionView
@@ -92,6 +95,13 @@ func (h *Handler) viewProjects(ctx context.Context, view string, r *http.Request
 		return err
 	}
 	d["Projects"], d["Rows"] = active, rows
+	if h.D.Sessions != nil {
+		sess := map[string]*sessionBtn{}
+		for _, p := range active {
+			sess[p.Slug] = h.sessionFor(ctx, p.Slug)
+		}
+		d["Sess"] = sess
+	}
 	d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
 	return nil
 }
@@ -183,4 +193,35 @@ func (h *Handler) viewTask(ctx context.Context, view string, r *http.Request, d 
 		}
 	}
 	return nil
+}
+
+// sessionBtn is the Session button and health pill of a project (ADR 0011): State is running,
+// restarting or none; Href opens the host's terminal on the project's tab (empty when there is
+// nothing to open).
+type sessionBtn struct {
+	State, Health, Href string
+}
+
+// hostRunner is the controller host's runner: the machine the session host runs on.
+func (h *Handler) hostRunner(ctx context.Context) (name, state string) {
+	rows, err := h.D.Fleet.DB.RQ.ListRunners(ctx, 0)
+	if err != nil {
+		return "", ""
+	}
+	for _, x := range rows {
+		if x.Runner.Launched == 0 && x.Runner.State != "terminated" {
+			return x.Runner.Name, x.Runner.State
+		}
+	}
+	return "", ""
+}
+
+func (h *Handler) sessionFor(ctx context.Context, slug string) *sessionBtn {
+	b := &sessionBtn{State: h.D.Sessions.State(ctx, slug), Health: h.D.Sessions.Health(ctx, slug)}
+	if b.State != "none" {
+		if name, st := h.hostRunner(ctx); name != "" && termUsable(st) {
+			b.Href = "/runner/" + url.PathEscape(name) + "/term#" + api.PrimaryPrefix + slug
+		}
+	}
+	return b
 }

@@ -358,3 +358,31 @@ func (s SocketHost) Stop(ctx context.Context, slug string) error {
 	_, err := s.C.Do(sessionhost.Request{Op: sessionhost.OpStop, Slug: slug})
 	return err
 }
+
+// State is the pill value for a project: "running", "restarting" (starting, backing off, failed or
+// the host is down: it is expected to come back) or "none" (no session, stopped, or unconfigured).
+func (r *Reconciler) State(ctx context.Context, slug string) string {
+	var id int64
+	if err := r.DB.R.QueryRowContext(ctx, `SELECT id FROM project WHERE slug = ?`, slug).Scan(&id); err != nil {
+		return "none"
+	}
+	x, err := r.load(ctx, id)
+	if err != nil || !x.exists {
+		return "none"
+	}
+	switch x.state {
+	case "running":
+		return "running"
+	case "stopped":
+		return "none"
+	}
+	return "restarting"
+}
+
+// Client is the session host socket client, for the web terminal's attach.
+func (r *Reconciler) Client() sessionhost.Client {
+	if sh, ok := r.Host.(SocketHost); ok {
+		return sh.C
+	}
+	return sessionhost.Client{}
+}

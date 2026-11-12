@@ -773,9 +773,7 @@ func (s *Server) review() deliverables.Review {
 
 // sessionsHealth is the reconciler as api.Deps.Sessions, or nil when it is off (a typed nil would
 // not compare equal to nil in the page code).
-func (s *Server) sessionsHealth() interface {
-	Health(ctx context.Context, slug string) string
-} {
+func (s *Server) sessionsHealth() api.PrimarySessions {
 	if s.sessions == nil {
 		return nil
 	}

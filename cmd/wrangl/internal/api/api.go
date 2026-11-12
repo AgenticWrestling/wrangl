@@ -32,6 +32,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/sessionhost"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 )
 
@@ -92,10 +93,19 @@ type Deps struct {
 	Agents *agents.Service
 	// Diffs serves the review card's diff data (nil: the diffdata routes answer 404).
 	Diffs *diffs.Service
-	// Sessions reports a project's primary-session health line (nil: sessions are not configured).
-	Sessions interface {
-		Health(ctx context.Context, slug string) string
-	}
+	// Sessions is the primary-session reconciler (nil: sessions are not configured).
+	Sessions PrimarySessions
+}
+
+// PrimarySessions is what the web terminal and the project pages need from the primary-session
+// reconciler (ADR 0011).
+type PrimarySessions interface {
+	// Health is the one-line status ("" = no record for the project).
+	Health(ctx context.Context, slug string) string
+	// State is "running", "restarting" or "none".
+	State(ctx context.Context, slug string) string
+	// Client talks to the session host's socket.
+	Client() sessionhost.Client
 }
 
 // Register mounts /api/v1 on mux.

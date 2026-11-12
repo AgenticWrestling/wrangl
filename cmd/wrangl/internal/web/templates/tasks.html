@@ -11,7 +11,7 @@
   <span class="grow"></span>
   {{if not $.Archived}}{{template "actbtn" props "Class" "small danger ic" "Icon" "archive" "Title" "Archive project" "Yes" "Archive" "Confirm" (printf "Archive %s? It and its tasks are hidden and queued runs are cancelled. You can restore it." .Slug) "Post" (printf "/ui/act/project-archive?slug=%s" .Slug)}}{{end}}
 </div>{{end}}
-{{if .PrimaryHealth}}<div class="row small dim" title="primary Claude session (Remote Control name {{.Project}})">Primary session: {{.PrimaryHealth}}</div>{{end}}
+{{with .Sess}}{{if or .Href $.PrimaryHealth}}<div class="row small primary-session" title="primary Claude session (Remote Control name {{$.Project}})">{{template "sesspill" .}} <span class="dim">{{$.PrimaryHealth}}</span><span class="grow"></span>{{template "sessbtn" .}}</div>{{end}}{{end}}
 {{template "needsyou" .Needs}}
 {{template "projchat" .}}
 <div class="bar">
@@ -54,7 +54,7 @@
 <thead><tr><th>Project</th><th class="num">Runners</th><th class="num">In progress</th><th class="num">Queued</th><th class="num">Backlog</th><th class="num">Inbox</th></tr></thead>
 {{range $i, $p := .Rows}}{{$k := print "pj" $i}}<tbody class="lrow prow" id="proj-{{$p.Slug}}" data-signals:{{$k}}__ifmissing="false" data-class:open="{{sig "" $k}}">
 <tr{{template "exprow" props "Key" $k "Title" "Show details"}}>
-<td class="pname"><span class="caret" aria-hidden="true">▸</span> <a href="/projects/{{$p.Slug}}"><b>{{if $p.Name}}{{$p.Name}}{{else}}{{$p.Slug}}{{end}}</b></a> <code class="sqid">{{$p.Slug}}</code></td>
+<td class="pname"><span class="caret" aria-hidden="true">▸</span> <a href="/projects/{{$p.Slug}}"><b>{{if $p.Name}}{{$p.Name}}{{else}}{{$p.Slug}}{{end}}</b></a> <code class="sqid">{{$p.Slug}}</code>{{if $.Sess}}{{with index $.Sess $p.Slug}}{{if ne .State "none"}} {{template "sesspill" .}}{{end}}{{end}}{{end}}</td>
 <td class="num" data-label="Runners">{{template "cnt" $p.Runners}}</td>
 <td class="num" data-label="In progress">{{template "cnt" $p.InProgress}}</td>
 <td class="num" data-label="Queued">{{template "cnt" $p.Queued}}</td>
@@ -70,6 +70,7 @@
   <div class="actions wrap">
     <a class="btn primary small" href="/projects/{{$p.Slug}}">Open</a>
     <a class="btn small" href="/projects/{{$p.Slug}}?chat=1" title="Talk to a controller agent about this project">Comment</a>
+    {{if $.Sess}}{{with index $.Sess $p.Slug}}{{template "sessbtn" .}}{{end}}{{end}}
     <a class="btn small" href="/projects/{{$p.Slug}}/settings">Edit</a>
     {{template "actbtn" props "Class" "small danger" "Label" "Archive" "Confirm" (printf "Archive %s? It and its tasks are hidden and queued runs are cancelled. You can restore it." $p.Slug) "Post" (printf "/ui/act/project-archive?slug=%s" $p.Slug)}}
   </div>
@@ -176,3 +177,6 @@
 {{define "kfilt"}}!!$kfilter && !(el.textContent.toLowerCase().includes($kfilter) || [...document.querySelectorAll('li.task')].some((p) => p != el && p.contains(el) && p.querySelector(':scope > .row').textContent.toLowerCase().includes($kfilter))){{end}}
 
 {{define "opentoggle"}}data-on:click="!(evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.button > 0) && (evt.preventDefault(), $open = ($open == '{{.}}' ? '' : '{{.}}'), @post('/ui/expand?sid=' + $sid + '&sqid=' + $open))" data-attr:aria-expanded="String($open == '{{.}}')"{{end}}
+
+{{define "sesspill"}}<span class="pill sess sess-{{.State}}" title="{{if .Health}}{{.Health}}{{else}}no primary session{{end}}">session {{.State}}</span>{{end}}
+{{define "sessbtn"}}{{if .Href}}<a class="btn small sessbtn" href="{{.Href}}" title="Open the project's primary Claude session (watch-only until Take control)">Session</a>{{end}}{{end}}

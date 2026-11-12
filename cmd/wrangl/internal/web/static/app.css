@@ -643,3 +643,9 @@ pre.udiff span { min-width: max-content; }
 /* Claude sessions on a worker card (ADR 0011 section 4) */
 .sessions { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 4px; }
 .srow .scwd { flex: 1 1 8rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* primary session pill and button (ADR 0011) */
+.pill.sess-running { color: var(--ok, #3fb950); }
+.pill.sess-restarting { color: var(--warn, #d29922); }
+.pill.sess-none { opacity: 0.6; }
+.primary-session { flex-wrap: wrap; }

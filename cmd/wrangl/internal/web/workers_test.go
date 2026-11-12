@@ -71,3 +71,31 @@ func TestRunnersRedirectsToWorkers(t *testing.T) {
 		t.Fatalf("%d %q", rec.Code, rec.Header().Get("Location"))
 	}
 }
+
+func TestSessionPillAndButtonTemplates(t *testing.T) {
+	h, err := New(api.Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(name string, b *sessionBtn) string {
+		var buf bytes.Buffer
+		if err := h.tmpl.ExecuteTemplate(&buf, name, b); err != nil {
+			t.Fatal(err)
+		}
+		return buf.String()
+	}
+	run := &sessionBtn{State: "running", Health: "running, pid 7, up 2m", Href: "/runner/host/term#primary-alpha"}
+	if p := render("sesspill", run); !strings.Contains(p, "sess-running") || !strings.Contains(p, "session running") || !strings.Contains(p, "pid 7") {
+		t.Errorf("pill %s", p)
+	}
+	if b := render("sessbtn", run); !strings.Contains(b, `href="/runner/host/term#primary-alpha"`) || !strings.Contains(b, ">Session<") {
+		t.Errorf("button %s", b)
+	}
+	none := &sessionBtn{State: "none"}
+	if b := render("sessbtn", none); strings.TrimSpace(b) != "" {
+		t.Errorf("a session with nothing to open still has a button: %s", b)
+	}
+	if p := render("sesspill", &sessionBtn{State: "restarting", Health: "ended (exited with code 1); restarting in 5s"}); !strings.Contains(p, "sess-restarting") {
+		t.Errorf("pill %s", p)
+	}
+}

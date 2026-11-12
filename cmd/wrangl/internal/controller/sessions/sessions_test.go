@@ -360,3 +360,28 @@ func TestAgainstRealSessionHost(t *testing.T) {
 		}
 	}
 }
+
+func TestStatePill(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if s := e.r.State(ctx, "alpha"); s != "none" {
+		t.Errorf("before any pass: %s", s)
+	}
+	e.reconcile(t)
+	if s := e.r.State(ctx, "alpha"); s != "running" {
+		t.Errorf("running: %s", s)
+	}
+	e.h.exit("alpha", 1)
+	e.reconcile(t)
+	if s := e.r.State(ctx, "alpha"); s != "restarting" {
+		t.Errorf("backoff: %s", s)
+	}
+	e.d.W.Exec(`UPDATE project SET archived_at = ? WHERE slug = 'alpha'`, dbtime.Format(e.now))
+	e.reconcile(t)
+	if s := e.r.State(ctx, "alpha"); s != "none" {
+		t.Errorf("stopped: %s", s)
+	}
+	if s := e.r.State(ctx, "norepo"); s != "none" || e.r.State(ctx, "missing") != "none" {
+		t.Errorf("no session: %s", s)
+	}
+}
