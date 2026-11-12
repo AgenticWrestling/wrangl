@@ -102,7 +102,7 @@ Start at the index, [`docs/wrangl/README.md`](docs/wrangl/README.md).
 | [INSTALL](docs/wrangl/INSTALL.md), [AWS setup](docs/wrangl/aws-iam.md) | controller, AWS, GitHub Apps, Cloudflare, teardown |
 | [DESIGN](docs/wrangl/DESIGN.md) | architecture and what each feature does |
 | Guides: [projects](docs/wrangl/guide/projects.md), [tasks](docs/wrangl/guide/tasks.md), [runners](docs/wrangl/guide/runners.md), [scheduling](docs/wrangl/guide/scheduling.md) | how the pieces behave |
-| [MCP tools](docs/wrangl/mcp.md), [agent skill](docs/wrangl/skill/) | driving wrangl from your own agents |
+| [MCP tools](docs/wrangl/mcp.md), [agent skill](cmd/wrangl/internal/agentplugin/assets/skills/wrangl/) | driving wrangl from your own agents |
 | [Templates](docs/wrangl/templates/), [agents](docs/wrangl/agents.md), [Android](docs/wrangl/android.md) | runner templates and agent definitions |
 | [Decisions (ADRs)](docs/wrangl/adr/) | why it is built this way |
 | [DEVELOPMENT](docs/wrangl/DEVELOPMENT.md), [release notes](docs/releases/) | building from source, the web UI conventions, releasing |

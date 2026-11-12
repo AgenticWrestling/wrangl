@@ -30,6 +30,9 @@ type Client struct {
 	HTTP    *http.Client
 	Now     func() time.Time
 	Role    string // "" (author) or "reviewer": named in errors
+	// PAT, when set, replaces the App entirely: AppID and Key are then unused and every
+	// request authenticates with this token. See pat.go for what that mode cannot do.
+	PAT string
 }
 
 // LoadKey reads a GitHub App private key (PKCS#1 or PKCS#8 PEM).
@@ -135,12 +138,18 @@ func (c *Client) do(ctx context.Context, method, path, auth string, body any, ou
 }
 
 func (c *Client) appAuth() (string, error) {
+	if c.usesPAT() {
+		return c.patAuth(), nil
+	}
 	j, err := c.AppJWT()
 	return "Bearer " + j, err
 }
 
 // Repo implements API.
 func (c *Client) Repo(ctx context.Context, owner, name string) (Repo, error) {
+	if c.usesPAT() {
+		return c.patRepo(ctx, owner, name)
+	}
 	auth, err := c.appAuth()
 	if err != nil {
 		return Repo{}, err
@@ -179,7 +188,14 @@ func (c *Client) RepoToken(ctx context.Context, r Repo) (string, time.Time, erro
 }
 
 // mintToken mints an installation token scoped to one repository with exactly perms.
+//
+// In PAT mode there is nothing to mint: the token IS the credential, so perms is ignored and
+// the caller gets the PAT. That is the one place where PAT mode is materially weaker than an
+// App, because perms is how every other caller gets least privilege.
 func (c *Client) mintToken(ctx context.Context, r Repo, perms map[string]string) (string, time.Time, error) {
+	if c.usesPAT() {
+		return c.PAT, patExpiry, nil
+	}
 	auth, err := c.appAuth()
 	if err != nil {
 		return "", time.Time{}, err
@@ -246,6 +262,9 @@ func (c *Client) Issues(ctx context.Context, r Repo, state string) ([]Issue, err
 
 // AppOwner returns the login and kind ("user" or "org") of the account that owns this App.
 func (c *Client) AppOwner(ctx context.Context) (login, kind string, err error) {
+	if c.usesPAT() {
+		return c.patOwner(ctx)
+	}
 	auth, err := c.appAuth()
 	if err != nil {
 		return "", "", err
@@ -269,6 +288,9 @@ func (c *Client) AppOwner(ctx context.Context) (login, kind string, err error) {
 
 // ListRepos implements API: the repositories the App can see in owner's installation.
 func (c *Client) ListRepos(ctx context.Context, owner string) ([]Repo, error) {
+	if c.usesPAT() {
+		return c.patListRepos(ctx, owner)
+	}
 	auth, err := c.appAuth()
 	if err != nil {
 		return nil, err

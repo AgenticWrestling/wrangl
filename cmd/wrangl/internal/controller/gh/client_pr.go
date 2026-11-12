@@ -16,6 +16,15 @@ var instCache sync.Map // "<appID>/<owner>/<name>" -> int64
 // tokenFor mints an installation token for this App's installation on r (each App has
 // its own installation, so the author's id stored with the repo is not reused).
 func (c *Client) tokenFor(ctx context.Context, r Repo) (string, error) {
+	// In PAT mode there is no installation to look up, and the lookup is not merely redundant:
+	// GET /repos/{owner}/{repo}/installation accepts ONLY an App JWT, so reaching it with a PAT
+	// returns 401 "A JSON web token could not be decoded" -- which reads as a malformed key
+	// rather than as the wrong KIND of credential. This guard is separate from mintToken's
+	// because tokenFor resolves the installation id before minting, and patching only the mint
+	// left all ten of its call sites broken. Found in the log of a real adopt-PRs pass.
+	if c.usesPAT() {
+		return c.PAT, nil
+	}
 	key := fmt.Sprintf("%d/%s/%s", c.AppID, r.Owner, r.Name)
 	id, ok := instCache.Load(key)
 	if !ok {

@@ -207,7 +207,7 @@ wrangl fleet tunnel  RUNNER RPORT[:LPORT]
 `~/.ssh/config`; absent, the picker runs. Global flags `--profile`, `--region` (and `AWS_PROFILE`,
 `AWS_REGION`) apply. None of the `dev` commands needs a controller or `~/.config/wrangl/config.yaml`
 (only `--template` and `fleet connect` do), so they work at INSTALL.md step 5, before the controller
-exists. `dev` appears in `docs/wrangl/skill/SKILL.md` (the skill test checks every named command exists).
+exists. `dev` appears in `cmd/wrangl/internal/agentplugin/assets/skills/wrangl/SKILL.md` (the skill test checks every named command exists).
 
 ### 3. How mise is used
 
@@ -369,7 +369,7 @@ Out of scope: launching dev instances (the user has their own), Windows, a web U
    ssm. Replace `cli.TeardownEC2`'s config load. Record the binary size before and after.
 2. **Extract `ssmtunnel`.** Move the supervised port-forward loop out of `runner/remote.go` into
    `awsx/ssmtunnel`; keep the `runner` tests green; add `ParsePortSpec`.
-3. **`wrangl dev` access.** `cli/dev.go`: `list`, `connect`, `tunnel`, `start`, `stop`, `fleet connect|tunnel`; picker; `--profile/--region`; register in `root.go`; update `docs/wrangl/skill/SKILL.md`.
+3. **`wrangl dev` access.** `cli/dev.go`: `list`, `connect`, `tunnel`, `start`, `stop`, `fleet connect|tunnel`; picker; `--profile/--region`; register in `root.go`; update `cmd/wrangl/internal/agentplugin/assets/skills/wrangl/SKILL.md`.
 4. **EIC ssh.** `awsx/eic` (key push, endpoint, SG-from-VPC), `devbox` ssh config and keygen (legacy
    marker read), `dev ssh`, `dev ssh-config`, hidden `dev proxy`, `--prepare-network`; tests ported from ssm plus proxy tests with a fake.
 5. **Apply script.** `runner.ApplyScript`, export `runner.ShellTools`, the parity test against `FakeMise`;

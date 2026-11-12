@@ -45,6 +45,7 @@ func NewRoot() *cobra.Command {
 		controllerCmd(g), runnerCmd(g), tuiCmd(g),
 		projectCmd(g), placementCmd(g), repoCmd(g), issueCmd(g), taskCmd(g), runCmd(g), logsCmd(g),
 		prCmd(g), questionCmd(g), templateCmd(g), agentDefCmd(g), secretCmd(g), targetCmd(g), fleetCmd(g), devCmd(g), pushCmd(g), configCmd(g), mcpCmd(g), versionCmd(),
+		newSetupCmd(),
 	)
 	return root
 }
