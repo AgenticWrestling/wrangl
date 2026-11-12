@@ -55,6 +55,32 @@ project becomes active or gains a repo, stops it on archive, restarts with `clau
 the session host; it does not hold PTYs itself. Upgrading the session host is explicit
 (`wrangl session-host restart`, which warns that sessions will resume with `-c`).
 
+**Screen state: `charmbracelet/x/vt` (spiked 2026-11-12).** The session host feeds each PTY's output
+through `vt.SafeEmulator` as well as the scrollback ring, so a reattaching client gets a snapshot of the
+current screen instead of a raw replay. The spike (a Go program driving `top`, `vim` and the real Claude
+TUI in a PTY at 100x30) found:
+
+- **Snapshots are lossless.** Replaying `Render()` into a fresh emulator gave 0 differing lines for top,
+  vim (alternate screen) and Claude's trust prompt. Replaying the raw ring into a client of a different
+  size did not match, which is the failure the emulator exists to avoid.
+- **Resize works.** `pty.Setsize` plus `emu.Resize` plus the child's SIGWINCH made top and Claude
+  re-wrap at 70x20.
+- **Snapshot recipe.** `Render()` separates rows with a bare `\n`, which staircases in a real terminal,
+  so a snapshot is: `ESC[?1049h` if `IsAltScreen()`, `ESC[H ESC[2J`, the render with `\n` replaced by
+  `\r\n`, then the cursor position (`CursorPosition`) and `ESC[?25h/l` from `CursorHidden`.
+- **Not captured:** terminal modes the app set (bracketed paste, mouse, kitty keyboard). The session host
+  tracks those itself from the output stream and re-sends them in the prologue, or paste and mouse
+  misbehave after a reattach. This needs a test.
+- **Must drain `emu.Read`.** The emulator writes the app's query responses (device attributes, cursor
+  position) to its `Read` side; they have to be copied back to the PTY, or the app waits for them.
+- **Slow on bulk scrolling:** about 1 MB/s for 12 MB of scrolling output (with scrollback on or off).
+  Claude's output is KB/s, so this is fine; a runaway `cat` must not stall clients, so the emulator is fed
+  from its own goroutine while raw bytes go straight to attached clients.
+- **Version risk.** The module is `v0.1.0` with an unreleased `ultraviolet` dependency. Pin it, and keep
+  it behind a small interface (`Snapshot() []byte`, `Resize`, `Write`) so it can be replaced.
+- The spike did not test a long real Claude session (tool output, status line churn) or Unicode edge
+  cases. The first session-host task runs that soak test before relying on snapshots.
+
 Why not zellij: one code path for web, SSH and runs instead of two; no nested multiplexer inside the
 web terminal (its key bindings, mouse and status bar clash with Claude's); no extra dependency to
 install on every host; and the registry knows exactly which processes are primary sessions. What zellij
