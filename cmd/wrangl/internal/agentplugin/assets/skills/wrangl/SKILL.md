@@ -48,6 +48,11 @@ Agents hand back non-PR results with the `submit_deliverable` tool (image, proto
 - `wrangl repo link PROJECT owner/name [--branch B]` (the account's GitHub App must be installed on the repo; add the account and create the App on the Setup page), `repo list`, `repo unlink`.
 - `wrangl issue sync|list|show|to-task|drift` - pull GitHub issues in and turn them into tasks. `issue drift PROJECT [--repair]` lists issues whose synced copy differs from GitHub; `--repair` re-syncs them and drops rows GitHub no longer has.
 
+## Delegating work (use this instead of spawning agents yourself)
+- `wrangl delegate "TITLE" -f prompt.md --queue [--project P] [--type T]` creates a task under the project's **Delegated** feature (made on first use) and queues it for a runner in one step; without `--queue` it only creates it. The project defaults to `WRANGL_PROJECT`, the project of `WRANGL_TASK` (inside a run), or the `<slug>` of a `.../primary/<slug>` directory. It prints the sqid.
+- `wrangl task wait SQID [--timeout 30m] [--interval 5s]` blocks until the task is done, waiting for the owner's review (the agent finished), cancelled, or open again after a failed run, then prints the state, summary and runs. Exit 0 for done or review, 1 for cancelled, failed or timeout (a timeout means it is still running; wait again or check `task show`). Prefer this to polling.
+- Long or writing work goes through `delegate`, not a background `claude -p`, an `Agent` subagent that edits, or a workflow: those run on the host outside the queue and starve real runs.
+
 ## Runs, logs, questions, PRs
 - `wrangl run list [--project P] [--runner R] [--state S|active] [--limit N]`, `run show ID`, `run attach ID` (read-only terminal, replays from start), `run diff ID [--stat]`, `run files ID [PATH]`, `run cat ID PATH`, `run cancel ID`.
 - `wrangl logs RUN [-f] [--grep RE] [--since 15m] [--stream agent|runner]`; `wrangl logs search QUERY` (FTS5, all runs).

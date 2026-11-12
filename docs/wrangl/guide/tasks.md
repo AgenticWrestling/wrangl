@@ -316,4 +316,12 @@ wrangl question answer 17 approve
 
 ## See also
 
+## Delegating from a shell or an agent
+
+`wrangl delegate "<title>" -f prompt.md --queue [--project P]` creates the task under a per-project **Delegated**
+feature (created on first use) and queues it in one step; `wrangl task wait <sqid> [--timeout 30m]` blocks until
+it is done, waiting for review, cancelled, or open again after a failed run, and prints the outcome (exit 0 for done
+or review, 1 otherwise). The project is inferred from `WRANGL_PROJECT`, `WRANGL_TASK`, or a `.../primary/<slug>`
+directory. See ADR 0011 section 5.
+
 [Projects](projects.md), [Runners](runners.md), [Task scheduling](scheduling.md) (what happens between `task queue` and a running session), [index](../README.md).
