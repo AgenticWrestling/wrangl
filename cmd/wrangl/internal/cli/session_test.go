@@ -161,9 +161,22 @@ func TestAttachEchoesResizesAndDetachesOnChord(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("chord did not detach")
 	}
-	r, _ := (sessionhost.Client{Path: sock}).Do(sessionhost.Request{Op: sessionhost.OpList})
-	if r.Sessions[0].State != "running" || r.Sessions[0].Clients != 0 {
-		t.Fatalf("detach disturbed the session: %+v", r.Sessions[0])
+	// The host drops the client when it notices the disconnect, which is asynchronous to the
+	// client returning; wait for it to settle instead of asserting immediately.
+	var last sessionhost.Info
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		r, err := (sessionhost.Client{Path: sock}).Do(sessionhost.Request{Op: sessionhost.OpList})
+		if err == nil && len(r.Sessions) > 0 {
+			last = r.Sessions[0]
+			if last.State == "running" && last.Clients == 0 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("detach disturbed the session or left a stale client: %+v", last)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
