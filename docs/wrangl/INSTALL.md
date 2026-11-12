@@ -972,6 +972,26 @@ localhost, and `git push` to the default branch, with force, or with `--all`. Al
 the normal permission rules (including `ask`) still apply. It is not installed by default: the permission lists in ADR
 0011 section 6 are proposed and nothing is written to `/etc/claude-code` until the owner approves.
 
+**Session policy files.** The permission lists of ADR 0011 section 6 are built into the binary but proposed, so nothing
+installs them until you decide:
+
+```
+wrangl policy show --defaults primary        # print a built-in default (managed, primary, run)
+wrangl policy install --worktree /home/wrangl-agent/work/primary/demo     # dry run: prints what it would write
+sudo wrangl policy install --worktree ... --apply                         # writes /etc/claude-code/managed-settings.json
+                                                                          # and <worktree>/.claude/settings.json
+wrangl policy show --worktree ...            # what is in force, and whether it matches the defaults
+```
+
+Managed settings hold the host-wide denies (secrets, `sudo`, force push, `rm -rf`, ...) and register
+`wrangl hook agent-guard`; they are root-owned so a session cannot rewrite them. The per-project file holds the allow,
+ask and deny lists for the primary session and is added to the checkout's `.git/info/exclude`. Install never
+replaces an existing file that differs unless `--force` is given, writes nothing without `--apply`, and refuses to
+write managed settings unless run as root. The `run` default (section 6B, narrower, for queued host runs) is shown but
+applied by the runner, not by this command. Two deviations from the ADR table, because a pattern cannot say
+"outside the worktree": `rm -rf` is denied everywhere, and `cf` and `aws` writes are simply not allowed (so Claude
+asks) rather than listed under ask.
+
 **One-time `claude` login.** The agent user has its own Claude login, separate from yours. Do this once:
 
 ```

@@ -43,7 +43,7 @@ func NewRoot() *cobra.Command {
 
 	root.AddCommand(
 		controllerCmd(g), runnerCmd(g), sessionHostCmd(), sessionCmd(g), tuiCmd(g),
-		projectCmd(g), delegateCmd(g), hookCmd(), placementCmd(g), repoCmd(g), issueCmd(g), taskCmd(g), runCmd(g), logsCmd(g),
+		projectCmd(g), delegateCmd(g), hookCmd(), policyCmd(g), placementCmd(g), repoCmd(g), issueCmd(g), taskCmd(g), runCmd(g), logsCmd(g),
 		prCmd(g), questionCmd(g), templateCmd(g), agentDefCmd(g), secretCmd(g), targetCmd(g), fleetCmd(g), devCmd(g), pushCmd(g), configCmd(g), mcpCmd(g), versionCmd(),
 		newSetupCmd(),
 	)

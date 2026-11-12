@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Read", "Glob", "Grep", "WebFetch", "WebSearch", "Artifact", "Skill", "Monitor", "ToolSearch", "AskUserQuestion",
+      "Edit(@WORKTREE@/**)", "Write(@WORKTREE@/**)", "Edit(@SCRATCH@/**)", "Write(@SCRATCH@/**)",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git fetch:*)", "Bash(git pull:*)",
+      "Bash(git add:*)", "Bash(git commit:*)", "Bash(git checkout:*)", "Bash(git switch:*)", "Bash(git branch:*)",
+      "Bash(git worktree:*)", "Bash(git stash:*)", "Bash(git restore:*)", "Bash(git rebase:*)",
+      "Bash(gh pr:*)", "Bash(gh issue:*)", "Bash(gh run:*)", "Bash(gh api:*)",
+      "Bash(wrangl:*)",
+      "Bash(go build:*)", "Bash(go test:*)", "Bash(go vet:*)", "Bash(go fmt:*)", "Bash(go mod:*)",
+      "Bash(gofmt:*)", "Bash(task:*)", "Bash(mise:*)", "Bash(sed:*)", "Bash(grep:*)", "Bash(rg:*)", "Bash(cat:*)", "Bash(ls:*)",
+      "Bash(find:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(sort:*)", "Bash(jq:*)", "Bash(diff:*)", "Bash(mkdir:*)",
+      "Bash(sleep:*)", "Bash(timeout:*)", "Bash(python3 -I:*)",
+      "Bash(curl:*)",
+      "Bash(aws ec2 describe-*)", "Bash(aws ce get-*)", "Bash(aws ssm describe-*)", "Bash(aws ssm get-*)",
+      "Bash(cf list:*)", "Bash(cf get:*)",
+      "Agent(Explore)", "Agent(Plan)", "Agent(claude-code-guide)"
+    ],
+    "ask": [
+      "Bash(wrangl task delete:*)", "Bash(wrangl task cancel:*)", "Bash(wrangl project delete:*)", "Bash(wrangl pr approve:*)",
+      "Bash(wrangl pr close:*)", "Bash(wrangl fleet terminate:*)", "Bash(wrangl template delete:*)", "Bash(wrangl secret:*)",
+      "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(systemctl --user restart wrangl-controller)", "Bash(ssh:*)"
+    ],
+    "deny": [
+      "Agent(general-purpose)", "Agent(claude)", "Agent(fork)", "Workflow"
+    ]
+  }
+}
