@@ -958,6 +958,20 @@ and detaching never stops the session. `--watch` attaches read-only. The socket 
 `~/.local/share/wrangl/sessions.sock`; `--socket` or `WRANGL_SESSIONS_SOCKET` overrides it. Without a
 terminal (`ssh` without `-t`) `attach` refuses.
 
+**Agent guard hook.** `wrangl hook agent-guard` is a Claude Code `PreToolUse` hook (shipped in the binary, so it
+is versioned with the controller). Register it for all tools in a session's settings:
+
+```json
+{"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "wrangl hook agent-guard"}]}]}}
+```
+
+It denies, with a message that names `wrangl delegate`: the writing `Agent` types (anything but `Explore`, `Plan`
+and `claude-code-guide`), `run_in_background`, `Workflow`, and a `Bash` command that starts Claude (directly, in
+`sh -c`, a substitution, or inside tmux/zellij). It also denies `gh api` calls that are not GET, `curl` to anything but
+localhost, and `git push` to the default branch, with force, or with `--all`. Allowed calls print nothing, so
+the normal permission rules (including `ask`) still apply. It is not installed by default: the permission lists in ADR
+0011 section 6 are proposed and nothing is written to `/etc/claude-code` until the owner approves.
+
 **One-time `claude` login.** The agent user has its own Claude login, separate from yours. Do this once:
 
 ```

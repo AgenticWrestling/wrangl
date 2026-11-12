@@ -14,7 +14,7 @@ import (
 var wantPaths = []string{
 	"controller init", "controller serve", "controller migrate", "controller backup",
 	"controller secret set", "controller secret list", "controller secret rm",
-	"delegate", "task wait", "session-host", "session ls", "session attach", "session restart", "session stop", "runner bootstrap", "runner run", "runner hook", "runner mcp", "runner status",
+	"delegate", "task wait", "hook agent-guard", "session-host", "session ls", "session attach", "session restart", "session stop", "runner bootstrap", "runner run", "runner hook", "runner mcp", "runner status",
 	"tui",
 	"project create", "project list", "project show", "project edit", "project delete",
 	"repo link", "repo unlink", "repo list",
