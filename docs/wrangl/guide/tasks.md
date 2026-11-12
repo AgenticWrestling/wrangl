@@ -314,8 +314,6 @@ wrangl question answer 17 approve
 | A split was rejected as "only open tasks can be split" | The task is in progress, in review or done. Reopen it, or add subtasks to a different parent. |
 | Auto-merge did not merge | It needs every gate, risk low, a type other than `ux`/`architecture`, and no conflicts; the PR-review question says which failed. |
 
-## See also
-
 ## Delegating from a shell or an agent
 
 `wrangl delegate "<title>" -f prompt.md --queue [--project P]` creates the task under a per-project **Delegated**
@@ -323,5 +321,7 @@ feature (created on first use) and queues it in one step; `wrangl task wait <sqi
 it is done, waiting for review, cancelled, or open again after a failed run, and prints the outcome (exit 0 for done
 or review, 1 otherwise). The project is inferred from `WRANGL_PROJECT`, `WRANGL_TASK`, or a `.../primary/<slug>`
 directory. See ADR 0011 section 5.
+
+## See also
 
 [Projects](projects.md), [Runners](runners.md), [Task scheduling](scheduling.md) (what happens between `task queue` and a running session), [index](../README.md).
