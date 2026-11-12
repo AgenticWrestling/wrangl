@@ -912,6 +912,13 @@ This is idempotent for the user (an existing `wrangl-agent` is reused) and:
 Without `--agent-user` nothing changes: the `systemd --user` unit above. Move over by terminating the
 old host runner and enrolling again with a new token.
 
+**Session host (ADR 0011).** Primary Claude sessions live in `wrangl session-host`, a small service apart
+from the controller, so a controller restart or deploy does not end them. Install it as a user unit of
+`wrangl-agent` from `deploy/wrangl/wrangl-sessions.service` (its header has the commands); the deploy script
+restarts `wrangl-controller` only and never touches it. It serves `~/.local/share/wrangl/sessions.sock`
+(mode 0660, group `wrangl-sessions`; create the group and add the controller and your own user to it, and
+make the directory group-traversable). Restarting it ends its sessions, which resume with `claude -c`.
+
 **One-time `claude` login.** The agent user has its own Claude login, separate from yours. Do this once:
 
 ```

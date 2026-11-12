@@ -1,0 +1,20 @@
+# systemd USER unit for the session host (ADR 0011 section 3). Install as the user that runs the
+# primary Claude sessions (wrangl-agent on the controller host):
+#   install -D deploy/wrangl/wrangl-sessions.service ~/.config/systemd/user/wrangl-sessions.service
+#   systemctl --user daemon-reload && systemctl --user enable --now wrangl-sessions
+#   loginctl enable-linger wrangl-agent        # keep it running without a login
+# controller.sh upgrade restarts wrangl-controller only; it never touches this unit, so deploys do
+# not end primary sessions. After installing a new binary, restart it deliberately: sessions end and
+# resume with `claude -c`.
+[Unit]
+Description=wrangl session host (primary Claude session PTYs)
+
+[Service]
+ExecStart=/usr/local/bin/wrangl session-host
+Restart=on-failure
+RestartSec=3
+# A restart of this unit ends the sessions it owns; do not kill the whole cgroup on stop quietly.
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

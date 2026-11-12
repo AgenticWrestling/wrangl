@@ -14,7 +14,7 @@ import (
 var wantPaths = []string{
 	"controller init", "controller serve", "controller migrate", "controller backup",
 	"controller secret set", "controller secret list", "controller secret rm",
-	"runner bootstrap", "runner run", "runner hook", "runner mcp", "runner status",
+	"session-host", "runner bootstrap", "runner run", "runner hook", "runner mcp", "runner status",
 	"tui",
 	"project create", "project list", "project show", "project edit", "project delete",
 	"repo link", "repo unlink", "repo list",
