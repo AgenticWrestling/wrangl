@@ -59,6 +59,31 @@ type Heartbeat struct {
 	BinarySHA string `json:"binary_sha,omitempty"`
 	// Upgrading is true while a self-upgrade is downloading or restarting.
 	Upgrading bool `json:"upgrading,omitempty"`
+	// Claude lists every Claude process found by the /proc scan (ADR 0011 section 4). The
+	// controller keeps the latest list per runner in last_metrics_json.
+	Claude []ClaudeProc `json:"claude,omitempty"`
+}
+
+// Kinds of Claude process in a heartbeat's inventory, decided in this order.
+const (
+	ClaudeRun     = "run"     // the process, or an ancestor, has WRANGL_RUN_ID
+	ClaudePrimary = "primary" // a descendant of the session host
+	ClaudeShell   = "shell"   // started from a wrangl Shell tab
+	ClaudeOther   = "other"   // hand-started or Remote Control: unmanaged
+)
+
+// ClaudeProc is one Claude process seen on a runner.
+type ClaudeProc struct {
+	PID     int       `json:"pid"`
+	Kind    string    `json:"kind"`
+	RunID   int64     `json:"run_id,omitempty"`
+	Task    string    `json:"task,omitempty"` // sqid, from WRANGL_TASK
+	Cwd     string    `json:"cwd,omitempty"`
+	Started time.Time `json:"started,omitzero"`
+	RSS     uint64    `json:"rss_bytes"`
+	CPUSecs float64   `json:"cpu_seconds"` // cumulative user+system time
+	RCName  string    `json:"rc_name,omitempty"`
+	Mux     string    `json:"mux,omitempty"` // "zellij:<session>" or "tmux:<socket>"
 }
 
 // Busy reports whether the runner has a run in progress, from a runner of either vintage.

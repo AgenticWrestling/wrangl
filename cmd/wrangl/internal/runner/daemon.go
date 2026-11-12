@@ -343,6 +343,7 @@ func Run(ctx context.Context, cfg *Config, o DaemonOptions) error {
 		}
 		hb.BinarySHA = binSHA.Load().(string)
 		hb.Upgrading = upgrading.Load()
+		hb.Claude = ScanClaude("/proc", time.Now())
 		b, _ := json.Marshal(hb)
 		if err := nc.Publish(natsd.RunnerHeartbeatSubject(cfg.RunnerID), b); err != nil {
 			o.Log.Warn("heartbeat", "err", err)
