@@ -103,3 +103,14 @@ func TestResolvePrecedence(t *testing.T) {
 		t.Fatal("def")
 	}
 }
+
+func TestControllerSessionsOffByDefault(t *testing.T) {
+	c, err := LoadController(write(t, ""))
+	if err != nil || c.Sessions.Socket != "" || c.Sessions.Dir != "" {
+		t.Fatalf("%+v %v", c.Sessions, err)
+	}
+	c, err = LoadController(write(t, "sessions:\n  socket: /home/wrangl-agent/.local/share/wrangl/sessions.sock\n  dir: /home/wrangl-agent/work/primary\n"))
+	if err != nil || c.Sessions.Socket == "" || c.Sessions.Dir != "/home/wrangl-agent/work/primary" {
+		t.Fatalf("%+v %v", c.Sessions, err)
+	}
+}

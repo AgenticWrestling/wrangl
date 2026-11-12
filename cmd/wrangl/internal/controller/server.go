@@ -48,6 +48,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/scheduler"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/sessions"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/taskreview"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
@@ -57,6 +58,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/mcp"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/runner"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/sessionhost"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stack"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/stacktools"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/web"
@@ -107,6 +109,7 @@ type Server struct {
 	Fleet        *fleet.Service
 	Stack        *stack.Service
 	Projects     *projects.Service
+	sessions     *sessions.Reconciler // nil unless sessions.socket is configured
 	Runs         *runs.Service
 	PRs          *prs.Service
 	Plans        *plans.Service
@@ -309,7 +312,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		s.Push.Notify(webpush.Notification{Title: title, Body: q.Prompt, URL: fmt.Sprintf("/inbox#q%d", q.ID), Tag: fmt.Sprintf("q%d", q.ID)})
 	}
 	s.Fleet.OnOffline = func(name string) {
-		s.Push.Notify(webpush.Notification{Title: "Runner offline", Body: name + " stopped sending heartbeats", URL: "/runners", Tag: "runner-" + name})
+		s.Push.Notify(webpush.Notification{Title: "Runner offline", Body: name + " stopped sending heartbeats", URL: "/workers", Tag: "runner-" + name})
 	}
 	s.Runs.OnRunFinished = func(ctx context.Context, runID int64) {
 		if r, err := s.db.RQ.GetRun(ctx, runID); err == nil && (r.State == "failed" || r.State == "blocked") {
@@ -430,7 +433,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	launchStuck := func(template string, failed int64) {
 		s.Push.Notify(webpush.Notification{Title: "Runners are not enrolling", Body: fmt.Sprintf("%d %s runners in a row never enrolled; launching is paused for an hour. Check the template's image, user-data and network.", failed, template),
-			URL: "/runners", Tag: "enrol-" + template})
+			URL: "/workers", Tag: "enrol-" + template})
 	}
 	sched := &scheduler.Scheduler{OnNeedApp: needApp, OnLaunchStuck: launchStuck, Fleet: s.Fleet, Now: now, Log: s.log, GH: ghAPI,
 		Secret: func(name string) ([]byte, error) { return SecretGet(s.cfg.DataDir, name) }}
@@ -452,6 +455,23 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	reconcile := s.ReconcileInterval
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
+	}
+	if sc := s.cfg.Sessions; sc.Socket != "" {
+		if !filepath.IsAbs(sc.Dir) {
+			s.log.Warn("sessions.socket is set but sessions.dir is not an absolute path: primary sessions are off")
+		} else {
+			rec := &sessions.Reconciler{DB: s.db, Host: sessions.SocketHost{C: sessionhost.Client{Path: sc.Socket}}, Dir: sc.Dir, Now: now, Log: s.log,
+				Token: func(ctx context.Context, r dbgen.Repo) (string, error) {
+					if ghAPI == nil {
+						return "", nil
+					}
+					tok, _, err := ghAPI.RepoToken(ctx, projects.GHRepo(r))
+					return tok, err
+				}}
+			s.sessions = rec
+			loops.Add(1)
+			go func() { defer loops.Done(); rec.Loop(loopCtx, interval) }()
+		}
 	}
 	loops.Add(7)
 	go func() {
@@ -593,7 +613,7 @@ func (s *Server) routes() http.Handler {
 	if s.PRs != nil && s.PRs.Author != nil {
 		diffSvc.GH = func(r gh.Repo) gh.PRAPI { return s.PRs.Author }
 	}
-	deps := api.Deps{Diffs: diffSvc, Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
+	deps := api.Deps{Diffs: diffSvc, Sessions: s.sessionsHealth(), Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
 		Setup: s.setupService(), Secrets: &api.SecretStore{
 			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },
@@ -749,4 +769,13 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 // review is what the deliverable-review flow needs.
 func (s *Server) review() deliverables.Review {
 	return deliverables.Review{Runs: s.Runs, Stack: s.Stack}
+}
+
+// sessionsHealth is the reconciler as api.Deps.Sessions, or nil when it is off (a typed nil would
+// not compare equal to nil in the page code).
+func (s *Server) sessionsHealth() api.PrimarySessions {
+	if s.sessions == nil {
+		return nil
+	}
+	return s.sessions
 }

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read", "Glob", "Grep", "mcp__wrangl",
+      "Edit(@WORKTREE@/**)", "Write(@WORKTREE@/**)",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git checkout:*)", "Bash(git stash:*)",
+      "Bash(go:*)", "Bash(gofmt:*)", "Bash(task:*)", "Bash(mise:*)", "Bash(sed:*)", "Bash(grep:*)", "Bash(cat:*)", "Bash(ls:*)",
+      "Bash(python3 -I:*)", "Bash(sleep:*)", "Bash(mkdir:*)"
+    ],
+    "deny": [
+      "Bash(gh:*)", "Bash(aws:*)", "Bash(cf:*)", "Bash(ssh:*)", "Bash(curl:*)", "Bash(wget:*)", "Bash(systemctl:*)", "Bash(sudo:*)", "Bash(git push:*)"
+    ]
+  }
+}

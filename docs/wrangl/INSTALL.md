@@ -585,7 +585,7 @@ the controller logs a "Cost warning" note every time it launches one (also shown
 agent's `fleet.launch` result), and the template's `idle_timeout` is 24 h so back-to-back runs share
 the host. wrangl launches the instance; allocating the host and choosing the macOS AMI is yours.
 
-Not built yet: the plain `ssh target` escape hatch and signing forwarder, the Runners-page card and
+Not built yet: the plain `ssh target` escape hatch and signing forwarder, the Workers-page card and
 ssh terminal for targets, and EC2 Instance Connect keys.
 
 ### 8.1 Other agents, interactive sessions and Remote Control (experimental)
@@ -817,7 +817,7 @@ runner, in-progress, queued, backlog and inbox counts per project; New project; 
 A **project page** (`/projects/<slug>`) has a "Needs you" strip, In progress, Queue and Backlog sections
 (Queue, Dequeue, up/down, Stop, Queue all; drag a task by its handle to reorder or re-parent it), and a
 Comment button for the project chat with a controller agent. A **task page** (`/task/<sqid>`) edits, splits (by hand or with an agent), adds subtasks or precursors, queues, asks a
-controller agent, and shows runs, deliverables and history. **Runners** (cards with CPU/mem/disk and
+controller agent, and shows runs, deliverables and history. **Workers** (cards with CPU/mem/disk and
 a CPU sparkline, AWS spend, other instances in the account; a detail page with cordon, drain and
 terminate; a web terminal). **Logs** (runs merged with runner, template and upgrade events; log filter,
 read-only live terminal, diff, file browser with markdown preview). **Inbox** (agent questions, plan
@@ -877,7 +877,7 @@ Runner templates for these live in `docs/wrangl/templates/`: `design.yaml` (Play
 
 ### 10.4 The runner terminal and the controller host
 
-Runners view -> Terminal opens `/runner/NAME/term`: one tab per agent session, plus "+ Shell" (fish if installed, else bash; the first shell installs bat, lsd, dust, duf, fd, ripgrep and tldr through mise). Run tabs are watch-only until you tap "Take control"; shell tabs open in control.
+Workers view -> Terminal opens `/runner/NAME/term`: one tab per agent session, plus "+ Shell" (fish if installed, else bash; the first shell installs bat, lsd, dust, duf, fd, ripgrep and tldr through mise). Run tabs are watch-only until you tap "Take control"; shell tabs open in control.
 
 To get a terminal on the controller machine itself, enrol it as a permanent runner (create a template with `arch` set to the host's, e.g. `docs/wrangl/templates/host.yaml`):
 
@@ -886,7 +886,121 @@ wrangl fleet enroll-token --template host
 wrangl runner bootstrap --host --controller http://<private-ip>:4223 --token wre_...
 ```
 
-It runs as a systemd `--user` unit under your own account, is pinned first in the Runners view, is never launched, reaped or powered off by the fleet, and leaves your own mise config alone.
+It runs as a systemd `--user` unit under your own account, is pinned first in the Workers view, is never launched, reaped or powered off by the fleet, and leaves your own mise config alone.
+
+**As a dedicated agent user (ADR 0011).** To keep agents out of your home and the controller's data,
+enrol the host with `--agent-user`:
+
+```
+sudo wrangl runner bootstrap --host --agent-user wrangl-agent --controller http://<private-ip>:4223 --token wre_...
+```
+
+This is idempotent for the user (an existing `wrangl-agent` is reused) and:
+
+- creates `wrangl-agent` with its own home and a bash login shell, no sudo (`useradd --create-home`);
+- installs a **system** unit `wrangl-host-runner.service` that runs the daemon as root, config in
+  `/etc/wrangl-host-runner`, state in `/var/lib/wrangl-host-runner`, socket `/run/wrangl-host/runner.sock`.
+  The daemon drops to `wrangl-agent` for every agent, shell and worktree (the runner's normal drop
+  mode); your own account and home are not touched;
+- puts the runner, and so every agent, shell and primary session it starts, in a systemd slice
+  `wrangl-agent.slice` (`CPUWeight=50`, `MemoryHigh=60%`, `MemoryMax=75%`) so a fan-out of agents
+  cannot starve the controller. Change it with `--slice-cpu-weight`, `--slice-memory-high` and
+  `--slice-memory-max` at bootstrap, or edit `/etc/systemd/system/wrangl-agent.slice`;
+- puts mirrors and run worktrees under `/home/wrangl-agent/work`. Pushes still use the daemon's
+  GitHub credentials, which the agent user cannot read.
+
+Without `--agent-user` nothing changes: the `systemd --user` unit above. Move over by terminating the
+old host runner and enrolling again with a new token.
+
+**Session host (ADR 0011).** Primary Claude sessions live in `wrangl session-host`, a small service apart
+from the controller, so a controller restart or deploy does not end them. Install it as a user unit of
+`wrangl-agent` from `deploy/wrangl/wrangl-sessions.service` (its header has the commands); the deploy script
+restarts `wrangl-controller` only and never touches it. It serves `~/.local/share/wrangl/sessions.sock`
+(mode 0660, group `wrangl-sessions`; create the group and add the controller and your own user to it, and
+make the directory group-traversable). Restarting it ends its sessions, which resume with `claude -c`.
+
+**Primary sessions in the controller.** Off until `controller.yaml` names the host's socket:
+
+```yaml
+sessions:
+  socket: /home/wrangl-agent/.local/share/wrangl/sessions.sock
+  dir: /home/wrangl-agent/work/primary      # a checkout per project at <dir>/<slug>
+```
+
+The controller then keeps one `claude --remote-control <slug> --name <slug>` per active project with a
+linked repo, in `<dir>/<slug>` (the session host clones the repo on its default branch the first time
+and fast-forwards a clean checkout later, using a short-lived GitHub token for that call only). It
+restarts a session that exits with `claude -c` after a backoff (5 s doubling to 10 min, forgotten after
+5 minutes up), stops it when the project is archived or loses its repo, and shows a "Primary session:"
+line on the project page. A session the host runs that belongs to no project is left alone. The
+controller user must be in the `wrangl-sessions` group to reach the socket.
+
+**Using a primary session from the web.** With `sessions:` configured, a project with a primary session shows a
+pill (`session running`, `session restarting`, or none) on its Projects row and its project page, and a
+**Session** button that opens `/runner/<host>/term#primary-<slug>`: the host's terminal view with a tab named
+after the project, attached to the session host's PTY through the controller. It is shared live with the CLI and
+any other tab, and watch-only until you press Take control (only then do keystrokes and your window size reach
+the session). The tab is also reachable while the host runner's own daemon is down. A primary session is stopped
+with `wrangl session stop`, not from the tab.
+
+**Using a primary session from a shell.** As a member of `wrangl-sessions` (on the host, or over ssh):
+
+```
+wrangl session ls                       # slug, Remote Control name, state, pid, uptime, clients
+ssh host -t wrangl session attach proj  # raw-mode terminal, resize follows your window
+wrangl session restart proj             # asks first; the conversation resumes with `claude -c`
+wrangl session stop proj                # asks first (-y skips); the controller starts it again if it keeps one for the project
+```
+
+`attach` shows the session's current screen, then live output, shared with every other client (the web
+terminal included). Detach with **Ctrl-]** then **d**; Ctrl-] twice types one Ctrl-]. Claude binds neither,
+and detaching never stops the session. `--watch` attaches read-only. The socket defaults to
+`~/.local/share/wrangl/sessions.sock`; `--socket` or `WRANGL_SESSIONS_SOCKET` overrides it. Without a
+terminal (`ssh` without `-t`) `attach` refuses.
+
+**Agent guard hook.** `wrangl hook agent-guard` is a Claude Code `PreToolUse` hook (shipped in the binary, so it
+is versioned with the controller). Register it for all tools in a session's settings:
+
+```json
+{"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "wrangl hook agent-guard"}]}]}}
+```
+
+It denies, with a message that names `wrangl delegate`: the writing `Agent` types (anything but `Explore`, `Plan`
+and `claude-code-guide`), `run_in_background`, `Workflow`, and a `Bash` command that starts Claude (directly, in
+`sh -c`, a substitution, or inside tmux/zellij). It also denies `gh api` calls that are not GET, `curl` to anything but
+localhost, and `git push` to the default branch, with force, or with `--all`. Allowed calls print nothing, so
+the normal permission rules (including `ask`) still apply. It is not installed by default: the permission lists in ADR
+0011 section 6 are proposed and nothing is written to `/etc/claude-code` until the owner approves.
+
+**Session policy files.** The permission lists of ADR 0011 section 6 are built into the binary but proposed, so nothing
+installs them until you decide:
+
+```
+wrangl policy show --defaults primary        # print a built-in default (managed, primary, run)
+wrangl policy install --worktree /home/wrangl-agent/work/primary/demo     # dry run: prints what it would write
+sudo wrangl policy install --worktree ... --apply                         # writes /etc/claude-code/managed-settings.json
+                                                                          # and <worktree>/.claude/settings.json
+wrangl policy show --worktree ...            # what is in force, and whether it matches the defaults
+```
+
+Managed settings hold the host-wide denies (secrets, `sudo`, force push, `rm -rf`, ...) and register
+`wrangl hook agent-guard`; they are root-owned so a session cannot rewrite them. The per-project file holds the allow,
+ask and deny lists for the primary session and is added to the checkout's `.git/info/exclude`. Install never
+replaces an existing file that differs unless `--force` is given, writes nothing without `--apply`, and refuses to
+write managed settings unless run as root. The `run` default (section 6B, narrower, for queued host runs) is shown but
+applied by the runner, not by this command. Two deviations from the ADR table, because a pattern cannot say
+"outside the worktree": `rm -rf` is denied everywhere, and `cf` and `aws` writes are simply not allowed (so Claude
+asks) rather than listed under ask.
+
+**One-time `claude` login.** The agent user has its own Claude login, separate from yours. Do this once:
+
+```
+sudo -iu wrangl-agent
+claude        # then /login and finish the browser flow; exit when it shows the prompt
+```
+
+Check with `sudo -iu wrangl-agent claude -p "say ok"`. The login lives in `/home/wrangl-agent/.claude*`
+and is never copied from your home. Remote Control sessions need this login too.
 
 ## 11. First-run checklist (the unverified parts)
 

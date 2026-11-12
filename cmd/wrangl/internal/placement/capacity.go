@@ -3,12 +3,14 @@ package placement
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
 )
 
 // Reserves a launched runner keeps for the OS, the daemon and caches (ADR 0009 section 6.1).
@@ -23,6 +25,26 @@ const (
 	HostRAMMiB  = 12 * 1024
 	HostDiskGiB = 20
 )
+
+// HostPrimaryReserveMiB is what each primary Claude session on the controller host holds resident
+// (ADR 0011 section 3: an idle one held 290-770 MB), taken out of the host's RAM capacity so run
+// placement accounts for it.
+const HostPrimaryReserveMiB = 700
+
+// primarySessions counts the primary sessions in a runner's latest heartbeat.
+func primarySessions(metricsJSON string) int64 {
+	var hb proto.Heartbeat
+	if json.Unmarshal([]byte(metricsJSON), &hb) != nil {
+		return 0
+	}
+	var n int64
+	for _, c := range hb.Claude {
+		if c.Kind == proto.ClaudePrimary {
+			n++
+		}
+	}
+	return n
+}
 
 // Capacity is what a runner can hold and what its active runs have reserved.
 type Capacity struct {
@@ -48,6 +70,9 @@ func DeriveCapacity(launched bool, vcpu, ramMiB, diskGiB int64) (cv, cr, cd int6
 func (s *Service) RunnerCapacity(ctx context.Context, r dbgen.Runner) (Capacity, error) {
 	var c Capacity
 	c.VCPU, c.RAMMiB, c.DiskGiB = DeriveCapacity(r.Launched == 1, r.Vcpu, r.RamMib, r.DiskGib)
+	if r.Launched == 0 { // the host: primary sessions hold RAM the derived default must leave alone
+		c.RAMMiB = max(c.RAMMiB-primarySessions(r.LastMetricsJson)*HostPrimaryReserveMiB, 0)
+	}
 	row, err := s.DB.RQ.GetRunnerCapacity(ctx, r.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return c, err

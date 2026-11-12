@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force:*)", "Bash(git push -f:*)", "Bash(git push*main*)", "Bash(git reset --hard origin/*)",
+      "Bash(rm -rf:*)", "Bash(rm -fr:*)", "Bash(sudo:*)", "Bash(chmod -R:*)",
+      "Read(~/.ssh/**)", "Edit(~/.ssh/**)", "Write(~/.ssh/**)",
+      "Read(~/.aws/**)", "Edit(~/.aws/**)", "Write(~/.aws/**)",
+      "Read(~/.config/wrangl/**)", "Edit(~/.config/wrangl/**)", "Write(~/.config/wrangl/**)",
+      "Read(~/.local/share/wrangl/**)", "Edit(~/.local/share/wrangl/**)", "Write(~/.local/share/wrangl/**)",
+      "Read(~/.claude/settings*.json)", "Edit(~/.claude/settings*.json)", "Write(~/.claude/settings*.json)",
+      "Read(/etc/claude-code/**)", "Edit(/etc/claude-code/**)", "Write(/etc/claude-code/**)",
+      "Read(**/*.pem)", "Edit(**/*.pem)", "Write(**/*.pem)",
+      "Read(**/*secret*)", "Edit(**/*secret*)", "Write(**/*secret*)",
+      "Read(**/.env*)", "Edit(**/.env*)", "Write(**/.env*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "*", "hooks": [{"type": "command", "command": "@WRANGL@ hook agent-guard"}]}
+    ]
+  }
+}

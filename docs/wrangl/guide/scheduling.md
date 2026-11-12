@@ -113,7 +113,7 @@ a time, the slot is not counted until the run is marked assigned right after.
 | **Remote template, no free target** | `queued` | the autoscaler launches a target (within the template's `max_runners`); or `target list` |
 | **Remote template, secret missing** | `waiting: ...` | `wrangl secret set` the connection's secret |
 | **Project archived** | not listed; the run was cancelled on archive | restore the project and queue again |
-| **Launch not allowed** (section 6) | `queued`; demand shown on the Runners page | raise the limit, fix the template |
+| **Launch not allowed** (section 6) | `queued`; demand shown on the Workers page | raise the limit, fix the template |
 
 A run waiting for a slot also gets a reason, with counts: `waiting: no runner of template T yet`, or
 `waiting: no free slot on template T (2 full, 1 starting, 1 cordoned, draining or updating)`; a remote
@@ -159,7 +159,7 @@ for (attribution only: there are no per-project instance limits any more; the ol
 a free session on its **driver** template; the planner counts the driver session as demand on the driver
 template, and the assigner claims neither until both exist.
 
-**Manual launch.** `wrangl fleet launch --template T [--count N]`, the Launch buttons on the Runners page
+**Manual launch.** `wrangl fleet launch --template T [--count N]`, the Launch buttons on the Workers page
 and in Settings, and the controller agent's `fleet.launch` proposal (1 to 5 runners, refused if it would
 exceed the template's `max_runners`) bypass demand. `fleet.Launch` itself checks no limit, so the CLI and
 the buttons can exceed `max_runners`; the agent's proposal goes through `LaunchFor`, which enforces it.
@@ -208,7 +208,7 @@ Work down this list.
    same, and each Queue row on the project page carries the reason beside the run link.
 2. **Is it behind other work?** The Queue section is in assignment order. Runs above it, on its template,
    hold the free slots first. A higher-priority project goes ahead of yours.
-3. **Is there a slot?** Runners page: the Templates card shows `N queued · live/max` per template. A
+3. **Is there a slot?** Workers page: the Templates card shows `N queued · live/max` per template. A
    runner card shows its run; `wrangl fleet show NAME` shows state, cordon/drain flags, applied template
    version and binary state. A runner that is cordoned, draining, `(upgrading)`, provisioning or on an
    older template version takes nothing.
@@ -303,7 +303,7 @@ Work down this list.
   template). *Committed* spend is the sum over every runner that has not been terminated, so launching,
   draining and offline runners count; the host is free; launches planned earlier in the same pass count
   too. A launch is allowed only if committed plus its price stays within the budget (an EC2 Mac host counts
-  24 hours of its price). `placement show`, `fleet list` and the Runners page show spend against the budget,
+  24 hours of its price). `placement show`, `fleet list` and the Workers page show spend against the budget,
   and a Logs note fires once at 80%, re-arming below 70%.
 
   At the ceiling the run waits and says exactly why (`waiting: hourly budget $0.50 reached ($0.47 in use;

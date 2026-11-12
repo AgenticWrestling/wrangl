@@ -1,3 +1,14 @@
+{{define "sessions"}}{{if .Sessions}}<div class="sessions" aria-label="Claude sessions">
+    <div class="row small"><b>Sessions</b> <span class="dim" title="run, primary and shell sessions are managed by wrangl; other sessions were started by hand or by Remote Control">{{.Managed}} managed · {{.Unmanaged}} unmanaged</span></div>
+    {{range .Sessions}}<div class="row small srow k-{{.Kind}}">
+      {{template "tag" props "Class" (printf "pill%s" (or (and (eq .Kind "other") " warn") "")) "Label" (or (and (eq .Kind "other") "unmanaged") .Kind)}}
+      <span class="mono">{{.PID}}</span>
+      {{if .RunID}}<a href="/run/{{.RunID}}">run #{{.RunID}}</a>{{end}}{{if .Task}}<a href="/task/{{.Task}}">{{.Task}}</a>{{end}}{{if .RCName}}<span class="dim" title="Remote Control name">{{.RCName}}</span>{{end}}{{if .Mux}}<span class="dim" title="terminal multiplexer session">{{.Mux}}</span>{{end}}
+      {{if .Cwd}}<span class="dim scwd" title="{{.Cwd}}">{{.Cwd}}</span>{{end}}
+      <span class="grow"></span><span class="dim">{{if .Age}}{{.Age}} · {{end}}{{.Mem}}</span>
+      {{if .Term}}<a class="btn small" href="{{.Term}}">Terminal</a>{{end}}
+    </div>{{end}}
+  </div>{{end}}{{end}}
 {{define "main-runners"}}
 {{with .Budget}}<section class="card{{if .Approaching}} warn{{end}}" aria-label="Hourly budget"><div class="row"><b>Hourly budget</b> <span>${{printf "%.2f" .Committed}} of ${{printf "%.2f" .Limit}}</span><span class="grow"></span><span class="dim small">{{printf "%.0f" .Pct}}% committed by runners that still bill{{if .Approaching}} · approaching the limit{{end}}</span></div></section>{{end}}
 {{if .Spend}}<section class="card spend" aria-label="AWS spend">
@@ -20,7 +31,7 @@
     {{template "actbtn" props "Class" "small" "Label" "Launch" "Confirm" (printf "Launch a %s runner?" .Name) "Post" (printf "/ui/act/fleet-launch?template=%s" .Name)}}
   </div>{{end}}
 </section>{{end}}
-{{if not .Cards}}{{template "empty" props "Msg" "No runners. Launch one from a template above, or" "Code" "wrangl fleet launch" "Tail" "."}}{{end}}
+{{if not .Cards}}{{template "empty" props "Msg" "No workers. Launch one from a template above, or" "Code" "wrangl fleet launch" "Tail" "."}}{{end}}
 {{range .Cards}}<div class="card runner st-{{.R.State}}{{if eq .R.Launched 0}} pinned{{end}}">
   <div class="row"><a class="rlink" href="/runner/{{.R.Name}}"><b>{{.R.Name}}</b></a>{{if eq .R.Launched 0}} {{template "tag" props "Class" "pill host" "Label" "host" "Title" "not launched by the fleet; never reaped"}}{{end}} {{template "tag" props "Class" "pill" "Label" .R.State}}{{if .R.Cordoned}}{{template "tag" props "Class" "pill warn" "Label" "cordoned"}}{{end}}{{if .R.DrainRequested}}{{template "tag" props "Class" "pill warn" "Label" "draining"}}{{end}}{{if .R.UpgradeSha}}{{template "tag" props "State" "upgrading"}}{{end}}{{if .Guard}}{{template "tag" props "Class" "pill warn" "Label" "closed" "Title" .Guard}}{{end}}<span class="grow"></span>{{if termok .R.State}}<a class="btn small" href="/runner/{{.R.Name}}/term">Terminal</a>{{end}}<span class="pill" title="agent sessions in use / allowed on this runner (template max_sessions)">{{.Used}}/{{.T.MaxSessions}} sessions</span> <span class="dim">{{.T.Name}}</span></div>
   {{if .Spec}}<div class="row small dim">{{.Spec}}</div>{{end}}
@@ -35,6 +46,7 @@
     <span>{{usdh .HourlyUSD}}/h{{if .Indicative}}<span class="dim"> ~</span>{{end}}</span><span>today ~{{usd .TodayUSD}}</span><span>month ~{{usd .MonthUSD}}</span>
     {{range .Attached}}<span class="dim">{{.Service}} {{usd .USD}}</span>{{end}}
   </div>{{end}}
+  {{template "sessions" .}}
   {{with .Run}}<div class="row small">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</div>
   {{else}}{{if .R.IdleSince.Valid}}<div class="row small dim">idle since {{ago .R.IdleSince.String}}</div>{{end}}{{end}}
 </div>{{end}}
@@ -102,6 +114,7 @@
     {{template "actbtn" props "Class" "danger ic" "Icon" "power" "Title" "Terminate now" "Aria" "Terminate" "Yes" "Terminate" "Confirm" (printf "Terminate %s?" $r.Name) "Post" (printf "/ui/act/runner?name=%s&op=terminate" $r.Name)}}
   </div>
 </section>
+{{if .Sessions}}<section class="card">{{template "sessions" .}}</section>{{end}}
 {{with .Run}}<section class="card"><h3>Working on</h3>
   <a class="row link" href="/run/{{.ID}}">▶ run #{{.ID}} {{.Kind}} · {{.State}}{{if .StatusText}} · {{.StatusText}}{{end}}</a>
   {{if $.Progress}}<ul class="progress">{{range $.Progress}}<li class="st-{{.State}}" style="padding-left: {{.Depth}}em"><span class="glyph">{{glyph .State}}</span> <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{if eq .ID $.Run.CurrentTaskID.Int64}} {{template "tag" props "Class" "pill" "Label" "current"}}{{end}}</li>{{end}}</ul>{{end}}

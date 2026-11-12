@@ -68,6 +68,16 @@ type Controller struct {
 	Cloudflare Cloudflare `yaml:"cloudflare"`
 	Web        Web        `yaml:"web"`
 	Placement  Placement  `yaml:"placement"`
+	Sessions   Sessions   `yaml:"sessions"`
+}
+
+// Sessions configures the primary-session reconciler (ADR 0011). It is off unless Socket is set.
+type Sessions struct {
+	// Socket is the session host's unix socket (wrangl session-host).
+	Socket string `yaml:"socket"`
+	// Dir is the absolute directory the checkouts live in, <Dir>/<slug>, in the agent user's home
+	// (for example /home/wrangl-agent/work/primary).
+	Dir string `yaml:"dir"`
 }
 
 // Placement is the placement section. Engine is deprecated: the resource-based planner is the only one;

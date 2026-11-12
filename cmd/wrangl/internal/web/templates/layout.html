@@ -89,7 +89,7 @@
   <a class="side-brand" href="/projects" aria-label="wrangl home"><img src="/static/mark.png" alt="" width="36" height="36"><b>wrangl</b></a>
   <a href="/projects" class="{{if or (eq .View "tasks") (eq .View "task") (eq .View "projects") (eq .View "project")}}on{{end}}"><svg class="ni" aria-hidden="true"><use href="#ni-projects"/></svg>Projects</a>
   {{template "subnav" .}}
-  <a href="/runners" class="{{if or (eq .View "runners") (eq .View "runner")}}on{{end}}"><svg class="ni" aria-hidden="true"><use href="#ni-runners"/></svg>Runners</a>
+  <a href="/workers" class="{{if or (eq .View "runners") (eq .View "runner")}}on{{end}}"><svg class="ni" aria-hidden="true"><use href="#ni-runners"/></svg>Workers</a>
   <a href="/logs" class="{{if or (eq .View "logs") (eq .View "run") (eq .View "diff") (eq .View "files")}}on{{end}}"><svg class="ni" aria-hidden="true"><use href="#ni-logs"/></svg>Logs</a>
   <a href="/inbox" class="{{if eq .View "inbox"}}on{{end}}"><svg class="ni" aria-hidden="true"><use href="#ni-inbox"/></svg>Inbox<span id="inbox-badge" class="badge">{{if .Inbox}}{{.Inbox}}{{end}}</span></a>
   <a href="/settings" class="{{if eq .View "settings"}}on{{end}}"><svg class="ni" aria-hidden="true"><use href="#ni-settings"/></svg>Settings</a>

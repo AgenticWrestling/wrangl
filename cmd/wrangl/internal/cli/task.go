@@ -528,7 +528,7 @@ func taskCmd(g *Global) *cobra.Command {
 		},
 	}
 	return group("task", "Manage the hierarchical work stack",
-		create, tree, list, show, edit, move, needs, split, queue, dequeue, ask, thread, apply,
+		create, tree, list, show, edit, move, needs, split, queue, dequeue, ask, thread, apply, taskWaitCmd(g),
 		action("complete", "Mark a leaf done (finished and merged)"),
 		action("reopen", "Reopen a leaf"),
 		action("cancel", "Cancel a task and its unfinished subtasks"),

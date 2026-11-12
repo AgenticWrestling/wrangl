@@ -17,6 +17,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/sessionhost"
 )
 
 // The web terminal: the owner watches (and, after taking control, types into) the PTYs on
@@ -114,8 +115,11 @@ func registerTerm(mux *http.ServeMux, d Deps) {
 		}
 		infos := []proto.TermInfo{}
 		if err := runnerReq(r.Context(), d, row.ID, "term.list", nil, &infos); err != nil {
-			writeErr(w, err)
-			return
+			if d.Sessions == nil || row.Launched != 0 { // the host's primary sessions stay reachable without its runner daemon
+				writeErr(w, err)
+				return
+			}
+			infos = nil
 		}
 		type session struct {
 			ID    string `json:"id"`
@@ -136,6 +140,15 @@ func registerTerm(mux *http.ServeMux, d Deps) {
 				}
 			}
 			out = append(out, s)
+		}
+		if d.Sessions != nil && row.Launched == 0 { // the controller host also shows the primary sessions
+			if r, err := d.Sessions.Client().Do(sessionhost.Request{Op: sessionhost.OpList}); err == nil {
+				for _, i := range r.Sessions {
+					if i.State == "running" {
+						out = append(out, session{ID: PrimaryPrefix + i.Slug, Kind: "primary", Title: i.Slug, Live: true, Cols: uint16(i.Cols), Rows: uint16(i.Rows)})
+					}
+				}
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
 	})
@@ -163,6 +176,10 @@ func registerTerm(mux *http.ServeMux, d Deps) {
 			return
 		}
 		id := r.PathValue("id")
+		if strings.HasPrefix(id, PrimaryPrefix) {
+			writeErr(w, fmt.Errorf("%w: a primary session is not closed from the terminal; use `wrangl session stop`", errs.Conflict))
+			return
+		}
 		if !natsd.TermIDOK(id) {
 			writeErr(w, fmt.Errorf("%w: bad terminal id", errs.Invalid))
 			return
@@ -185,6 +202,14 @@ func registerTerm(mux *http.ServeMux, d Deps) {
 			return
 		}
 		id := r.PathValue("id")
+		if slug, ok := strings.CutPrefix(id, PrimaryPrefix); ok {
+			if d.Sessions == nil || row.Launched != 0 || !primarySlugOK(slug) {
+				writeErr(w, notFound(errs.NotFound, "primary session "+slug))
+				return
+			}
+			servePrimaryTerm(w, r, d, hub, row.ID, id, slug)
+			return
+		}
 		if !natsd.TermIDOK(id) {
 			writeErr(w, fmt.Errorf("%w: bad terminal id", errs.Invalid))
 			return
