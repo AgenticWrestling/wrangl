@@ -79,3 +79,8 @@ func (a *Attached) Resize(cols, rows int) error {
 
 // Detach closes the connection; the session keeps running.
 func (a *Attached) Detach() error { return a.conn.Close() }
+
+// StartRequest builds a start Request.
+func StartRequest(slug, dir, name string) Request {
+	return Request{Op: OpStart, Slug: slug, Dir: dir, Name: name}
+}

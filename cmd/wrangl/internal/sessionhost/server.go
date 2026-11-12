@@ -95,7 +95,7 @@ func (s *Server) conn(ctx context.Context, c net.Conn) {
 	case OpList:
 		reply(Response{OK: true, Sessions: h.List()})
 	case OpStart:
-		i, existing, err := h.Start(req.Slug, req.Dir, req.Name)
+		i, existing, err := h.StartWith(req)
 		if err != nil {
 			reply(Response{Error: err.Error()})
 			return

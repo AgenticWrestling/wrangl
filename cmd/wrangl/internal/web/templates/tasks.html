@@ -11,6 +11,7 @@
   <span class="grow"></span>
   {{if not $.Archived}}{{template "actbtn" props "Class" "small danger ic" "Icon" "archive" "Title" "Archive project" "Yes" "Archive" "Confirm" (printf "Archive %s? It and its tasks are hidden and queued runs are cancelled. You can restore it." .Slug) "Post" (printf "/ui/act/project-archive?slug=%s" .Slug)}}{{end}}
 </div>{{end}}
+{{if .PrimaryHealth}}<div class="row small dim" title="primary Claude session (Remote Control name {{.Project}})">Primary session: {{.PrimaryHealth}}</div>{{end}}
 {{template "needsyou" .Needs}}
 {{template "projchat" .}}
 <div class="bar">

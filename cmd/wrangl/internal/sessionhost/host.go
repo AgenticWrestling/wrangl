@@ -80,6 +80,12 @@ func (h *Host) env() []string {
 // Start runs a session for the slug in dir. It is idempotent: a running session is returned as is
 // (existing=true). One that has ended is started again with resume.
 func (h *Host) Start(slug, dir, name string) (info Info, existing bool, err error) {
+	return h.StartWith(Request{Slug: slug, Dir: dir, Name: name})
+}
+
+// StartWith is Start with the optional worktree preparation and resume of the request.
+func (h *Host) StartWith(req Request) (info Info, existing bool, err error) {
+	slug, dir, name := req.Slug, req.Dir, req.Name
 	if !slugRE.MatchString(slug) {
 		return Info{}, false, fmt.Errorf("invalid slug %q", slug)
 	}
@@ -89,12 +95,9 @@ func (h *Host) Start(slug, dir, name string) (info Info, existing bool, err erro
 	if !filepath.IsAbs(dir) {
 		return Info{}, false, fmt.Errorf("dir %q must be absolute", dir)
 	}
-	if st, e := os.Stat(dir); e != nil || !st.IsDir() {
-		return Info{}, false, fmt.Errorf("dir %q is not a directory", dir)
-	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	resume := false
+	resume := req.Resume
 	if old := h.sess[slug]; old != nil {
 		if i := old.snapshotInfo(); i.State == "running" {
 			return i, true, nil
@@ -102,6 +105,14 @@ func (h *Host) Start(slug, dir, name string) (info Info, existing bool, err erro
 		resume = true
 	} else if len(h.sess) >= h.cfg.MaxSess {
 		return Info{}, false, fmt.Errorf("at the limit of %d sessions", h.cfg.MaxSess)
+	}
+	if req.CloneURL != "" {
+		if err := prepareCheckout(dir, req.CloneURL, req.Branch, req.Token); err != nil {
+			return Info{}, false, err
+		}
+	}
+	if st, e := os.Stat(dir); e != nil || !st.IsDir() {
+		return Info{}, false, fmt.Errorf("dir %q is not a directory", dir)
 	}
 	s, err := h.spawn(Spec{slug, dir, name}, resume)
 	if err != nil {

@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,6 +92,10 @@ type Deps struct {
 	Agents *agents.Service
 	// Diffs serves the review card's diff data (nil: the diffdata routes answer 404).
 	Diffs *diffs.Service
+	// Sessions reports a project's primary-session health line (nil: sessions are not configured).
+	Sessions interface {
+		Health(ctx context.Context, slug string) string
+	}
 }
 
 // Register mounts /api/v1 on mux.

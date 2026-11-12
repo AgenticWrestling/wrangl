@@ -26,6 +26,15 @@ type Request struct {
 	Slug string `json:"slug,omitempty"`
 	Dir  string `json:"dir,omitempty"`  // start: the worktree to run in
 	Name string `json:"name,omitempty"` // start: the Remote Control name (default: the slug)
+	// start: when CloneURL is set the host prepares dir first (clone on the branch, or fast-forward
+	// a clean checkout) as the host's own user. Token is used for that one git call, from the
+	// environment of the git process, and is never stored.
+	CloneURL string `json:"clone_url,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	Token    string `json:"token,omitempty"`
+	// start: continue the previous conversation (`claude -c`) even though this host has no record of
+	// the session, e.g. after the host itself restarted.
+	Resume bool `json:"resume,omitempty"`
 	// attach:
 	Control bool   `json:"control,omitempty"` // may type and resize (watch-only otherwise)
 	Cols    int    `json:"cols,omitempty"`    // size to apply when controlling

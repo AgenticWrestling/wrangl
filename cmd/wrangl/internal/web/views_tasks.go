@@ -45,6 +45,9 @@ func (h *Handler) viewTasks(ctx context.Context, view string, r *http.Request, d
 	d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
 	d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
 	d["ProjectRunners"], _ = h.D.Projects.Runners(ctx, slug)
+	if h.D.Sessions != nil {
+		d["PrimaryHealth"] = h.D.Sessions.Health(ctx, slug)
+	}
 	// Needs you: this project's open questions, task/plan reviews and PRs, as Inbox cards.
 	var qs []proto.QuestionView
 	if all, qerr := h.D.Runs.Questions(ctx, false); qerr == nil {

@@ -919,6 +919,22 @@ restarts `wrangl-controller` only and never touches it. It serves `~/.local/shar
 (mode 0660, group `wrangl-sessions`; create the group and add the controller and your own user to it, and
 make the directory group-traversable). Restarting it ends its sessions, which resume with `claude -c`.
 
+**Primary sessions in the controller.** Off until `controller.yaml` names the host's socket:
+
+```yaml
+sessions:
+  socket: /home/wrangl-agent/.local/share/wrangl/sessions.sock
+  dir: /home/wrangl-agent/work/primary      # a checkout per project at <dir>/<slug>
+```
+
+The controller then keeps one `claude --remote-control <slug> --name <slug>` per active project with a
+linked repo, in `<dir>/<slug>` (the session host clones the repo on its default branch the first time
+and fast-forwards a clean checkout later, using a short-lived GitHub token for that call only). It
+restarts a session that exits with `claude -c` after a backoff (5 s doubling to 10 min, forgotten after
+5 minutes up), stops it when the project is archived or loses its repo, and shows a "Primary session:"
+line on the project page. A session the host runs that belongs to no project is left alone. The
+controller user must be in the `wrangl-sessions` group to reach the socket.
+
 **One-time `claude` login.** The agent user has its own Claude login, separate from yours. Do this once:
 
 ```

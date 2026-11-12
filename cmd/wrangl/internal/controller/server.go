@@ -48,6 +48,8 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/prs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/runs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/scheduler"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/sessions"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/sessionhost"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/taskreview"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/webpush"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
@@ -107,6 +109,7 @@ type Server struct {
 	Fleet        *fleet.Service
 	Stack        *stack.Service
 	Projects     *projects.Service
+	sessions     *sessions.Reconciler // nil unless sessions.socket is configured
 	Runs         *runs.Service
 	PRs          *prs.Service
 	Plans        *plans.Service
@@ -453,6 +456,23 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	if reconcile == 0 {
 		reconcile = 15 * time.Minute
 	}
+	if sc := s.cfg.Sessions; sc.Socket != "" {
+		if !filepath.IsAbs(sc.Dir) {
+			s.log.Warn("sessions.socket is set but sessions.dir is not an absolute path: primary sessions are off")
+		} else {
+			rec := &sessions.Reconciler{DB: s.db, Host: sessions.SocketHost{C: sessionhost.Client{Path: sc.Socket}}, Dir: sc.Dir, Now: now, Log: s.log,
+				Token: func(ctx context.Context, r dbgen.Repo) (string, error) {
+					if ghAPI == nil {
+						return "", nil
+					}
+					tok, _, err := ghAPI.RepoToken(ctx, projects.GHRepo(r))
+					return tok, err
+				}}
+			s.sessions = rec
+			loops.Add(1)
+			go func() { defer loops.Done(); rec.Loop(loopCtx, interval) }()
+		}
+	}
 	loops.Add(7)
 	go func() {
 		defer loops.Done()
@@ -593,7 +613,7 @@ func (s *Server) routes() http.Handler {
 	if s.PRs != nil && s.PRs.Author != nil {
 		diffSvc.GH = func(r gh.Repo) gh.PRAPI { return s.PRs.Author }
 	}
-	deps := api.Deps{Diffs: diffSvc, Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
+	deps := api.Deps{Diffs: diffSvc, Sessions: s.sessionsHealth(), Fleet: s.Fleet, Stack: s.Stack, Projects: s.Projects, Runs: s.Runs, PRs: s.PRs, Plans: s.Plans, Push: s.Push, JS: s.js, Bus: s.Bus, Term: term, Deliverables: s.Deliverables, Costs: s.Costs, Agents: s.Agents,
 		Setup: s.setupService(), Secrets: &api.SecretStore{
 			Set:  func(name string, r io.Reader) error { return SecretSet(s.cfg.DataDir, name, r) },
 			List: func() ([]string, error) { return SecretList(s.cfg.DataDir) },
@@ -749,4 +769,15 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 // review is what the deliverable-review flow needs.
 func (s *Server) review() deliverables.Review {
 	return deliverables.Review{Runs: s.Runs, Stack: s.Stack}
+}
+
+// sessionsHealth is the reconciler as api.Deps.Sessions, or nil when it is off (a typed nil would
+// not compare equal to nil in the page code).
+func (s *Server) sessionsHealth() interface {
+	Health(ctx context.Context, slug string) string
+} {
+	if s.sessions == nil {
+		return nil
+	}
+	return s.sessions
 }

@@ -425,3 +425,47 @@ func TestHostSurvivesClientsAndServerRestartIsExplicit(t *testing.T) {
 		t.Error("two servers on one socket")
 	}
 }
+
+func TestStartPreparesCheckoutAndResumeFlag(t *testing.T) {
+	run := func(dir string, args ...string) {
+		t.Helper()
+		out, err := git(context.Background(), dir, "", args...)
+		if err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	src := t.TempDir()
+	run(src, "init", "-q", "-b", "trunk")
+	run(src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "one")
+	e := newEnv(t, nil)
+	dir := filepath.Join(t.TempDir(), "work", "primary", "p")
+	r, err := e.c.Do(Request{Op: OpStart, Slug: "p", Dir: dir, CloneURL: src, Branch: "trunk", Resume: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf("no checkout: %v", err)
+	}
+	if !r.Session.Resumed {
+		t.Error("Resume not honoured for a session the host has no record of")
+	}
+	// A clean checkout fast-forwards on the next prepare; a dirty one is left alone.
+	run(src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two")
+	if err := prepareCheckout(dir, src, "trunk", ""); err != nil {
+		t.Fatal(err)
+	}
+	log, _ := git(context.Background(), dir, "", "log", "--format=%s")
+	if !strings.Contains(log, "two") {
+		t.Errorf("not fast-forwarded: %q", log)
+	}
+	os.WriteFile(filepath.Join(dir, "scratch"), []byte("x"), 0o644)
+	run(dir, "add", "scratch")
+	run(src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "three")
+	prepareCheckout(dir, src, "trunk", "")
+	if log, _ := git(context.Background(), dir, "", "log", "--format=%s"); strings.Contains(log, "three") {
+		t.Error("a dirty checkout was moved")
+	}
+	if err := prepareCheckout(filepath.Join(t.TempDir(), "x"), "/no/such/repo", "trunk", ""); err == nil {
+		t.Error("clone failure not reported")
+	}
+}
