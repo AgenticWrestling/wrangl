@@ -111,7 +111,7 @@ wrangl repo unlink web your-org/your-repo
 - A task works in one repo, set with `task create --repo owner/name` or inherited from its parent.
   Agents can do the same: `task_create` and `task_update` take an optional `repo` (owner/name, linked to the
   project; an unknown one is an error that lists the linked repos), only on tasks in their own subtree, and
-  `task_get` returns both the task's own `repo` and its `effective_repo`. A run on a task with no repo cannot be assigned. Runs get a one-repo, per-run installation token that only
+  `task_get` returns both the task's own `repo` and its `effective_repo`. A task that resolves to no repo can be queued: its run waits ("waiting: needs a repo") and an Inbox item asks which repo to use. Runs get a one-repo, per-run installation token that only
   the runner daemon uses; the agent never sees it.
 - With more than one repo linked, the web app adds: a **Default repo** selector on the project's Repositories
   card (tasks that name no repo, and whose ancestors name none, write there; "none" makes a queued task wait
@@ -246,6 +246,7 @@ wrangl issue sync web
 | **A project vanished from the lists** | It is archived: `wrangl project list --archived`, then `project restore`. |
 | **Creating a task fails with 409 "archived"** | Restore the project first. |
 | **The project chat does not answer** | It runs a controller agent on the controller host (Settings → Controller agents; by default the `claude` CLI there). Check that the CLI is installed and logged in on that host, and the controller log. |
+| **A queued run says "waiting: needs a repo"** | With several repos linked, nothing sets a repo for the task. Answer the Inbox item, `task edit --repo`, or set `project edit --default-repo`. |
 | **`--notes-repo` is rejected** | Link the repo to the project first (`repo link`). |
 | **A conflicted PR is not fixed by itself** | `--auto-resolve` is off by default; use `wrangl pr resolve ID` or turn it on. |
 

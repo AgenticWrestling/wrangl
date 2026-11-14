@@ -1055,7 +1055,10 @@ func (s *Service) QueueRuns(ctx context.Context, sqid, agent string) ([]dbgen.Ru
 		if err != nil {
 			return err
 		}
-		for _, repoID := range repoIDs {
+		for i, repoID := range repoIDs {
+			// Attempts are numbered per run, so two runs of one subtree never share a branch name (the repo-less
+			// run may later be given a repo another run already pushed to).
+			attempt := n + 1 + int64(i)
 			b := make([]byte, 16)
 			rand.Read(b)
 			b[6] = (b[6] & 0x0f) | 0x40 // UUID v4
@@ -1063,8 +1066,8 @@ func (s *Service) QueueRuns(ctx context.Context, sqid, agent string) ([]dbgen.Ru
 			h := hex.EncodeToString(b)
 			uuid := h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 			run, err := q.QueueRun(ctx, dbgen.QueueRunParams{
-				TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: dbnull.Int(templateID), RepoID: nullRepo(repoID),
-				Branch: fmt.Sprintf("wrangl/%s-%d", sqid, n+1), SessionUuid: uuid,
+				TaskID: t.ID, Kind: "work", Attempt: attempt, TemplateID: dbnull.Int(templateID), RepoID: nullRepo(repoID),
+				Branch: fmt.Sprintf("wrangl/%s-%d", sqid, attempt), SessionUuid: uuid,
 			})
 			if err == nil && repoID == 0 {
 				now := time.Now

@@ -69,4 +69,4 @@ runners and hands the questions and pull requests back to you. The top-level
 | [0010 Question batches](adr/0010-question-batches.md) | proposed, **not built** |
 | [0010 Fold ssm into wrangl, mise for software](adr/0010-fold-ssm-into-wrangl.md) | proposed; **built**, the standalone ssm tool is removed (number clashes with the line above; renumber on merge) |
 | [0011 Primary sessions, Workers view, session policy](adr/0011-primary-sessions-and-session-policy.md) | proposed 2026-11-12, **not built**; permission lists await the owner |
-| [0012 Multi-repo projects](adr/0012-multi-repo-projects.md) | accepted 2026-11-14, being built |
+| [0012 Multi-repo projects](adr/0012-multi-repo-projects.md) | accepted 2026-11-14, built |
