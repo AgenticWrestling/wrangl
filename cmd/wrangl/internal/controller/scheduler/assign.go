@@ -42,6 +42,9 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 			}
 			if !r.RepoID.Valid {
 				s.block(ctx, r.ID, reporesolve.NeedsRepo)
+				if err := s.NoteNeedsRepo(ctx, r.ID); err != nil {
+					errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
+				}
 			}
 		}
 		if !r.TemplateID.Valid || !r.RepoID.Valid {
@@ -90,6 +93,7 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 		assigned = append(assigned, r.ID)
 	}
 	s.resolveUnplaceable(ctx, assigned)
+	s.resolveNeedsRepo(ctx)
 	return assigned, errors.Join(errs...)
 }
 

@@ -261,3 +261,6 @@ SELECT CAST(COALESCE(SUM(t.state <> 'cancelled'), 0) AS INTEGER) AS total,
        CAST(COALESCE(SUM(t.state = 'done'), 0) AS INTEGER) AS done
 FROM task t JOIN sub ON t.id = sub.id
 WHERE NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = t.id);
+
+-- name: SetTaskRepo :exec
+UPDATE task SET repo_id = sqlc.narg(repo_id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = sqlc.arg(id);

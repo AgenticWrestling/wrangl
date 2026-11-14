@@ -448,6 +448,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		s.Push.Notify(webpush.Notification{Title: "A run can't be placed", Body: prompt, URL: "/inbox", Tag: fmt.Sprintf("unplaceable%d", runID)})
 	}
 	s.Runs.AnswerHandlers["unplaceable"] = sched.Answer
+	s.Runs.AnswerHandlers["needs_repo"] = sched.AnswerNeedsRepo
 	if s.Agents != nil {
 		s.Agents.Launch = sched.LaunchFor
 	}

@@ -1133,3 +1133,17 @@ func (q *Queries) UpdateTaskText(ctx context.Context, arg UpdateTaskTextParams) 
 	)
 	return i, err
 }
+
+const setTaskRepo = `-- name: SetTaskRepo :exec
+UPDATE task SET repo_id = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2
+`
+
+type SetTaskRepoParams struct {
+	RepoID sql.NullInt64 `json:"repo_id"`
+	ID     int64         `json:"id"`
+}
+
+func (q *Queries) SetTaskRepo(ctx context.Context, arg SetTaskRepoParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskRepo, arg.RepoID, arg.ID)
+	return err
+}
