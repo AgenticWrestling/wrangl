@@ -292,6 +292,7 @@ func (s *Scheduler) assignOn(ctx context.Context, r dbgen.QueuedRunsForAssignmen
 	if err != nil {
 		return err
 	}
+	readRepos := s.readRepos(ctx, r, repo)
 	runner, err := s.claimRunner(ctx, r.ID, slotTemplate, slotTemplate != r.TemplateID.Int64)
 	if err != nil {
 		if final && errors.Is(err, sql.ErrNoRows) {
@@ -326,7 +327,7 @@ func (s *Scheduler) assignOn(ctx context.Context, r dbgen.QueuedRunsForAssignmen
 		RunID: r.ID, Kind: r.Kind, Continue: r.ContinueBranch == 1, TaskSqid: r.TaskSqid, Repo: repo.Owner + "/" + repo.Name,
 		CloneURL: repo.CloneUrl, BaseBranch: repo.DefaultBranch, Branch: r.Branch, GitToken: token,
 		SessionName: session, SessionUUID: r.SessionUuid, Agent: spec, Env: env, SecretFiles: files,
-		MaxSessions: int(maxSessions), Target: target,
+		MaxSessions: int(maxSessions), Target: target, ReadRepos: readRepos,
 	}
 	b, _ := json.Marshal(a)
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)

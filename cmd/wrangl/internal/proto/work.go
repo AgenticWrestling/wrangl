@@ -138,6 +138,18 @@ type Assignment struct {
 	Env         map[string]string `json:"env,omitempty"`    // resolved secrets for the agent process
 	Target      *TargetConn       `json:"target,omitempty"` // remote runs: the target the driver drives
 	SecretFiles []SecretFile      `json:"secret_files,omitempty"`
+	// ReadRepos are the project's other linked repos, checked out read-only beside the run (ADR 0012 section 6).
+	ReadRepos []ReadRepo `json:"read_repos,omitempty"`
+}
+
+// ReadRepo is one read-only checkout of a repo other than the run's own.
+type ReadRepo struct {
+	Repo     string `json:"repo"` // owner/name
+	Name     string `json:"name"` // directory name under refs/
+	CloneURL string `json:"clone_url"`
+	Branch   string `json:"branch"`
+	Note     string `json:"note,omitempty"`
+	Token    string `json:"token,omitempty"` // contents:read; daemon-only, never given to the agent
 }
 
 // Ack is a generic accepted/declined reply.
@@ -155,6 +167,7 @@ type RunState struct {
 	Pushed   bool   `json:"pushed,omitempty"`
 	ExitCode *int   `json:"exit_code,omitempty"`
 	Error    string `json:"error,omitempty"`
+	Warning  string `json:"warning,omitempty"` // something the owner should see, e.g. a read-only checkout was modified
 }
 
 // Terminal reports whether a run state is final.

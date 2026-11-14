@@ -41,6 +41,7 @@ type ProjectParams struct {
 	AutoMerge, AutoQueue   *bool
 	AutoResolve            *bool // auto-merge queues Smart Merge for conflicted PRs
 	Priority               *int64
+	ReadRepos              *string           // all | none: read-only checkouts of the other linked repos in runs
 	DefaultRepo            *string           // owner/name of a linked repo tasks resolve to when none is set; "" clears
 	NotesRepo              *string           // owner/name of a linked repo that holds research reports; "" clears
 	Agent                  *string           // default agent definition by name; "" clears
@@ -106,7 +107,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.CitationAudit != nil || p.Agent != nil || p.NotesRepo != nil || p.DefaultRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 || len(p.Require) > 0 || len(p.Unrequire) > 0 {
+	if p.CitationAudit != nil || p.Agent != nil || p.NotesRepo != nil || p.DefaultRepo != nil || p.ReadRepos != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 || len(p.Require) > 0 || len(p.Unrequire) > 0 {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -168,6 +169,12 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 	}
 	if err == nil && p.NotesRepo != nil {
 		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
+	}
+	if err == nil && p.ReadRepos != nil {
+		if *p.ReadRepos != "all" && *p.ReadRepos != "none" {
+			return cur, fmt.Errorf("%w: read_repos is all or none", errs.Invalid)
+		}
+		err = s.DB.Q.SetProjectReadRepos(ctx, dbgen.SetProjectReadReposParams{ReadRepos: *p.ReadRepos, ID: cur.ID})
 	}
 	if err == nil && p.DefaultRepo != nil {
 		err = s.SetDefaultRepo(ctx, slug, *p.DefaultRepo)

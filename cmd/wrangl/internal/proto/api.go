@@ -174,6 +174,7 @@ type ProjectRequest struct {
 	AutoResolve   *bool    `json:"auto_resolve,omitempty"`
 	Priority      *int64   `json:"priority,omitempty"`
 	NotesRepo     *string  `json:"notes_repo,omitempty"`   // owner/name of a linked repo; "" clears
+	ReadRepos     *string  `json:"read_repos,omitempty"`   // all (default) | none: read-only checkouts of the other repos
 	DefaultRepo   *string  `json:"default_repo,omitempty"` // owner/name of a linked repo; "" clears
 	Agent         *string  `json:"agent,omitempty"`        // default agent name; "" clears
 	CitationAudit *bool    `json:"citation_audit,omitempty"`
@@ -415,6 +416,7 @@ type RunView struct {
 	BaseSHA      string `json:"base_sha,omitempty"`
 	HeadSHA      string `json:"head_sha,omitempty"`
 	Error        string `json:"error,omitempty"`
+	Warning      string `json:"warning,omitempty"`
 	QueuedAt     string `json:"queued_at"`
 	StartedAt    string `json:"started_at,omitempty"`
 	FinishedAt   string `json:"finished_at,omitempty"`

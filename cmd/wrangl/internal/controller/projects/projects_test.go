@@ -201,3 +201,26 @@ func TestSetRepoNote(t *testing.T) {
 		t.Fatalf("long note: %v", err)
 	}
 }
+
+func TestReadReposSetting(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	sq, _ := stack.NewSqids(stack.DefaultSqidsAlphabet)
+	s := &Service{DB: d, Stack: &stack.Service{DB: d, Sqids: sq}, Now: time.Now}
+	if p, err := s.Create(ctx, "web", ProjectParams{}); err != nil || p.ReadRepos != "all" {
+		t.Fatalf("default: %+v %v", p, err)
+	}
+	bad, none := "some", "none"
+	if _, err := s.Update(ctx, "web", ProjectParams{ReadRepos: &bad}); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("bad value: %v", err)
+	}
+	if p, err := s.Update(ctx, "web", ProjectParams{ReadRepos: &none}); err != nil {
+		t.Fatal(err)
+	} else if got, _ := d.RQ.GetProject(ctx, p.ID); got.ReadRepos != "none" {
+		t.Fatalf("not saved: %q", got.ReadRepos)
+	}
+}

@@ -1147,3 +1147,29 @@ func (q *Queries) SetRunRepo(ctx context.Context, arg SetRunRepoParams) (int64, 
 	}
 	return result.RowsAffected()
 }
+
+const setRunWarning = `-- name: SetRunWarning :exec
+INSERT INTO run_warning (run_id, text) VALUES (?1, ?2)
+ON CONFLICT (run_id) DO UPDATE SET text = excluded.text
+`
+
+type SetRunWarningParams struct {
+	RunID int64  `json:"run_id"`
+	Text  string `json:"text"`
+}
+
+func (q *Queries) SetRunWarning(ctx context.Context, arg SetRunWarningParams) error {
+	_, err := q.db.ExecContext(ctx, setRunWarning, arg.RunID, arg.Text)
+	return err
+}
+
+const getRunWarning = `-- name: GetRunWarning :one
+SELECT text FROM run_warning WHERE run_id = ?
+`
+
+func (q *Queries) GetRunWarning(ctx context.Context, runID int64) (string, error) {
+	row := q.db.QueryRowContext(ctx, getRunWarning, runID)
+	var text string
+	err := row.Scan(&text)
+	return text, err
+}

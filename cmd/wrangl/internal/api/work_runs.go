@@ -63,7 +63,9 @@ func registerRuns(mux *http.ServeMux, d Deps) {
 		}
 		for _, x := range rows {
 			if x.Run.ID == id {
-				return runView(x), nil
+				v := runView(x)
+				v.Warning, _ = db.RQ.GetRunWarning(r.Context(), id)
+				return v, nil
 			}
 		}
 		return proto.RunView{}, fmt.Errorf("%w: run %d", errs.NotFound, id)

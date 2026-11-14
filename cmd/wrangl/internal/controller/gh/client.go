@@ -187,6 +187,12 @@ func (c *Client) RepoToken(ctx context.Context, r Repo) (string, time.Time, erro
 	return c.mintToken(ctx, r, map[string]string{"contents": "write", "pull_requests": "write"})
 }
 
+// RepoReadToken mints a token that can only read the repository's contents, for the read-only checkouts a
+// run gets of the project's other repos (ADR 0012 section 6). In PAT mode it is the PAT.
+func (c *Client) RepoReadToken(ctx context.Context, r Repo) (string, time.Time, error) {
+	return c.mintToken(ctx, r, map[string]string{"contents": "read"})
+}
+
 // mintToken mints an installation token scoped to one repository with exactly perms.
 //
 // In PAT mode there is nothing to mint: the token IS the credential, so perms is ignored and

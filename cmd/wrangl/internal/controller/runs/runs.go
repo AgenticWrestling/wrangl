@@ -105,6 +105,9 @@ func (s *Service) HandleState(ctx context.Context, subject string, data []byte) 
 		return err
 	}
 	defer s.Bus.Run(runID)
+	if st.Warning != "" {
+		s.DB.Q.SetRunWarning(ctx, dbgen.SetRunWarningParams{RunID: runID, Text: st.Warning})
+	}
 	if !proto.Terminal(st.State) {
 		started := sql.NullString{}
 		if st.State == "preparing" || st.State == "running" {

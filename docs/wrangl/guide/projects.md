@@ -120,6 +120,12 @@ wrangl repo unlink web your-org/your-repo
   Queue sheet on the task page that shows the resolved repo and lets you change it before queueing (it is
   then set on the task). `wrangl task edit <sqid> --repo owner/name` does the same from the CLI (`--repo ""`
   clears it), and `wrangl task show` prints the task's repo. A project with a single repo shows none of this.
+- With several repos linked, each run also gets a **read-only checkout of every other linked repo** (default
+  branch as fetched when the run starts, at most 8) under `<runner home>/work/refs/<run id>/<repo name>`, and is
+  told where they are and what each is (the repo notes) in its prompt and in `WRANGL_READ_REPOS`. They are
+  enforced read-only: files are mode `a-w`, the checkout is detached, and the runner fetches them with a
+  `contents:read` token that the agent never sees. If a run changed one, the run gets a warning
+  (`wrangl run show`). `wrangl project edit web --read-repos none` turns it off for a project whose repos are large.
 - A run opens one PR for its subtree. Gates, the review run, auto-merge, Smart Merge and the
   conflict state are covered in INSTALL.md section 9.
 

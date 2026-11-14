@@ -158,6 +158,7 @@ type Project struct {
 	AutoQueue         int64          `json:"auto_queue"`
 	ArchivedAt        sql.NullString `json:"archived_at"`
 	DefaultRepoID     sql.NullInt64  `json:"default_repo_id"`
+	ReadRepos         string         `json:"read_repos"`
 }
 
 type PullRequest struct {

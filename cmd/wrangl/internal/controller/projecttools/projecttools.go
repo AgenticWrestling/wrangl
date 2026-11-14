@@ -45,6 +45,7 @@ type args struct {
 	Priority       *int64            `json:"priority"`
 	NotesRepo      *string           `json:"notes_repo"`
 	DefaultRepo    *string           `json:"default_repo"`
+	ReadRepos      *string           `json:"read_repos"`
 	Agent          *string           `json:"agent"`
 	CitationAudit  *bool             `json:"citation_audit"`
 	AllowTemplates *[]string         `json:"allow_templates"`
@@ -54,7 +55,7 @@ type args struct {
 func (a args) params() projects.ProjectParams {
 	return projects.ProjectParams{Name: a.Name, Description: a.Description, Template: a.Template,
 		PlanTemplate: a.PlanTemplate, AutoMerge: a.AutoMerge, AutoQueue: a.AutoQueue, AutoResolve: a.AutoResolve,
-		Priority: a.Priority, NotesRepo: a.NotesRepo, DefaultRepo: a.DefaultRepo, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates, Need: a.Need}
+		Priority: a.Priority, NotesRepo: a.NotesRepo, DefaultRepo: a.DefaultRepo, ReadRepos: a.ReadRepos, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates, Need: a.Need}
 }
 
 func parse(raw json.RawMessage) (args, error) {

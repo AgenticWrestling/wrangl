@@ -242,3 +242,10 @@ UPDATE run SET repo_id = sqlc.arg(repo_id),
     status_text = CASE WHEN blocked_reason <> '' AND status_text = blocked_reason THEN '' ELSE status_text END,
     blocked_since = NULL, blocked_reason = ''
 WHERE id = sqlc.arg(id) AND state = 'queued' AND repo_id IS NULL;
+
+-- name: SetRunWarning :exec
+INSERT INTO run_warning (run_id, text) VALUES (sqlc.arg(run_id), sqlc.arg(text))
+ON CONFLICT (run_id) DO UPDATE SET text = excluded.text;
+
+-- name: GetRunWarning :one
+SELECT text FROM run_warning WHERE run_id = ?;

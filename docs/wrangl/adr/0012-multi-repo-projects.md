@@ -61,7 +61,7 @@ subtrees are still refused.
 ## 6. Read access to the other repos
 
 - Each run gets a read-only checkout of every other repo linked to the project, at its default branch as fetched
-  when the run starts, next to its own worktree: `<run dir>/../refs/<repo name>`. They come from the runner's
+  when the run starts, next to its own worktree: `<run dir>/../refs/<run id>/<repo name>` (per run, so concurrent runs of one repo do not share a path). They come from the runner's
   shared mirrors (one bare clone per repo, as today); a mirror created only for reading is a blobless partial
   clone, to keep the first fetch small. The agent is told where they are, and what each one is, in its prompt
   and in `WRANGL_READ_REPOS`.

@@ -12,21 +12,22 @@ import (
 // Fake is an in-memory GitHub for tests. Repos are added with AddRepo; their CloneURL can
 // point at a local bare repository (file://...).
 type Fake struct {
-	mu        sync.Mutex
-	repos     map[string]Repo
-	issues    map[string][]Issue
-	Tokens    int // RepoToken calls
-	prs       map[int64]*fakePR
-	nextPR    int64
-	checks    map[string]string
-	defChecks string
-	issuePRs  map[string]bool
-	comments  map[string][]IssueComment
-	calls     FakeCalls
-	writes    []FakeWrite
-	writeErr  error
-	tick      int
-	updates   []int64 // update-branch calls
+	mu         sync.Mutex
+	repos      map[string]Repo
+	issues     map[string][]Issue
+	Tokens     int // RepoToken calls
+	ReadTokens int // RepoReadToken calls
+	prs        map[int64]*fakePR
+	nextPR     int64
+	checks     map[string]string
+	defChecks  string
+	issuePRs   map[string]bool
+	comments   map[string][]IssueComment
+	calls      FakeCalls
+	writes     []FakeWrite
+	writeErr   error
+	tick       int
+	updates    []int64 // update-branch calls
 }
 
 // NewFake returns an empty fake.
@@ -62,6 +63,14 @@ func (f *Fake) RepoToken(_ context.Context, r Repo) (string, time.Time, error) {
 	defer f.mu.Unlock()
 	f.Tokens++
 	return fmt.Sprintf("ghs_fake_%s_%d", r.Name, f.Tokens), time.Now().Add(time.Hour), nil
+}
+
+// RepoReadToken implements ReadTokenAPI.
+func (f *Fake) RepoReadToken(_ context.Context, r Repo) (string, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ReadTokens++
+	return fmt.Sprintf("ghs_fakeread_%s_%d", r.Name, f.ReadTokens), time.Now().Add(time.Hour), nil
 }
 
 // Issues implements API.
