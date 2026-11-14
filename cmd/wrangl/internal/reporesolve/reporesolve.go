@@ -112,3 +112,15 @@ func NextReadyLeaf(ctx context.Context, q *dbgen.Queries, rootID, runID, repoID 
 	}
 	return dbgen.NextReadyLeafRow{}, sql.ErrNoRows
 }
+
+// Name is the owner/name of a repo id ("" for 0 or an unknown id).
+func Name(ctx context.Context, q *dbgen.Queries, repoID int64) string {
+	if repoID == 0 {
+		return ""
+	}
+	r, err := q.GetRepo(ctx, repoID)
+	if err != nil {
+		return ""
+	}
+	return r.Owner + "/" + r.Name
+}

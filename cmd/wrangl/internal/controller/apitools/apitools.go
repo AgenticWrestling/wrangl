@@ -132,6 +132,8 @@ var Routes = []Route{
 	{Name: "repo_list", Desc: "List linked GitHub repos, optionally for one project.", Method: "GET", Path: "/repos", Props: p("project", "string", "project slug")},
 	{Name: "repo_link", Desc: "Link a GitHub repo (owner/name) to a project. The wrangl GitHub App must be installed on it.", Method: "POST", Path: "/projects/{slug}/repos",
 		Props: props(slugArg, p("repo", "string", "owner/name"), p("branch", "string", "default branch override")), Required: []string{"slug", "repo"}},
+	{Name: "repo_edit", Desc: "Set the one-line note on a linked repo (what it is, shown to agents by repo_list); an empty note clears it.", Method: "PATCH", Path: "/projects/{slug}/repos/{owner}/{name}", Pre: splitRepo,
+		Props: props(slugArg, p("repo", "string", "owner/name"), p("note", "string", "one line")), Required: []string{"slug", "repo"}},
 	{Name: "repo_unlink", Desc: "Unlink a repo from a project.", Method: "DELETE", Path: "/projects/{slug}/repos/{owner}/{name}", Pre: splitRepo,
 		Props: props(slugArg, p("repo", "string", "owner/name")), Required: []string{"slug", "repo"}},
 	{Name: "issue_list", Desc: "List synced GitHub issues, optionally for one project (state open by default; closed, all).", Method: "GET", Path: "/issues",

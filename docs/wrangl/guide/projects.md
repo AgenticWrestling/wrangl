@@ -113,6 +113,13 @@ wrangl repo unlink web your-org/your-repo
   project; an unknown one is an error that lists the linked repos), only on tasks in their own subtree, and
   `task_get` returns both the task's own `repo` and its `effective_repo`. A run on a task with no repo cannot be assigned. Runs get a one-repo, per-run installation token that only
   the runner daemon uses; the agent never sees it.
+- With more than one repo linked, the web app adds: a **Default repo** selector on the project's Repositories
+  card (tasks that name no repo, and whose ancestors name none, write there; "none" makes a queued task wait
+  for you to choose); a repo chip on tasks that name one, and a "⚠ needs repo" chip on open tasks that
+  resolve to none; a **needs repo** filter on the backlog; a repo picker in the task's Edit sheet; and a
+  Queue sheet on the task page that shows the resolved repo and lets you change it before queueing (it is
+  then set on the task). `wrangl task edit <sqid> --repo owner/name` does the same from the CLI (`--repo ""`
+  clears it), and `wrangl task show` prints the task's repo. A project with a single repo shows none of this.
 - A run opens one PR for its subtree. Gates, the review run, auto-merge, Smart Merge and the
   conflict state are covered in INSTALL.md section 9.
 

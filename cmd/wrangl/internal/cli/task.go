@@ -201,6 +201,9 @@ func taskCmd(g *Global) *cobra.Command {
 				if t.Type != "" && t.Type != "code" {
 					fmt.Fprintf(w, "type\t%s\n", t.Type)
 				}
+				if t.EffectiveRepo != "" || t.Repo != "" {
+					fmt.Fprintf(w, "repo\t%s\n", repoLine(t.Repo, t.EffectiveRepo))
+				}
 				if t.TargetDate != "" {
 					fmt.Fprintf(w, "target\t%s\n", t.TargetDate)
 				}
@@ -245,7 +248,7 @@ func taskCmd(g *Global) *cobra.Command {
 	}
 
 	edit := &cobra.Command{
-		Use: "edit <sqid>", Short: "Edit a task's title, prompt or type", Args: cobra.ExactArgs(1),
+		Use: "edit <sqid>", Short: "Edit a task's title, prompt, type or repo", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := client()
 			if err != nil {
@@ -267,6 +270,10 @@ func taskCmd(g *Global) *cobra.Command {
 				t, _ := cmd.Flags().GetString("target-date")
 				req.TargetDate = &t
 			}
+			if cmd.Flags().Changed("repo") {
+				t, _ := cmd.Flags().GetString("repo")
+				req.Repo = &t
+			}
 			req.Require, _ = cmd.Flags().GetStringSlice("require")
 			req.Unrequire, _ = cmd.Flags().GetStringSlice("unrequire")
 			if v, _ := cmd.Flags().GetStringSlice("need"); len(v) > 0 {
@@ -284,6 +291,7 @@ func taskCmd(g *Global) *cobra.Command {
 	edit.Flags().String("title", "", "new title")
 	edit.Flags().String("prompt", "", "new prompt")
 	edit.Flags().String("type", "", typeHelp)
+	edit.Flags().String("repo", "", "owner/name of a repo linked to the project that this task writes to (empty clears: inherit)")
 	edit.Flags().String("target-date", "", "target date, YYYY-MM-DD (empty clears it)")
 	edit.Flags().StringP("file", "f", "", "read the new prompt from a file")
 	edit.MarkFlagsMutuallyExclusive("prompt", "file")
@@ -534,4 +542,15 @@ func taskCmd(g *Global) *cobra.Command {
 		action("cancel", "Cancel a task and its unfinished subtasks"),
 		del,
 	)
+}
+
+// repoLine is a task's repo for `task show`: its own, or the one it inherits.
+func repoLine(own, effective string) string {
+	switch {
+	case own != "":
+		return own
+	case effective != "":
+		return effective + " (inherited)"
+	}
+	return "(none: needs a repo)"
 }

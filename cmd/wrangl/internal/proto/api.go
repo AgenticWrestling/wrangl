@@ -209,6 +209,11 @@ type RepoView struct {
 	Note          string `json:"note,omitempty"` // one line shown to agents by repo_list
 }
 
+// RepoPatchRequest edits a linked repo: its note.
+type RepoPatchRequest struct {
+	Note *string `json:"note,omitempty"`
+}
+
 // LinkRepoRequest links owner/name to a project.
 type LinkRepoRequest struct {
 	Repo   string `json:"repo"`
@@ -272,23 +277,25 @@ type TaskRunView struct {
 
 // TaskDetail is GET /api/v1/tasks/{sqid}.
 type TaskDetail struct {
-	Sqid       string          `json:"sqid"`
-	Project    string          `json:"project"`
-	Parent     string          `json:"parent,omitempty"`
-	Title      string          `json:"title"`
-	Prompt     string          `json:"prompt"`
-	State      string          `json:"state"`
-	Type       string          `json:"type"`
-	TargetDate string          `json:"target_date,omitempty"` // YYYY-MM-DD
-	CreatedBy  string          `json:"created_by"`
-	Summary    string          `json:"summary,omitempty"`
-	Need       *NeedView       `json:"need,omitempty"`
-	Requires   []string        `json:"requires,omitempty"` // the task's own capability requirements
-	Children   []TaskRef       `json:"children"`
-	Precursors []TaskRef       `json:"precursors"`
-	Dependents []TaskRef       `json:"dependents"`
-	Runs       []TaskRunView   `json:"runs"`
-	Events     []TaskEventView `json:"events"`
+	Sqid          string          `json:"sqid"`
+	Project       string          `json:"project"`
+	Parent        string          `json:"parent,omitempty"`
+	Title         string          `json:"title"`
+	Prompt        string          `json:"prompt"`
+	State         string          `json:"state"`
+	Type          string          `json:"type"`
+	TargetDate    string          `json:"target_date,omitempty"`    // YYYY-MM-DD
+	Repo          string          `json:"repo,omitempty"`           // the task's own repo (owner/name)
+	EffectiveRepo string          `json:"effective_repo,omitempty"` // where it would write: own, inherited, project default, only repo
+	CreatedBy     string          `json:"created_by"`
+	Summary       string          `json:"summary,omitempty"`
+	Need          *NeedView       `json:"need,omitempty"`
+	Requires      []string        `json:"requires,omitempty"` // the task's own capability requirements
+	Children      []TaskRef       `json:"children"`
+	Precursors    []TaskRef       `json:"precursors"`
+	Dependents    []TaskRef       `json:"dependents"`
+	Runs          []TaskRunView   `json:"runs"`
+	Events        []TaskEventView `json:"events"`
 }
 
 // NeedView is an effective resource need set: formatted values and which layer each came from
@@ -356,6 +363,8 @@ type TaskPatchRequest struct {
 	Unrequire []string `json:"unrequire,omitempty"`
 	// TargetDate: YYYY-MM-DD; "" clears it; nil leaves it.
 	TargetDate *string `json:"target_date,omitempty"`
+	// Repo: owner/name of a linked repo this task writes to; "" clears it (inherit); nil leaves it.
+	Repo *string `json:"repo,omitempty"`
 }
 
 // TaskMoveRequest moves/reranks a task. Parent nil + Root false = keep parent.

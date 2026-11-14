@@ -34,6 +34,7 @@ The rest are thin bridges onto the REST API (`internal/controller/apitools`): ea
 | `project_thread_apply` | Apply proposal n of a project-chat message. |
 | `project_runners` | The runners a project may use and its per-template instance counts. |
 | `repo_list` | List linked GitHub repos, optionally for one project. |
+| `repo_edit` | Set the one-line note on a linked repo (shown to agents by `repo_list`); an empty note clears it. |
 | `repo_link` | Link a GitHub repo (owner/name) to a project. The wrangl GitHub App must be installed on it. |
 | `repo_unlink` | Unlink a repo from a project. |
 | `issue_list` | List synced GitHub issues, optionally for one project (state open by default; closed, all). |
