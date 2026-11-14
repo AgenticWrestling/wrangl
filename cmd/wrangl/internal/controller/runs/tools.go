@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 	"strings"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db"
@@ -269,9 +270,13 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		return out, nil
 
 	case "task_next":
-		leaf, err := s.DB.RQ.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: sc.RootID, RunID: sql.NullInt64{Int64: sc.RunID, Valid: true}})
+		run, err := s.DB.RQ.GetRun(ctx, sc.RunID)
+		if err != nil {
+			return nil, err
+		}
+		leaf, err := reporesolve.NextReadyLeaf(ctx, s.DB.RQ, sc.RootID, sc.RunID, run.RepoID.Int64) // only this run's repo
 		if errors.Is(err, sql.ErrNoRows) {
-			open, _ := s.DB.RQ.CountOpenLeaves(ctx, sc.RootID)
+			open, _ := reporesolve.CountOpenLeaves(ctx, s.DB.RQ, sc.RootID, run.RepoID.Int64)
 			return map[string]any{"done": open == 0, "blocked": open > 0}, nil
 		} else if err != nil {
 			return nil, err

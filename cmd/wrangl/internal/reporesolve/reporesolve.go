@@ -4,6 +4,7 @@ package reporesolve
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbtypes"
@@ -55,3 +56,59 @@ func ResolveIn(ctx context.Context, q *dbgen.Queries, proj dbgen.Project, taskTy
 
 // NeedsRepo is the status of a queued run whose task resolves to no repo.
 const NeedsRepo = "waiting: needs a repo"
+
+// OpenLeafRepos returns the distinct repos (0 = needs one) the open leaves under root resolve to, in
+// the order the leaves are worked.
+func OpenLeafRepos(ctx context.Context, q *dbgen.Queries, rootID int64) ([]int64, error) {
+	ids, err := q.OpenLeafIDs(ctx, rootID)
+	if err != nil {
+		return nil, err
+	}
+	var out []int64
+	seen := map[int64]bool{}
+	for _, id := range ids {
+		r, err := Resolve(ctx, q, id)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[r] {
+			seen[r] = true
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// CountOpenLeaves is the number of open leaves under root that resolve to repoID (0 = needs one).
+func CountOpenLeaves(ctx context.Context, q *dbgen.Queries, rootID, repoID int64) (int64, error) {
+	ids, err := q.OpenLeafIDs(ctx, rootID)
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, id := range ids {
+		if r, err := Resolve(ctx, q, id); err != nil {
+			return 0, err
+		} else if r == repoID {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// NextReadyLeaf is dbgen's NextReadyLeaf restricted to the leaves that resolve to repoID: the run's
+// own repo. sql.ErrNoRows when there is none.
+func NextReadyLeaf(ctx context.Context, q *dbgen.Queries, rootID, runID, repoID int64) (dbgen.NextReadyLeafRow, error) {
+	leaves, err := q.ReadyLeaves(ctx, dbgen.ReadyLeavesParams{RootID: rootID, RunID: sql.NullInt64{Int64: runID, Valid: true}})
+	if err != nil {
+		return dbgen.NextReadyLeafRow{}, err
+	}
+	for _, l := range leaves {
+		if r, err := Resolve(ctx, q, l.ID); err != nil {
+			return dbgen.NextReadyLeafRow{}, err
+		} else if r == repoID {
+			return dbgen.NextReadyLeafRow(l), nil
+		}
+	}
+	return dbgen.NextReadyLeafRow{}, sql.ErrNoRows
+}

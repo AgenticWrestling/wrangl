@@ -1147,3 +1147,88 @@ func (q *Queries) SetTaskRepo(ctx context.Context, arg SetTaskRepoParams) error 
 	_, err := q.db.ExecContext(ctx, setTaskRepo, arg.RepoID, arg.ID)
 	return err
 }
+
+const readyLeaves = `-- name: ReadyLeaves :many
+WITH RECURSIVE sub (id, path) AS (
+    SELECT t.id, t.rank FROM task t WHERE t.id = ?2
+    UNION ALL
+    SELECT c.id, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT task.id, task.sqid, task.title, task.prompt
+FROM sub JOIN task ON task.id = sub.id
+WHERE task.state IN ('open', 'in_progress')
+  AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled')
+  AND NOT EXISTS (
+      SELECT 1 FROM task_dependency d JOIN task p ON p.id = d.depends_on_id
+      WHERE d.task_id = task.id
+        AND NOT (p.state = 'done'
+                 OR (p.state = 'in_review' AND p.completed_run_id = ?1)))
+ORDER BY sub.path
+`
+
+type ReadyLeavesParams struct {
+	RunID  sql.NullInt64 `json:"run_id"`
+	RootID int64         `json:"root_id"`
+}
+
+type ReadyLeavesRow struct {
+	ID     int64          `json:"id"`
+	Sqid   sql.NullString `json:"sqid"`
+	Title  string         `json:"title"`
+	Prompt string         `json:"prompt"`
+}
+
+// Every open leaf under root whose precursors are satisfied (NextReadyLeaf without the limit), in
+// rank order, depth-first; a caller that works per repo takes the first one in its repo.
+func (q *Queries) ReadyLeaves(ctx context.Context, arg ReadyLeavesParams) ([]ReadyLeavesRow, error) {
+	rows, err := q.db.QueryContext(ctx, readyLeaves, arg.RunID, arg.RootID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ReadyLeavesRow{}
+	for rows.Next() {
+		var i ReadyLeavesRow
+		if err := rows.Scan(&i.ID, &i.Sqid, &i.Title, &i.Prompt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}
+
+const openLeafIDs = `-- name: OpenLeafIDs :many
+WITH RECURSIVE sub (id, path) AS (
+    SELECT t.id, t.rank FROM task t WHERE t.id = ?1
+    UNION ALL
+    SELECT c.id, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT task.id FROM sub JOIN task ON task.id = sub.id
+WHERE task.state IN ('open', 'in_progress')
+  AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled')
+ORDER BY sub.path
+`
+
+// Ids of the open leaves under root, in rank order, depth-first.
+func (q *Queries) OpenLeafIDs(ctx context.Context, rootID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, openLeafIDs, rootID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return items, rows.Err()
+}

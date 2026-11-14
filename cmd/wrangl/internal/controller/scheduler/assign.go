@@ -70,8 +70,8 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 			assigned = append(assigned, r.ID)
 			continue
 		}
-		if _, err := q.RQ.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: r.TaskID, RunID: sql.NullInt64{Int64: r.ID, Valid: true}}); errors.Is(err, sql.ErrNoRows) {
-			open, err := q.RQ.CountOpenLeaves(ctx, r.TaskID)
+		if _, err := reporesolve.NextReadyLeaf(ctx, q.RQ, r.TaskID, r.ID, r.RepoID.Int64); errors.Is(err, sql.ErrNoRows) {
+			open, err := reporesolve.CountOpenLeaves(ctx, q.RQ, r.TaskID, r.RepoID.Int64)
 			if err == nil && open == 0 {
 				// Everything was finished or cancelled since it was queued.
 				q.Q.CancelQueuedRun(ctx, dbgen.CancelQueuedRunParams{Now: dbnull.Str(dbtime.Format(s.Now())), ID: r.ID})

@@ -88,3 +88,31 @@ func TestNeedsRepoItemClosesWhenRunCancelled(t *testing.T) {
 		t.Fatalf("item still open: %d", n)
 	}
 }
+
+// Two runs over one milestone, one per repo: the run whose precursor is in the other repo waits with
+// the precursor reason; the run with no open leaves of its repo left is cancelled.
+func TestPerRepoRunsWaitOnCrossRepoPrecursor(t *testing.T) {
+	s, _, _, d := setup(t, 1)
+	ctx := context.Background()
+	d.W.Exec(`UPDATE runner_template SET agent_json = '{"start":["true"]}', max_sessions = 1`)
+	d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, clone_url) VALUES (1, 'o', 'a', 'main', 'file:///x'), (1, 'o', 'b', 'main', 'file:///y')`)
+	if _, err := d.W.Exec(`INSERT INTO task (id, project_id, rank, title) VALUES (1, 1, 'V001', 'ms')`); err != nil {
+		t.Fatal(err)
+	}
+	d.W.Exec(`INSERT INTO task (id, project_id, parent_id, rank, title, repo_id, state, completed_run_id) VALUES (2, 1, 1, 'V001', 'a1', 1, 'in_review', 999)`)
+	d.W.Exec(`INSERT INTO task (id, project_id, parent_id, rank, title, repo_id) VALUES (3, 1, 1, 'V002', 'b1', 2)`)
+	if _, err := d.W.Exec(`INSERT INTO task_dependency (task_id, depends_on_id, created_by) VALUES (3, 2, 'user')`); err != nil {
+		t.Fatal(err)
+	}
+	d.W.Exec(`INSERT INTO run (task_id, template_id, repo_id) VALUES (1, 1, 1), (1, 1, 2)`)
+	s.Assign(ctx)
+	var stA, stB, txtB string
+	d.R.QueryRow(`SELECT state FROM run WHERE repo_id = 1`).Scan(&stA)
+	d.R.QueryRow(`SELECT state, status_text FROM run WHERE repo_id = 2`).Scan(&stB, &txtB)
+	if stA != "cancelled" {
+		t.Fatalf("run A (nothing left in its repo): %s", stA)
+	}
+	if stB != "queued" || txtB != "waiting: precursor tasks are not finished yet" {
+		t.Fatalf("run B: %s %q", stB, txtB)
+	}
+}
