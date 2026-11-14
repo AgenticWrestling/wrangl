@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 	"net/url"
 	"strconv"
 	"strings"
@@ -42,6 +43,9 @@ func actTaskEdit(h *Handler, a *actReq) (res actResult, err error) {
 	}
 	if err == nil {
 		_, err = h.D.Stack.SetTargetDate(a.ctx, a.sqid, a.str("etarget"), stack.User)
+	}
+	if _, ok := a.sig["erepo"]; err == nil && ok { // only sent for a project with several repos
+		_, err = h.D.Stack.SetRepo(a.ctx, a.sqid, a.str("erepo"), stack.User)
 	}
 	res.msg = "saved"
 	return
@@ -86,6 +90,19 @@ func actTaskPlan(h *Handler, a *actReq) (res actResult, err error) {
 
 func actTaskQueue(h *Handler, a *actReq) (res actResult, err error) {
 	res.back = "/projects"
+	// The queue sheet of a project with several repos lets the owner choose the repo first.
+	if repo, ok := a.sig["qrepo"].(string); ok && strings.TrimSpace(repo) != "" {
+		t, terr := h.D.Stack.Task(a.ctx, h.D.Fleet.DB.RQ, a.sqid)
+		if terr != nil {
+			return res, terr
+		}
+		eff, _ := reporesolve.Resolve(a.ctx, h.D.Fleet.DB.RQ, t.ID)
+		if cur := reporesolve.Name(a.ctx, h.D.Fleet.DB.RQ, eff); cur != strings.TrimSpace(repo) { // the choice differs from what it already resolves to
+			if _, err = h.D.Stack.SetRepo(a.ctx, a.sqid, strings.TrimSpace(repo), stack.User); err != nil {
+				return res, err
+			}
+		}
+	}
 	_, err = h.D.Plans.QueueWork(a.ctx, a.sqid)
 	res.msg, res.flash = "queued", a.sqid
 	return

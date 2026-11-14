@@ -219,12 +219,14 @@ type session struct {
 	lastMsg string
 	// interactive drive (M9): one agent session; its Stop hook asks onStop for the next
 	// prompt, and when there is none the daemon ends the session.
-	interactive bool
-	onStop      func(ctx context.Context) (string, bool)
-	secretPaths []string   // secret files to remove when the run ends
-	mirror      string     // the shared bare clone this run's worktree belongs to
-	target      *runTarget // remote runs: the connection to the target
-	cleanup     bool       // remove the worktree when the run ends (set once its work is safely pushed)
+	interactive   bool
+	onStop        func(ctx context.Context) (string, bool)
+	secretPaths   []string       // secret files to remove when the run ends
+	readCheckouts []readCheckout // read-only checkouts of the project's other repos
+	readPrompted  bool           // the agent has been told about them
+	mirror        string         // the shared bare clone this run's worktree belongs to
+	target        *runTarget     // remote runs: the connection to the target
+	cleanup       bool           // remove the worktree when the run ends (set once its work is safely pushed)
 	// agentSession is the agent's own session id, for agents that cannot be given one up
 	// front (Codex, agy, Gemini): read from its JSON output, else from a hook payload.
 	agentSession      string
@@ -361,6 +363,7 @@ func (w *Worker) run(ctx context.Context, a proto.Assignment, rs *runState) {
 	pubCtx := context.WithoutCancel(ctx)
 	dir, id, err := w.workdir(a.RunID)
 	s := &session{w: w, a: a, id: id, dir: dir, interactive: a.Agent.Drive == proto.DriveInteractive && a.Kind == "work"}
+	defer s.removeReadRepos(pubCtx)
 	defer s.removeWorktree(pubCtx) // runs after removeSecrets (LIFO); only acts once cleanup is set: failed runs keep theirs
 	defer s.removeSecrets()
 	w.mu.Lock()
@@ -410,6 +413,7 @@ func (s *session) fail(ctx, pubCtx context.Context, err error) {
 	if ctx.Err() != nil {
 		st = proto.RunState{State: "cancelled", Error: "cancelled"}
 	}
+	st.Warning = s.readWarning(pubCtx)
 	s.state(pubCtx, st)
 }
 
@@ -526,6 +530,7 @@ func (w *Worker) finishRun(ctx, pubCtx context.Context, s *session, fail func(er
 		final.State, final.Status = "blocked", "remaining tasks wait on precursors outside this run"
 	}
 	s.cleanup = !blocked
+	final.Warning = s.readWarning(pubCtx)
 	s.state(pubCtx, final)
 }
 
@@ -550,6 +555,7 @@ func (w *Worker) prepare(ctx context.Context, s *session) (string, error) {
 	if err := chownTree(dir, id); err != nil {
 		return "", err
 	}
+	w.addReadRepos(ctx, s)
 	if err := w.setIdentity(ctx, s); err != nil {
 		return "", err
 	}
@@ -723,6 +729,12 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 		nn.Prompt = lateAnswersPrompt(late) + n.Prompt
 		n = &nn
 	}
+	if p := s.readReposPrompt(); p != "" && !s.readPrompted {
+		s.readPrompted = true
+		nn := *n
+		nn.Prompt = p + n.Prompt
+		n = &nn
+	}
 	vars := s.vars(n.Prompt)
 	vars["TaskSqid"] = n.Sqid
 	argv := make([]string, len(argvTmpl))
@@ -743,6 +755,9 @@ func (w *Worker) turn(ctx context.Context, s *session, argvTmpl []string, n *pro
 		"PATH=" + strings.Join([]string{home + "/.local/share/mise/shims", home + "/.local/bin", filepath.Dir(w.Cfg.MiseBin), "/usr/local/bin", "/usr/bin", "/bin"}, ":"),
 		"WRANGL_RUN_ID=" + strconv.FormatInt(s.a.RunID, 10), "WRANGL_TASK=" + n.Sqid,
 		"WRANGL_SOCK=" + w.Cfg.Socket(),
+	}
+	if len(s.readCheckouts) > 0 {
+		cmd.Env = append(cmd.Env, "WRANGL_READ_REPOS="+s.readReposEnv())
 	}
 	if v := os.Getenv("HTTPS_PROXY"); v != "" {
 		cmd.Env = append(cmd.Env, "HTTPS_PROXY="+v, "https_proxy="+v)

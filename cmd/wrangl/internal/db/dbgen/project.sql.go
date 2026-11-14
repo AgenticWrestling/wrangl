@@ -13,7 +13,7 @@ import (
 const createProject = `-- name: CreateProject :one
 INSERT INTO project (slug, name, description, default_template_id)
 VALUES (?, ?, ?, ?)
-RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at, default_repo_id, read_repos
 `
 
 type CreateProjectParams struct {
@@ -46,6 +46,8 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.UpdatedAt,
 		&i.AutoQueue,
 		&i.ArchivedAt,
+		&i.DefaultRepoID,
+		&i.ReadRepos,
 	)
 	return i, err
 }
@@ -53,7 +55,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 const createRepo = `-- name: CreateRepo :one
 INSERT INTO repo (project_id, owner, name, default_branch, gh_installation_id, clone_url)
 VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url
+RETURNING id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url, note
 `
 
 type CreateRepoParams struct {
@@ -84,6 +86,7 @@ func (q *Queries) CreateRepo(ctx context.Context, arg CreateRepoParams) (Repo, e
 		&i.GhInstallationID,
 		&i.CreatedAt,
 		&i.CloneUrl,
+		&i.Note,
 	)
 	return i, err
 }
@@ -167,7 +170,7 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at FROM project WHERE id = ?
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at, default_repo_id, read_repos FROM project WHERE id = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
@@ -188,12 +191,14 @@ func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
 		&i.UpdatedAt,
 		&i.AutoQueue,
 		&i.ArchivedAt,
+		&i.DefaultRepoID,
+		&i.ReadRepos,
 	)
 	return i, err
 }
 
 const getProjectBySlug = `-- name: GetProjectBySlug :one
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at FROM project WHERE slug = ?
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at, default_repo_id, read_repos FROM project WHERE slug = ?
 `
 
 func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (Project, error) {
@@ -214,12 +219,14 @@ func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (Project, e
 		&i.UpdatedAt,
 		&i.AutoQueue,
 		&i.ArchivedAt,
+		&i.DefaultRepoID,
+		&i.ReadRepos,
 	)
 	return i, err
 }
 
 const getProjectRepo = `-- name: GetProjectRepo :one
-SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url FROM repo WHERE project_id = ? AND owner = ? AND name = ?
+SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url, note FROM repo WHERE project_id = ? AND owner = ? AND name = ?
 `
 
 type GetProjectRepoParams struct {
@@ -240,12 +247,13 @@ func (q *Queries) GetProjectRepo(ctx context.Context, arg GetProjectRepoParams) 
 		&i.GhInstallationID,
 		&i.CreatedAt,
 		&i.CloneUrl,
+		&i.Note,
 	)
 	return i, err
 }
 
 const getRepo = `-- name: GetRepo :one
-SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url FROM repo WHERE id = ?
+SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url, note FROM repo WHERE id = ?
 `
 
 func (q *Queries) GetRepo(ctx context.Context, id int64) (Repo, error) {
@@ -260,6 +268,7 @@ func (q *Queries) GetRepo(ctx context.Context, id int64) (Repo, error) {
 		&i.GhInstallationID,
 		&i.CreatedAt,
 		&i.CloneUrl,
+		&i.Note,
 	)
 	return i, err
 }
@@ -323,7 +332,7 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at FROM project
+SELECT id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at, default_repo_id, read_repos FROM project
 WHERE CAST(?1 AS TEXT) = 'all'
    OR (CAST(?1 AS TEXT) = 'archived' AND archived_at IS NOT NULL)
    OR (CAST(?1 AS TEXT) NOT IN ('all', 'archived') AND archived_at IS NULL)
@@ -355,6 +364,8 @@ func (q *Queries) ListProjects(ctx context.Context, archived string) ([]Project,
 			&i.UpdatedAt,
 			&i.AutoQueue,
 			&i.ArchivedAt,
+			&i.DefaultRepoID,
+			&i.ReadRepos,
 		); err != nil {
 			return nil, err
 		}
@@ -370,7 +381,7 @@ func (q *Queries) ListProjects(ctx context.Context, archived string) ([]Project,
 }
 
 const listRepos = `-- name: ListRepos :many
-SELECT r.id, r.project_id, r.owner, r.name, r.default_branch, r.gh_installation_id, r.created_at, r.clone_url, CAST(p.slug AS TEXT) AS project_slug
+SELECT r.id, r.project_id, r.owner, r.name, r.default_branch, r.gh_installation_id, r.created_at, r.clone_url, r.note, CAST(p.slug AS TEXT) AS project_slug
 FROM repo r JOIN project p ON p.id = r.project_id
 WHERE ?1 = 0 OR r.project_id = ?1
 ORDER BY p.slug, r.owner, r.name
@@ -399,6 +410,7 @@ func (q *Queries) ListRepos(ctx context.Context, projectID interface{}) ([]ListR
 			&i.Repo.GhInstallationID,
 			&i.Repo.CreatedAt,
 			&i.Repo.CloneUrl,
+			&i.Repo.Note,
 			&i.ProjectSlug,
 		); err != nil {
 			return nil, err
@@ -421,7 +433,7 @@ SET name = ?1, description = ?2,
     auto_merge = ?5, auto_queue = ?6, priority = ?7,
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE id = ?8
-RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at, default_repo_id, read_repos
 `
 
 type UpdateProjectParams struct {
@@ -462,6 +474,8 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (P
 		&i.UpdatedAt,
 		&i.AutoQueue,
 		&i.ArchivedAt,
+		&i.DefaultRepoID,
+		&i.ReadRepos,
 	)
 	return i, err
 }
@@ -546,7 +560,7 @@ func (q *Queries) ClearNotesRepo(ctx context.Context, projectID int64) error {
 const archiveProject = `-- name: ArchiveProject :one
 UPDATE project SET archived_at = ?1, updated_at = ?1
 WHERE id = ?2 AND archived_at IS NULL
-RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at, default_repo_id, read_repos
 `
 
 type ArchiveProjectParams struct {
@@ -572,6 +586,8 @@ func (q *Queries) ArchiveProject(ctx context.Context, arg ArchiveProjectParams) 
 		&i.UpdatedAt,
 		&i.AutoQueue,
 		&i.ArchivedAt,
+		&i.DefaultRepoID,
+		&i.ReadRepos,
 	)
 	return i, err
 }
@@ -579,7 +595,7 @@ func (q *Queries) ArchiveProject(ctx context.Context, arg ArchiveProjectParams) 
 const restoreProject = `-- name: RestoreProject :one
 UPDATE project SET archived_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE id = ? AND archived_at IS NOT NULL
-RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at
+RETURNING id, slug, name, description, default_template_id, plan_template_id, auto_merge, protected_paths, max_auto_merge_lines, priority, created_at, updated_at, auto_queue, archived_at, default_repo_id, read_repos
 `
 
 func (q *Queries) RestoreProject(ctx context.Context, id int64) (Project, error) {
@@ -600,6 +616,51 @@ func (q *Queries) RestoreProject(ctx context.Context, id int64) (Project, error)
 		&i.UpdatedAt,
 		&i.AutoQueue,
 		&i.ArchivedAt,
+		&i.DefaultRepoID,
+		&i.ReadRepos,
 	)
 	return i, err
+}
+
+const setProjectDefaultRepo = `-- name: SetProjectDefaultRepo :exec
+UPDATE project SET default_repo_id = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?2
+`
+
+type SetProjectDefaultRepoParams struct {
+	DefaultRepoID sql.NullInt64 `json:"default_repo_id"`
+	ID            int64         `json:"id"`
+}
+
+func (q *Queries) SetProjectDefaultRepo(ctx context.Context, arg SetProjectDefaultRepoParams) error {
+	_, err := q.db.ExecContext(ctx, setProjectDefaultRepo, arg.DefaultRepoID, arg.ID)
+	return err
+}
+
+const setRepoNote = `-- name: SetRepoNote :exec
+UPDATE repo SET note = ?1 WHERE id = ?2
+`
+
+type SetRepoNoteParams struct {
+	Note string `json:"note"`
+	ID   int64  `json:"id"`
+}
+
+func (q *Queries) SetRepoNote(ctx context.Context, arg SetRepoNoteParams) error {
+	_, err := q.db.ExecContext(ctx, setRepoNote, arg.Note, arg.ID)
+	return err
+}
+
+const setProjectReadRepos = `-- name: SetProjectReadRepos :exec
+UPDATE project SET read_repos = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2
+`
+
+type SetProjectReadReposParams struct {
+	ReadRepos string `json:"read_repos"`
+	ID        int64  `json:"id"`
+}
+
+func (q *Queries) SetProjectReadRepos(ctx context.Context, arg SetProjectReadReposParams) error {
+	_, err := q.db.ExecContext(ctx, setProjectReadRepos, arg.ReadRepos, arg.ID)
+	return err
 }

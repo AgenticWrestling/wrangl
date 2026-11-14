@@ -70,6 +70,9 @@ func runCmd(g *Global) *cobra.Command {
 				if r.BlockedSince != "" {
 					fmt.Fprintf(w, "waiting since\t%s\n", r.BlockedSince)
 				}
+				if r.Warning != "" {
+					fmt.Fprintf(w, "warning\t%s\n", r.Warning)
+				}
 				if r.Error != "" {
 					fmt.Fprintf(w, "error\t%s\n", r.Error)
 				}

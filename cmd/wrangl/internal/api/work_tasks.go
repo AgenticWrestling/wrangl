@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 	"net/http"
 
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
@@ -82,6 +83,10 @@ func taskDetail(ctx context.Context, d Deps, t dbgen.Task) proto.TaskDetail {
 	det := proto.TaskDetail{Sqid: t.Sqid.String, Project: p.Slug, Title: t.Title, Prompt: t.Prompt, State: t.State,
 		Type: string(t.TaskType), TargetDate: t.TargetDate.String, CreatedBy: t.CreatedBy, Summary: t.CompletionSummary,
 		Children: []proto.TaskRef{}, Precursors: []proto.TaskRef{}, Dependents: []proto.TaskRef{}, Runs: []proto.TaskRunView{}, Events: []proto.TaskEventView{}}
+	det.Repo = reporesolve.Name(ctx, db.RQ, t.RepoID.Int64)
+	if id, err := reporesolve.Resolve(ctx, db.RQ, t.ID); err == nil {
+		det.EffectiveRepo = reporesolve.Name(ctx, db.RQ, id)
+	}
 	det.Need = needView(ctx, d, t.ProjectID, t.ID)
 	det.Requires = (&placement.Service{DB: db}).RequirementStrings(ctx, placement.OwnerTask, t.ID)
 	if t.ParentID.Valid {
@@ -116,7 +121,7 @@ func taskDetail(ctx context.Context, d Deps, t dbgen.Task) proto.TaskDetail {
 func convertSplit(in []proto.SplitNode) []stack.SplitNode {
 	out := make([]stack.SplitNode, len(in))
 	for i, n := range in {
-		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Type: n.Type, Children: convertSplit(n.Children)}
+		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Type: n.Type, Repo: n.Repo, Children: convertSplit(n.Children)}
 	}
 	return out
 }
@@ -212,6 +217,9 @@ func registerTasks(mux *http.ServeMux, d Deps) {
 		if err == nil && req.TargetDate != nil {
 			t, err = d.Stack.SetTargetDate(r.Context(), r.PathValue("sqid"), *req.TargetDate, stack.User)
 		}
+		if err == nil && req.Repo != nil {
+			t, err = d.Stack.SetRepo(r.Context(), r.PathValue("sqid"), *req.Repo, stack.User)
+		}
 		if err == nil && (len(req.Require) > 0 || len(req.Unrequire) > 0) {
 			err = d.Stack.EditRequire(r.Context(), r.PathValue("sqid"), req.Require, req.Unrequire)
 			if err == nil && t.ID == 0 {
@@ -224,7 +232,7 @@ func registerTasks(mux *http.ServeMux, d Deps) {
 				t, err = d.Stack.Task(r.Context(), db.RQ, r.PathValue("sqid"))
 			}
 		}
-		if err == nil && (req.Title != nil || req.Prompt != nil || (req.Type == nil && req.TargetDate == nil && len(req.Need) == 0 && len(req.Require) == 0 && len(req.Unrequire) == 0)) {
+		if err == nil && (req.Title != nil || req.Prompt != nil || (req.Type == nil && req.TargetDate == nil && req.Repo == nil && len(req.Need) == 0 && len(req.Require) == 0 && len(req.Unrequire) == 0)) {
 			t, err = d.Stack.Edit(r.Context(), r.PathValue("sqid"), req.Title, req.Prompt, stack.User)
 		}
 		if err != nil {

@@ -41,6 +41,8 @@ type ProjectParams struct {
 	AutoMerge, AutoQueue   *bool
 	AutoResolve            *bool // auto-merge queues Smart Merge for conflicted PRs
 	Priority               *int64
+	ReadRepos              *string           // all | none: read-only checkouts of the other linked repos in runs
+	DefaultRepo            *string           // owner/name of a linked repo tasks resolve to when none is set; "" clears
 	NotesRepo              *string           // owner/name of a linked repo that holds research reports; "" clears
 	Agent                  *string           // default agent definition by name; "" clears
 	CitationAudit          *bool             // audit research PRs' citations before merge
@@ -105,7 +107,7 @@ func (s *Service) Create(ctx context.Context, slug string, p ProjectParams) (dbg
 		}
 		return created, err
 	}
-	if p.CitationAudit != nil || p.Agent != nil || p.NotesRepo != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 || len(p.Require) > 0 || len(p.Unrequire) > 0 {
+	if p.CitationAudit != nil || p.Agent != nil || p.NotesRepo != nil || p.DefaultRepo != nil || p.ReadRepos != nil || p.PlanTemplate != nil || p.AutoMerge != nil || p.AutoQueue != nil || p.AutoResolve != nil || p.Priority != nil || p.AllowTemplates != nil || len(p.Need) > 0 || len(p.Require) > 0 || len(p.Unrequire) > 0 {
 		p.Template = nil // already set
 		return s.Update(ctx, slug, p)
 	}
@@ -167,6 +169,15 @@ func (s *Service) Update(ctx context.Context, slug string, p ProjectParams) (dbg
 	}
 	if err == nil && p.NotesRepo != nil {
 		err = s.SetNotesRepo(ctx, slug, *p.NotesRepo)
+	}
+	if err == nil && p.ReadRepos != nil {
+		if *p.ReadRepos != "all" && *p.ReadRepos != "none" {
+			return cur, fmt.Errorf("%w: read_repos is all or none", errs.Invalid)
+		}
+		err = s.DB.Q.SetProjectReadRepos(ctx, dbgen.SetProjectReadReposParams{ReadRepos: *p.ReadRepos, ID: cur.ID})
+	}
+	if err == nil && p.DefaultRepo != nil {
+		err = s.SetDefaultRepo(ctx, slug, *p.DefaultRepo)
 	}
 	if err == nil && len(p.Need) > 0 {
 		_, err = (&placement.Service{DB: s.DB}).SetProject(ctx, cur.ID, p.Need)
@@ -272,6 +283,30 @@ func (s *Service) SetNotesRepo(ctx context.Context, slug, ref string) error {
 	return s.DB.Q.SetNotesRepo(ctx, dbgen.SetNotesRepoParams{ProjectID: p.ID, RepoID: r.ID})
 }
 
+// SetDefaultRepo makes one of the project's linked repos the one tasks resolve to when neither they nor
+// an ancestor name a repo ("" clears it; ADR 0012 section 3).
+func (s *Service) SetDefaultRepo(ctx context.Context, slug, ref string) error {
+	p, err := s.activeProject(ctx, slug)
+	if err != nil {
+		return err
+	}
+	var id sql.NullInt64
+	if ref != "" {
+		owner, name, err := splitRepo(ref)
+		if err != nil {
+			return err
+		}
+		r, err := s.DB.RQ.GetProjectRepo(ctx, dbgen.GetProjectRepoParams{ProjectID: p.ID, Owner: owner, Name: name})
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: link %s to %s first", errs.Invalid, ref, slug)
+		} else if err != nil {
+			return err
+		}
+		id = sql.NullInt64{Int64: r.ID, Valid: true}
+	}
+	return s.DB.Q.SetProjectDefaultRepo(ctx, dbgen.SetProjectDefaultRepoParams{DefaultRepoID: id, ID: p.ID})
+}
+
 // Archive hides a project and makes it inert. It returns *db.ActiveRunsError when runs are
 // active, and otherwise the ids of the queued runs it cancelled. Archiving twice is a conflict.
 func (s *Service) Archive(ctx context.Context, slug string) (dbgen.Project, []int64, error) {
@@ -358,6 +393,29 @@ func (s *Service) LinkRepo(ctx context.Context, slug, ref, branch string) (dbgen
 		return out, fmt.Errorf("%w: %s is already linked to %s", errs.Conflict, ref, slug)
 	}
 	return out, err
+}
+
+// SetRepoNote sets the one-line note on one of the project's linked repos ("" clears it).
+func (s *Service) SetRepoNote(ctx context.Context, slug, ref, note string) error {
+	p, err := s.activeProject(ctx, slug)
+	if err != nil {
+		return err
+	}
+	owner, name, err := splitRepo(ref)
+	if err != nil {
+		return err
+	}
+	r, err := s.DB.RQ.GetProjectRepo(ctx, dbgen.GetProjectRepoParams{ProjectID: p.ID, Owner: owner, Name: name})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: link %s to %s first", errs.Invalid, ref, slug)
+	} else if err != nil {
+		return err
+	}
+	note = strings.TrimSpace(strings.ReplaceAll(note, "\n", " "))
+	if len(note) > 200 {
+		return fmt.Errorf("%w: a repo note is one line, up to 200 characters", errs.Invalid)
+	}
+	return s.DB.Q.SetRepoNote(ctx, dbgen.SetRepoNoteParams{Note: note, ID: r.ID})
 }
 
 // UnlinkRepo removes a repo link (tasks pointing at it keep their history).

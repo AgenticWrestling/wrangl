@@ -633,6 +633,9 @@ type node struct {
 	Mockups                  int           // deliverables (mockups, prototypes, reports) handed back on this task
 	Detail                   template.HTML // the expanded task's card, when this page has it open
 	Change                   changeLink    // where GitHub shows what this task changed (checkpoint commit, else its PR)
+	Repo                     string        // effective repo (owner/name); set only in a project with several repos
+	RepoOwn                  bool          // the task names it itself (not inherited)
+	NeedsRepo                bool          // an open leaf that resolves to no repo (several repos, no default)
 	Kids                     []*node
 }
 
@@ -964,6 +967,16 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			mockups[c.TaskID] = int(c.N)
 		}
 	}
+	// With several linked repos each node shows where it writes; one repo changes nothing.
+	repoName, effRepo := map[int64]string{}, map[int64]int64{}
+	if rc, err := db.RQ.ListProjectRepoCount(ctx, p.ID); err == nil && rc.N > 1 {
+		if rs, err := db.RQ.ListRepos(ctx, p.ID); err == nil {
+			for _, r := range rs {
+				repoName[r.Repo.ID] = r.Repo.Owner + "/" + r.Repo.Name
+			}
+		}
+	}
+	notesRepo, _ := db.RQ.GetNotesRepoID(ctx, p.ID)
 	byID := map[int64]*node{}
 	bySqid := map[string]*node{}
 	order := map[string]int{} // tree position, for ordering the queue
@@ -980,6 +993,22 @@ func (h *Handler) tree(ctx context.Context, slug string, all bool) (taskSections
 			if full, err := db.RQ.GetTask(ctx, t.ID); err == nil {
 				n.Done, n.Total, n.Slip, _ = h.D.Stack.Rollup(ctx, full)
 			}
+		}
+		if len(repoName) > 0 {
+			eff := t.RepoID.Int64
+			switch {
+			case t.RepoID.Valid:
+				n.RepoOwn = true
+			case t.ParentID.Valid && effRepo[t.ParentID.Int64] != 0:
+				eff = effRepo[t.ParentID.Int64]
+			case t.TaskType == dbtypes.TaskResearch && notesRepo != 0:
+				eff = notesRepo
+			default:
+				eff = p.DefaultRepoID.Int64
+			}
+			effRepo[t.ID] = eff
+			n.Repo = repoName[eff]
+			n.NeedsRepo = eff == 0 && t.Children == 0 && (t.State == "open" || t.State == "in_progress")
 		}
 		lock := locks[t.ID]
 		if lock == "" && t.ParentID.Valid {
@@ -1203,6 +1232,8 @@ var actions = map[string]actFn{
 	"project-new":            actProjectNew,
 	"project-save":           actProjectSave,
 	"repo-notes":             actRepoNotes,
+	"repo-note":              actRepoNote,
+	"repo-default":           actRepoDefault,
 	"repo-link":              actRepoLink,
 	"template-save":          actTemplateSave,
 	"tpl-ami-check":          actTplAmiCheck,

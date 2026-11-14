@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -31,13 +32,12 @@ func (h *Handler) viewTasks(ctx context.Context, view string, r *http.Request, d
 		slug = reqValue(r, "project")
 	}
 	d["Project"], d["Title"] = slug, slug
-	if _, err := db.RQ.GetProjectBySlug(ctx, slug); err != nil {
+	cur, err := db.RQ.GetProjectBySlug(ctx, slug)
+	if err != nil {
 		return fmt.Errorf("%w: project %q", errs.NotFound, slug)
 	}
 	d["ArchivedProjects"], _ = db.RQ.ListProjects(ctx, "archived")
-	if cur, err := db.RQ.GetProjectBySlug(ctx, slug); err == nil { // a direct link to an archived project still works, with its actions disabled
-		d["Archived"] = cur.ArchivedAt.Valid
-	}
+	d["Archived"] = cur.ArchivedAt.Valid // a direct link to an archived project still works, with its actions disabled
 	d["Types"] = dbtypes.TaskTypes
 	d["All"] = r.URL.Query().Get("all") == "1"
 	secs, err := h.tree(ctx, slug, d["All"].(bool))
@@ -45,6 +45,26 @@ func (h *Handler) viewTasks(ctx context.Context, view string, r *http.Request, d
 		return err
 	}
 	d["Roots"], d["Progress"], d["Queue"] = secs.Backlog, secs.Progress, secs.Queue
+	// Several repos: a "needs repo" filter lists the open leaves that resolve to no repo (ADR 0012 section 4).
+	var needs []*node
+	var walk func(ns []*node)
+	walk = func(ns []*node) {
+		for _, n := range ns {
+			if n.NeedsRepo {
+				c := *n
+				c.Kids = nil
+				needs = append(needs, &c)
+			}
+			walk(n.Kids)
+		}
+	}
+	walk(secs.Backlog)
+	if rc, err := db.RQ.ListProjectRepoCount(ctx, cur.ID); err == nil && rc.N > 1 {
+		d["MultiRepo"], d["NeedsRepoN"] = true, len(needs)
+		if r.URL.Query().Get("needsrepo") == "1" {
+			d["Roots"], d["OnlyNeedsRepo"] = needs, true
+		}
+	}
 	d["Now"], d["NowOnly"] = secs.Now, r.URL.Query().Get("now") == "1"
 	d["ProjectRunners"], _ = h.D.Projects.Runners(ctx, slug)
 	if h.D.Sessions != nil {
@@ -128,6 +148,18 @@ func (h *Handler) viewTask(ctx context.Context, view string, r *http.Request, d 
 		d["KidKind"] = kk
 	}
 	d["Types"] = dbtypes.TaskTypes
+	// Several repos: the task's repo chip, the picker in the edit sheet and the queue sheet.
+	if rc, err := db.RQ.ListProjectRepoCount(ctx, p.ID); err == nil && rc.N > 1 {
+		var names []string
+		if rs, err := db.RQ.ListRepos(ctx, p.ID); err == nil {
+			for _, x := range rs {
+				names = append(names, x.Repo.Owner+"/"+x.Repo.Name)
+			}
+		}
+		eff, _ := reporesolve.Resolve(ctx, db.RQ, t.ID)
+		d["MultiRepo"], d["RepoNames"] = true, names
+		d["RepoOwn"], d["RepoEff"] = reporesolve.Name(ctx, db.RQ, t.RepoID.Int64), reporesolve.Name(ctx, db.RQ, eff)
+	}
 	if h.D.Deliverables != nil {
 		rows, _ := db.RQ.ListDeliverablesForTask(ctx, t.ID)
 		dv := h.deliverableViews(ctx, rows)

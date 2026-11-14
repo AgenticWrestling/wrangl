@@ -6,6 +6,7 @@
     {{if $tn}}{{template "tag" props "State" (print "k-" $tn.Kind)}}{{template "rollchips" $tn}}{{end}}
     <span class="typechip">{{ticon $t.TaskType}} {{tlabel (print $t.TaskType)}}</span>
     {{if $t.TargetDate.Valid}}{{template "tag" props "Class" "tag target" "Label" $t.TargetDate.String "Title" "target date"}}{{end}}
+    {{if .MultiRepo}}{{if .RepoEff}}<span class="tag repo" title="{{if .RepoOwn}}Set on this task{{else}}Inherited: the parent, the project default or the notes repo{{end}}">{{.RepoEff}}{{if not .RepoOwn}} <span class="dim">(inherited)</span>{{end}}</span>{{else}}<span class="tag wait" title="No repo is set here or on an ancestor, and the project has no default repo. Choose one in Edit.">⚠ needs a repo</span>{{end}}{{end}}
     <code class="sqid">{{$t.Sqid.String}}</code>
     <a href="/projects/{{.Project}}">{{.Project}}</a>
     {{with .Parent}}› <a href="/task/{{.Sqid.String}}">{{.Title}}</a>{{end}}
@@ -23,7 +24,7 @@
     <div class="txbody">{{if $.TxHasMore}}<a class="txearlier" href="#" data-before="{{$.TxFirst}}">load earlier</a>{{end}}<div id="txl-{{.}}">{{$.TxHTML}}</div></div></div>{{end}}
   {{end}}
   <div class="actions wrap">
-    {{if .CanQueue}}<button class="btn primary" data-key="q" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}
+    {{if .CanQueue}}{{if .MultiRepo}}<button class="btn primary" data-key="q" command="show-modal" commandfor="sheet-queue">{{faicon "queue"}}Queue</button>{{else}}<button class="btn primary" data-key="q" data-on:click="@post('/ui/act/task-queue?sqid={{$t.Sqid.String}}')">{{faicon "queue"}}Queue</button>{{end}}{{end}}
     <button class="btn" data-key="e" command="show-modal" commandfor="sheet-edit">{{faicon "edit"}}Edit</button>
     <button class="btn" data-key="d" command="show-modal" commandfor="sheet-needs">{{faicon "needs"}}Needs…</button>
     {{if .Agents}}<button class="btn" command="show-modal" commandfor="sheet-ask">{{faicon "ask"}}Ask?</button>{{end}}
@@ -74,11 +75,19 @@
 {{end}}
 
 {{define "post-task"}}{{$t := .Task}}{{$s := $t.Sqid.String}}
-<dialog data-preserve-attr="open" id="sheet-edit" class="sheet" data-signals:etitle="{{json $t.Title}}" data-signals:eprompt="{{json $t.Prompt}}" data-signals:etype="{{json $t.TaskType}}" data-signals:etarget="{{json $t.TargetDate.String}}">
+{{if .MultiRepo}}<dialog data-preserve-attr="open" id="sheet-queue" class="sheet" data-signals:qrepo="{{json .RepoEff}}">
+  <h2>Queue {{$s}}</h2>
+  <label>Repo it writes to<select data-bind="qrepo"><option value="">choose a repo…</option>{{range .RepoNames}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+  <p class="hint">{{if .RepoEff}}{{if .RepoOwn}}Set on this task.{{else}}Inherited from the parent or the project default.{{end}} Changing it here sets it on this task.{{else}}Nothing sets a repo for this task. Leave it empty to queue anyway: the run waits in the Inbox until you pick one.{{end}}</p>
+  {{template "sheetfoot" props "Id" "sheet-queue" "Yes" "Queue" "Post" (printf "/ui/act/task-queue?sqid=%s" $s)}}
+</dialog>{{end}}
+
+<dialog data-preserve-attr="open" id="sheet-edit" class="sheet" data-signals:etitle="{{json $t.Title}}"{{if .MultiRepo}} data-signals:erepo="{{json .RepoOwn}}"{{end}} data-signals:eprompt="{{json $t.Prompt}}" data-signals:etype="{{json $t.TaskType}}" data-signals:etarget="{{json $t.TargetDate.String}}">
   <h2>Edit {{$s}}</h2>
   <label>Title<input data-bind="etitle"></label>
   {{template "typepick-edit" (typeEdit .Types $t.TaskType)}}
   <label>Target date<input type="date" data-bind="etarget"></label>
+  {{if .MultiRepo}}<label>Repo<select data-bind="erepo"><option value="">inherit{{if and .RepoEff (not .RepoOwn)}} ({{.RepoEff}}){{end}}</option>{{range .RepoNames}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>{{end}}
   <label>Prompt<textarea data-bind="eprompt" rows="10"></textarea></label>
   {{template "sheetfoot" props "Id" "sheet-edit" "Yes" "Save" "Post" (printf "/ui/act/task-edit?sqid=%s" $s)}}
 </dialog>

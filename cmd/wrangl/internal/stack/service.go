@@ -23,6 +23,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 )
 
 // Actor identifies who changed the work stack: "user" or "agent:<run id>".
@@ -400,7 +401,16 @@ func projectRepo(ctx context.Context, q *dbgen.Queries, projectID int64, ref str
 	}
 	r, err := q.GetProjectRepo(ctx, dbgen.GetProjectRepoParams{ProjectID: projectID, Owner: owner, Name: name})
 	if errors.Is(err, sql.ErrNoRows) {
-		return r, fmt.Errorf("%w: repo %s is not linked to this project (wrangl repo link)", errs.NotFound, ref)
+		var linked []string
+		if rows, lerr := q.ListRepos(ctx, projectID); lerr == nil {
+			for _, x := range rows {
+				linked = append(linked, x.Repo.Owner+"/"+x.Repo.Name)
+			}
+		}
+		if len(linked) == 0 {
+			return r, fmt.Errorf("%w: repo %s is not linked to this project, and the project has no linked repos (wrangl repo link)", errs.NotFound, ref)
+		}
+		return r, fmt.Errorf("%w: repo %s is not linked to this project (wrangl repo link); linked repos: %s", errs.NotFound, ref, strings.Join(linked, ", "))
 	}
 	return r, err
 }
@@ -527,6 +537,34 @@ func (s *Service) SetType(ctx context.Context, sqid, typ string, actor Actor) (d
 			return err
 		}
 		return s.event(ctx, q, sqid, actor, "update", map[string]any{"type": string(tt)})
+	})
+	return out, err
+}
+
+// SetRepo sets the repo a task writes to (owner/name, linked to its project); "" clears it so the task
+// inherits again (ADR 0012 section 3). Runs already queued keep the repo they were queued with.
+func (s *Service) SetRepo(ctx context.Context, sqid, ref string, actor Actor) (dbgen.Task, error) {
+	var out dbgen.Task
+	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+		t, err := s.liveTask(ctx, q, sqid)
+		if err != nil {
+			return err
+		}
+		id := sql.NullInt64{}
+		if ref != "" {
+			r, err := projectRepo(ctx, q, t.ProjectID, ref)
+			if err != nil {
+				return err
+			}
+			id = sql.NullInt64{Int64: r.ID, Valid: true}
+		}
+		if err := q.SetTaskRepo(ctx, dbgen.SetTaskRepoParams{RepoID: id, ID: t.ID}); err != nil {
+			return err
+		}
+		if out, err = q.GetTask(ctx, t.ID); err != nil {
+			return err
+		}
+		return s.event(ctx, q, sqid, actor, "update", map[string]any{"repo": ref})
 	})
 	return out, err
 }
@@ -793,6 +831,7 @@ type SplitNode struct {
 	Title    string      `json:"title"`
 	Prompt   string      `json:"prompt,omitempty"`
 	Type     string      `json:"type,omitempty"` // "" = the split task's type
+	Repo     string      `json:"repo,omitempty"` // owner/name, linked to the project; "" = inherit
 	Children []SplitNode `json:"children,omitempty"`
 }
 
@@ -877,7 +916,15 @@ func (s *Service) Split(ctx context.Context, sqid string, nodes []SplitNode, cha
 						return invalid("%v", err)
 					}
 				}
-				t, err := s.newTask(ctx, q, dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: dbnull.Int(parentID), Rank: rank, Title: n.Title, Prompt: prompt, TaskType: tt}, actor)
+				params := dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: dbnull.Int(parentID), Rank: rank, Title: n.Title, Prompt: prompt, TaskType: tt}
+				if n.Repo != "" {
+					rp, err := projectRepo(ctx, q, parent.ProjectID, n.Repo)
+					if err != nil {
+						return err
+					}
+					params.RepoID = dbnull.Int(rp.ID)
+				}
+				t, err := s.newTask(ctx, q, params, actor)
 				if err != nil {
 					return err
 				}
@@ -913,8 +960,21 @@ func (s *Service) Queue(ctx context.Context, sqid string) (dbgen.Run, error) {
 
 // QueueWith is Queue with an agent override by name ("" = the project's default). The run is
 // refused, and nothing is queued, if the template it would run on does not allow the agent.
+//
+// A subtree whose open leaves resolve to several repos gets one run per repo (ADR 0012 section 3), each
+// taking only its repo's leaves; the first run (the repo of the first leaf) is returned. QueueRuns
+// returns all of them.
 func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run, error) {
-	var run dbgen.Run
+	runs, err := s.QueueRuns(ctx, sqid, agent)
+	if len(runs) == 0 {
+		return dbgen.Run{}, err
+	}
+	return runs[0], err
+}
+
+// QueueRuns is QueueWith returning every run it created.
+func (s *Service) QueueRuns(ctx context.Context, sqid, agent string) ([]dbgen.Run, error) {
+	var runs []dbgen.Run
 	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
 		t, err := s.liveTask(ctx, q, sqid)
 		if err != nil {
@@ -952,13 +1012,10 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 		if err != nil {
 			return err
 		}
-		var templateID, repoID int64
+		var templateID int64
 		for _, a := range chain { // node first, then ancestors
 			if templateID == 0 && a.TemplateID.Valid {
 				templateID = a.TemplateID.Int64
-			}
-			if repoID == 0 && a.RepoID.Valid {
-				repoID = a.RepoID.Int64
 			}
 		}
 		if templateID == 0 {
@@ -967,40 +1024,23 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 		if templateID == 0 {
 			return invalid("no runner template: set one on the task, an ancestor, or the project (--template)")
 		}
-		if repoID == 0 && t.TaskType == dbtypes.TaskResearch { // reports live in the notes repo
-			if id, err := q.GetNotesRepoID(ctx, proj.ID); err == nil {
-				repoID = id
-			}
-		}
-		if repoID == 0 {
-			rc, err := q.ListProjectRepoCount(ctx, proj.ID)
-			if err != nil {
-				return err
-			}
-			if rc.N != 1 {
-				return invalid("no repo: set one on the task or an ancestor (project %s has %d linked repos)", proj.Slug, rc.N)
-			}
-			repoID = rc.OnlyID
-		}
-		repos, err := q.SubtreeRepoIDs(ctx, t.ID)
+		// One run per distinct repo the open leaves resolve to; 0 = no repo yet, so that run waits for the
+		// owner to pick one (ADR 0012 section 4).
+		repoIDs, err := reporesolve.OpenLeafRepos(ctx, q, t.ID)
 		if err != nil {
 			return err
 		}
-		for _, r := range repos {
-			if r != repoID {
-				return invalid("subtree %s spans more than one repo; queue its single-repo subtrees separately", sqid)
+		if len(repoIDs) == 0 {
+			id, err := reporesolve.ResolveIn(ctx, q, proj, t.TaskType, chain)
+			if err != nil {
+				return err
 			}
+			repoIDs = []int64{id}
 		}
 		n, err := q.CountRunsForTask(ctx, t.ID)
 		if err != nil {
 			return err
 		}
-		b := make([]byte, 16)
-		rand.Read(b)
-		b[6] = (b[6] & 0x0f) | 0x40 // UUID v4
-		b[8] = (b[8] & 0x3f) | 0x80
-		h := hex.EncodeToString(b)
-		uuid := h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 		var override sql.NullInt64
 		if agent != "" {
 			a, err := q.GetAgentByName(ctx, agent)
@@ -1015,24 +1055,50 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 		if err != nil {
 			return err
 		}
-		run, err = q.QueueRun(ctx, dbgen.QueueRunParams{
-			TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: dbnull.Int(templateID), RepoID: dbnull.Int(repoID),
-			Branch: fmt.Sprintf("wrangl/%s-%d", sqid, n+1), SessionUuid: uuid,
-		})
-		if err == nil {
-			err = placement.Snapshot(ctx, q, run)
+		for i, repoID := range repoIDs {
+			// Attempts are numbered per run, so two runs of one subtree never share a branch name (the repo-less
+			// run may later be given a repo another run already pushed to).
+			attempt := n + 1 + int64(i)
+			b := make([]byte, 16)
+			rand.Read(b)
+			b[6] = (b[6] & 0x0f) | 0x40 // UUID v4
+			b[8] = (b[8] & 0x3f) | 0x80
+			h := hex.EncodeToString(b)
+			uuid := h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+			run, err := q.QueueRun(ctx, dbgen.QueueRunParams{
+				TaskID: t.ID, Kind: "work", Attempt: attempt, TemplateID: dbnull.Int(templateID), RepoID: nullRepo(repoID),
+				Branch: fmt.Sprintf("wrangl/%s-%d", sqid, attempt), SessionUuid: uuid,
+			})
+			if err == nil && repoID == 0 {
+				now := time.Now
+				if s.Now != nil {
+					now = s.Now
+				}
+				_, err = q.SetRunBlocked(ctx, dbgen.SetRunBlockedParams{Reason: reporesolve.NeedsRepo, Now: dbnull.Str(dbtime.Format(now())), ID: run.ID})
+				run.StatusText, run.BlockedReason = reporesolve.NeedsRepo, reporesolve.NeedsRepo
+			}
+			if err == nil {
+				err = placement.Snapshot(ctx, q, run)
+			}
+			if err == nil && chosen != nil {
+				// The agent it will use is a requirement on the runner: a runner whose template does not allow
+				// it (or that is not signed in to it) is filtered rather than tried and failed.
+				err = q.SetRequirement(ctx, placement.OwnerRun, run.ID, "agent:"+strings.ToLower(chosen.Name), "exists", "")
+			}
+			if err == nil && chosen != nil {
+				err = q.SetRunAgent(ctx, dbgen.SetRunAgentParams{AgentID: sql.NullInt64{Int64: chosen.ID, Valid: true}, ID: run.ID})
+			}
+			if err != nil {
+				return err
+			}
+			runs = append(runs, run)
 		}
-		if err == nil && chosen != nil {
-			// The agent it will use is a requirement on the runner: a runner whose template does not allow
-			// it (or that is not signed in to it) is filtered rather than tried and failed.
-			err = q.SetRequirement(ctx, placement.OwnerRun, run.ID, "agent:"+strings.ToLower(chosen.Name), "exists", "")
-		}
-		if err == nil && chosen != nil {
-			err = q.SetRunAgent(ctx, dbgen.SetRunAgentParams{AgentID: sql.NullInt64{Int64: chosen.ID, Valid: true}, ID: run.ID})
-		}
-		return err
+		return nil
 	})
-	return run, err
+	if err != nil {
+		runs = nil
+	}
+	return runs, err
 }
 
 // --- the agent's side (M4 subset; M5 adds the full MCP tool set) ---------------------
@@ -1071,9 +1137,9 @@ func (s *Service) NextForRun(ctx context.Context, runID int64) (Next, error) {
 			out = Next{Sqid: root.Sqid.String, Title: run.Kind + " " + root.Title, Prompt: run.PromptOverride}
 			return nil
 		}
-		leaf, err := q.NextReadyLeaf(ctx, dbgen.NextReadyLeafParams{RootID: run.TaskID, RunID: dbnull.Int(runID)})
+		leaf, err := reporesolve.NextReadyLeaf(ctx, q, run.TaskID, runID, run.RepoID.Int64) // only this run's repo
 		if errors.Is(err, sql.ErrNoRows) {
-			open, err := q.CountOpenLeaves(ctx, run.TaskID)
+			open, err := reporesolve.CountOpenLeaves(ctx, q, run.TaskID, run.RepoID.Int64)
 			if err != nil {
 				return err
 			}
@@ -1228,3 +1294,6 @@ func (s *Service) Recompute(ctx context.Context, sqid string) error {
 		return recompute(ctx, q, t.ParentID)
 	})
 }
+
+// nullRepo is a repo id for a run's repo_id column; 0 (none resolved yet) is NULL.
+func nullRepo(id int64) sql.NullInt64 { return sql.NullInt64{Int64: id, Valid: id != 0} }

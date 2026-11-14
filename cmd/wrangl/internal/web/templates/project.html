@@ -18,10 +18,13 @@
 
 <section class="card" id="repos">
   <div class="row"><h3>Repositories</h3><span class="grow"></span><button class="btn small" command="show-modal" commandfor="sheet-repo">＋ Link repo</button></div>
-  {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}{{template "tag" props "Class" "tag" "Label" "notes repo" "Title" "Research tasks run here; reports go under research/"}}{{end}}<span class="grow"></span>
+  {{range .Repos}}{{with .Repo}}<div class="row link"><b>{{.Owner}}/{{.Name}}</b> <span class="dim">branch {{.DefaultBranch}}</span>{{if eq .ID $.NotesRepo}}{{template "tag" props "Class" "tag" "Label" "notes repo" "Title" "Research tasks run here; reports go under research/"}}{{end}}{{if and (gt (len $.Repos) 1) (eq .ID $.DefaultRepo)}}{{template "tag" props "Class" "tag" "Label" "default repo" "Title" "Tasks with no repo of their own resolve here"}}{{end}}{{if .Note}} <span class="dim">{{.Note}}</span>{{end}}<span class="grow"></span>
+    <button class="btn small" title="One line telling agents what this repo is" data-on:click="const n = prompt('Note for {{.Owner}}/{{.Name}} (shown to agents)', {{json .Note}}); if (n !== null) @post('/ui/act/repo-note?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}&note=' + encodeURIComponent(n))">Note</button>
     {{if eq .ID $.NotesRepo}}<button class="btn small" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo=')">Not notes</button>{{else}}<button class="btn small" title="Research reports are written here, under research/" data-on:click="@post('/ui/act/repo-notes?slug={{$p.Slug}}&repo={{.Owner}}/{{.Name}}')">Use for research notes</button>{{end}}
     {{template "actbtn" props "Class" "small danger" "Label" "Unlink" "Confirm" (printf "Unlink %s/%s from %s?" .Owner .Name $p.Slug) "Post" (printf "/ui/act/repo-unlink?slug=%s&repo=%s/%s" $p.Slug .Owner .Name)}}</div>{{end}}
   {{else}}{{template "empty" props "Msg" "No repositories linked. Tasks need one to run."}}{{end}}
+  {{if gt (len .Repos) 1}}<div class="row"><label for="default-repo">Default repo</label>
+    <select id="default-repo" title="Tasks that name no repo, and whose ancestors name none, write here. With none, a queued task waits for you to choose." data-on:change="@post('/ui/act/repo-default?slug={{$p.Slug}}&repo=' + encodeURIComponent(el.value))"><option value="">none: ask me</option>{{range .Repos}}{{with .Repo}}<option value="{{.Owner}}/{{.Name}}"{{if eq .ID $.DefaultRepo}} selected{{end}}>{{.Owner}}/{{.Name}}</option>{{end}}{{end}}</select></div>{{end}}
   {{if not .GitHub}}<p class="hint">GitHub isn't configured on this controller yet (<code>github.author_app</code>), so repos can't be linked.</p>{{end}}
 </section>
 

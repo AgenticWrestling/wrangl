@@ -81,6 +81,11 @@ func (e *NotInstalledError) Error() string {
 // Is makes errors.Is(err, ErrNotInstalled) hold.
 func (e *NotInstalledError) Is(target error) bool { return target == ErrNotInstalled }
 
+// ReadTokenAPI is implemented by clients that can mint contents:read tokens.
+type ReadTokenAPI interface {
+	RepoReadToken(ctx context.Context, r Repo) (token string, expires time.Time, err error)
+}
+
 // API is what the controller needs from GitHub in M4. M6 adds pull requests, checks,
 // reviews and merges.
 type API interface {

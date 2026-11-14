@@ -261,3 +261,37 @@ SELECT CAST(COALESCE(SUM(t.state <> 'cancelled'), 0) AS INTEGER) AS total,
        CAST(COALESCE(SUM(t.state = 'done'), 0) AS INTEGER) AS done
 FROM task t JOIN sub ON t.id = sub.id
 WHERE NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = t.id);
+
+-- name: SetTaskRepo :exec
+UPDATE task SET repo_id = sqlc.narg(repo_id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = sqlc.arg(id);
+
+-- name: ReadyLeaves :many
+-- Every open leaf under root whose precursors are satisfied (NextReadyLeaf without the limit), in
+-- rank order, depth-first; a caller that works per repo takes the first one in its repo.
+WITH RECURSIVE sub (id, path) AS (
+    SELECT t.id, t.rank FROM task t WHERE t.id = sqlc.arg(root_id)
+    UNION ALL
+    SELECT c.id, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT task.id, task.sqid, task.title, task.prompt
+FROM sub JOIN task ON task.id = sub.id
+WHERE task.state IN ('open', 'in_progress')
+  AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled')
+  AND NOT EXISTS (
+      SELECT 1 FROM task_dependency d JOIN task p ON p.id = d.depends_on_id
+      WHERE d.task_id = task.id
+        AND NOT (p.state = 'done'
+                 OR (p.state = 'in_review' AND p.completed_run_id = sqlc.arg(run_id))))
+ORDER BY sub.path;
+
+-- name: OpenLeafIDs :many
+-- Ids of the open leaves under root, in rank order, depth-first.
+WITH RECURSIVE sub (id, path) AS (
+    SELECT t.id, t.rank FROM task t WHERE t.id = sqlc.arg(root_id)
+    UNION ALL
+    SELECT c.id, sub.path || ' ' || c.rank FROM task c JOIN sub ON c.parent_id = sub.id
+)
+SELECT task.id FROM sub JOIN task ON task.id = sub.id
+WHERE task.state IN ('open', 'in_progress')
+  AND NOT EXISTS (SELECT 1 FROM task k WHERE k.parent_id = task.id AND k.state <> 'cancelled')
+ORDER BY sub.path;

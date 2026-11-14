@@ -568,7 +568,7 @@ func (q *Queries) ReopenRunTasks(ctx context.Context, completedRunID sql.NullInt
 }
 
 const reposByName = `-- name: ReposByName :many
-SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url FROM repo WHERE owner = ? AND name = ?
+SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url, note FROM repo WHERE owner = ? AND name = ?
 `
 
 type ReposByNameParams struct {
@@ -594,6 +594,7 @@ func (q *Queries) ReposByName(ctx context.Context, arg ReposByNameParams) ([]Rep
 			&i.GhInstallationID,
 			&i.CreatedAt,
 			&i.CloneUrl,
+			&i.Note,
 		); err != nil {
 			return nil, err
 		}

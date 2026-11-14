@@ -42,6 +42,7 @@ func (h *Handler) viewProject(ctx context.Context, view string, r *http.Request,
 	}
 	d["P"], d["Repos"], d["Title"] = p, repos, p.Name
 	d["NotesRepo"], _ = db.RQ.GetNotesRepoID(ctx, p.ID)
+	d["DefaultRepo"] = p.DefaultRepoID.Int64
 	d["Templates"], _ = db.RQ.ListTemplates(ctx)
 	d["GitHub"] = h.D.Projects.GH != nil
 	d["Pick"] = h.repoChoices(ctx, p.Slug, repos)

@@ -1,6 +1,6 @@
 # 0012. Multi-repo projects: a writing repo per task, read access to the rest
 
-Status: **Accepted 2026-11-14** on the owner's brief (section 2). The defaults in section 9 are mine; change
+Status: **Accepted 2026-11-14, built** (stages 1 to 4) on the owner's brief (section 2). The defaults in section 9 are mine; change
 any of them before the stage that uses it is merged.
 
 ## 1. What exists today
@@ -61,7 +61,7 @@ subtrees are still refused.
 ## 6. Read access to the other repos
 
 - Each run gets a read-only checkout of every other repo linked to the project, at its default branch as fetched
-  when the run starts, next to its own worktree: `<run dir>/../refs/<repo name>`. They come from the runner's
+  when the run starts, next to its own worktree: `<run dir>/../refs/<run id>/<repo name>` (per run, so concurrent runs of one repo do not share a path). They come from the runner's
   shared mirrors (one bare clone per repo, as today); a mirror created only for reading is a blobless partial
   clone, to keep the first fetch small. The agent is told where they are, and what each one is, in its prompt
   and in `WRANGL_READ_REPOS`.
@@ -106,3 +106,21 @@ the queue sheet (editable before queueing), a default-repo selector and notes on
    `read_repos`; plan and review runs; the primary-session layout.
 4. **Audit and docs.** Walk section 8, tests across the whole path with a two-repo fixture, the projects and
    tasks guides, the wrangl skill.
+
+## 11. Audit result (stage 4)
+
+Walked section 8 against the built code, with the end-to-end test `TestMultiRepoProjectEndToEnd` (a mixed milestone, a
+`needs_repo` item, a read of the sibling repo, one PR per repo):
+
+- **Diffs, review cards, Smart Merge, auto-merge:** all key off the pull request (`pull_request.repo_id`, found by
+  repo plus head branch) or the run's `repo_id`, so they were already per repo. A run with no repo has no diff and
+  says so.
+- **Branch names:** one finding. Several runs of one subtree all took attempt number n+1, so two of them could use the
+  same branch name; the repo-less run, once given a repo another run had pushed to, would have collided. Attempts are
+  now numbered per run (`wrangl/<sqid>-n`, `-n+1`, ...). One run per task still gets the same name as before.
+- **Issues:** syncing is per repo; `issue to-task` sets the issue's repo on the task.
+- **Split and plan:** proposals and `task split` carry a repo per subtask (stage 3).
+- **Costs, templates, runners:** per run, no repo assumption.
+- **Known limits:** `Queue`/`QueueWith` return only the first run when a subtree splits (the others are created and
+  visible in the run list); a project's existing single-repo primary-session directory must be moved aside before a
+  second repo is linked.

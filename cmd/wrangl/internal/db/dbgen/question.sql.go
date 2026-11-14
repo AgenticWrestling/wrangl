@@ -37,7 +37,7 @@ func (q *Queries) AnswerQuestion(ctx context.Context, arg AnswerQuestionParams) 
 }
 
 const cancelRunQuestions = `-- name: CancelRunQuestions :exec
-UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error', 'unplaceable')
+UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error', 'unplaceable', 'needs_repo')
 `
 
 // Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
@@ -391,4 +391,40 @@ func (q *Queries) ListOpenUnplaceable(ctx context.Context) ([]ListOpenUnplaceabl
 		return nil, err
 	}
 	return items, rows.Err()
+}
+
+const listOpenNeedsRepo = `-- name: ListOpenNeedsRepo :many
+SELECT q.id, q.run_id, r.state AS run_state, r.repo_id AS run_repo_id FROM question q LEFT JOIN run r ON r.id = q.run_id
+WHERE q.kind = 'needs_repo' AND q.state = 'open'
+`
+
+type ListOpenNeedsRepoRow struct {
+	ID        int64          `json:"id"`
+	RunID     sql.NullInt64  `json:"run_id"`
+	RunState  sql.NullString `json:"run_state"`
+	RunRepoID sql.NullInt64  `json:"run_repo_id"`
+}
+
+// Open needs_repo items with the state and repo of their run (NULL: the run is gone).
+func (q *Queries) ListOpenNeedsRepo(ctx context.Context) ([]ListOpenNeedsRepoRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenNeedsRepo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenNeedsRepoRow{}
+	for rows.Next() {
+		var i ListOpenNeedsRepoRow
+		if err := rows.Scan(&i.ID, &i.RunID, &i.RunState, &i.RunRepoID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

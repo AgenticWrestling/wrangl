@@ -33,7 +33,7 @@
   <ul class="tasks runs" role="tree" aria-label="Runs">{{range .Progress}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
 {{if .Queue}}<section class="tsec" id="queue"><h3>Queue <span class="dim small">{{len .Queue}}</span></h3>
   <ul class="tasks runs queue-sort" role="tree" aria-label="Queue">{{range .Queue}}{{template "runentry" .}}{{end}}</ul></section>{{end}}
-<section class="tsec" id="backlog"><div class="row"><h3>Backlog</h3><span class="grow"></span>{{if .Roots}}{{if not .Archived}}{{template "actbtn" props "Class" "small" "Label" "Queue all" "Confirm" (printf "Queue every open top-level task in %s?" .Project) "Post" (printf "/ui/act/queue-all?project=%s" .Project)}}{{end}}{{end}}</div>
+<section class="tsec" id="backlog"><div class="row"><h3>Backlog</h3>{{if .MultiRepo}} <a class="chip{{if .OnlyNeedsRepo}} on{{end}}" href="/projects/{{.Project}}{{if not .OnlyNeedsRepo}}?needsrepo=1{{end}}" title="Open tasks that resolve to no repo: set one, or a project default repo">needs repo <span class="dim small">{{.NeedsRepoN}}</span></a>{{end}}<span class="grow"></span>{{if .Roots}}{{if not .Archived}}{{template "actbtn" props "Class" "small" "Label" "Queue all" "Confirm" (printf "Queue every open top-level task in %s?" .Project) "Post" (printf "/ui/act/queue-all?project=%s" .Project)}}{{end}}{{end}}</div>
 <ul class="tasks sortable root" data-parent="" role="tree" aria-label="Tasks">{{template "tasklist" .Roots}}</ul>
 <p class="showdone"><a class="chip" href="/projects/{{.Project}}{{if not .All}}?all=1{{end}}">{{if .All}}hide done{{else}}show done{{end}}</a></p></section>
 {{end}}{{end}}
@@ -115,6 +115,7 @@
     {{if .Mockups}}<a class="tag mock" href="/task/{{.Sqid}}#deliverables" title="{{.Mockups}} deliverable{{if gt .Mockups 1}}s{{end}} (mockups, prototype, reports)">{{faicon "image"}}{{.Mockups}}</a>{{end}}
     {{if .Change.URL}}<a class="tag commit" href="{{.Change.URL}}" target="_blank" rel="noopener noreferrer" title="{{.Change.Title}}">{{faicon "edit"}}{{.Change.Label}}</a>{{end}}
     {{template "tag" props "State" (print "k-" .Kind)}}{{template "rollchips" .}}
+    {{if .RepoOwn}}<span class="tag repo" title="writes to {{.Repo}}">{{.Repo}}</span>{{end}}{{if .NeedsRepo}}<span class="tag wait" title="No repo is set on this task or an ancestor, and the project has no default repo">⚠ needs repo</span>{{end}}
     {{if and (eq .Kind "running") .LockedBy}}<span class="dim small" title="running on {{.LockedBy}}">{{.LockedBy}}</span>{{end}}
     {{if .Unmet}}<span class="tag wait" title="unmet precursors">⧗ {{.Unmet}}</span>{{end}}
     {{if .Total}}<span class="prog-bar" title="{{.Done}} of {{.Total}} done"><i style="width:{{pctof .Done .Total}}%"></i></span><span class="dim small">{{.Done}}/{{.Total}}</span>{{end}}

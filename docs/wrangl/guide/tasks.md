@@ -20,8 +20,11 @@ addressed by its **sqid**, the short id shown next to it.
 - A task's **prompt** is what the agent is told. Make it self-contained: goal, constraints, what done
   looks like. Prompts of ancestors are passed along as context (section 5).
 - A task may set `--template` and `--repo`; if it does not, it inherits from the nearest ancestor,
-  then (template) from the project. A task whose subtree spans more than one repo cannot be queued as
-  one run.
+  then (template) from the project. The repo resolves in this order: the task's own, the nearest
+  ancestor's, the project's default repo, the project's only linked repo (a research task uses the
+  project's notes repo first). With none, the task **needs a repo** (see "Several repos" below).
+  A subtree whose open leaves resolve to different repos is queued as **one run per repo**, each taking
+  only its repo's leaves.
 
 ```sh
 wrangl task create web --title "Add a health endpoint" --prompt "GET /healthz returns 200." [--parent SQID]
@@ -134,7 +137,7 @@ be any live task at any depth. It is refused, with the reason, when:
 - a run is already working on an overlapping subtree;
 - there is no open work (and says if subtasks are in review: merge them or request changes first);
 - no runner template can be found (set one on the task, an ancestor, or the project);
-- no repo can be found, or the subtree spans several repos;
+- it overlaps a subtree a run is already working on;
 - the agent you named is not allowed on the template.
 
 `wrangl task dequeue SQID` takes a queued run back out; a running run is stopped with
@@ -303,7 +306,8 @@ wrangl question answer 17 approve
 |---|---|
 | `task queue` says "has no open work: N subtask(s) are in review" | Merge or request changes on their PRs, or `task reopen` a subtask. |
 | `task queue` says "overlaps a subtree a run is already working on" | Another run holds part of the subtree. `wrangl run list --state active`; wait, or `run cancel`. |
-| "no runner template" / "no repo" / "spans more than one repo" | Set `--template` / `--repo` on the task or an ancestor, or on the project; queue single-repo subtrees separately. |
+| "no runner template" | Set `--template` on the task, an ancestor, or the project. |
+| Queued run says "waiting: needs a repo" | The task resolves to no repo. Answer the Inbox item ("Which repo should ... work in?"), or `task edit --repo owner/name`, or set a project default repo. |
 | Queued but never starts | See the run's status text (`wrangl run show ID`) and the scheduling guide: no free session, template at `max_runners`, missing agent secret. |
 | Run ended `blocked` | Remaining leaves need tasks outside the run. Finish or merge those; the run is re-queued when a PR merges, or `task queue` again. |
 | Leaf stays `in_review` and no PR appears | The run pushed nothing: a task-review item is in the Inbox (Accept / Reopen). Or CI is pending, or the PR needs your decision. |
@@ -325,3 +329,19 @@ directory. See ADR 0011 section 5.
 ## See also
 
 [Projects](projects.md), [Runners](runners.md), [Task scheduling](scheduling.md) (what happens between `task queue` and a running session), [index](../README.md).
+
+## Several repos
+
+A project can link several repos. A task writes to **one** (its resolved repo); runs, branches and PRs stay one per
+repo. The rest, in short (design: ADR 0012):
+
+- `wrangl task create|edit --repo owner/name` (`--repo ""` clears it); `project edit --default-repo owner/name`; agents
+  pass `repo` to `task_create`/`task_update` and see the linked repos, with notes, in `repo_list`.
+- Queueing a milestone whose leaves live in different repos creates one run per repo. A leaf in repo B that needs a
+  leaf in repo A makes B's run wait ("precursor tasks are not finished yet") until A's leaf is merged.
+- A task that resolves to no repo can still be queued: its run waits with "waiting: needs a repo" and a
+  `needs_repo` Inbox item offers each linked repo (this task, or the whole subtree), "link another repo", and
+  "cancel the run". `wrangl question answer ID repo:owner/name` (or `repo_tree:owner/name`) does the same from the CLI.
+  A project with one repo never sees this.
+- Each run can read the project's other repos (read-only checkouts, told to the agent in `WRANGL_READ_REPOS`);
+  `project edit --read-repos none` turns that off. See the projects guide.

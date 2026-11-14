@@ -147,7 +147,7 @@ func registerProjects(mux *http.ServeMux, d Deps) {
 		out := []proto.RepoView{}
 		for _, x := range rows {
 			out = append(out, proto.RepoView{Project: x.ProjectSlug, Repo: x.Repo.Owner + "/" + x.Repo.Name,
-				DefaultBranch: x.Repo.DefaultBranch, CloneURL: x.Repo.CloneUrl})
+				DefaultBranch: x.Repo.DefaultBranch, CloneURL: x.Repo.CloneUrl, Note: x.Repo.Note})
 		}
 		return out, nil
 	}))
@@ -156,8 +156,22 @@ func registerProjects(mux *http.ServeMux, d Deps) {
 		if err != nil {
 			return proto.RepoView{}, err
 		}
+		if req.Note != "" {
+			if err := d.Projects.SetRepoNote(r.Context(), r.PathValue("slug"), req.Repo, req.Note); err != nil {
+				return proto.RepoView{}, err
+			}
+		}
 		return proto.RepoView{Project: r.PathValue("slug"), Repo: x.Owner + "/" + x.Name,
-			DefaultBranch: x.DefaultBranch, CloneURL: x.CloneUrl}, nil
+			DefaultBranch: x.DefaultBranch, CloneURL: x.CloneUrl, Note: req.Note}, nil
+	}))
+	mux.HandleFunc("PATCH /api/v1/projects/{slug}/repos/{owner}/{name}", handle(http.StatusOK, func(r *http.Request, req proto.RepoPatchRequest) (proto.RepoView, error) {
+		ref := r.PathValue("owner") + "/" + r.PathValue("name")
+		if req.Note != nil {
+			if err := d.Projects.SetRepoNote(r.Context(), r.PathValue("slug"), ref, *req.Note); err != nil {
+				return proto.RepoView{}, err
+			}
+		}
+		return proto.RepoView{Project: r.PathValue("slug"), Repo: ref, Note: deref(req.Note)}, nil
 	}))
 	mux.HandleFunc("DELETE /api/v1/projects/{slug}/repos/{owner}/{name}", ack(http.StatusNoContent, func(r *http.Request) error {
 		return d.Projects.UnlinkRepo(r.Context(), r.PathValue("slug"), r.PathValue("owner")+"/"+r.PathValue("name"))
@@ -215,4 +229,11 @@ func registerProjects(mux *http.ServeMux, d Deps) {
 		}
 		return taskRef(t), nil
 	}))
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

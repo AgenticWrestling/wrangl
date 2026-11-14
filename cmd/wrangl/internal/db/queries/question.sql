@@ -30,7 +30,7 @@ WHERE id = sqlc.arg(id) AND state = 'open';
 
 -- name: CancelRunQuestions :exec
 -- Only questions a waiting agent or runner needed; approvals and reviews outlive the run.
-UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error', 'unplaceable');
+UPDATE question SET state = 'cancelled' WHERE run_id = ? AND state = 'open' AND kind IN ('agent', 'system', 'tool_error', 'unplaceable', 'needs_repo');
 
 -- name: UpdateOpenQuestion :exec
 -- The reason an open item (unplaceable) is about changed: reword it in place.
@@ -57,3 +57,8 @@ SELECT pr_id FROM question_pr WHERE question_id = ?;
 -- name: CancelPRBlockingQuestions :execrows
 -- A restarted resolve run's questions are stale: close them.
 UPDATE question SET state = 'cancelled' WHERE state = 'open' AND id IN (SELECT question_id FROM question_pr WHERE pr_id = ?);
+
+-- name: ListOpenNeedsRepo :many
+-- Open needs_repo items with the state and repo of their run (NULL: the run is gone).
+SELECT q.id, q.run_id, r.state AS run_state, r.repo_id AS run_repo_id FROM question q LEFT JOIN run r ON r.id = q.run_id
+WHERE q.kind = 'needs_repo' AND q.state = 'open';

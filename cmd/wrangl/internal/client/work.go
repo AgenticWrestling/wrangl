@@ -91,8 +91,13 @@ func (c *Client) Repos(ctx context.Context, project string) ([]proto.RepoView, e
 	return out, c.json(ctx, http.MethodGet, "/api/v1/repos?project="+url.QueryEscape(project), nil, &out)
 }
 func (c *Client) LinkRepo(ctx context.Context, project, repo, branch string) (proto.RepoView, error) {
+	return c.LinkRepoNote(ctx, project, repo, branch, "")
+}
+
+// LinkRepoNote is LinkRepo with a one-line note for agents.
+func (c *Client) LinkRepoNote(ctx context.Context, project, repo, branch, note string) (proto.RepoView, error) {
 	var out proto.RepoView
-	return out, c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(project)+"/repos", proto.LinkRepoRequest{Repo: repo, Branch: branch}, &out)
+	return out, c.json(ctx, http.MethodPost, "/api/v1/projects/"+esc(project)+"/repos", proto.LinkRepoRequest{Repo: repo, Branch: branch, Note: note}, &out)
 }
 func (c *Client) UnlinkRepo(ctx context.Context, project, repo string) error {
 	owner, name, _ := strings.Cut(repo, "/")

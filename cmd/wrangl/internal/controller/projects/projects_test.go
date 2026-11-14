@@ -134,3 +134,93 @@ func TestIssueDriftFindsMissedWebhooksAndRepairs(t *testing.T) {
 		t.Fatalf("after repair: %+v %v", ds, err)
 	}
 }
+
+func TestSetDefaultRepoMustBeLinked(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	fake := gh.NewFake()
+	fake.AddRepo(gh.Repo{Owner: "acme", Name: "app", DefaultBranch: "main", CloneURL: "file:///tmp/app.git"})
+	sq, _ := stack.NewSqids(stack.DefaultSqidsAlphabet)
+	s := &Service{DB: d, GH: fake, Stack: &stack.Service{DB: d, Sqids: sq}, Now: time.Now}
+	if _, err := s.Create(ctx, "web", ProjectParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultRepo(ctx, "web", "acme/app"); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("unlinked default accepted: %v", err)
+	}
+	if _, err := s.LinkRepo(ctx, "web", "acme/app", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultRepo(ctx, "web", "acme/app"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := d.RQ.GetProjectBySlug(ctx, "web")
+	if !p.DefaultRepoID.Valid {
+		t.Fatal("default not set")
+	}
+	if err := s.SetDefaultRepo(ctx, "web", ""); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = d.RQ.GetProjectBySlug(ctx, "web"); p.DefaultRepoID.Valid {
+		t.Fatal("default not cleared")
+	}
+}
+
+func TestSetRepoNote(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	fake := gh.NewFake()
+	fake.AddRepo(gh.Repo{Owner: "acme", Name: "app", DefaultBranch: "main", CloneURL: "file:///tmp/app.git"})
+	sq, _ := stack.NewSqids(stack.DefaultSqidsAlphabet)
+	s := &Service{DB: d, GH: fake, Stack: &stack.Service{DB: d, Sqids: sq}, Now: time.Now}
+	if _, err := s.Create(ctx, "web", ProjectParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRepoNote(ctx, "web", "acme/app", "API server"); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("unlinked repo: %v", err)
+	}
+	r, err := s.LinkRepo(ctx, "web", "acme/app", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRepoNote(ctx, "web", "acme/app", "  API server "); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := d.RQ.GetRepo(ctx, r.ID); got.Note != "API server" {
+		t.Fatalf("note %q", got.Note)
+	}
+	if err := s.SetRepoNote(ctx, "web", "acme/app", strings.Repeat("x", 201)); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("long note: %v", err)
+	}
+}
+
+func TestReadReposSetting(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	sq, _ := stack.NewSqids(stack.DefaultSqidsAlphabet)
+	s := &Service{DB: d, Stack: &stack.Service{DB: d, Sqids: sq}, Now: time.Now}
+	if p, err := s.Create(ctx, "web", ProjectParams{}); err != nil || p.ReadRepos != "all" {
+		t.Fatalf("default: %+v %v", p, err)
+	}
+	bad, none := "some", "none"
+	if _, err := s.Update(ctx, "web", ProjectParams{ReadRepos: &bad}); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("bad value: %v", err)
+	}
+	if p, err := s.Update(ctx, "web", ProjectParams{ReadRepos: &none}); err != nil {
+		t.Fatal(err)
+	} else if got, _ := d.RQ.GetProject(ctx, p.ID); got.ReadRepos != "none" {
+		t.Fatalf("not saved: %q", got.ReadRepos)
+	}
+}

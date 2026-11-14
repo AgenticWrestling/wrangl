@@ -139,3 +139,30 @@ func TestAllowedHostIsUsedFirstAndCountsAsSupply(t *testing.T) {
 		t.Fatalf("expected overflow launch when the host is full: %v", got)
 	}
 }
+
+func TestRunWithoutRepoWaitsThenTakesResolvedRepo(t *testing.T) {
+	s, _, _, d := setup(t, 1)
+	ctx := context.Background()
+	d.W.Exec(`UPDATE runner_template SET agent_json = '{"start":["true"]}', max_sessions = 1`)
+	d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, clone_url) VALUES (1, 'o', 'a', 'main', 'file:///x'), (1, 'o', 'b', 'main', 'file:///y')`)
+	queue(t, d, 1)
+	d.W.Exec(`UPDATE run SET template_id = 1, repo_id = NULL`)
+	state := func() (repo any, status string) {
+		d.R.QueryRow(`SELECT repo_id, status_text FROM run`).Scan(&repo, &status)
+		return
+	}
+	if _, err := s.Assign(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if repo, status := state(); repo != nil || status != "waiting: needs a repo" {
+		t.Fatalf("two repos, none chosen: %v %q", repo, status)
+	}
+	d.W.Exec(`UPDATE project SET default_repo_id = 2 WHERE id = 1`)
+	s.Assign(ctx)
+	var repo int64
+	var status string
+	d.R.QueryRow(`SELECT COALESCE(repo_id, 0), status_text FROM run`).Scan(&repo, &status)
+	if repo != 2 || status == "waiting: needs a repo" {
+		t.Fatalf("after default set: repo %d status %q", repo, status)
+	}
+}

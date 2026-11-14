@@ -173,8 +173,10 @@ type ProjectRequest struct {
 	AutoQueue     *bool    `json:"auto_queue,omitempty"`
 	AutoResolve   *bool    `json:"auto_resolve,omitempty"`
 	Priority      *int64   `json:"priority,omitempty"`
-	NotesRepo     *string  `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
-	Agent         *string  `json:"agent,omitempty"`      // default agent name; "" clears
+	NotesRepo     *string  `json:"notes_repo,omitempty"`   // owner/name of a linked repo; "" clears
+	ReadRepos     *string  `json:"read_repos,omitempty"`   // all (default) | none: read-only checkouts of the other repos
+	DefaultRepo   *string  `json:"default_repo,omitempty"` // owner/name of a linked repo; "" clears
+	Agent         *string  `json:"agent,omitempty"`        // default agent name; "" clears
 	CitationAudit *bool    `json:"citation_audit,omitempty"`
 }
 
@@ -205,12 +207,19 @@ type RepoView struct {
 	Repo          string `json:"repo"`
 	DefaultBranch string `json:"default_branch"`
 	CloneURL      string `json:"clone_url"`
+	Note          string `json:"note,omitempty"` // one line shown to agents by repo_list
+}
+
+// RepoPatchRequest edits a linked repo: its note.
+type RepoPatchRequest struct {
+	Note *string `json:"note,omitempty"`
 }
 
 // LinkRepoRequest links owner/name to a project.
 type LinkRepoRequest struct {
 	Repo   string `json:"repo"`
 	Branch string `json:"branch,omitempty"`
+	Note   string `json:"note,omitempty"`
 }
 
 // IssueView is a synced issue.
@@ -269,23 +278,25 @@ type TaskRunView struct {
 
 // TaskDetail is GET /api/v1/tasks/{sqid}.
 type TaskDetail struct {
-	Sqid       string          `json:"sqid"`
-	Project    string          `json:"project"`
-	Parent     string          `json:"parent,omitempty"`
-	Title      string          `json:"title"`
-	Prompt     string          `json:"prompt"`
-	State      string          `json:"state"`
-	Type       string          `json:"type"`
-	TargetDate string          `json:"target_date,omitempty"` // YYYY-MM-DD
-	CreatedBy  string          `json:"created_by"`
-	Summary    string          `json:"summary,omitempty"`
-	Need       *NeedView       `json:"need,omitempty"`
-	Requires   []string        `json:"requires,omitempty"` // the task's own capability requirements
-	Children   []TaskRef       `json:"children"`
-	Precursors []TaskRef       `json:"precursors"`
-	Dependents []TaskRef       `json:"dependents"`
-	Runs       []TaskRunView   `json:"runs"`
-	Events     []TaskEventView `json:"events"`
+	Sqid          string          `json:"sqid"`
+	Project       string          `json:"project"`
+	Parent        string          `json:"parent,omitempty"`
+	Title         string          `json:"title"`
+	Prompt        string          `json:"prompt"`
+	State         string          `json:"state"`
+	Type          string          `json:"type"`
+	TargetDate    string          `json:"target_date,omitempty"`    // YYYY-MM-DD
+	Repo          string          `json:"repo,omitempty"`           // the task's own repo (owner/name)
+	EffectiveRepo string          `json:"effective_repo,omitempty"` // where it would write: own, inherited, project default, only repo
+	CreatedBy     string          `json:"created_by"`
+	Summary       string          `json:"summary,omitempty"`
+	Need          *NeedView       `json:"need,omitempty"`
+	Requires      []string        `json:"requires,omitempty"` // the task's own capability requirements
+	Children      []TaskRef       `json:"children"`
+	Precursors    []TaskRef       `json:"precursors"`
+	Dependents    []TaskRef       `json:"dependents"`
+	Runs          []TaskRunView   `json:"runs"`
+	Events        []TaskEventView `json:"events"`
 }
 
 // NeedView is an effective resource need set: formatted values and which layer each came from
@@ -353,6 +364,8 @@ type TaskPatchRequest struct {
 	Unrequire []string `json:"unrequire,omitempty"`
 	// TargetDate: YYYY-MM-DD; "" clears it; nil leaves it.
 	TargetDate *string `json:"target_date,omitempty"`
+	// Repo: owner/name of a linked repo this task writes to; "" clears it (inherit); nil leaves it.
+	Repo *string `json:"repo,omitempty"`
 }
 
 // TaskMoveRequest moves/reranks a task. Parent nil + Root false = keep parent.
@@ -369,6 +382,7 @@ type SplitNode struct {
 	Title    string      `json:"title"`
 	Prompt   string      `json:"prompt,omitempty"`
 	Type     string      `json:"type,omitempty"`
+	Repo     string      `json:"repo,omitempty"` // owner/name of a linked repo this subtask writes to
 	Children []SplitNode `json:"children,omitempty"`
 }
 
@@ -403,6 +417,7 @@ type RunView struct {
 	BaseSHA      string `json:"base_sha,omitempty"`
 	HeadSHA      string `json:"head_sha,omitempty"`
 	Error        string `json:"error,omitempty"`
+	Warning      string `json:"warning,omitempty"`
 	QueuedAt     string `json:"queued_at"`
 	StartedAt    string `json:"started_at,omitempty"`
 	FinishedAt   string `json:"finished_at,omitempty"`

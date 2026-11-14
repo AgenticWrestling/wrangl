@@ -84,6 +84,8 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 			it.Tag = "◐ task review"
 		case "unplaceable":
 			it.Tag, it.TagClass = "⛔ can't be placed", "k-failed"
+		case "needs_repo":
+			it.Tag, it.TagClass = "⚠ needs a repo", "k-failed"
 		case "tool_error":
 			it.Tag, it.TagClass = "⚠ tool failed", "k-failed"
 		}
@@ -101,6 +103,10 @@ func (h *Handler) inboxItems(ctx context.Context, qs []proto.QuestionView, prs [
 		for _, o := range q.Options {
 			if o.Value == "edit_needs" { // not an answer: it opens the task, the item stays until the run can be placed
 				it.Links = append(it.Links, inboxLink{Text: o.Label, URL: "/task/" + q.Task})
+				continue
+			}
+			if o.Value == "link_repo" { // not an answer: it opens the project's repositories; the item resolves once the run has a repo
+				it.Links = append(it.Links, inboxLink{Text: o.Label, URL: "/projects/" + q.Project + "/settings"})
 				continue
 			}
 			cls := ""

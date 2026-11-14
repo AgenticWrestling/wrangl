@@ -157,6 +157,8 @@ type Project struct {
 	UpdatedAt         string         `json:"updated_at"`
 	AutoQueue         int64          `json:"auto_queue"`
 	ArchivedAt        sql.NullString `json:"archived_at"`
+	DefaultRepoID     sql.NullInt64  `json:"default_repo_id"`
+	ReadRepos         string         `json:"read_repos"`
 }
 
 type PullRequest struct {
@@ -225,6 +227,7 @@ type Repo struct {
 	GhInstallationID sql.NullInt64 `json:"gh_installation_id"`
 	CreatedAt        string        `json:"created_at"`
 	CloneUrl         string        `json:"clone_url"`
+	Note             string        `json:"note"`
 }
 
 type Run struct {
