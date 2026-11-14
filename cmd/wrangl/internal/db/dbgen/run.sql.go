@@ -1126,3 +1126,24 @@ func (q *Queries) SetRunNeed(ctx context.Context, arg SetRunNeedParams) error {
 	_, err := q.db.ExecContext(ctx, setRunNeed, arg.NeedVcpu, arg.NeedRamMib, arg.NeedDiskGib, arg.NeedSource, arg.ID)
 	return err
 }
+
+const setRunRepo = `-- name: SetRunRepo :execrows
+UPDATE run SET repo_id = ?1,
+    status_text = CASE WHEN blocked_reason <> '' AND status_text = blocked_reason THEN '' ELSE status_text END,
+    blocked_since = NULL, blocked_reason = ''
+WHERE id = ?2 AND state = 'queued' AND repo_id IS NULL
+`
+
+type SetRunRepoParams struct {
+	RepoID int64 `json:"repo_id"`
+	ID     int64 `json:"id"`
+}
+
+// Give a queued run that waits for a repo its repo, and drop the "needs a repo" reason.
+func (q *Queries) SetRunRepo(ctx context.Context, arg SetRunRepoParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setRunRepo, arg.RepoID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

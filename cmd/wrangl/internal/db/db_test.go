@@ -266,3 +266,22 @@ func TestProjectTemplateLimitDownRecreatesIt(t *testing.T) {
 		t.Fatalf("reseed: %d rows, sum %d", rows, sum)
 	}
 }
+
+// Migration 00049 adds project.default_repo_id; its down drops the column again.
+func TestProjectDefaultRepoDownDropsColumn(t *testing.T) {
+	d, _ := open(t)
+	raw, err := os.ReadFile("migrations/00049_project_default_repo.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	body = body[strings.Index(body, "-- +goose Down")+len("-- +goose Down"):]
+	if _, err := d.W.ExecContext(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	d.R.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('project') WHERE name = 'default_repo_id'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("column still there")
+	}
+}

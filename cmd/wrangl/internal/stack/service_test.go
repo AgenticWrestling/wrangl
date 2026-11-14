@@ -222,9 +222,12 @@ func TestQueueChecksAndAgentLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Two repos linked and none set: queueing "elsewhere" is ambiguous.
-	if _, err := s.Queue(ctx, other.Sqid.String); !errors.Is(err, errs.Invalid) {
-		t.Fatalf("ambiguous repo: %v", err)
+	// Two repos linked and none set: queueing "elsewhere" succeeds and waits for a repo.
+	if r, err := s.Queue(ctx, other.Sqid.String); err != nil || r.RepoID.Valid || r.StatusText != "waiting: needs a repo" {
+		t.Fatalf("no repo: %+v %v", r, err)
+	}
+	if _, err := d.W.Exec(`UPDATE run SET state = 'cancelled' WHERE task_id = ?`, other.ID); err != nil {
+		t.Fatal(err)
 	}
 	run, err := s.Queue(ctx, epic.Sqid.String)
 	if err != nil {

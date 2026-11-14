@@ -134,3 +134,38 @@ func TestIssueDriftFindsMissedWebhooksAndRepairs(t *testing.T) {
 		t.Fatalf("after repair: %+v %v", ds, err)
 	}
 }
+
+func TestSetDefaultRepoMustBeLinked(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	fake := gh.NewFake()
+	fake.AddRepo(gh.Repo{Owner: "acme", Name: "app", DefaultBranch: "main", CloneURL: "file:///tmp/app.git"})
+	sq, _ := stack.NewSqids(stack.DefaultSqidsAlphabet)
+	s := &Service{DB: d, GH: fake, Stack: &stack.Service{DB: d, Sqids: sq}, Now: time.Now}
+	if _, err := s.Create(ctx, "web", ProjectParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultRepo(ctx, "web", "acme/app"); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("unlinked default accepted: %v", err)
+	}
+	if _, err := s.LinkRepo(ctx, "web", "acme/app", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDefaultRepo(ctx, "web", "acme/app"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := d.RQ.GetProjectBySlug(ctx, "web")
+	if !p.DefaultRepoID.Valid {
+		t.Fatal("default not set")
+	}
+	if err := s.SetDefaultRepo(ctx, "web", ""); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = d.RQ.GetProjectBySlug(ctx, "web"); p.DefaultRepoID.Valid {
+		t.Fatal("default not cleared")
+	}
+}

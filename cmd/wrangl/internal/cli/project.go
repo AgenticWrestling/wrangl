@@ -35,6 +35,7 @@ func projectReq(c *cobra.Command) proto.ProjectRequest {
 	r.Name, r.Description, r.Template, r.PlanTemplate = str("name"), str("description"), str("template"), str("plan-template")
 	r.AutoMerge, r.AutoQueue = boolean("auto-merge"), boolean("auto-queue")
 	r.NotesRepo, r.Agent = str("notes-repo"), str("agent")
+	r.DefaultRepo = str("default-repo")
 	r.CitationAudit = boolean("citation-audit")
 	if f.Changed("allow-template") {
 		v, _ := f.GetStringSlice("allow-template")
@@ -68,6 +69,7 @@ func projectFlags(c *cobra.Command) {
 	f.Bool("auto-merge", false, "auto-merge PRs that pass every gate and review as low risk")
 	f.Bool("auto-resolve", false, "auto-merge queues Smart Merge (an agent merges the base branch in) for a conflicted PR instead of asking you")
 	f.Bool("auto-queue", false, "queue new top-level tasks automatically")
+	f.String("default-repo", "", "linked repo (owner/name) a task uses when neither it nor an ancestor names one; empty clears")
 	f.String("notes-repo", "", "linked repo (owner/name) that holds research reports under research/; empty clears")
 	f.Bool("citation-audit", false, "research PRs get an audit run that re-fetches every cited URL; unverified citations block auto-merge")
 	f.String("agent", "", "default agent definition (wrangl agent list); empty clears")

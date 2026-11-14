@@ -17,6 +17,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/controller/projects"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/db/dbgen"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/proto"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 )
 
 // Assign hands queued runs to idle runners. It returns the run ids assigned.
@@ -29,6 +30,20 @@ func (s *Scheduler) Assign(ctx context.Context) ([]int64, error) {
 	var assigned []int64
 	var errs []error
 	for _, r := range queued {
+		if !r.RepoID.Valid && r.Kind == "work" {
+			// Waiting for a repo: pick it up as soon as the task resolves to one (ADR 0012 section 4).
+			if id, err := reporesolve.Resolve(ctx, q.RQ, r.TaskID); err != nil {
+				errs = append(errs, fmt.Errorf("run %d: %w", r.ID, err))
+			} else if id != 0 {
+				if n, err := q.Q.SetRunRepo(ctx, dbgen.SetRunRepoParams{RepoID: id, ID: r.ID}); err == nil && n > 0 {
+					r.RepoID = sql.NullInt64{Int64: id, Valid: true}
+					s.Fleet.Bus.Run(r.ID)
+				}
+			}
+			if !r.RepoID.Valid {
+				s.block(ctx, r.ID, reporesolve.NeedsRepo)
+			}
+		}
 		if !r.TemplateID.Valid || !r.RepoID.Valid {
 			if !r.TemplateID.Valid {
 				s.checkUnplaceable(ctx, r)

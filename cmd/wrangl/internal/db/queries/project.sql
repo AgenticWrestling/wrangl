@@ -93,3 +93,7 @@ ON CONFLICT (project_id) DO UPDATE SET repo_id = excluded.repo_id;
 
 -- name: ClearNotesRepo :exec
 DELETE FROM project_notes_repo WHERE project_id = ?;
+
+-- name: SetProjectDefaultRepo :exec
+UPDATE project SET default_repo_id = sqlc.narg(default_repo_id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = sqlc.arg(id);

@@ -173,8 +173,9 @@ type ProjectRequest struct {
 	AutoQueue     *bool    `json:"auto_queue,omitempty"`
 	AutoResolve   *bool    `json:"auto_resolve,omitempty"`
 	Priority      *int64   `json:"priority,omitempty"`
-	NotesRepo     *string  `json:"notes_repo,omitempty"` // owner/name of a linked repo; "" clears
-	Agent         *string  `json:"agent,omitempty"`      // default agent name; "" clears
+	NotesRepo     *string  `json:"notes_repo,omitempty"`   // owner/name of a linked repo; "" clears
+	DefaultRepo   *string  `json:"default_repo,omitempty"` // owner/name of a linked repo; "" clears
+	Agent         *string  `json:"agent,omitempty"`        // default agent name; "" clears
 	CitationAudit *bool    `json:"citation_audit,omitempty"`
 }
 

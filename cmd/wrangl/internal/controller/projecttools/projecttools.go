@@ -44,6 +44,7 @@ type args struct {
 	AutoResolve    *bool             `json:"auto_resolve"`
 	Priority       *int64            `json:"priority"`
 	NotesRepo      *string           `json:"notes_repo"`
+	DefaultRepo    *string           `json:"default_repo"`
 	Agent          *string           `json:"agent"`
 	CitationAudit  *bool             `json:"citation_audit"`
 	AllowTemplates *[]string         `json:"allow_templates"`
@@ -53,7 +54,7 @@ type args struct {
 func (a args) params() projects.ProjectParams {
 	return projects.ProjectParams{Name: a.Name, Description: a.Description, Template: a.Template,
 		PlanTemplate: a.PlanTemplate, AutoMerge: a.AutoMerge, AutoQueue: a.AutoQueue, AutoResolve: a.AutoResolve,
-		Priority: a.Priority, NotesRepo: a.NotesRepo, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates, Need: a.Need}
+		Priority: a.Priority, NotesRepo: a.NotesRepo, DefaultRepo: a.DefaultRepo, Agent: a.Agent, CitationAudit: a.CitationAudit, AllowTemplates: a.AllowTemplates, Need: a.Need}
 }
 
 func parse(raw json.RawMessage) (args, error) {
@@ -97,6 +98,11 @@ func (s *Service) View(ctx context.Context, p dbgen.Project) map[string]any {
 	if id, err := s.DB.RQ.GetNotesRepoID(ctx, p.ID); err == nil {
 		if rp, err := s.DB.RQ.GetRepo(ctx, id); err == nil {
 			m["notes_repo"] = rp.Owner + "/" + rp.Name
+		}
+	}
+	if p.DefaultRepoID.Valid {
+		if rp, err := s.DB.RQ.GetRepo(ctx, p.DefaultRepoID.Int64); err == nil {
+			m["default_repo"] = rp.Owner + "/" + rp.Name
 		}
 	}
 	m["allow_templates"] = s.Projects.AllowedTemplates(ctx, p.ID)

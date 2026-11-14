@@ -235,3 +235,10 @@ UPDATE run SET template_id = sqlc.arg(template_id) WHERE id = sqlc.arg(id) AND s
 -- name: SetRunNeed :exec
 UPDATE run SET need_vcpu = sqlc.arg(need_vcpu), need_ram_mib = sqlc.arg(need_ram_mib), need_disk_gib = sqlc.arg(need_disk_gib),
     need_source = sqlc.arg(need_source) WHERE id = sqlc.arg(id);
+
+-- name: SetRunRepo :execrows
+-- Give a queued run that waits for a repo its repo, and drop the "needs a repo" reason.
+UPDATE run SET repo_id = sqlc.arg(repo_id),
+    status_text = CASE WHEN blocked_reason <> '' AND status_text = blocked_reason THEN '' ELSE status_text END,
+    blocked_since = NULL, blocked_reason = ''
+WHERE id = sqlc.arg(id) AND state = 'queued' AND repo_id IS NULL;

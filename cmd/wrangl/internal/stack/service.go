@@ -23,6 +23,7 @@ import (
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/errs"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/events"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 )
 
 // Actor identifies who changed the work stack: "user" or "agent:<run id>".
@@ -952,13 +953,10 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 		if err != nil {
 			return err
 		}
-		var templateID, repoID int64
+		var templateID int64
 		for _, a := range chain { // node first, then ancestors
 			if templateID == 0 && a.TemplateID.Valid {
 				templateID = a.TemplateID.Int64
-			}
-			if repoID == 0 && a.RepoID.Valid {
-				repoID = a.RepoID.Int64
 			}
 		}
 		if templateID == 0 {
@@ -967,20 +965,10 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 		if templateID == 0 {
 			return invalid("no runner template: set one on the task, an ancestor, or the project (--template)")
 		}
-		if repoID == 0 && t.TaskType == dbtypes.TaskResearch { // reports live in the notes repo
-			if id, err := q.GetNotesRepoID(ctx, proj.ID); err == nil {
-				repoID = id
-			}
-		}
-		if repoID == 0 {
-			rc, err := q.ListProjectRepoCount(ctx, proj.ID)
-			if err != nil {
-				return err
-			}
-			if rc.N != 1 {
-				return invalid("no repo: set one on the task or an ancestor (project %s has %d linked repos)", proj.Slug, rc.N)
-			}
-			repoID = rc.OnlyID
+		// 0 = no repo yet: the run is created waiting for the owner to pick one (ADR 0012 section 4).
+		repoID, err := reporesolve.ResolveIn(ctx, q, proj, t.TaskType, chain)
+		if err != nil {
+			return err
 		}
 		repos, err := q.SubtreeRepoIDs(ctx, t.ID)
 		if err != nil {
@@ -1016,9 +1004,17 @@ func (s *Service) QueueWith(ctx context.Context, sqid, agent string) (dbgen.Run,
 			return err
 		}
 		run, err = q.QueueRun(ctx, dbgen.QueueRunParams{
-			TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: dbnull.Int(templateID), RepoID: dbnull.Int(repoID),
+			TaskID: t.ID, Kind: "work", Attempt: n + 1, TemplateID: dbnull.Int(templateID), RepoID: nullRepo(repoID),
 			Branch: fmt.Sprintf("wrangl/%s-%d", sqid, n+1), SessionUuid: uuid,
 		})
+		if err == nil && repoID == 0 {
+			now := time.Now
+			if s.Now != nil {
+				now = s.Now
+			}
+			_, err = q.SetRunBlocked(ctx, dbgen.SetRunBlockedParams{Reason: reporesolve.NeedsRepo, Now: dbnull.Str(dbtime.Format(now())), ID: run.ID})
+			run.StatusText, run.BlockedReason = reporesolve.NeedsRepo, reporesolve.NeedsRepo
+		}
 		if err == nil {
 			err = placement.Snapshot(ctx, q, run)
 		}
@@ -1228,3 +1224,6 @@ func (s *Service) Recompute(ctx context.Context, sqid string) error {
 		return recompute(ctx, q, t.ParentID)
 	})
 }
+
+// nullRepo is a repo id for a run's repo_id column; 0 (none resolved yet) is NULL.
+func nullRepo(id int64) sql.NullInt64 { return sql.NullInt64{Int64: id, Valid: id != 0} }
