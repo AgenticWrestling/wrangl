@@ -385,3 +385,22 @@ func TestStatePill(t *testing.T) {
 		t.Errorf("no session: %s", s)
 	}
 }
+
+// A project with several repos lays them side by side under <dir>/<slug>/ and starts in the default repo.
+func TestPrimarySessionLaysReposSideBySide(t *testing.T) {
+	e := newEnv(t)
+	e.d.W.Exec(`INSERT INTO repo (project_id, owner, name, default_branch, clone_url) VALUES (1,'acme','web','main','https://example.test/acme/web.git')`)
+	e.d.W.Exec(`UPDATE project SET default_repo_id = (SELECT id FROM repo WHERE name = 'web') WHERE slug = 'alpha'`)
+	e.reconcile(t)
+	a := e.h.starts[0]
+	if a.Slug != "alpha" || a.Dir != "/home/wrangl-agent/work/primary/alpha/web" || a.CloneURL != "https://example.test/acme/web.git" {
+		t.Fatalf("alpha starts in the default repo: %+v", a)
+	}
+	if len(a.Extra) != 1 || a.Extra[0].Dir != "/home/wrangl-agent/work/primary/alpha/alpha" || a.Extra[0].Branch != "trunk" {
+		t.Fatalf("the other repo sits beside it: %+v", a.Extra)
+	}
+	// The single-repo project is laid out as before.
+	if b := e.h.starts[1]; b.Dir != "/home/wrangl-agent/work/primary/beta" || len(b.Extra) != 0 {
+		t.Fatalf("beta changed: %+v", b)
+	}
+}

@@ -111,6 +111,11 @@ func (h *Host) StartWith(req Request) (info Info, existing bool, err error) {
 			return Info{}, false, err
 		}
 	}
+	for _, x := range req.Extra {
+		if filepath.IsAbs(x.Dir) && x.CloneURL != "" {
+			prepareCheckout(x.Dir, x.CloneURL, x.Branch, x.Token) // best effort
+		}
+	}
 	if st, e := os.Stat(dir); e != nil || !st.IsDir() {
 		return Info{}, false, fmt.Errorf("dir %q is not a directory", dir)
 	}

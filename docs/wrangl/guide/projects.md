@@ -126,6 +126,13 @@ wrangl repo unlink web your-org/your-repo
   enforced read-only: files are mode `a-w`, the checkout is detached, and the runner fetches them with a
   `contents:read` token that the agent never sees. If a run changed one, the run gets a warning
   (`wrangl run show`). `wrangl project edit web --read-repos none` turns it off for a project whose repos are large.
+- Plan and review runs get the same read-only checkouts, so a review of a PR in one repo can look at another's
+  callers. A plan run works in the repo the task resolves to (task, ancestor, project default, only repo), and
+  the subtasks it proposes may each name a `repo` (owner/name, linked to the project); accepting the split sets it.
+- The project's primary session starts in the default repo (else the first linked) and, with several repos,
+  all of them sit side by side under `<sessions dir>/<slug>/<repo name>`. A project with one repo is laid out
+  as before (`<sessions dir>/<slug>`); linking a second repo to a project whose session dir is already a
+  checkout needs that old directory moved aside first.
 - A run opens one PR for its subtree. Gates, the review run, auto-merge, Smart Merge and the
   conflict state are covered in INSTALL.md section 9.
 

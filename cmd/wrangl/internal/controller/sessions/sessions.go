@@ -119,7 +119,7 @@ func backoff(failures int64) time.Duration {
 
 // Reconcile makes one pass. It is safe to call often; it does nothing for a session that is up.
 func (r *Reconciler) Reconcile(ctx context.Context) error {
-	all, err := r.DB.R.QueryContext(ctx, `SELECT p.id, p.slug, p.archived_at IS NOT NULL FROM project p ORDER BY p.slug`)
+	all, err := r.DB.R.QueryContext(ctx, `SELECT p.id, p.slug, p.archived_at IS NOT NULL, COALESCE(p.default_repo_id, 0) FROM project p ORDER BY p.slug`)
 	if err != nil {
 		return err
 	}
@@ -127,11 +127,12 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		id       int64
 		slug     string
 		archived bool
+		defRepo  int64
 	}
 	var projs []proj
 	for all.Next() {
 		var p proj
-		if err := all.Scan(&p.id, &p.slug, &p.archived); err != nil {
+		if err := all.Scan(&p.id, &p.slug, &p.archived, &p.defRepo); err != nil {
 			all.Close()
 			return err
 		}
@@ -143,10 +144,12 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return err
 	}
 	firstRepo := map[int64]dbgen.Repo{}
+	byProject := map[int64][]dbgen.Repo{}
 	for _, x := range repos {
 		if _, ok := firstRepo[x.Repo.ProjectID]; !ok {
 			firstRepo[x.Repo.ProjectID] = x.Repo
 		}
+		byProject[x.Repo.ProjectID] = append(byProject[x.Repo.ProjectID], x.Repo)
 	}
 
 	live, err := r.Host.List(ctx)
@@ -193,14 +196,30 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := r.ensure(ctx, p.id, p.slug, repo, info, have, x); err != nil {
+		// The session starts in the project's default repo (else the first linked); with several repos
+		// they all sit side by side under <dir>/<slug>/ (ADR 0012 section 8).
+		all := byProject[p.id]
+		for _, c := range all {
+			if c.ID == p.defRepo {
+				repo = c
+			}
+		}
+		var others []dbgen.Repo
+		if len(all) > 1 {
+			for _, c := range all {
+				if c.ID != repo.ID {
+					others = append(others, c)
+				}
+			}
+		}
+		if err := r.ensure(ctx, p.id, p.slug, repo, others, info, have, x); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *Reconciler) ensure(ctx context.Context, id int64, slug string, repo dbgen.Repo, info sessionhost.Info, have bool, x row) error {
+func (r *Reconciler) ensure(ctx context.Context, id int64, slug string, repo dbgen.Repo, others []dbgen.Repo, info sessionhost.Info, have bool, x row) error {
 	now := r.now()
 	if have && info.State == "running" {
 		x.state, x.pid, x.started, x.lastError, x.next = "running", int64(info.PID), info.Started, "", time.Time{}
@@ -230,8 +249,21 @@ func (r *Reconciler) ensure(ctx context.Context, id int64, slug string, repo dbg
 	}
 	// Start (or start again). The host continues the old conversation with -c when this session has
 	// run before, even if the host itself lost the record (it restarted).
-	req := sessionhost.StartRequest(slug, filepath.Join(r.Dir, slug), slug)
+	dir := filepath.Join(r.Dir, slug)
+	if len(others) > 0 { // several repos: <dir>/<slug>/<repo name>, the session in the primary one
+		dir = filepath.Join(dir, repo.Name)
+	}
+	req := sessionhost.StartRequest(slug, dir, slug)
 	req.CloneURL, req.Branch = repoURL(repo), repo.DefaultBranch
+	for _, o := range others {
+		c := sessionhost.Checkout{Dir: filepath.Join(r.Dir, slug, o.Name), CloneURL: repoURL(o), Branch: o.DefaultBranch}
+		if r.Token != nil {
+			if tok, err := r.Token(ctx, o); err == nil {
+				c.Token = tok
+			}
+		}
+		req.Extra = append(req.Extra, c)
+	}
 	req.Resume = x.everStarted
 	if r.Token != nil {
 		if tok, err := r.Token(ctx, repo); err != nil {

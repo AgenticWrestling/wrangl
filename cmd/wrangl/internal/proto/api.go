@@ -382,6 +382,7 @@ type SplitNode struct {
 	Title    string      `json:"title"`
 	Prompt   string      `json:"prompt,omitempty"`
 	Type     string      `json:"type,omitempty"`
+	Repo     string      `json:"repo,omitempty"` // owner/name of a linked repo this subtask writes to
 	Children []SplitNode `json:"children,omitempty"`
 }
 

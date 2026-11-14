@@ -63,3 +63,14 @@ func TestReadReposCappedAtEight(t *testing.T) {
 		t.Fatalf("%d read repos, want %d", len(out), MaxReadRepos)
 	}
 }
+
+// Plan and review runs read the other repos like work runs do.
+func TestReadReposForPlanAndReviewRuns(t *testing.T) {
+	for _, kind := range []string{"plan", "review"} {
+		s, _, got := readRepoFixture(t, 2)
+		s.Fleet.DB.W.Exec(`UPDATE run SET kind = ?`, kind)
+		if out := got(); len(out) != 1 {
+			t.Fatalf("%s run: %v", kind, out)
+		}
+	}
+}

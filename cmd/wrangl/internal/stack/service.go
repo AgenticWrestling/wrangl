@@ -831,6 +831,7 @@ type SplitNode struct {
 	Title    string      `json:"title"`
 	Prompt   string      `json:"prompt,omitempty"`
 	Type     string      `json:"type,omitempty"` // "" = the split task's type
+	Repo     string      `json:"repo,omitempty"` // owner/name, linked to the project; "" = inherit
 	Children []SplitNode `json:"children,omitempty"`
 }
 
@@ -915,7 +916,15 @@ func (s *Service) Split(ctx context.Context, sqid string, nodes []SplitNode, cha
 						return invalid("%v", err)
 					}
 				}
-				t, err := s.newTask(ctx, q, dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: dbnull.Int(parentID), Rank: rank, Title: n.Title, Prompt: prompt, TaskType: tt}, actor)
+				params := dbgen.CreateTaskParams{ProjectID: parent.ProjectID, ParentID: dbnull.Int(parentID), Rank: rank, Title: n.Title, Prompt: prompt, TaskType: tt}
+				if n.Repo != "" {
+					rp, err := projectRepo(ctx, q, parent.ProjectID, n.Repo)
+					if err != nil {
+						return err
+					}
+					params.RepoID = dbnull.Int(rp.ID)
+				}
+				t, err := s.newTask(ctx, q, params, actor)
 				if err != nil {
 					return err
 				}

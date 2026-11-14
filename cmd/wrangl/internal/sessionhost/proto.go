@@ -32,6 +32,9 @@ type Request struct {
 	CloneURL string `json:"clone_url,omitempty"`
 	Branch   string `json:"branch,omitempty"`
 	Token    string `json:"token,omitempty"`
+	// start: more checkouts to prepare beside Dir (a project with several repos). A failure to prepare
+	// one is not fatal: the session starts with what is there.
+	Extra []Checkout `json:"extra,omitempty"`
 	// start: continue the previous conversation (`claude -c`) even though this host has no record of
 	// the session, e.g. after the host itself restarted.
 	Resume bool `json:"resume,omitempty"`
@@ -101,4 +104,12 @@ func ReadFrame(r io.Reader) (byte, []byte, error) {
 		return 0, nil, err
 	}
 	return h[0], p, nil
+}
+
+// Checkout is one more repo for the host to clone or fast-forward before a session starts.
+type Checkout struct {
+	Dir      string `json:"dir"`
+	CloneURL string `json:"clone_url"`
+	Branch   string `json:"branch,omitempty"`
+	Token    string `json:"token,omitempty"`
 }

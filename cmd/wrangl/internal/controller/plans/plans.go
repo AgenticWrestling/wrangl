@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/dbnull"
 	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/placement"
+	"github.com/agenticwrestling/wrangl/cmd/wrangl/internal/reporesolve"
 	"log/slog"
 	"strings"
 	"time"
@@ -98,13 +99,11 @@ func (s *Service) Queue(ctx context.Context, sqid, guidance string) (dbgen.Run, 
 		return dbgen.Run{}, err
 	}
 	chain, _ := s.DB.RQ.AncestorChain(ctx, t.ID)
-	var templateID, repoID int64
+	var templateID int64
 	for _, a := range chain {
 		if templateID == 0 && a.TemplateID.Valid {
 			templateID = a.TemplateID.Int64
-		}
-		if repoID == 0 && a.RepoID.Valid {
-			repoID = a.RepoID.Int64
+			break
 		}
 	}
 	if proj.PlanTemplateID.Valid {
@@ -113,14 +112,14 @@ func (s *Service) Queue(ctx context.Context, sqid, guidance string) (dbgen.Run, 
 	if templateID == 0 {
 		templateID = proj.DefaultTemplateID.Int64
 	}
-	if repoID == 0 {
-		rc, _ := s.DB.RQ.ListProjectRepoCount(ctx, proj.ID)
-		if rc.N == 1 {
-			repoID = rc.OnlyID
-		}
+	// The repo the plan run works in follows the same order as work: the task, an ancestor, the project's
+	// default repo, its only linked repo (ADR 0012 section 3).
+	repoID, err := reporesolve.ResolveIn(ctx, s.DB.RQ, proj, t.TaskType, chain)
+	if err != nil {
+		return dbgen.Run{}, err
 	}
 	if templateID == 0 || repoID == 0 {
-		return dbgen.Run{}, fmt.Errorf("%w: planning needs a runner template and a repo for %s", errs.Invalid, sqid)
+		return dbgen.Run{}, fmt.Errorf("%w: planning needs a runner template and a repo for %s (set one on the task or an ancestor, or a project default repo)", errs.Invalid, sqid)
 	}
 	repo, err := s.DB.RQ.GetRepo(ctx, repoID)
 	if err != nil {
@@ -185,11 +184,31 @@ func (s *Service) ProposeSplit(ctx context.Context, sc runs.Scope, raw json.RawM
 	if len(p.Children) == 0 {
 		return nil, fmt.Errorf("%w: propose at least one subtask", errs.Invalid)
 	}
+	run, err := s.DB.RQ.GetRun(ctx, sc.RunID)
+	if err != nil {
+		return nil, err
+	}
+	t, err := s.DB.RQ.GetTask(ctx, run.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	linked := map[string]bool{}
+	var linkedList []string
+	if rows, err := s.DB.RQ.ListRepos(ctx, t.ProjectID); err == nil {
+		for _, r := range rows {
+			name := r.Repo.Owner + "/" + r.Repo.Name
+			linked[name] = true
+			linkedList = append(linkedList, name)
+		}
+	}
 	var check func([]proto.SplitNode) error
 	check = func(ns []proto.SplitNode) error {
 		for _, n := range ns {
 			if strings.TrimSpace(n.Title) == "" {
 				return fmt.Errorf("%w: every subtask needs a title", errs.Invalid)
+			}
+			if n.Repo != "" && !linked[n.Repo] {
+				return fmt.Errorf("%w: subtask %q: repo %s is not linked to this project; linked repos: %s", errs.Invalid, n.Title, n.Repo, strings.Join(linkedList, ", "))
 			}
 			if err := check(n.Children); err != nil {
 				return err
@@ -198,14 +217,6 @@ func (s *Service) ProposeSplit(ctx context.Context, sc runs.Scope, raw json.RawM
 		return nil
 	}
 	if err := check(p.Children); err != nil {
-		return nil, err
-	}
-	run, err := s.DB.RQ.GetRun(ctx, sc.RunID)
-	if err != nil {
-		return nil, err
-	}
-	t, err := s.DB.RQ.GetTask(ctx, run.TaskID)
-	if err != nil {
 		return nil, err
 	}
 	p.TaskSqid, p.Guidance = t.Sqid.String, run.Guidance
@@ -217,7 +228,11 @@ func (s *Service) ProposeSplit(ctx context.Context, sc runs.Scope, raw json.RawM
 	var list func([]proto.SplitNode, string)
 	list = func(ns []proto.SplitNode, indent string) {
 		for _, n := range ns {
-			fmt.Fprintf(&d, "%s- %s\n", indent, n.Title)
+			if n.Repo != "" {
+				fmt.Fprintf(&d, "%s- %s (%s)\n", indent, n.Title, n.Repo)
+			} else {
+				fmt.Fprintf(&d, "%s- %s\n", indent, n.Title)
+			}
 			list(n.Children, indent+"  ")
 		}
 	}
@@ -283,7 +298,7 @@ func (s *Service) Answer(ctx context.Context, q dbgen.Question, value, text stri
 func toStack(in []proto.SplitNode) []stack.SplitNode {
 	out := make([]stack.SplitNode, len(in))
 	for i, n := range in {
-		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Type: n.Type, Children: toStack(n.Children)}
+		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Type: n.Type, Repo: n.Repo, Children: toStack(n.Children)}
 	}
 	return out
 }

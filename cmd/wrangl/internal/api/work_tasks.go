@@ -121,7 +121,7 @@ func taskDetail(ctx context.Context, d Deps, t dbgen.Task) proto.TaskDetail {
 func convertSplit(in []proto.SplitNode) []stack.SplitNode {
 	out := make([]stack.SplitNode, len(in))
 	for i, n := range in {
-		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Type: n.Type, Children: convertSplit(n.Children)}
+		out[i] = stack.SplitNode{Title: n.Title, Prompt: n.Prompt, Type: n.Type, Repo: n.Repo, Children: convertSplit(n.Children)}
 	}
 	return out
 }
