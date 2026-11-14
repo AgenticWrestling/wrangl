@@ -97,7 +97,7 @@ organisation) that owns repos you use. You create each App from the Setup page
 App and the App is installed on that repo.
 
 ```sh
-wrangl repo link web your-org/your-repo [--branch main]   # branch defaults to the repo's default branch
+wrangl repo link web your-org/your-repo [--branch main] [--note "API server"]   # branch defaults to the repo's default branch
 wrangl repo list [--project web]
 wrangl repo unlink web your-org/your-repo
 ```
@@ -105,8 +105,13 @@ wrangl repo unlink web your-org/your-repo
 - `repo link` asks GitHub for the repo using the owner's App. If there is no App or it is not installed
   on the repo it fails and says so; fix that on the Setup page and retry. Linking a repo that is already
   linked to the project is a conflict. Unlinking keeps history on tasks that pointed at the repo.
+- `--note` is a one-line description ("API server", "web client") that agents see in the `repo_list` tool,
+  so they can pick the right repo for a task they create. Edit it later with the Note button on the
+  project's Repositories card.
 - A task works in one repo, set with `task create --repo owner/name` or inherited from its parent.
-  A run on a task with no repo cannot be assigned. Runs get a one-repo, per-run installation token that only
+  Agents can do the same: `task_create` and `task_update` take an optional `repo` (owner/name, linked to the
+  project; an unknown one is an error that lists the linked repos), only on tasks in their own subtree, and
+  `task_get` returns both the task's own `repo` and its `effective_repo`. A run on a task with no repo cannot be assigned. Runs get a one-repo, per-run installation token that only
   the runner daemon uses; the agent never sees it.
 - A run opens one PR for its subtree. Gates, the review run, auto-merge, Smart Merge and the
   conflict state are covered in INSTALL.md section 9.

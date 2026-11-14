@@ -120,6 +120,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 		Limit                                                                         *int
 		Type, Archived                                                                string
 		TargetDate                                                                    *string `json:"target_date"`
+		Repo                                                                          *string `json:"repo"` // task_create / task_update: owner/name; "" clears
 		// ask_question
 		DetailMD      string                 `json:"detail_md"`
 		AllowFreeText bool                   `json:"allow_free_text"`
@@ -222,6 +223,44 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 			ps = append(ps, map[string]any{"sqid": p.Sqid, "title": p.Title, "state": p.State, "satisfied": sat})
 		}
 		out["precursors"] = ps
+		out["repo"], out["effective_repo"] = "", ""
+		if t.RepoID.Valid {
+			if r, err := s.DB.RQ.GetRepo(ctx, t.RepoID.Int64); err == nil {
+				out["repo"] = r.Owner + "/" + r.Name
+			}
+		}
+		if id, err := reporesolve.Resolve(ctx, s.DB.RQ, t.ID); err == nil && id != 0 {
+			if r, err := s.DB.RQ.GetRepo(ctx, id); err == nil {
+				out["effective_repo"] = r.Owner + "/" + r.Name
+			}
+		}
+		return out, nil
+
+	case "repo_list":
+		pid := sc.ProjectID
+		if pid == 0 {
+			if a.Project == "" {
+				return nil, fmt.Errorf("%w: project is required", errs.Invalid)
+			}
+			p, err := s.DB.RQ.GetProjectBySlug(ctx, a.Project)
+			if err != nil {
+				return nil, fmt.Errorf("%w: project %q", errs.NotFound, a.Project)
+			}
+			pid = p.ID
+		}
+		proj, err := s.DB.RQ.GetProject(ctx, pid)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := s.DB.RQ.ListRepos(ctx, pid)
+		if err != nil {
+			return nil, err
+		}
+		out := []map[string]any{}
+		for _, r := range rows {
+			out = append(out, map[string]any{"repo": r.Repo.Owner + "/" + r.Repo.Name, "default_branch": r.Repo.DefaultBranch,
+				"note": r.Repo.Note, "default": proj.DefaultRepoID.Valid && proj.DefaultRepoID.Int64 == r.Repo.ID})
+		}
 		return out, nil
 
 	case "task_tree":
@@ -304,7 +343,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 			return nil, fmt.Errorf("%w: give parent, or project for a top-level task", errs.Invalid)
 		}
 		t, err := s.Stack.Create(ctx, stack.CreateParams{Project: project, Parent: a.Parent, Title: a.Title, Prompt: a.Prompt,
-			Pos: a.Position.pos(), Needs: a.Needs, Need: a.Need, Type: a.Type, TargetDate: deref(a.TargetDate), Actor: sc.Actor})
+			Pos: a.Position.pos(), Needs: a.Needs, Need: a.Need, Type: a.Type, TargetDate: deref(a.TargetDate), Repo: deref(a.Repo), Actor: sc.Actor})
 		if err != nil {
 			return nil, err
 		}
@@ -333,6 +372,11 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 				return nil, err
 			}
 		}
+		if a.Repo != nil {
+			if t, err = s.Stack.SetRepo(ctx, a.Sqid, *a.Repo, sc.Actor); err != nil {
+				return nil, err
+			}
+		}
 		if len(a.Need) > 0 {
 			if err := s.Stack.SetNeed(ctx, a.Sqid, a.Need, sc.Actor); err != nil {
 				return nil, err
@@ -343,7 +387,7 @@ func (s *Service) ExecTool(ctx context.Context, sc Scope, tool string, raw json.
 				}
 			}
 		}
-		if title != nil || prompt != nil || (a.Type == "" && a.TargetDate == nil && len(a.Need) == 0) {
+		if title != nil || prompt != nil || (a.Type == "" && a.TargetDate == nil && a.Repo == nil && len(a.Need) == 0) {
 			if t, err = s.Stack.Edit(ctx, a.Sqid, title, prompt, sc.Actor); err != nil {
 				return nil, err
 			}

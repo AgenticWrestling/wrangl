@@ -97,3 +97,6 @@ DELETE FROM project_notes_repo WHERE project_id = ?;
 -- name: SetProjectDefaultRepo :exec
 UPDATE project SET default_repo_id = sqlc.narg(default_repo_id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE id = sqlc.arg(id);
+
+-- name: SetRepoNote :exec
+UPDATE repo SET note = sqlc.arg(note) WHERE id = sqlc.arg(id);

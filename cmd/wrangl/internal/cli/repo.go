@@ -8,7 +8,7 @@ import (
 )
 
 func repoCmd(g *Global) *cobra.Command {
-	var branch, project string
+	var branch, project, note string
 	link := &cobra.Command{
 		Use: "link <project> <owner/name>", Short: "Link a GitHub repo (the author App must be installed on it)", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -16,7 +16,7 @@ func repoCmd(g *Global) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			r, err := c.LinkRepo(cmd.Context(), args[0], args[1], branch)
+			r, err := c.LinkRepoNote(cmd.Context(), args[0], args[1], branch, note)
 			if err != nil {
 				return err
 			}
@@ -25,6 +25,7 @@ func repoCmd(g *Global) *cobra.Command {
 		},
 	}
 	link.Flags().StringVar(&branch, "branch", "", "base branch (default: the repo's default branch)")
+	link.Flags().StringVar(&note, "note", "", "one line telling agents what the repo is, e.g. \"API server\" (shown by the repo_list tool)")
 	unlink := &cobra.Command{
 		Use: "unlink <project> <owner/name>", Short: "Unlink a repo", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,9 +48,9 @@ func repoCmd(g *Global) *cobra.Command {
 				return err
 			}
 			return emit(cmd, g, rs, func(w io.Writer) {
-				fmt.Fprintln(w, "PROJECT\tREPO\tBRANCH")
+				fmt.Fprintln(w, "PROJECT\tREPO\tBRANCH\tNOTE")
 				for _, r := range rs {
-					fmt.Fprintf(w, "%s\t%s\t%s\n", r.Project, r.Repo, r.DefaultBranch)
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.Project, r.Repo, r.DefaultBranch, r.Note)
 				}
 			})
 		},

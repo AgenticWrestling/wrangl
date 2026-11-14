@@ -206,12 +206,14 @@ type RepoView struct {
 	Repo          string `json:"repo"`
 	DefaultBranch string `json:"default_branch"`
 	CloneURL      string `json:"clone_url"`
+	Note          string `json:"note,omitempty"` // one line shown to agents by repo_list
 }
 
 // LinkRepoRequest links owner/name to a project.
 type LinkRepoRequest struct {
 	Repo   string `json:"repo"`
 	Branch string `json:"branch,omitempty"`
+	Note   string `json:"note,omitempty"`
 }
 
 // IssueView is a synced issue.

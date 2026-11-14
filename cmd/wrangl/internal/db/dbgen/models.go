@@ -226,6 +226,7 @@ type Repo struct {
 	GhInstallationID sql.NullInt64 `json:"gh_installation_id"`
 	CreatedAt        string        `json:"created_at"`
 	CloneUrl         string        `json:"clone_url"`
+	Note             string        `json:"note"`
 }
 
 type Run struct {

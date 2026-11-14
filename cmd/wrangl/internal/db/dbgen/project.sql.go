@@ -54,7 +54,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 const createRepo = `-- name: CreateRepo :one
 INSERT INTO repo (project_id, owner, name, default_branch, gh_installation_id, clone_url)
 VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url
+RETURNING id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url, note
 `
 
 type CreateRepoParams struct {
@@ -85,6 +85,7 @@ func (q *Queries) CreateRepo(ctx context.Context, arg CreateRepoParams) (Repo, e
 		&i.GhInstallationID,
 		&i.CreatedAt,
 		&i.CloneUrl,
+		&i.Note,
 	)
 	return i, err
 }
@@ -222,7 +223,7 @@ func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (Project, e
 }
 
 const getProjectRepo = `-- name: GetProjectRepo :one
-SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url FROM repo WHERE project_id = ? AND owner = ? AND name = ?
+SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url, note FROM repo WHERE project_id = ? AND owner = ? AND name = ?
 `
 
 type GetProjectRepoParams struct {
@@ -243,12 +244,13 @@ func (q *Queries) GetProjectRepo(ctx context.Context, arg GetProjectRepoParams) 
 		&i.GhInstallationID,
 		&i.CreatedAt,
 		&i.CloneUrl,
+		&i.Note,
 	)
 	return i, err
 }
 
 const getRepo = `-- name: GetRepo :one
-SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url FROM repo WHERE id = ?
+SELECT id, project_id, owner, name, default_branch, gh_installation_id, created_at, clone_url, note FROM repo WHERE id = ?
 `
 
 func (q *Queries) GetRepo(ctx context.Context, id int64) (Repo, error) {
@@ -263,6 +265,7 @@ func (q *Queries) GetRepo(ctx context.Context, id int64) (Repo, error) {
 		&i.GhInstallationID,
 		&i.CreatedAt,
 		&i.CloneUrl,
+		&i.Note,
 	)
 	return i, err
 }
@@ -374,7 +377,7 @@ func (q *Queries) ListProjects(ctx context.Context, archived string) ([]Project,
 }
 
 const listRepos = `-- name: ListRepos :many
-SELECT r.id, r.project_id, r.owner, r.name, r.default_branch, r.gh_installation_id, r.created_at, r.clone_url, CAST(p.slug AS TEXT) AS project_slug
+SELECT r.id, r.project_id, r.owner, r.name, r.default_branch, r.gh_installation_id, r.created_at, r.clone_url, r.note, CAST(p.slug AS TEXT) AS project_slug
 FROM repo r JOIN project p ON p.id = r.project_id
 WHERE ?1 = 0 OR r.project_id = ?1
 ORDER BY p.slug, r.owner, r.name
@@ -403,6 +406,7 @@ func (q *Queries) ListRepos(ctx context.Context, projectID interface{}) ([]ListR
 			&i.Repo.GhInstallationID,
 			&i.Repo.CreatedAt,
 			&i.Repo.CloneUrl,
+			&i.Repo.Note,
 			&i.ProjectSlug,
 		); err != nil {
 			return nil, err
@@ -623,5 +627,19 @@ type SetProjectDefaultRepoParams struct {
 
 func (q *Queries) SetProjectDefaultRepo(ctx context.Context, arg SetProjectDefaultRepoParams) error {
 	_, err := q.db.ExecContext(ctx, setProjectDefaultRepo, arg.DefaultRepoID, arg.ID)
+	return err
+}
+
+const setRepoNote = `-- name: SetRepoNote :exec
+UPDATE repo SET note = ?1 WHERE id = ?2
+`
+
+type SetRepoNoteParams struct {
+	Note string `json:"note"`
+	ID   int64  `json:"id"`
+}
+
+func (q *Queries) SetRepoNote(ctx context.Context, arg SetRepoNoteParams) error {
+	_, err := q.db.ExecContext(ctx, setRepoNote, arg.Note, arg.ID)
 	return err
 }

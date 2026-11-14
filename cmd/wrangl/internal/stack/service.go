@@ -401,7 +401,16 @@ func projectRepo(ctx context.Context, q *dbgen.Queries, projectID int64, ref str
 	}
 	r, err := q.GetProjectRepo(ctx, dbgen.GetProjectRepoParams{ProjectID: projectID, Owner: owner, Name: name})
 	if errors.Is(err, sql.ErrNoRows) {
-		return r, fmt.Errorf("%w: repo %s is not linked to this project (wrangl repo link)", errs.NotFound, ref)
+		var linked []string
+		if rows, lerr := q.ListRepos(ctx, projectID); lerr == nil {
+			for _, x := range rows {
+				linked = append(linked, x.Repo.Owner+"/"+x.Repo.Name)
+			}
+		}
+		if len(linked) == 0 {
+			return r, fmt.Errorf("%w: repo %s is not linked to this project, and the project has no linked repos (wrangl repo link)", errs.NotFound, ref)
+		}
+		return r, fmt.Errorf("%w: repo %s is not linked to this project (wrangl repo link); linked repos: %s", errs.NotFound, ref, strings.Join(linked, ", "))
 	}
 	return r, err
 }
@@ -528,6 +537,34 @@ func (s *Service) SetType(ctx context.Context, sqid, typ string, actor Actor) (d
 			return err
 		}
 		return s.event(ctx, q, sqid, actor, "update", map[string]any{"type": string(tt)})
+	})
+	return out, err
+}
+
+// SetRepo sets the repo a task writes to (owner/name, linked to its project); "" clears it so the task
+// inherits again (ADR 0012 section 3). Runs already queued keep the repo they were queued with.
+func (s *Service) SetRepo(ctx context.Context, sqid, ref string, actor Actor) (dbgen.Task, error) {
+	var out dbgen.Task
+	err := s.DB.Tx(ctx, func(q *dbgen.Queries) error {
+		t, err := s.liveTask(ctx, q, sqid)
+		if err != nil {
+			return err
+		}
+		id := sql.NullInt64{}
+		if ref != "" {
+			r, err := projectRepo(ctx, q, t.ProjectID, ref)
+			if err != nil {
+				return err
+			}
+			id = sql.NullInt64{Int64: r.ID, Valid: true}
+		}
+		if err := q.SetTaskRepo(ctx, dbgen.SetTaskRepoParams{RepoID: id, ID: t.ID}); err != nil {
+			return err
+		}
+		if out, err = q.GetTask(ctx, t.ID); err != nil {
+			return err
+		}
+		return s.event(ctx, q, sqid, actor, "update", map[string]any{"repo": ref})
 	})
 	return out, err
 }

@@ -5,6 +5,7 @@
 ## Tools
 
 - **Work stack** (`task_get`, `task_tree`, `task_list`, `task_create`, `task_update`, `task_move`, `task_needs_add`, `task_needs_remove`, `task_complete`, `task_reopen`, `task_cancel`, `task_delete`, `task_queue`) and `run_list`.
+- **Repos** (agent runs): `repo_list` gives the project's linked repos with default branch, note and which is the project default; `task_create`/`task_update` take `repo` (owner/name) and `task_get` returns `repo` and `effective_repo`. The owner's own endpoint uses the `repo_list` bridge below (which also shows each repo's note).
 - **Projects**: `project_list`, `project_get`, `project_create`, `project_edit`, `project_archive`, `project_restore`, `project_delete` (needs `confirm`).
 - **GitHub issues**: `issue_search`, `issue_get`, `issue_comments`, `issue_comment`, `issue_create`, `issue_edit`, `issue_close` (needs the owner's approval), `issue_link_task`.
 

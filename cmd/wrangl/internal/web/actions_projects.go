@@ -55,6 +55,12 @@ func actRepoNotes(h *Handler, a *actReq) (res actResult, err error) {
 	return
 }
 
+func actRepoNote(h *Handler, a *actReq) (res actResult, err error) {
+	err = h.D.Projects.SetRepoNote(a.ctx, a.q.Get("slug"), a.q.Get("repo"), a.q.Get("note"))
+	res.msg = "repo note saved"
+	return
+}
+
 func actRepoLink(h *Handler, a *actReq) (res actResult, err error) {
 	ref := a.str("repoadd")
 	if ref == "" {

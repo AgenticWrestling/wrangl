@@ -388,6 +388,29 @@ func (s *Service) LinkRepo(ctx context.Context, slug, ref, branch string) (dbgen
 	return out, err
 }
 
+// SetRepoNote sets the one-line note on one of the project's linked repos ("" clears it).
+func (s *Service) SetRepoNote(ctx context.Context, slug, ref, note string) error {
+	p, err := s.activeProject(ctx, slug)
+	if err != nil {
+		return err
+	}
+	owner, name, err := splitRepo(ref)
+	if err != nil {
+		return err
+	}
+	r, err := s.DB.RQ.GetProjectRepo(ctx, dbgen.GetProjectRepoParams{ProjectID: p.ID, Owner: owner, Name: name})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: link %s to %s first", errs.Invalid, ref, slug)
+	} else if err != nil {
+		return err
+	}
+	note = strings.TrimSpace(strings.ReplaceAll(note, "\n", " "))
+	if len(note) > 200 {
+		return fmt.Errorf("%w: a repo note is one line, up to 200 characters", errs.Invalid)
+	}
+	return s.DB.Q.SetRepoNote(ctx, dbgen.SetRepoNoteParams{Note: note, ID: r.ID})
+}
+
 // UnlinkRepo removes a repo link (tasks pointing at it keep their history).
 func (s *Service) UnlinkRepo(ctx context.Context, slug, ref string) error {
 	p, err := s.activeProject(ctx, slug)

@@ -57,3 +57,36 @@ func TestIssueToolDefinitions(t *testing.T) {
 		t.Fatalf("want 8 issue tools, got %d", seen)
 	}
 }
+
+func TestRepoToolAndRepoArguments(t *testing.T) {
+	for _, kind := range []string{"work", "revise", "review", "plan"} {
+		if !Allowed(kind)["repo_list"] {
+			t.Errorf("%s runs should have repo_list", kind)
+		}
+	}
+	// The owner's remote endpoint serves apitools' own repo_list; the catalogue must not repeat it.
+	if Allowed("user")["repo_list"] {
+		t.Error("user kind must not get the stacktools repo_list")
+	}
+	for _, tool := range For("user") {
+		if tool.Name == "repo_list" {
+			t.Error("For(user) lists repo_list")
+		}
+	}
+	for _, kind := range []string{"work", "user"} {
+		for _, name := range []string{"task_create", "task_update"} {
+			found := false
+			for _, tool := range For(kind) {
+				if tool.Name == name {
+					found = true
+					if !json.Valid(tool.InputSchema) || !strings.Contains(string(tool.InputSchema), `"repo":{"type":"string"`) {
+						t.Errorf("%s/%s: no repo argument in %s", kind, name, tool.InputSchema)
+					}
+				}
+			}
+			if !found {
+				t.Errorf("%s: %s missing", kind, name)
+			}
+		}
+	}
+}

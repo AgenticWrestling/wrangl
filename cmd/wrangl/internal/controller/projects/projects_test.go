@@ -169,3 +169,35 @@ func TestSetDefaultRepoMustBeLinked(t *testing.T) {
 		t.Fatal("default not cleared")
 	}
 }
+
+func TestSetRepoNote(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	fake := gh.NewFake()
+	fake.AddRepo(gh.Repo{Owner: "acme", Name: "app", DefaultBranch: "main", CloneURL: "file:///tmp/app.git"})
+	sq, _ := stack.NewSqids(stack.DefaultSqidsAlphabet)
+	s := &Service{DB: d, GH: fake, Stack: &stack.Service{DB: d, Sqids: sq}, Now: time.Now}
+	if _, err := s.Create(ctx, "web", ProjectParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRepoNote(ctx, "web", "acme/app", "API server"); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("unlinked repo: %v", err)
+	}
+	r, err := s.LinkRepo(ctx, "web", "acme/app", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRepoNote(ctx, "web", "acme/app", "  API server "); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := d.RQ.GetRepo(ctx, r.ID); got.Note != "API server" {
+		t.Fatalf("note %q", got.Note)
+	}
+	if err := s.SetRepoNote(ctx, "web", "acme/app", strings.Repeat("x", 201)); !errors.Is(err, errs.Invalid) {
+		t.Fatalf("long note: %v", err)
+	}
+}

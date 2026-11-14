@@ -1203,6 +1203,7 @@ var actions = map[string]actFn{
 	"project-new":            actProjectNew,
 	"project-save":           actProjectSave,
 	"repo-notes":             actRepoNotes,
+	"repo-note":              actRepoNote,
 	"repo-link":              actRepoLink,
 	"template-save":          actTemplateSave,
 	"tpl-ami-check":          actTplAmiCheck,
